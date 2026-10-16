@@ -56,14 +56,17 @@ pub fn namehash(normalized: &str) -> B256 {
     node
 }
 
+/// DNS wire encoding as used by ENS (ENSIP-10): each label is prefixed by its
+/// byte length, so a label may be up to 255 bytes (the classic DNS limit of 63
+/// does not apply).
 pub fn dns_encode(normalized: &str) -> Result<Bytes, DecodeError> {
     let mut out = Vec::new();
     if !normalized.is_empty() {
         for label in normalized.split('.') {
-            if label.is_empty() || label.len() > 63 {
+            let Some(len) = u8::try_from(label.len()).ok().filter(|l| *l > 0) else {
                 return Err(DecodeError::InvalidName(normalized.to_string()));
-            }
-            out.push(label.len() as u8);
+            };
+            out.push(len);
             out.extend_from_slice(label.as_bytes());
         }
     }
@@ -169,12 +172,15 @@ mod tests {
         want.push(0);
         assert_eq!(dns_encode("vitalik.eth").unwrap().to_vec(), want);
         assert_eq!(dns_encode("").unwrap().to_vec(), vec![0]);
-        let long = format!("{}.eth", "a".repeat(64));
+        // ENS DNS encoding only limits a label to its 1-byte length prefix.
+        let long = format!("{}.eth", "a".repeat(256));
         assert!(matches!(
             dns_encode(&long),
             Err(DecodeError::InvalidName(_))
         ));
-        assert!(dns_encode(&format!("{}.eth", "a".repeat(63))).is_ok());
+        let max = dns_encode(&format!("{}.eth", "a".repeat(255))).unwrap();
+        assert_eq!(max[0], 255);
+        assert!(dns_encode(&format!("{}.eth", "a".repeat(64))).is_ok());
     }
 
     #[test]
