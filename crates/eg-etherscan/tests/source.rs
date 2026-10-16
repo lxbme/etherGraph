@@ -2,7 +2,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use eg_core::source::{CallGate, ChainSource, HistoryQuery, Priority, SourceError};
+use eg_core::source::{CallGate, ChainSource, HistoryQuery, Priority, SourceError, TokenInfo};
 use eg_core::types::{Address, TransferKind, TxHash, U256};
 use eg_etherscan::{ClientStats, EtherscanClient, EtherscanSource, HttpTransport};
 use wiremock::matchers::{method, query_param};
@@ -178,6 +178,42 @@ async fn nft_and_1155_amounts() {
     assert_eq!(p1155.transfers[0].amount, U256::from(25u64));
     assert_eq!(p1155.transfers[0].token_id, Some(U256::from(77u64)));
     assert!(p1155.transfers[0].sub_id.contains(":77:"));
+}
+
+#[tokio::test]
+async fn nft_and_1155_pages_record_token_info() {
+    let p721 = history(
+        ("account", "tokennfttx"),
+        "tokennfttx.json",
+        TransferKind::Erc721,
+    )
+    .await;
+    assert_eq!(
+        p721.tokens,
+        vec![TokenInfo {
+            address: addr(0xc3),
+            kind: TransferKind::Erc721,
+            name: Some("Punk".into()),
+            symbol: Some("PNK".into()),
+            decimals: None,
+        }]
+    );
+    let p1155 = history(
+        ("account", "token1155tx"),
+        "token1155tx.json",
+        TransferKind::Erc1155,
+    )
+    .await;
+    assert_eq!(
+        p1155.tokens,
+        vec![TokenInfo {
+            address: addr(0xc3),
+            kind: TransferKind::Erc1155,
+            name: Some("Multi".into()),
+            symbol: Some("MLT".into()),
+            decimals: None,
+        }]
+    );
 }
 
 #[tokio::test]

@@ -455,3 +455,90 @@ async fn contract_meta_partial_failure_keeps_progress_and_retry_skips_done(pool:
         3
     );
 }
+
+async fn meta_fetched(e: &Env, tok: Address) -> Option<chrono::DateTime<chrono::Utc>> {
+    sqlx::query_scalar("SELECT meta_fetched_at FROM tokens WHERE address = $1")
+        .bind(tok.as_slice().to_vec())
+        .fetch_one(e.ctx.store.pool())
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn token_meta_keeps_nft_kind_and_publishes_meta_updated(pool: PgPool) {
+    use eg_core::source::TokenInfo;
+    use eg_core::types::TransferKind;
+    let e = env(pool);
+    let nft = a(0x21);
+    e.ctx
+        .store
+        .upsert_tokens(&[TokenInfo {
+            address: nft,
+            kind: TransferKind::Erc721,
+            name: Some("Punk".into()),
+            symbol: None,
+            decimals: None,
+        }])
+        .await
+        .unwrap();
+    // decimals() reverts on an NFT; symbol() answers.
+    e.fake.on_eth_call(|_to, _data| {
+        Ok(agg_ret(vec![
+            (false, vec![]),
+            (true, "PNK".abi_encode()),
+            (false, vec![]),
+        ]))
+    });
+    let mut rx = e.ctx.bus.subscribe();
+    run(
+        &e,
+        &TokenMetaHandler,
+        JobKind::TokenMeta,
+        json!({"tokens": [format!("{nft:#x}")]}),
+    )
+    .await
+    .unwrap();
+    let t = e.ctx.store.tokens(&[nft]).await.unwrap();
+    assert_eq!(t[0].kind, TransferKind::Erc721);
+    assert_eq!(t[0].name.as_deref(), Some("Punk"));
+    assert_eq!(t[0].symbol.as_deref(), Some("PNK"));
+    assert_eq!(t[0].decimals, None);
+    assert!(meta_fetched(&e, nft).await.is_some());
+    let ttl = IngestConfig::default().meta_ttl;
+    assert!(
+        e.ctx
+            .store
+            .tokens_needing_meta(&[nft], ttl)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    match rx.try_recv().unwrap() {
+        Event::MetaUpdated { addresses } => assert_eq!(addresses, vec![nft]),
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn token_meta_undecodable_batch_marks_attempted(pool: PgPool) {
+    let e = env(pool);
+    let (x, y) = (a(0x31), a(0x32));
+    e.fake
+        .on_eth_call(|_to, _data| Ok(Bytes::from_static(b"garbage")));
+    run(
+        &e,
+        &TokenMetaHandler,
+        JobKind::TokenMeta,
+        json!({"tokens": [format!("{x:#x}"), format!("{y:#x}")]}),
+    )
+    .await
+    .unwrap();
+    let rows = e.ctx.store.tokens(&[x, y]).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(
+        rows.iter()
+            .all(|t| t.decimals.is_none() && t.symbol.is_none() && t.name.is_none())
+    );
+    assert!(meta_fetched(&e, x).await.is_some());
+    assert!(meta_fetched(&e, y).await.is_some());
+}

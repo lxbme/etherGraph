@@ -935,3 +935,45 @@ async fn bad_checksum_rejected_on_transfers_and_address(pool: PgPool) {
         );
     }
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn tokens_without_decimals_are_not_requeued(pool: PgPool) {
+    use eg_ingest::JobHandler;
+    use eg_ingest::handlers::TokenMetaHandler;
+    let (app, state, fake) = test_app(pool);
+    const NFT: Address = Address::repeat_byte(0x77);
+    let mut punk = tr(1, C, A, Some(NFT), U256::from(1), 0);
+    punk.kind = TransferKind::Erc721;
+    punk.token_id = Some(U256::from(9));
+    seed(&state, vec![punk]).await;
+    state
+        .store
+        .upsert_tokens(&[TokenInfo {
+            address: NFT,
+            kind: TransferKind::Erc721,
+            name: Some("Punk".into()),
+            symbol: Some("PNK".into()),
+            decimals: None,
+        }])
+        .await
+        .unwrap();
+    // Every sub-call reverts, as decimals() does on an NFT contract.
+    fake.on_eth_call(|_, _| Ok(vec![(false, Bytes::new()); 3].abi_encode().into()));
+
+    let req = json!({"addresses": [hex(C)]});
+    let (s, b) = post_json(&app, "/api/graph/edges", &req).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let jobs = jobs_of(&state, JobKind::TokenMeta).await;
+    assert_eq!(jobs.len(), 1);
+    let job = &jobs[0];
+    assert_eq!(job.params["tokens"], json!([hex(NFT)]));
+    TokenMetaHandler.run(job, &state.ctx).await.unwrap();
+    state.store.complete_job(job.id).await.unwrap();
+    let t = state.store.tokens(&[NFT]).await.unwrap();
+    assert_eq!(t[0].kind, TransferKind::Erc721);
+    assert_eq!(t[0].decimals, None);
+
+    let (s, b) = post_json(&app, "/api/graph/edges", &req).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert!(jobs_of(&state, JobKind::TokenMeta).await.is_empty());
+}

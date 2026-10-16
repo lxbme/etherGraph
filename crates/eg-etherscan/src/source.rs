@@ -226,15 +226,20 @@ impl ChainSource for EtherscanSource {
                 for r in &rs {
                     note_block(&r.block_number)?;
                     let t = map_token(kind, r)?;
-                    if kind == TransferKind::Erc20 && seen.insert(r.contract_address.clone()) {
+                    if seen.insert(r.contract_address.clone()) {
                         tokens.push(TokenInfo {
                             address: addr("contractAddress", &r.contract_address)?,
                             kind,
                             name: non_empty(&r.token_name),
                             symbol: non_empty(&r.token_symbol),
-                            decimals: non_empty(&r.token_decimal)
-                                .map(|s| s.parse::<u8>().map_err(|e| perr("tokenDecimal", e)))
-                                .transpose()?,
+                            // NFTs have no decimals (tokennfttx reports "0").
+                            decimals: if kind == TransferKind::Erc20 {
+                                non_empty(&r.token_decimal)
+                                    .map(|s| s.parse::<u8>().map_err(|e| perr("tokenDecimal", e)))
+                                    .transpose()?
+                            } else {
+                                None
+                            },
                         });
                     }
                     transfers.push(t);

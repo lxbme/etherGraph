@@ -64,12 +64,10 @@ pub(crate) async fn upsert_transfers_conn(conn: &mut PgConnection, ts: &[Transfe
     Ok(())
 }
 
-pub(crate) async fn upsert_tokens_conn(
-    conn: &mut PgConnection,
-    tokens: &[TokenInfo],
-) -> Result<()> {
-    // Merge duplicates field-by-field (later non-null wins, null never erases);
-    // then write in address order so concurrent writers lock rows consistently.
+/// Merges duplicates field-by-field (later non-null wins, null never erases;
+/// the last kind wins) and sorts by address so concurrent writers lock rows in
+/// the same order.
+pub(crate) fn merge_tokens(tokens: &[TokenInfo]) -> Vec<TokenInfo> {
     let mut merged: HashMap<_, TokenInfo> = HashMap::new();
     for t in tokens {
         match merged.get_mut(&t.address) {
@@ -86,7 +84,14 @@ pub(crate) async fn upsert_tokens_conn(
     }
     let mut merged: Vec<TokenInfo> = merged.into_values().collect();
     merged.sort_by_key(|t| t.address);
-    for t in &merged {
+    merged
+}
+
+pub(crate) async fn upsert_tokens_conn(
+    conn: &mut PgConnection,
+    tokens: &[TokenInfo],
+) -> Result<()> {
+    for t in &merge_tokens(tokens) {
         sqlx::query(
             "INSERT INTO tokens (address, kind, name, symbol, decimals) VALUES ($1, $2, $3, $4, $5) \
              ON CONFLICT (address) DO UPDATE SET kind = EXCLUDED.kind, \

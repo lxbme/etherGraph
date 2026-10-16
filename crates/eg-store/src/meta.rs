@@ -11,7 +11,7 @@ use sqlx::postgres::PgRow;
 use ts_rs::TS;
 
 use crate::convert::{addr_to_bytes, bytes_to_addr};
-use crate::transfers::upsert_tokens_conn;
+use crate::transfers::{merge_tokens, upsert_tokens_conn};
 use crate::{Result, Store, StoreError};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -243,16 +243,51 @@ impl Store {
             .collect()
     }
 
-    /// Addresses with no token row or a NULL `decimals`.
-    pub async fn tokens_missing_decimals(&self, addrs: &[Address]) -> Result<Vec<Address>> {
-        let known: Vec<Vec<u8>> = sqlx::query_scalar(
-            "SELECT address FROM tokens WHERE address = ANY($1) AND decimals IS NOT NULL",
+    /// Stores what a TokenMeta run found and marks every token as attempted
+    /// (`meta_fetched_at = now()`), even when all fields are `None`. An
+    /// existing row keeps its `kind` and any value the run did not find; a new
+    /// row takes the given kind.
+    pub async fn record_token_meta(&self, tokens: &[TokenInfo]) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        for t in &merge_tokens(tokens) {
+            sqlx::query(
+                "INSERT INTO tokens (address, kind, name, symbol, decimals, meta_fetched_at) \
+                 VALUES ($1, $2, $3, $4, $5, now()) ON CONFLICT (address) DO UPDATE SET \
+                 name = COALESCE(EXCLUDED.name, tokens.name), \
+                 symbol = COALESCE(EXCLUDED.symbol, tokens.symbol), \
+                 decimals = COALESCE(EXCLUDED.decimals, tokens.decimals), \
+                 meta_fetched_at = now()",
+            )
+            .bind(addr_to_bytes(t.address))
+            .bind(t.kind.as_i16())
+            .bind(&t.name)
+            .bind(&t.symbol)
+            .bind(t.decimals.map(i16::from))
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Tokens worth a TokenMeta run: no row yet, or decimals still unknown and
+    /// never attempted or last attempted longer ago than `ttl`. Tokens with
+    /// known decimals, or attempted within `ttl`, are left alone.
+    pub async fn tokens_needing_meta(
+        &self,
+        addrs: &[Address],
+        ttl: Duration,
+    ) -> Result<Vec<Address>> {
+        let settled: Vec<Vec<u8>> = sqlx::query_scalar(
+            "SELECT address FROM tokens WHERE address = ANY($1) AND (decimals IS NOT NULL \
+             OR meta_fetched_at >= now() - make_interval(secs => $2))",
         )
         .bind(keys(addrs))
+        .bind(ttl.as_secs_f64())
         .fetch_all(&self.pool)
         .await?;
-        let known = known.iter().map(|b| bytes_to_addr(b)).collect();
-        Ok(not_in(addrs, &known))
+        let settled = settled.iter().map(|b| bytes_to_addr(b)).collect();
+        Ok(not_in(addrs, &settled))
     }
 
     pub async fn upsert_ens(&self, rows: &[EnsRow]) -> Result<()> {
@@ -396,21 +431,77 @@ mod tests {
             symbol: Some("X".into()),
             decimals: d,
         };
+        let ttl = Duration::from_secs(3600);
         store.upsert_tokens(&[t(None)]).await.unwrap();
         let other = Address::repeat_byte(1);
         assert_eq!(
-            store.tokens_missing_decimals(&[other, a]).await.unwrap(),
+            store.tokens_needing_meta(&[other, a], ttl).await.unwrap(),
             vec![other, a]
         );
         store.upsert_tokens(&[t(Some(18))]).await.unwrap();
         assert!(
             store
-                .tokens_missing_decimals(&[a])
+                .tokens_needing_meta(&[a], ttl)
                 .await
                 .unwrap()
                 .is_empty()
         );
         assert_eq!(store.tokens(&[a]).await.unwrap()[0].decimals, Some(18));
+    }
+
+    #[sqlx::test]
+    async fn token_meta_attempt_is_remembered_and_keeps_kind(pool: PgPool) {
+        use eg_core::source::TokenInfo;
+        use eg_core::types::TransferKind;
+        let store = Store::from_pool(pool.clone());
+        let ttl = Duration::from_secs(3600);
+        let nft = Address::repeat_byte(0x21);
+        let fresh = Address::repeat_byte(0x22);
+        let info = |address, kind, symbol: Option<&str>| TokenInfo {
+            address,
+            kind,
+            name: None,
+            symbol: symbol.map(str::to_string),
+            decimals: None,
+        };
+        store
+            .upsert_tokens(&[info(nft, TransferKind::Erc721, Some("PNK"))])
+            .await
+            .unwrap();
+        assert_eq!(
+            store.tokens_needing_meta(&[nft, fresh], ttl).await.unwrap(),
+            vec![nft, fresh]
+        );
+        // The attempt found nothing: decimals stay NULL, kind and symbol stay.
+        store
+            .record_token_meta(&[
+                info(nft, TransferKind::Erc20, None),
+                info(fresh, TransferKind::Erc20, Some("NEW")),
+            ])
+            .await
+            .unwrap();
+        assert!(
+            store
+                .tokens_needing_meta(&[nft, fresh], ttl)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let rows = store.tokens(&[nft, fresh]).await.unwrap();
+        assert_eq!(rows[0].kind, TransferKind::Erc721);
+        assert_eq!(rows[0].symbol.as_deref(), Some("PNK"));
+        assert_eq!(rows[0].decimals, None);
+        assert_eq!(rows[1].kind, TransferKind::Erc20);
+        assert_eq!(rows[1].symbol.as_deref(), Some("NEW"));
+        // An attempt older than the TTL with decimals still unknown is retried.
+        sqlx::query("UPDATE tokens SET meta_fetched_at = now() - interval '2 hours'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            store.tokens_needing_meta(&[nft, fresh], ttl).await.unwrap(),
+            vec![nft, fresh]
+        );
     }
 
     #[sqlx::test]

@@ -126,7 +126,10 @@ impl JobHandler for FetchTxHandler {
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
-        let missing = ctx.store.tokens_missing_decimals(&tokens).await?;
+        let missing = ctx
+            .store
+            .tokens_needing_meta(&tokens, ctx.cfg.meta_ttl)
+            .await?;
         enqueue_tokens(ctx, &missing).await?;
 
         ctx.bus.publish(Event::JobProgress {

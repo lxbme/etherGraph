@@ -141,7 +141,7 @@ pub async fn enqueue_missing_meta(s: &AppState, addrs: &[Address], tokens: &[Add
         if !names.is_empty() {
             enqueue_names(&s.ctx, &names).await?;
         }
-        let missing = s.store.tokens_missing_decimals(tokens).await?;
+        let missing = s.store.tokens_needing_meta(tokens, cfg.meta_ttl).await?;
         if !missing.is_empty() {
             enqueue_tokens(&s.ctx, &missing).await?;
         }
