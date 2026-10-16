@@ -14,6 +14,7 @@ export interface CytoscapeViewProps {
   onTapEdge(source: string, target: string): void;
   onDblTapNode(id: string): void;
   onDblTapEdge(source: string, target: string): void;
+  /** `pos` is the rendered position relative to the canvas container (not page/client coordinates). */
   onCxtNode(id: string, pos: Pos): void;
   onBoxSelect(ids: string[]): void;
   onDragEnd(positions: Record<string, Pos>): void;
@@ -43,7 +44,8 @@ export function syncElements(
   const newNodeIds: string[] = [];
   let structureChanged = false;
 
-  cy.batch(() => {
+  cy.startBatch();
+  try {
     const stale = cy.elements().filter((el) => {
       const d = byId.get(el.id());
       if (!d) return true;
@@ -77,7 +79,9 @@ export function syncElements(
       structureChanged = true;
       cy.add([...toAdd.filter(isNodeDef), ...toAdd.filter((d) => !isNodeDef(d))]);
     }
-  });
+  } finally {
+    cy.endBatch();
+  }
   return { newNodeIds, structureChanged, positions };
 }
 
@@ -105,6 +109,8 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
     cyRef.current = cy;
     appliedRef.current = new Map();
     const p = () => propsRef.current;
+    // Deferred (microtask) callbacks must not fire after this instance was torn down.
+    let alive = true;
 
     cy.on("tap", "node", (e) => {
       const ev = e.originalEvent as MouseEvent | undefined;
@@ -126,7 +132,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
         queueMicrotask(() => {
           const moved = dragged;
           dragged = null;
-          if (moved) p().onDragEnd(moved);
+          if (moved && alive) p().onDragEnd(moved);
         });
       }
       const pos = e.target.position();
@@ -141,7 +147,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       queueMicrotask(() => {
         const ids = boxed ?? [];
         boxed = null;
-        p().onBoxSelect([...new Set(ids)]);
+        if (alive) p().onBoxSelect([...new Set(ids)]);
       });
     });
 
@@ -152,6 +158,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
     }
     propsRef.current.onReady?.(cy);
     return () => {
+      alive = false;
       ro?.disconnect();
       cy.destroy();
       cyRef.current = null;

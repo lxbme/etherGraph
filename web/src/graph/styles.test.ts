@@ -38,6 +38,15 @@ describe("graphStylesheet", () => {
     expect(styleOf(s, "edge").width).toBe("data(width)");
   });
 
+  test.each(["light", "dark"] as const)("user-label ring has a contrasting halo (%s)", (theme) => {
+    const st = styleOf(sheet(theme), "node.user-label");
+    expect(st["outline-width"]).toBe(3);
+    expect(st["underlay-color"]).toBe(theme === "light" ? "#2b323a" : "#98a3b0");
+    // ring reaches outline-offset + outline-width = 4px past the border; the halo goes beyond it
+    expect(st["underlay-padding"]).toBeGreaterThan(4);
+    expect(st["underlay-opacity"]).toBeCloseTo(0.6);
+  });
+
   test("reads colors from CSS variables when they are set", () => {
     document.documentElement.style.setProperty("--cat-exchange", "#123456");
     document.documentElement.style.setProperty("--accent", "#abcdef");

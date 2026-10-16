@@ -18,6 +18,8 @@ const THEME_HEX = {
 
 const OTHER_EDGE = "#999999";
 const USER_RING = "#ffffff";
+/** Halo behind the white ring: dark on light backgrounds; the muted fg on dark ones. */
+const USER_RING_HALO = { light: "#2b323a", dark: THEME_HEX.dark.fgMuted } as const;
 
 /** Cytoscape cannot resolve `var(--x)`, so resolve the token to a concrete value now. */
 function cssVar(name: string, fallback: string): string {
@@ -79,8 +81,19 @@ export function graphStylesheet(theme: "light" | "dark"): cytoscape.StylesheetJs
     { selector: "node.unsynced", style: { "border-style": "dashed" } },
     {
       selector: "node.user-label",
-      style: { "outline-color": USER_RING, "outline-width": 3, "outline-offset": 1, "outline-opacity": 1 },
+      style: {
+        "outline-color": USER_RING,
+        "outline-width": 3,
+        "outline-offset": 1,
+        "outline-opacity": 1,
+        // A dark halo just outside the ring keeps it visible on the light background.
+        "underlay-color": USER_RING_HALO[theme],
+        "underlay-padding": 7,
+        "underlay-opacity": 0.6,
+        "underlay-shape": "ellipse",
+      },
     },
+    { selector: "node.user-label.kind-contract", style: { "underlay-shape": "round-rectangle" } },
     { selector: "node.selected, node:selected", style: { "border-width": 4, "border-color": accent } },
 
     {
