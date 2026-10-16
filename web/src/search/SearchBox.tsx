@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/endpoints";
 import { ApiError, messageFor } from "../api/errors";
+import { qk, queryClient } from "../api/queryClient";
 import { useGraph } from "../graph/store";
 import { toast } from "../shell/Toasts";
 import { useTabs } from "../shell/tabs";
@@ -31,7 +32,11 @@ export function SearchBox() {
     useGraph.getState().revealCenter(a);
     useTabs.getState().activate("graph");
     useGraph.getState().select({ kind: "node", address: a });
-    api.address(a, { sync: "auto" }).catch((e) => toast(messageFor(e), "error"));
+    // The profile it returns is what the detail panel shows: seed its cache instead of fetching again.
+    api
+      .address(a, { sync: "auto" })
+      .then((p) => queryClient.setQueryData(qk.address(a), p))
+      .catch((e) => toast(messageFor(e), "error"));
   };
 
   const submit = async () => {

@@ -4,6 +4,7 @@ import { api } from '../api/endpoints'
 import { ApiError } from '../api/errors'
 import { useGraph } from '../graph/store'
 import { useTabs } from '../shell/tabs'
+import { qk, queryClient } from '../api/queryClient'
 import { SearchBox } from './SearchBox'
 
 const A = '0x' + 'ab'.repeat(20)
@@ -39,6 +40,16 @@ describe('SearchBox', () => {
     await userEvent.type(screen.getByRole('searchbox'), `${A}{Enter}`)
     await waitFor(() => expect(useGraph.getState().ui[A]?.hidden).toBe(false))
     expect(useGraph.getState().centers).toEqual([A])
+  })
+
+  it('the auto-sync profile seeds the address query cache', async () => {
+    vi.spyOn(api, 'search').mockResolvedValue({ kind: 'address', value: A, resolved_address: null })
+    const profile = { node: { address: A }, coverage: [] } as never
+    vi.spyOn(api, 'address').mockResolvedValue(profile)
+    queryClient.clear()
+    render(<SearchBox />)
+    await userEvent.type(screen.getByRole('searchbox'), `${A}{Enter}`)
+    await waitFor(() => expect(queryClient.getQueryData(qk.address(A))).toBe(profile))
   })
 
   it('tx opens a tx tab', async () => {
