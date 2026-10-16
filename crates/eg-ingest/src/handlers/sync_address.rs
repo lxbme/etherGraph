@@ -42,6 +42,10 @@ pub struct SyncProgress {
     pub cursor: Cursor,
     pub head: u64,
     pub start_block: u64,
+    /// The kind's `from_block` when an Older sync of it started; its coverage
+    /// is only written if that boundary is still in place.
+    #[serde(default)]
+    pub kind_from_block: Option<u64>,
 }
 
 pub struct SyncAddressHandler;
@@ -85,7 +89,7 @@ impl JobHandler for SyncAddressHandler {
             match plan.sync_kind(kind, prog).await {
                 Ok(next) => prog = next,
                 Err(e) => {
-                    plan.mark_failed_unless_resumed(kind, &e).await;
+                    plan.settle_state(kind, &e).await;
                     return Err(e);
                 }
             }
@@ -129,6 +133,7 @@ impl Plan<'_> {
                     cursor: Cursor::new(end),
                     head,
                     start_block,
+                    kind_from_block: (self.direction == SyncDirection::Older).then_some(end),
                 };
             }
         }
@@ -137,11 +142,14 @@ impl Plan<'_> {
             cursor: Cursor::new(0),
             head,
             start_block: 0,
+            kind_from_block: None,
         }
     }
 
     /// Coverage after a kind completed. `min_block` falls back to the window
-    /// end when nothing was seen (only possible with a zero cap).
+    /// end when nothing was seen (only possible with a zero cap). An Older
+    /// write is guarded by the boundary it extended: if a concurrent sync moved
+    /// `from_block`, joining the two ranges could claim unfetched blocks.
     fn coverage(
         &self,
         kind: TransferKind,
@@ -171,6 +179,10 @@ impl Plan<'_> {
             from_block,
             to_block,
             truncated,
+            expected_from: match self.direction {
+                SyncDirection::Latest => None,
+                SyncDirection::Older => Some(prog.kind_from_block),
+            },
         }
     }
 
@@ -223,7 +235,8 @@ impl Plan<'_> {
                     (next, Some(update))
                 }
             };
-            ctx.store
+            let applied = ctx
+                .store
                 .write_page(
                     job.id,
                     &page.transfers,
@@ -232,6 +245,15 @@ impl Plan<'_> {
                     update.as_ref(),
                 )
                 .await?;
+            if update.is_some() && !applied {
+                // Rows are stored, but the claim would no longer be honest;
+                // the row keeps whatever the concurrent sync wrote.
+                tracing::info!(
+                    job_id = job.id,
+                    kind = kind.as_str(),
+                    "coverage boundary moved during sync; coverage left unchanged"
+                );
+            }
             ctx.bus.publish(Event::AddressDataChanged {
                 address: self.address,
             });
@@ -249,21 +271,28 @@ impl Plan<'_> {
         }
     }
 
-    /// Leaves the kind `syncing` when the runner will resume the job (quota
-    /// pause or retry); otherwise marks it `failed`. Coverage is untouched.
-    async fn mark_failed_unless_resumed(&self, kind: TransferKind, e: &JobError) {
+    /// Sets the kind's state after `e`; coverage blocks are never touched.
+    /// - resumed by the runner (quota pause or retry): stays `syncing`
+    /// - cancelled: back to `ok` if earlier coverage exists, else `failed`
+    /// - otherwise: `failed`
+    async fn settle_state(&self, kind: TransferKind, e: &JobError) {
         let resumed = matches!(e, JobError::Source(SourceError::QuotaExhausted))
             || will_retry(e, self.job, &self.ctx.cfg);
         if resumed {
             return;
         }
-        if let Err(err) = self
-            .ctx
-            .store
-            .set_sync_state(self.address, kind, SyncState::Failed)
-            .await
-        {
-            tracing::warn!(job_id = self.job.id, error = %err, "failed to mark sync failed");
+        let store = &self.ctx.store;
+        let state = match e {
+            JobError::Cancelled => match store.sync_rows(&[self.address]).await {
+                Ok(rows) if rows.iter().any(|r| r.kind == kind && r.to_block.is_some()) => {
+                    SyncState::Ok
+                }
+                _ => SyncState::Failed,
+            },
+            _ => SyncState::Failed,
+        };
+        if let Err(err) = store.set_sync_state(self.address, kind, state).await {
+            tracing::warn!(job_id = self.job.id, error = %err, "failed to settle sync state");
         }
     }
 }

@@ -81,6 +81,10 @@ pub struct SyncUpdate {
     pub from_block: u64,
     pub to_block: u64,
     pub truncated: bool,
+    /// Optimistic guard: `None` writes unconditionally; `Some(x)` writes only
+    /// while the row's current `from_block` is `x` (a missing row counts as
+    /// `None`).
+    pub expected_from: Option<Option<u64>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -126,6 +130,10 @@ impl Store {
     /// Single transaction: upsert transfers and tokens, store job progress
     /// (`NotFound` + rollback if the job does not exist), and optionally record
     /// sync coverage as `ok`.
+    ///
+    /// Returns whether coverage was written: false when `sync` is `None` or its
+    /// `expected_from` guard no longer matches. A failed guard is not an error;
+    /// the rest of the page still commits and the row is left as it was.
     pub async fn write_page(
         &self,
         job_id: i64,
@@ -133,7 +141,7 @@ impl Store {
         tokens: &[TokenInfo],
         progress: &serde_json::Value,
         sync: Option<&SyncUpdate>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
         upsert_transfers_conn(&mut tx, transfers).await?;
         upsert_tokens_conn(&mut tx, tokens).await?;
@@ -145,24 +153,43 @@ impl Store {
         if res.rows_affected() == 0 {
             return Err(StoreError::NotFound);
         }
+        let mut applied = false;
         if let Some(s) = sync {
-            sqlx::query(
-                "INSERT INTO address_sync (address, kind, from_block, to_block, truncated, state, \
-                 last_synced_at) VALUES ($1, $2, $3, $4, $5, 'ok', now()) \
-                 ON CONFLICT (address, kind) DO UPDATE SET from_block = EXCLUDED.from_block, \
-                 to_block = EXCLUDED.to_block, truncated = EXCLUDED.truncated, state = 'ok', \
-                 last_synced_at = now()",
-            )
-            .bind(addr_to_bytes(s.address))
-            .bind(s.kind.as_i16())
-            .bind(to_i64(s.from_block, "from_block")?)
-            .bind(to_i64(s.to_block, "to_block")?)
-            .bind(s.truncated)
-            .execute(&mut *tx)
-            .await?;
+            macro_rules! upsert_sql {
+                () => {
+                    "INSERT INTO address_sync (address, kind, from_block, to_block, truncated, \
+                     state, last_synced_at) VALUES ($1, $2, $3, $4, $5, 'ok', now()) \
+                     ON CONFLICT (address, kind) DO UPDATE SET from_block = EXCLUDED.from_block, \
+                     to_block = EXCLUDED.to_block, truncated = EXCLUDED.truncated, state = 'ok', \
+                     last_synced_at = now()"
+                };
+            }
+            // Under row locking Postgres re-checks the guards against the latest
+            // committed row, so a concurrent coverage write cannot slip between.
+            const UPSERT: &str = upsert_sql!();
+            const UPSERT_IF_NULL: &str =
+                concat!(upsert_sql!(), " WHERE address_sync.from_block IS NULL");
+            const UPDATE_IF_FROM: &str = "UPDATE address_sync SET from_block = $3, to_block = $4, \
+                 truncated = $5, state = 'ok', last_synced_at = now() \
+                 WHERE address = $1 AND kind = $2 AND from_block = $6";
+            let (sql, guard) = match s.expected_from {
+                None => (UPSERT, None),
+                Some(None) => (UPSERT_IF_NULL, None),
+                Some(Some(x)) => (UPDATE_IF_FROM, Some(to_i64(x, "expected_from")?)),
+            };
+            let mut q = sqlx::query(sql)
+                .bind(addr_to_bytes(s.address))
+                .bind(s.kind.as_i16())
+                .bind(to_i64(s.from_block, "from_block")?)
+                .bind(to_i64(s.to_block, "to_block")?)
+                .bind(s.truncated);
+            if let Some(g) = guard {
+                q = q.bind(g);
+            }
+            applied = q.execute(&mut *tx).await?.rows_affected() > 0;
         }
         tx.commit().await?;
-        Ok(())
+        Ok(applied)
     }
 
     /// Upserts the (address, kind) row; a missing row is created with null blocks.
@@ -328,6 +355,7 @@ mod tests {
             from_block: 10,
             to_block: 20,
             truncated: true,
+            expected_from: None,
         };
         let progress = json!({"cursor_block": 10});
         store
@@ -352,6 +380,113 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn conditional_sync_update_requires_expected_from(pool: PgPool) {
+        let store = Store::from_pool(pool.clone());
+        let job = new_job(&pool).await;
+        let addr = Address::repeat_byte(0xa);
+        let upd = |from_block, truncated, expected_from| SyncUpdate {
+            address: addr,
+            kind: TransferKind::Native,
+            from_block,
+            to_block: 9000,
+            truncated,
+            expected_from,
+        };
+        let native = |store: &Store| {
+            let store = store.clone();
+            async move {
+                let rows = store.sync_rows(&[addr]).await.unwrap();
+                let r = rows
+                    .iter()
+                    .find(|r| r.kind == TransferKind::Native)
+                    .unwrap();
+                (r.from_block, r.to_block, r.truncated, r.state)
+            }
+        };
+        let seed = upd(5000, true, None);
+        assert!(
+            store
+                .write_page(job, &[], &[], &json!({}), Some(&seed))
+                .await
+                .unwrap()
+        );
+        store
+            .set_sync_state(addr, TransferKind::Native, SyncState::Syncing)
+            .await
+            .unwrap();
+
+        // Mismatched guard: page and progress commit, coverage and state do not move.
+        let mut v = vec![tr(1, TransferKind::Native, U256::from(1))];
+        assign_sub_ids(&mut v);
+        let progress = json!({"kind_index": 1});
+        let stale = upd(0, false, Some(Some(2000)));
+        assert!(
+            !store
+                .write_page(job, &v, &[], &progress, Some(&stale))
+                .await
+                .unwrap()
+        );
+        assert_eq!(count(&pool).await, 1);
+        let p: serde_json::Value = sqlx::query_scalar("SELECT progress FROM jobs WHERE id = $1")
+            .bind(job)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(p, progress);
+        assert_eq!(
+            native(&store).await,
+            (Some(5000), Some(9000), true, SyncState::Syncing)
+        );
+        let none_guard = upd(0, false, Some(None));
+        assert!(
+            !store
+                .write_page(job, &[], &[], &json!({}), Some(&none_guard))
+                .await
+                .unwrap()
+        );
+        assert_eq!(native(&store).await.0, Some(5000));
+
+        // Matching guard applies.
+        let fresh = upd(0, false, Some(Some(5000)));
+        assert!(
+            store
+                .write_page(job, &[], &[], &json!({}), Some(&fresh))
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            native(&store).await,
+            (Some(0), Some(9000), false, SyncState::Ok)
+        );
+
+        // A missing row counts as a null from_block.
+        let erc20 = |expected_from| SyncUpdate {
+            kind: TransferKind::Erc20,
+            ..upd(10, false, expected_from)
+        };
+        assert!(
+            !store
+                .write_page(job, &[], &[], &json!({}), Some(&erc20(Some(Some(10)))))
+                .await
+                .unwrap()
+        );
+        assert_eq!(store.sync_rows(&[addr]).await.unwrap().len(), 1);
+        assert!(
+            store
+                .write_page(job, &[], &[], &json!({}), Some(&erc20(Some(None))))
+                .await
+                .unwrap()
+        );
+        assert_eq!(store.sync_rows(&[addr]).await.unwrap().len(), 2);
+        assert!(
+            !store
+                .write_page(job, &[], &[], &json!({}), None)
+                .await
+                .unwrap()
+        );
+    }
+
+    #[sqlx::test]
     async fn write_page_is_atomic(pool: PgPool) {
         let store = Store::from_pool(pool.clone());
         let mut v = vec![tr(1, TransferKind::Native, U256::from(1))];
@@ -362,6 +497,7 @@ mod tests {
             from_block: 1,
             to_block: 2,
             truncated: false,
+            expected_from: None,
         };
         let err = store
             .write_page(999, &v, &[], &json!({}), Some(&sync))

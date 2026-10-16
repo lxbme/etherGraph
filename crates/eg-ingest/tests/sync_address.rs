@@ -19,16 +19,23 @@ use sqlx::PgPool;
 use tokio::sync::Notify;
 
 /// Wraps `FakeSource`, recording every history query and optionally failing
-/// the n-th one (1-based) through `FakeSource::fail_next`.
+/// the n-th one (1-based) through `FakeSource::fail_next`, or running SQL just
+/// before it to simulate a concurrent writer.
 struct Spy {
     inner: Arc<FakeSource>,
+    pool: PgPool,
     queries: Mutex<Vec<(Priority, HistoryQuery)>>,
     fail_at: Mutex<Option<(usize, SourceError)>>,
+    sql_at: Mutex<Option<(usize, &'static str)>>,
 }
 
 impl Spy {
     fn fail_history_at(&self, n: usize, e: SourceError) {
         *self.fail_at.lock().unwrap() = Some((n, e));
+    }
+
+    fn sql_before_history(&self, n: usize, sql: &'static str) {
+        *self.sql_at.lock().unwrap() = Some((n, sql));
     }
 
     fn queries(&self) -> Vec<(Priority, HistoryQuery)> {
@@ -48,6 +55,19 @@ impl ChainSource for Spy {
             qs.push((p, q.clone()));
             qs.len()
         };
+        let sql = {
+            let mut at = self.sql_at.lock().unwrap();
+            match at.take() {
+                Some((k, sql)) if k == n => Some(sql),
+                other => {
+                    *at = other;
+                    None
+                }
+            }
+        };
+        if let Some(sql) = sql {
+            sqlx::query(sql).execute(&self.pool).await.unwrap();
+        }
         let due = {
             let mut fail = self.fail_at.lock().unwrap();
             match fail.take() {
@@ -109,8 +129,10 @@ fn env(pool: PgPool, cap: u32) -> Env {
     let fake = Arc::new(FakeSource::new());
     let spy = Arc::new(Spy {
         inner: fake.clone(),
+        pool: pool.clone(),
         queries: Mutex::new(vec![]),
         fail_at: Mutex::new(None),
+        sql_at: Mutex::new(None),
     });
     let cfg = IngestConfig {
         max_records_per_category: cap,
@@ -488,6 +510,91 @@ async fn cancel_requested_stops_before_next_page(pool: PgPool) {
         (r.from_block, r.to_block, r.state),
         (None, None, SyncState::Failed)
     );
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn cancel_restores_ok_when_coverage_exists(pool: PgPool) {
+    let e = env(pool, 10_000);
+    e.fake.set_latest_block(5000);
+    native_blocks(&e, 100);
+    run_to_done(&e, "s", params("latest", &["native"])).await;
+    let before = row(&e, TransferKind::Native).await;
+
+    e.fake.set_latest_block(6000);
+    let id = enqueue(&e, "s", params("latest", &["native"])).await;
+    let job = e.ctx.store.claim_next().await.unwrap().unwrap();
+    assert!(e.ctx.store.cancel_job(id).await.unwrap());
+    let err = SyncAddressHandler.run(&job, &e.ctx).await.unwrap_err();
+    assert!(matches!(err, JobError::Cancelled));
+    let r = row(&e, TransferKind::Native).await;
+    assert_eq!(r.state, SyncState::Ok);
+    assert_eq!(
+        (r.from_block, r.to_block, r.truncated),
+        (before.from_block, before.to_block, before.truncated)
+    );
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn older_does_not_claim_gap_left_by_concurrent_latest(pool: PgPool) {
+    let e = env(pool, 3000);
+    e.fake.set_latest_block(6000);
+    native_blocks(&e, 5000);
+    run_to_done(&e, "latest", params("latest", &["native"])).await;
+    let r = row(&e, TransferKind::Native).await;
+    assert_eq!((r.from_block, r.truncated), (Some(2001), true));
+
+    // Older pages [0, 2001] in three queries (4..=6). Before its second page a
+    // truncated Latest sync completes with a window far above the old one.
+    e.spy.sql_before_history(
+        5,
+        "UPDATE address_sync SET from_block = 30000, to_block = 50000, truncated = true, \
+         state = 'ok', last_synced_at = now()",
+    );
+    run_to_done(&e, "older", params("older", &["native"])).await;
+    assert_eq!(e.spy.queries().len(), 6);
+    assert_eq!(transfer_count(&e).await, 5000);
+    let r = row(&e, TransferKind::Native).await;
+    // Blocks 6001..30000 were never fetched: no claim may span them.
+    assert_eq!(
+        (r.from_block, r.to_block, r.truncated),
+        (Some(30000), Some(50000), true)
+    );
+    assert_eq!(r.state, SyncState::Ok);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn over_full_block_stays_truncated_across_older_sync(pool: PgPool) {
+    const M: u64 = 500;
+    let e = env(pool, 50_000);
+    e.fake.set_latest_block(1000);
+    let mut ts = vec![
+        tr(TransferKind::Native, 1, 700),
+        tr(TransferKind::Native, 2, 600),
+    ];
+    ts.extend((10..10_510).map(|i| tr(TransferKind::Native, i, M)));
+    ts.push(tr(TransferKind::Native, 3, 200));
+    ts.push(tr(TransferKind::Native, 4, 100));
+    e.fake.add_history(ADDR, TransferKind::Native, ts, vec![]);
+
+    run_to_done(&e, "latest", params("latest", &["native"])).await;
+    // Window 1 (end 1000) ends inside M, window 2 (end M) is all M and skips
+    // the rest of it, window 3 (end M-1) finishes.
+    let ends: Vec<u64> = e.spy.queries().iter().map(|(_, q)| q.end_block).collect();
+    assert_eq!(ends.len(), 21);
+    assert_eq!((ends[10], ends[20]), (M, M - 1));
+    let r = row(&e, TransferKind::Native).await;
+    assert_eq!(
+        (r.from_block, r.to_block, r.truncated),
+        (Some(M), Some(1000), true)
+    );
+
+    run_to_done(&e, "older", params("older", &["native"])).await;
+    let r = row(&e, TransferKind::Native).await;
+    assert_eq!(
+        (r.from_block, r.to_block, r.truncated),
+        (Some(M), Some(1000), true)
+    );
+    assert_eq!(r.state, SyncState::Ok);
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]

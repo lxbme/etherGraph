@@ -18,6 +18,10 @@ pub struct Cursor {
     pub min_seen: Option<u64>,
     /// Rows of a single block exceeded the window and some were skipped.
     pub skipped: bool,
+    /// Highest block whose remaining rows were skipped; it is only partially
+    /// fetched, so it bounds the claimed coverage.
+    #[serde(default)]
+    pub skipped_block: Option<u64>,
 }
 
 impl Cursor {
@@ -28,6 +32,7 @@ impl Cursor {
             fetched: 0,
             min_seen: None,
             skipped: false,
+            skipped_block: None,
         }
     }
 }
@@ -42,43 +47,51 @@ pub enum Step {
 }
 
 /// Folds one fetched page into the cursor. `truncated` in `Done` is true when
-/// the cap was hit or rows of an over-full block were skipped.
+/// the cap was hit or rows of an over-full block were skipped; in the latter
+/// case `min_block` is that (partially fetched) block, never anything below it.
 pub fn advance(c: &Cursor, page: &HistoryPage, page_size: u32, cap: u32) -> Step {
     let fetched = c.fetched.saturating_add(page.row_count);
     let min_seen = match (c.min_seen, page.min_block) {
         (Some(a), Some(b)) => Some(a.min(b)),
         (a, b) => a.or(b),
     };
-    let done = |truncated: bool| Step::Done {
-        truncated: truncated || c.skipped,
-        min_block: min_seen,
+    let done = |truncated: bool, skipped_block: Option<u64>| Step::Done {
+        truncated: truncated || c.skipped || skipped_block.is_some(),
+        min_block: skipped_block.or(min_seen),
     };
     if fetched >= cap {
-        return done(true);
+        return done(true, c.skipped_block);
     }
     if page.row_count < page_size {
-        return done(false);
+        return done(false, c.skipped_block);
     }
     if (u64::from(c.page) + 1) * u64::from(page_size) > RESULT_WINDOW {
         // A full page always has a minimum block; be conservative if not.
         let Some(min_block) = page.min_block else {
-            return done(true);
+            return done(true, c.skipped_block);
         };
-        let (end_block, skipped) = if min_block == c.end_block {
-            // More than a window's worth of rows in one block: skip the rest of it.
-            match min_block.checked_sub(1) {
-                Some(b) => (b, true),
-                None => return done(true),
-            }
-        } else {
-            (min_block, c.skipped)
+        if min_block != c.end_block {
+            return Step::Next(Cursor {
+                end_block: min_block,
+                page: 1,
+                fetched,
+                min_seen,
+                ..c.clone()
+            });
+        }
+        // More than a window's worth of rows in one block: skip the rest of
+        // it. Blocks only descend, so an earlier skipped block is higher.
+        let skipped_block = c.skipped_block.or(Some(min_block));
+        let Some(end_block) = min_block.checked_sub(1) else {
+            return done(true, skipped_block);
         };
         return Step::Next(Cursor {
             end_block,
             page: 1,
             fetched,
             min_seen,
-            skipped,
+            skipped: true,
+            skipped_block,
         });
     }
     Step::Next(Cursor {
@@ -109,6 +122,7 @@ mod tests {
             fetched,
             min_seen: None,
             skipped: false,
+            skipped_block: None,
         }
     }
 
@@ -190,6 +204,7 @@ mod tests {
                 fetched: 10_000,
                 min_seen: Some(4000),
                 skipped: false,
+                skipped_block: None,
             })
         );
         // Page 9 of 1000 still fits: 10 * 1000 <= 10000.
@@ -219,14 +234,16 @@ mod tests {
                 fetched: 10_000,
                 min_seen: Some(9000),
                 skipped: true,
+                skipped_block: Some(9000),
             }
         );
-        // Any later completion reports truncation.
+        // Any later completion is truncated at the partially fetched block,
+        // however far below it the fetch went.
         assert_eq!(
             advance(&next, &hp(5, Some(8000)), 1000, 50_000),
             Step::Done {
                 truncated: true,
-                min_block: Some(8000)
+                min_block: Some(9000)
             }
         );
         assert_eq!(
@@ -236,6 +253,31 @@ mod tests {
                 min_block: Some(9000)
             }
         );
+        assert_eq!(
+            advance(&next, &hp(1000, Some(7000)), 1000, 11_000),
+            Step::Done {
+                truncated: true,
+                min_block: Some(9000)
+            }
+        );
+        // A plain window slide keeps the skipped block.
+        let deep = Cursor {
+            page: 10,
+            ..next.clone()
+        };
+        let Step::Next(slid) = advance(&deep, &hp(1000, Some(5000)), 1000, 50_000) else {
+            panic!("expected Next");
+        };
+        assert_eq!(
+            (slid.end_block, slid.skipped, slid.skipped_block),
+            (5000, true, Some(9000))
+        );
+        // A second over-full block keeps the highest skipped block.
+        let again = Cursor { page: 10, ..slid };
+        let Step::Next(twice) = advance(&again, &hp(1000, Some(5000)), 1000, 50_000) else {
+            panic!("expected Next");
+        };
+        assert_eq!((twice.end_block, twice.skipped_block), (4999, Some(9000)));
     }
 
     #[test]
@@ -246,6 +288,18 @@ mod tests {
             Step::Done {
                 truncated: true,
                 min_block: Some(0)
+            }
+        );
+        let after_skip = Cursor {
+            skipped: true,
+            skipped_block: Some(7),
+            ..c
+        };
+        assert_eq!(
+            advance(&after_skip, &hp(1000, Some(0)), 1000, 50_000),
+            Step::Done {
+                truncated: true,
+                min_block: Some(7)
             }
         );
     }
