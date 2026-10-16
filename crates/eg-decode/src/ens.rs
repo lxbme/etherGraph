@@ -32,10 +32,7 @@ pub enum ReverseResult {
 pub fn normalize(name: &str) -> Result<String, DecodeError> {
     let input = name.trim();
     let invalid = || DecodeError::InvalidName(input.to_string());
-    // ENSIP-15 silently drops these invisible characters; reject them instead so
-    // a lookup never resolves a different name than the one the user typed.
-    const INVISIBLE: [char; 4] = ['\u{00AD}', '\u{200B}', '\u{2060}', '\u{FEFF}'];
-    if input.is_empty() || input.contains(INVISIBLE) {
+    if input.is_empty() {
         return Err(invalid());
     }
     let out = ens_normalize_rs::normalize(input).map_err(|_| invalid())?;
@@ -146,13 +143,18 @@ mod tests {
 
     #[test]
     fn normalize_rejects_invalid() {
-        for bad in ["a..eth", ".eth", "a.eth.", "a\u{200b}b.eth", ""] {
+        for bad in ["a..eth", ".eth", "a.eth.", "a b.eth", ""] {
             assert!(
                 matches!(normalize(bad), Err(DecodeError::InvalidName(_))),
                 "{bad:?} -> {:?}",
                 normalize(bad)
             );
         }
+    }
+
+    #[test]
+    fn normalize_drops_ignored_chars() {
+        assert_eq!(normalize("a\u{200b}b.eth").unwrap(), "ab.eth");
     }
 
     #[test]
