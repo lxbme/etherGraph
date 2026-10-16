@@ -40,7 +40,10 @@ impl FakeSource {
         transfers: Vec<Transfer>,
         tokens: Vec<TokenInfo>,
     ) {
-        self.history.lock().unwrap().insert((addr, kind), (transfers, tokens));
+        self.history
+            .lock()
+            .unwrap()
+            .insert((addr, kind), (transfers, tokens));
     }
 
     pub fn set_latest_block(&self, b: u64) {
@@ -57,11 +60,17 @@ impl FakeSource {
         if let Some(b) = tx.block_number {
             self.block_ts.lock().unwrap().insert(b, block_ts);
         }
-        self.txs.lock().unwrap().insert(tx.hash, (tx, receipt, internals));
+        self.txs
+            .lock()
+            .unwrap()
+            .insert(tx.hash, (tx, receipt, internals));
     }
 
     pub fn add_contract(&self, src: ContractSource, creation: ContractCreation) {
-        self.contracts.lock().unwrap().insert(src.address, (src, creation));
+        self.contracts
+            .lock()
+            .unwrap()
+            .insert(src.address, (src, creation));
     }
 
     pub fn on_eth_call(
@@ -91,7 +100,11 @@ impl FakeSource {
 
 #[async_trait]
 impl ChainSource for FakeSource {
-    async fn history_page(&self, _p: Priority, q: &HistoryQuery) -> Result<HistoryPage, SourceError> {
+    async fn history_page(
+        &self,
+        _p: Priority,
+        q: &HistoryQuery,
+    ) -> Result<HistoryPage, SourceError> {
         self.enter()?;
         if u64::from(q.page) * u64::from(q.offset) > 10_000 {
             return Err(SourceError::WindowTooLarge);
@@ -106,7 +119,11 @@ impl ChainSource for FakeSource {
         transfers.retain(|t| (q.start_block..=q.end_block).contains(&t.block_number));
         transfers.sort_by(|a, b| b.block_number.cmp(&a.block_number));
         let skip = (q.page.saturating_sub(1) as usize).saturating_mul(q.offset as usize);
-        let slice: Vec<Transfer> = transfers.into_iter().skip(skip).take(q.offset as usize).collect();
+        let slice: Vec<Transfer> = transfers
+            .into_iter()
+            .skip(skip)
+            .take(q.offset as usize)
+            .collect();
         Ok(HistoryPage {
             row_count: slice.len() as u32,
             min_block: slice.last().map(|t| t.block_number),
@@ -127,10 +144,20 @@ impl ChainSource for FakeSource {
 
     async fn internal_txs(&self, _p: Priority, hash: TxHash) -> Result<Vec<Transfer>, SourceError> {
         self.enter()?;
-        Ok(self.txs.lock().unwrap().get(&hash).map(|e| e.2.clone()).unwrap_or_default())
+        Ok(self
+            .txs
+            .lock()
+            .unwrap()
+            .get(&hash)
+            .map(|e| e.2.clone())
+            .unwrap_or_default())
     }
 
-    async fn block_timestamp(&self, _p: Priority, block: u64) -> Result<DateTime<Utc>, SourceError> {
+    async fn block_timestamp(
+        &self,
+        _p: Priority,
+        block: u64,
+    ) -> Result<DateTime<Utc>, SourceError> {
         self.enter()?;
         Ok(self
             .block_ts
@@ -146,7 +173,11 @@ impl ChainSource for FakeSource {
         Ok(*self.latest.lock().unwrap())
     }
 
-    async fn contract_source(&self, _p: Priority, addr: Address) -> Result<ContractSource, SourceError> {
+    async fn contract_source(
+        &self,
+        _p: Priority,
+        addr: Address,
+    ) -> Result<ContractSource, SourceError> {
         self.enter()?;
         Ok(self
             .contracts
@@ -170,14 +201,20 @@ impl ChainSource for FakeSource {
     ) -> Result<Vec<ContractCreation>, SourceError> {
         self.enter()?;
         let m = self.contracts.lock().unwrap();
-        Ok(addrs.iter().filter_map(|a| m.get(a).map(|e| e.1.clone())).collect())
+        Ok(addrs
+            .iter()
+            .filter_map(|a| m.get(a).map(|e| e.1.clone()))
+            .collect())
     }
 
     async fn eth_call(&self, _p: Priority, to: Address, data: Bytes) -> Result<Bytes, SourceError> {
         self.enter()?;
         match self.eth_call.lock().unwrap().as_ref() {
             Some(f) => f(to, &data),
-            None => Err(SourceError::Rpc { code: -32000, message: "no eth_call handler".into() }),
+            None => Err(SourceError::Rpc {
+                code: -32000,
+                message: "no eth_call handler".into(),
+            }),
         }
     }
 }
@@ -220,25 +257,84 @@ mod tests {
     #[tokio::test]
     async fn fake_history_window_limit() {
         let f = FakeSource::new();
-        f.add_history(Address::ZERO, TransferKind::Native, (1..=12000).map(tr).collect(), vec![]);
+        f.add_history(
+            Address::ZERO,
+            TransferKind::Native,
+            (1..=12000).map(tr).collect(),
+            vec![],
+        );
         let r = f.history_page(Priority::Interactive, &q(11, 1000)).await;
         assert_eq!(r.unwrap_err(), SourceError::WindowTooLarge);
-        let p = f.history_page(Priority::Interactive, &q(1, 1000)).await.unwrap();
+        let p = f
+            .history_page(Priority::Interactive, &q(1, 1000))
+            .await
+            .unwrap();
         assert_eq!(p.row_count, 1000);
-        assert!(p.transfers.windows(2).all(|w| w[0].block_number >= w[1].block_number));
+        assert!(
+            p.transfers
+                .windows(2)
+                .all(|w| w[0].block_number >= w[1].block_number)
+        );
         assert_eq!(p.transfers[0].block_number, 12000);
         assert_eq!(p.min_block, Some(11001));
         // exactly 10000 is still allowed
-        let p10 = f.history_page(Priority::Interactive, &q(10, 1000)).await.unwrap();
+        let p10 = f
+            .history_page(Priority::Interactive, &q(10, 1000))
+            .await
+            .unwrap();
         assert_eq!(p10.row_count, 1000);
         assert_eq!(f.calls(), 3);
+    }
+
+    #[tokio::test]
+    async fn fake_history_block_range_and_paging() {
+        let f = FakeSource::new();
+        f.add_history(
+            Address::ZERO,
+            TransferKind::Native,
+            (1..=100).map(tr).collect(),
+            vec![],
+        );
+        let rq = |start, end, page, offset| HistoryQuery {
+            start_block: start,
+            end_block: end,
+            ..q(page, offset)
+        };
+        let all = f
+            .history_page(Priority::Background, &rq(10, 20, 1, 100))
+            .await
+            .unwrap();
+        let blocks: Vec<u64> = all.transfers.iter().map(|t| t.block_number).collect();
+        assert_eq!(blocks, (10..=20).rev().collect::<Vec<_>>());
+        assert_eq!(all.min_block, Some(10));
+        let p1 = f
+            .history_page(Priority::Background, &rq(10, 20, 1, 5))
+            .await
+            .unwrap();
+        let p2 = f
+            .history_page(Priority::Background, &rq(10, 20, 2, 5))
+            .await
+            .unwrap();
+        let b1: Vec<u64> = p1.transfers.iter().map(|t| t.block_number).collect();
+        let b2: Vec<u64> = p2.transfers.iter().map(|t| t.block_number).collect();
+        assert_eq!(b1, vec![20, 19, 18, 17, 16]);
+        assert_eq!(b2, vec![15, 14, 13, 12, 11]);
+        let empty = f
+            .history_page(Priority::Background, &rq(200, 300, 1, 5))
+            .await
+            .unwrap();
+        assert_eq!(empty.row_count, 0);
+        assert_eq!(empty.min_block, None);
     }
 
     #[tokio::test]
     async fn fail_next_is_one_shot() {
         let f = FakeSource::new();
         f.fail_next(SourceError::Timeout);
-        assert_eq!(f.latest_block(Priority::Low).await.unwrap_err(), SourceError::Timeout);
+        assert_eq!(
+            f.latest_block(Priority::Low).await.unwrap_err(),
+            SourceError::Timeout
+        );
         assert_eq!(f.latest_block(Priority::Low).await.unwrap(), 0);
         assert_eq!(f.calls(), 2);
     }
