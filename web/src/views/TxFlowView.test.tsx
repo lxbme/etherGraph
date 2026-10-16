@@ -9,7 +9,8 @@ import type { CytoscapeViewProps } from "../graph/CytoscapeView";
 import { useGraph } from "../graph/store";
 import { useJobProgress } from "../shell/statusStore";
 import { useTabs } from "../shell/tabs";
-import { TxFlowView } from "./TxFlowView";
+import { useUi } from "../panels/uiStore";
+import { TxFlowView, TxNodeDetail } from "./TxFlowView";
 
 const h = vi.hoisted(() => ({ props: null as CytoscapeViewProps | null }));
 vi.mock("../graph/CytoscapeView", () => ({
@@ -61,6 +62,9 @@ function renderView() {
   return render(
     <QueryClientProvider client={qc}>
       <TxFlowView hash={HASH} />
+      <aside data-testid="aside">
+        <TxNodeDetail hash={HASH} />
+      </aside>
     </QueryClientProvider>,
   );
 }
@@ -69,6 +73,7 @@ beforeEach(() => {
   useGraph.getState().reset();
   useJobProgress.setState({ byId: {} });
   useTabs.setState({ active: HASH });
+  useUi.setState({ txSelection: {}, labelEditorFor: null });
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -117,8 +122,12 @@ test("add to graph adds the address as a center without leaving the tab", async 
   vi.spyOn(api, "tx").mockResolvedValue(ready());
   renderView();
   await screen.findByTestId("cy");
+  expect(screen.getByText("选择节点查看详情")).toBeInTheDocument();
   act(() => h.props!.onTapNode(B, { shift: false }));
-  expect(screen.getByText(`detail:${B}`)).toBeInTheDocument();
+  // The detail is rendered by the app-level panel, not inside the tx view (whose canvas keeps its width).
+  expect(screen.getByTestId("aside")).toHaveTextContent(`detail:${B}`);
+  expect(screen.getByTestId("tx-view")).not.toHaveTextContent(`detail:${B}`);
+  expect(screen.getByTestId("tx-view").querySelector("aside")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "加入关系图" }));
   expect(useGraph.getState().centers).toContain(B);
   expect(useGraph.getState().selection).toBeNull();

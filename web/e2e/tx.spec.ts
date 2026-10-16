@@ -30,6 +30,8 @@ test("a tx tab whose data arrives while the graph tab is shown lays out when ope
 
 test("tx search → add a node to the graph → the graph built while hidden fits when shown", async ({ page, mock }) => {
   await page.goto("/?e2e=1");
+  // Start with the right panel closed, so the flow is first laid out at the full width.
+  await page.getByRole("button", { name: "详情栏" }).click();
   await page.getByRole("searchbox", { name: "搜索" }).fill(TX);
   await page.getByRole("searchbox", { name: "搜索" }).press("Enter");
 
@@ -40,9 +42,28 @@ test("tx search → add a node to the graph → the graph built while hidden fit
   await expect(txView.locator("tbody tr")).toHaveCount(3);
   await expectLaidOut(page, { tx: TX }, 3);
 
-  // Pick the router in the flow graph and add it to the (hidden) address graph.
+  const wide = (await snapshot(page, { tx: TX }))!.containerWidth;
+
+  // Pick the router, then open the right panel: the canvas narrows and is refit with every node in view.
   await tapNode(page, { tx: TX }, C);
-  await txView.getByRole("button", { name: "加入关系图" }).click();
+  await page.getByRole("button", { name: "详情栏" }).click();
+  const add = page.getByRole("button", { name: "加入关系图" });
+  await expect(add).toBeVisible();
+  await expect(txView.getByRole("button", { name: "加入关系图" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "添加标签" })).toHaveCount(1);
+  await expect.poll(async () => (await snapshot(page, { tx: TX }))!.containerWidth).toBeLessThan(wide);
+  await expectLaidOut(page, { tx: TX }, 3);
+
+  // Selecting another node changes the panel's content, never the canvas width.
+  const widthBefore = (await snapshot(page, { tx: TX }))!.containerWidth;
+  await tapNode(page, { tx: TX }, A);
+  await expect(page.getByText(A, { exact: true })).toBeVisible();
+  expect((await snapshot(page, { tx: TX }))!.containerWidth).toBe(widthBefore);
+  await tapNode(page, { tx: TX }, C);
+  await expect(page.getByText(C, { exact: true })).toBeVisible();
+
+  // Add it to the (hidden) address graph.
+  await add.click();
   await expect.poll(() => mock.count(GRAPH)).toBe(1);
   expect(mock.requests(GRAPH)[0]!.postDataJSON()).toMatchObject({ addresses: [C] });
   await expect.poll(async () => (await snapshot(page, "main"))?.nodes.length).toBe(4);
@@ -50,18 +71,16 @@ test("tx search → add a node to the graph → the graph built while hidden fit
 
   await page.getByRole("tab", { name: "关系图" }).click();
   await expectLaidOut(page, "main", 4);
-  // The tx tab stays sized when switched back to (its node panel is still open, so it is narrower).
+  await expect(page.getByRole("button", { name: "加入关系图" })).toHaveCount(0);
+  // Back on the tx tab its own selection is shown again, and the canvas is still sized.
   await page.getByRole("tab", { name: /^交易 0x7e57/ }).click();
-  await expect(txView.getByRole("button", { name: "加入关系图" })).toBeVisible();
-  await expect(async () => {
-    const s = (await snapshot(page, { tx: TX }))!;
-    expect(s.containerWidth).toBeGreaterThan(100);
-    expect(s.width).toBe(s.containerWidth);
-  }).toPass();
-  // Closing the panel gives the canvas its full width back with every node in view.
-  await tapBackground(page, { tx: TX });
-  await expect(txView.getByRole("button", { name: "加入关系图" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "加入关系图" })).toBeVisible();
   await expectLaidOut(page, { tx: TX }, 3);
+
+  // A tap on the background clears the tab's selection.
+  await tapBackground(page, { tx: TX });
+  await expect(page.getByRole("button", { name: "加入关系图" })).toHaveCount(0);
+  await expect(page.getByText("选择节点查看详情")).toBeVisible();
 
   expect(mock.unhandled).toEqual([]);
 });

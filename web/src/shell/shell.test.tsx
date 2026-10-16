@@ -5,6 +5,9 @@ import { useGraph } from '../graph/store'
 import { useTabs } from './tabs'
 import { useJobProgress, useQuota, useSseState } from './statusStore'
 import { toast } from './Toasts'
+import { api } from '../api/endpoints'
+import { queryClient } from '../api/queryClient'
+import { useUi } from '../panels/uiStore'
 
 // Cytoscape cannot render in jsdom and the SSE stream is covered by api/useEvents.test.tsx.
 vi.mock('../graph/CytoscapeView', () => ({ CytoscapeView: () => <div data-testid="cy" /> }))
@@ -21,7 +24,10 @@ beforeEach(() => {
   useJobProgress.setState({ byId: {} })
   history.replaceState(null, '', '/')
   localStorage.clear()
+  useUi.setState({ labelEditorFor: null, detailOpen: true, txSelection: {} })
+  queryClient.clear()
 })
+afterEach(() => vi.restoreAllMocks())
 
 describe('tabs', () => {
   it('graph tab is first and cannot be closed', () => {
@@ -202,5 +208,45 @@ describe('fix round 1', () => {
     act(() => useTabs.getState().activate('graph'))
     expect(screen.getByText('输入地址、交易哈希或 ENS 开始探索')).toBe(before)
     expect(before.closest('.main__graph')).not.toHaveAttribute('hidden')
+  })
+})
+
+describe('final review fixes', () => {
+  const profile = (a: string) => ({
+    node: { address: a, kind: 'eoa' as const, display_name: null, ens: null, contract_name: null, labels: [], partial: false, syncing: false, synced: true, hot: false },
+    is_proxy: false, implementation: null, creator: null, creation_tx: null, coverage: [], first_seen: null, last_seen: null,
+  })
+
+  it('on a tx tab exactly one 添加标签 button exists (the tx tab detail in the right panel)', async () => {
+    const A2 = '0x' + '34'.repeat(20)
+    vi.spyOn(api, 'address').mockImplementation(async (a) => profile(a))
+    vi.spyOn(api, 'tx').mockResolvedValue({ status: 'pending', flow: null, job_id: null })
+    render(<App />)
+    act(() => {
+      useGraph.getState().select({ kind: 'node', address: A1 })
+      useTabs.getState().openTx(H1)
+      useUi.getState().selectTx(H1, A2)
+    })
+    expect(await screen.findByText(A2)).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '添加标签', hidden: true })).toHaveLength(1)
+    expect(screen.getByRole('button', { name: '加入关系图' })).toBeInTheDocument()
+    act(() => useTabs.getState().activate('graph'))
+    expect(await screen.findByText(A1)).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '添加标签', hidden: true })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: '加入关系图' })).toBeNull()
+  })
+
+  it('the detail toggle and the label editor request drive the shared detailOpen state', async () => {
+    vi.spyOn(api, 'address').mockImplementation(async (a) => profile(a))
+    render(<App />)
+    const u = userEvent.setup()
+    await u.click(screen.getByRole('button', { name: '详情栏' }))
+    expect(document.querySelector('.main__right')).toBeNull()
+    act(() => {
+      useGraph.getState().select({ kind: 'node', address: A1 })
+      useUi.getState().openLabelEditor(A1)
+    })
+    expect(document.querySelector('.main__right')).not.toBeNull()
+    expect(await screen.findByText('标签文本')).toBeInTheDocument()
   })
 })

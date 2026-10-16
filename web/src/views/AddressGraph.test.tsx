@@ -10,6 +10,8 @@ import { useBoxSelection } from "../graph/boxSelection";
 import type { CytoscapeViewProps } from "../graph/CytoscapeView";
 import { pairKey, useGraph } from "../graph/store";
 import { Toasts } from "../shell/Toasts";
+import { DetailPanel } from "../panels/DetailPanel";
+import { useUi } from "../panels/uiStore";
 import { AddressGraph } from "./AddressGraph";
 
 const h = vi.hoisted(() => ({ props: null as CytoscapeViewProps | null, renders: 0 }));
@@ -78,6 +80,7 @@ beforeEach(() => {
   h.renders = 0;
   useGraph.getState().reset();
   useBoxSelection.setState({ ids: [] });
+  useUi.setState({ labelEditorFor: null, detailOpen: true });
   vi.spyOn(api, "graphEdges").mockResolvedValue(data);
 });
 afterEach(() => vi.restoreAllMocks());
@@ -244,4 +247,28 @@ test("expanding a node with no neighbours toasts", async () => {
   act(() => props().onCxtNode(A, { x: 1, y: 1 }));
   act(() => screen.getByText("选择…").click());
   expect(await screen.findByText("没有可展开的邻居")).toBeInTheDocument();
+});
+
+test("right-clicking an unselected node selects it, so 添加标签 opens the editor for that node", async () => {
+  vi.spyOn(api, "address").mockImplementation(async (a) => ({
+    node: node(a, true), is_proxy: false, implementation: null, creator: null, creation_tx: null, coverage: [],
+    first_seen: null, last_seen: null,
+  }));
+  useGraph.getState().addCenter(A);
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={qc}>
+      <AddressGraph />
+      <DetailPanel />
+    </QueryClientProvider>,
+  );
+  await waitFor(() => expect(ids()).toContain(B));
+  act(() => useGraph.getState().select({ kind: "node", address: A }));
+  act(() => props().onCxtNode(B, { x: 1, y: 1 }));
+  expect(useGraph.getState().selection).toEqual({ kind: "node", address: B });
+  act(() => screen.getByRole("menuitem", { name: /添加标签/ }).click());
+  expect(useUi.getState().labelEditorFor).toBe(B);
+  expect(await screen.findByText(B)).toBeInTheDocument(); // the panel shows B…
+  expect(screen.getByRole("button", { name: "取消" })).toBeInTheDocument(); // …with its label editor open
+  expect(screen.queryByRole("button", { name: "添加标签" })).toBeNull();
 });

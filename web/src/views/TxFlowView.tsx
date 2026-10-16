@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
@@ -12,6 +12,7 @@ import { formatAmount } from "../lib/amount";
 import { assetClass } from "../lib/assets";
 import { formatTime } from "../lib/format";
 import { NodeDetail } from "../panels/NodeDetail";
+import { useUi } from "../panels/uiStore";
 import { useJobProgress } from "../shell/statusStore";
 import { toast } from "../shell/Toasts";
 import { useColorScheme } from "./AddressGraph";
@@ -138,7 +139,38 @@ function Tables({ flow, onPick }: { flow: TxFlowDto; onPick(addr: string): void 
   );
 }
 
-/** The transaction fund-flow tab: header, flow graph, tables and a local node-detail panel. */
+/**
+ * The active tx tab's node detail, shown in the app's right panel (so the flow canvas keeps its width):
+ * the tab's own selection with "加入关系图".
+ */
+export function TxNodeDetail({ hash }: { hash: string }) {
+  const selected = useUi((s) => s.txSelection[hash.toLowerCase()] ?? null);
+  const selectTx = useUi((s) => s.selectTx);
+  const addCenter = useGraph((s) => s.addCenter);
+  if (!selected) {
+    return (
+      <div className="detail">
+        <div className="placeholder">选择节点查看详情</div>
+      </div>
+    );
+  }
+  return (
+    <div className="detail">
+      <NodeDetail key={selected} address={selected} onNavigate={(a) => selectTx(hash, a)} />
+      <button
+        className="txview__add"
+        onClick={() => {
+          addCenter(selected);
+          toast("已加入关系图");
+        }}
+      >
+        加入关系图
+      </button>
+    </div>
+  );
+}
+
+/** The transaction fund-flow tab: header, flow graph and tables; its node detail lives in the right panel. */
 export function TxFlowView({ hash }: { hash: string }) {
   const q = useQuery({
     queryKey: qk.tx(hash),
@@ -148,13 +180,20 @@ export function TxFlowView({ hash }: { hash: string }) {
   });
   const jobId = q.data?.job_id ?? null;
   const job = useJobProgress((s) => (jobId === null ? undefined : s.byId[jobId]));
-  const addCenter = useGraph((s) => s.addCenter);
   const theme = useColorScheme();
   const stylesheet = useMemo(() => txStylesheet(theme), [theme]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const selected = useUi((s) => s.txSelection[hash.toLowerCase()] ?? null);
+  const selectTx = useUi((s) => s.selectTx);
+  const setSelected = useCallback((a: string | null) => selectTx(hash, a), [selectTx, hash]);
   const flow = q.data?.status === "ready" ? q.data.flow : null;
   const elements = useMemo(() => (flow ? txElements(flow, selected) : []), [flow, selected]);
-  useEffect(() => () => exposeTxCy(hash, null), [hash]);
+  useEffect(
+    () => () => {
+      exposeTxCy(hash, null);
+      useUi.getState().forgetTx(hash);
+    },
+    [hash],
+  );
 
   if (q.isError) {
     return (
@@ -203,20 +242,6 @@ export function TxFlowView({ hash }: { hash: string }) {
         </div>
         <Tables flow={flow} onPick={setSelected} />
       </div>
-      {selected && (
-        <aside className="txview__side detail">
-          <NodeDetail address={selected} onNavigate={setSelected} />
-          <button
-            className="txview__add"
-            onClick={() => {
-              addCenter(selected);
-              toast("已加入关系图");
-            }}
-          >
-            加入关系图
-          </button>
-        </aside>
-      )}
     </div>
   );
 }

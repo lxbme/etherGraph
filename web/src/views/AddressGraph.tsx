@@ -98,6 +98,9 @@ export function AddressGraph() {
     const node = data?.nodes.find((n) => lc(n.address) === lc(id));
     const rect = rootRef.current?.getBoundingClientRect();
     if (!node) return;
+    // The menu acts on this node, so it becomes the selection (the detail panel and L follow it).
+    useBoxSelection.getState().clear();
+    useGraph.getState().select({ kind: "node", address: lc(id) });
     setMenu({ x: pos.x + (rect?.left ?? 0), y: pos.y + (rect?.top ?? 0), node });
   };
   /** Node positions at the moment they were grabbed: the "before" of a drag for undo. */
