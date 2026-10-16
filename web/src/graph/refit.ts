@@ -7,10 +7,11 @@ export interface RefitDeps {
 
 /**
  * A layout that runs while the container is `display:none` fits to a 0x0 viewport. This remembers that
- * and refits once the container gets a size — but never otherwise, so an ordinary resize or show keeps
- * the user's viewport. If the user panned/zoomed in the meantime the viewport is theirs and is kept.
+ * and refits once the container gets a size. Otherwise an ordinary resize or show keeps the viewport,
+ * unless `fitOnResize` is set (whole-graph layouts such as the tx flow), in which case every resize
+ * refits. Either way, once the user panned/zoomed after the last layout or fit, the viewport is theirs.
  */
-export function createRefitGuard(deps: RefitDeps) {
+export function createRefitGuard(deps: RefitDeps, opts: { fitOnResize?: boolean } = {}) {
   let laidOutWhileHidden = false;
   let userMoved = false;
   const hidden = () => {
@@ -20,10 +21,8 @@ export function createRefitGuard(deps: RefitDeps) {
   return {
     /** Call after every layout (or fit) that was run. */
     noteLayout(): void {
-      if (hidden()) {
-        laidOutWhileHidden = true;
-        userMoved = false;
-      }
+      userMoved = false;
+      if (hidden()) laidOutWhileHidden = true;
     },
     /** Call on user pan/zoom gestures. */
     noteUserViewport(): void {
@@ -33,7 +32,7 @@ export function createRefitGuard(deps: RefitDeps) {
     onResize(): void {
       if (hidden()) return;
       deps.resize();
-      if (!laidOutWhileHidden) return;
+      if (!laidOutWhileHidden && !opts.fitOnResize) return;
       laidOutWhileHidden = false;
       if (!userMoved) deps.fit();
     },

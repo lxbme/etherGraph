@@ -1,9 +1,9 @@
 import { createRefitGuard } from "./refit";
 
-function setup(initial: { width: number; height: number }) {
+function setup(initial: { width: number; height: number }, opts?: { fitOnResize?: boolean }) {
   const size = { ...initial };
   const deps = { size: () => size, resize: vi.fn(), fit: vi.fn() };
-  return { size, deps, guard: createRefitGuard(deps) };
+  return { size, deps, guard: createRefitGuard(deps, opts) };
 }
 
 test("a layout while hidden followed by a resize to 800x600 refits", () => {
@@ -44,4 +44,20 @@ test("user pan/zoom after a hidden layout keeps the viewport", () => {
   size.width = 800;
   guard.onResize();
   expect(deps.fit).not.toHaveBeenCalled();
+});
+
+test("fitOnResize: a visible resize refits until the user pans or zooms; a new layout re-arms it", () => {
+  const { size, deps, guard } = setup({ width: 800, height: 600 }, { fitOnResize: true });
+  guard.noteLayout();
+  size.width = 500;
+  guard.onResize();
+  expect(deps.fit).toHaveBeenCalledTimes(1);
+  guard.noteUserViewport();
+  size.width = 900;
+  guard.onResize();
+  expect(deps.fit).toHaveBeenCalledTimes(1);
+  guard.noteLayout();
+  size.width = 700;
+  guard.onResize();
+  expect(deps.fit).toHaveBeenCalledTimes(2);
 });

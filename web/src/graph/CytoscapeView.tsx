@@ -158,15 +158,34 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       });
     });
 
-    const refit = createRefitGuard({
-      size: () => ({ width: container.clientWidth, height: container.clientHeight }),
-      resize: () => cy.resize(),
-      fit: () => cy.fit(undefined, 30),
-    });
+    const refit = createRefitGuard(
+      {
+        size: () => ({ width: container.clientWidth, height: container.clientHeight }),
+        resize: () => cy.resize(),
+        fit: () => cy.fit(undefined, 30),
+      },
+      // The tx flow is one whole-graph layout: keep it fitted to its container until the user moves it.
+      { fitOnResize: propsRef.current.layout === "dagre-lr" },
+    );
     refitRef.current = refit;
     const onUserViewport = () => refit.noteUserViewport();
+    // A pointer gesture is the user's viewport only if it actually panned or zoomed (a tap or node drag is not).
+    let gesture: { zoom: number; x: number; y: number } | null = null;
+    const onPointerDown = () => {
+      const p = cy.pan();
+      gesture = { zoom: cy.zoom(), x: p.x, y: p.y };
+    };
+    const onPointerUp = () => {
+      const g = gesture;
+      gesture = null;
+      if (!g || !alive) return;
+      const p = cy.pan();
+      if (cy.zoom() !== g.zoom || p.x !== g.x || p.y !== g.y) refit.noteUserViewport();
+    };
     container.addEventListener("wheel", onUserViewport, { passive: true });
-    container.addEventListener("pointerdown", onUserViewport);
+    container.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointerup", onPointerUp, true);
+    window.addEventListener("pointercancel", onPointerUp, true);
     let ro: ResizeObserver | undefined;
     if (typeof ResizeObserver !== "undefined") {
       ro = new ResizeObserver(() => refit.onResize());
@@ -177,7 +196,9 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       alive = false;
       ro?.disconnect();
       container.removeEventListener("wheel", onUserViewport);
-      container.removeEventListener("pointerdown", onUserViewport);
+      container.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointerup", onPointerUp, true);
+      window.removeEventListener("pointercancel", onPointerUp, true);
       refitRef.current = null;
       cy.destroy();
       cyRef.current = null;
