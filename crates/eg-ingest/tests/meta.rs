@@ -542,3 +542,52 @@ async fn token_meta_undecodable_batch_marks_attempted(pool: PgPool) {
     assert!(meta_fetched(&e, x).await.is_some());
     assert!(meta_fetched(&e, y).await.is_some());
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn names_skip_addresses_resolved_within_ttl(pool: PgPool) {
+    use eg_store::EnsRow;
+    let e = env(pool);
+    let (fresh, stale) = (a(1), a(2));
+    e.ctx
+        .store
+        .upsert_ens(&[EnsRow {
+            address: fresh,
+            name: Some("fresh.eth".into()),
+            status: EnsStatus::Ok,
+            resolved_at: chrono::Utc::now(),
+        }])
+        .await
+        .unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s2 = seen.clone();
+    e.fake.on_eth_call(move |_to, data| {
+        let calls = sub_calls(data);
+        s2.lock().unwrap().push(calls.len());
+        Ok(agg_ret(vec![(false, vec![]); calls.len()]))
+    });
+    let list = vec![format!("{fresh:#x}"), format!("{stale:#x}")];
+    run(
+        &e,
+        &ResolveNamesHandler,
+        JobKind::ResolveNames,
+        json!({"addresses": list}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(*seen.lock().unwrap(), vec![1]);
+    let rows = e.ctx.store.ens(&[fresh, stale]).await.unwrap();
+    assert_eq!(rows[0].name.as_deref(), Some("fresh.eth"));
+    assert_eq!(rows[1].status, EnsStatus::None);
+
+    // A duplicate job for already-resolved addresses makes no call at all.
+    let calls = e.fake.calls();
+    run(
+        &e,
+        &ResolveNamesHandler,
+        JobKind::ResolveNames,
+        json!({"addresses": [format!("{fresh:#x}")]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(e.fake.calls(), calls);
+}

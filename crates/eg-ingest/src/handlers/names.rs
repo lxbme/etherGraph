@@ -35,6 +35,14 @@ impl JobHandler for ResolveNamesHandler {
     async fn run(&self, job: &JobRow, ctx: &JobCtx) -> Result<(), JobError> {
         let Params { addresses } = serde_json::from_value(job.params.clone())
             .map_err(|e| JobError::Invalid(format!("bad resolve_names params: {e}")))?;
+        // Another job may have resolved some of these since this one was queued.
+        let addresses = ctx
+            .store
+            .addrs_needing_ens(&addresses, ctx.cfg.ens_ttl)
+            .await?;
+        if addresses.is_empty() {
+            return Ok(());
+        }
         let now = Utc::now();
         let mut rows = Vec::with_capacity(addresses.len());
         for chunk in addresses.chunks(ctx.cfg.multicall_batch_size.max(1)) {
