@@ -1,7 +1,7 @@
 //! Priority rate gate: every upstream call acquires a permit here.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -30,18 +30,15 @@ pub struct QuotaSnapshot {
 
 type Reply = oneshot::Sender<Result<(), SourceError>>;
 
-struct Request {
-    priority: Priority,
-    reply: Reply,
+enum Msg {
+    Acquire { priority: Priority, reply: Reply },
+    ResetQuota,
 }
 
-/// State readable from any thread; the dispatcher task is the only writer of
-/// `queue_len` and the only incrementer of `used`.
+/// State readable from any thread. The dispatcher task is the only writer of
+/// `queue_len` and of the quota snapshot, so quota state cannot race or tear.
 struct Shared {
     rate: f64,
-    limit: u32,
-    used: AtomicU32,
-    paused: AtomicBool,
     slow_until: Mutex<Option<Instant>>,
     queue_len: AtomicUsize,
     quota_tx: watch::Sender<QuotaSnapshot>,
@@ -54,37 +51,34 @@ impl Shared {
             _ => self.rate,
         }
     }
-
-    fn publish(&self) {
-        self.quota_tx.send_replace(QuotaSnapshot {
-            used: self.used.load(Ordering::SeqCst),
-            limit: self.limit,
-            paused: self.paused.load(Ordering::SeqCst),
-        });
-    }
 }
 
 /// Single-dispatcher rate limiter: one permit per `1 / current_rate` seconds,
 /// handed out by priority with a guaranteed share for `Low`.
 pub struct PriorityGate {
-    tx: mpsc::UnboundedSender<Request>,
+    tx: mpsc::UnboundedSender<Msg>,
     shared: Arc<Shared>,
 }
 
 impl PriorityGate {
     /// Must be called inside a tokio runtime; the dispatcher exits when the
     /// gate is dropped.
+    ///
+    /// # Panics
+    /// If `rate_per_sec` is not finite and positive.
     pub fn spawn(cfg: GateConfig) -> Arc<Self> {
+        assert!(
+            cfg.rate_per_sec.is_finite() && cfg.rate_per_sec > 0.0,
+            "GateConfig.rate_per_sec must be finite and > 0, got {}",
+            cfg.rate_per_sec
+        );
         let (quota_tx, _) = watch::channel(QuotaSnapshot {
             used: cfg.initial_used,
             limit: cfg.daily_limit,
-            paused: false,
+            paused: cfg.initial_used >= cfg.daily_limit,
         });
         let shared = Arc::new(Shared {
             rate: cfg.rate_per_sec,
-            limit: cfg.daily_limit,
-            used: AtomicU32::new(cfg.initial_used),
-            paused: AtomicBool::new(false),
             slow_until: Mutex::new(None),
             queue_len: AtomicUsize::new(0),
             quota_tx,
@@ -94,15 +88,15 @@ impl PriorityGate {
         Arc::new(Self { tx, shared })
     }
 
-    /// Zeroes `used` and lifts the pause.
+    /// Zeroes `used` and lifts the pause. Applied by the dispatcher in order,
+    /// so any `acquire` issued after this call sees the reset quota.
     pub fn reset_quota(&self) {
-        self.shared.used.store(0, Ordering::SeqCst);
-        self.shared.paused.store(false, Ordering::SeqCst);
-        self.shared.publish();
+        // A send error means the dispatcher is gone; nothing left to reset.
+        let _ = self.tx.send(Msg::ResetQuota);
     }
 
     pub fn used(&self) -> u32 {
-        self.shared.used.load(Ordering::SeqCst)
+        self.shared.quota_tx.borrow().used
     }
 
     /// `rate * SLOWDOWN_FACTOR` while a slowdown is active.
@@ -121,14 +115,13 @@ impl PriorityGate {
 
 #[async_trait]
 impl CallGate for PriorityGate {
+    /// While the quota is paused the dispatcher answers `Err(QuotaExhausted)`
+    /// as soon as the request arrives, without waiting for a slot.
     async fn acquire(&self, p: Priority) -> Result<(), SourceError> {
-        if self.shared.paused.load(Ordering::SeqCst) {
-            return Err(SourceError::QuotaExhausted);
-        }
         let (reply, rx) = oneshot::channel();
         let stopped = || SourceError::Upstream("rate gate stopped".into());
         self.tx
-            .send(Request { priority: p, reply })
+            .send(Msg::Acquire { priority: p, reply })
             .map_err(|_| stopped())?;
         rx.await.map_err(|_| stopped())?
     }
@@ -140,22 +133,25 @@ impl CallGate for PriorityGate {
 
 struct Dispatcher {
     shared: Arc<Shared>,
-    rx: mpsc::UnboundedReceiver<Request>,
+    rx: mpsc::UnboundedReceiver<Msg>,
     /// Indexed by `Priority::as_i16`: Interactive, Background, Low.
     queues: [VecDeque<Reply>; 3],
     /// Permits granted since `Low` last got one.
     since_low: u32,
     next_slot: Instant,
+    quota: QuotaSnapshot,
 }
 
 impl Dispatcher {
-    fn new(shared: Arc<Shared>, rx: mpsc::UnboundedReceiver<Request>) -> Self {
+    fn new(shared: Arc<Shared>, rx: mpsc::UnboundedReceiver<Msg>) -> Self {
+        let quota = *shared.quota_tx.borrow();
         Self {
             shared,
             rx,
             queues: Default::default(),
             since_low: 0,
             next_slot: Instant::now(),
+            quota,
         }
     }
 
@@ -164,7 +160,7 @@ impl Dispatcher {
             self.prune_cancelled();
             if self.is_empty() {
                 match self.rx.recv().await {
-                    Some(req) => self.enqueue(req),
+                    Some(msg) => self.handle(msg),
                     None => return,
                 }
                 continue;
@@ -172,30 +168,39 @@ impl Dispatcher {
             if Instant::now() < self.next_slot {
                 tokio::select! {
                     _ = sleep_until(self.next_slot) => {}
-                    req = self.rx.recv() => {
-                        match req {
-                            Some(req) => self.enqueue(req),
+                    msg = self.rx.recv() => {
+                        match msg {
+                            Some(msg) => self.handle(msg),
                             None => return,
                         }
                         continue;
                     }
                 }
             }
-            // Let requests that arrived meanwhile compete for this slot.
-            while let Ok(req) = self.rx.try_recv() {
-                self.enqueue(req);
+            // Let messages that arrived meanwhile apply before this slot.
+            while let Ok(msg) = self.rx.try_recv() {
+                self.handle(msg);
             }
             self.grant_one();
         }
     }
 
-    fn enqueue(&mut self, req: Request) {
-        if self.shared.paused.load(Ordering::SeqCst) {
-            let _ = req.reply.send(Err(SourceError::QuotaExhausted));
-            return;
+    fn handle(&mut self, msg: Msg) {
+        match msg {
+            Msg::Acquire { priority, reply } => {
+                if self.quota.paused {
+                    let _ = reply.send(Err(SourceError::QuotaExhausted));
+                    return;
+                }
+                self.queues[priority.as_i16() as usize].push_back(reply);
+                self.sync_len();
+            }
+            Msg::ResetQuota => {
+                self.quota.used = 0;
+                self.quota.paused = false;
+                self.publish();
+            }
         }
-        self.queues[req.priority.as_i16() as usize].push_back(req.reply);
-        self.sync_len();
     }
 
     fn grant_one(&mut self) {
@@ -204,7 +209,7 @@ impl Dispatcher {
             if self.is_empty() {
                 return;
             }
-            if self.shared.used.load(Ordering::SeqCst) >= self.shared.limit {
+            if self.quota.used >= self.quota.limit {
                 self.exhaust();
                 return;
             }
@@ -213,13 +218,12 @@ impl Dispatcher {
                 .pop_front()
                 .expect("picked non-empty queue");
             self.sync_len();
-            self.shared.used.fetch_add(1, Ordering::SeqCst);
             if reply.send(Ok(())).is_err() {
-                // Cancelled between pruning and sending: refund and retry.
-                self.shared.used.fetch_sub(1, Ordering::SeqCst);
+                // Cancelled after pruning: try the next request in this slot.
                 continue;
             }
-            self.shared.publish();
+            self.quota.used += 1;
+            self.publish();
             self.since_low = if idx == Priority::Low.as_i16() as usize {
                 0
             } else {
@@ -243,14 +247,18 @@ impl Dispatcher {
     }
 
     fn exhaust(&mut self) {
-        self.shared.paused.store(true, Ordering::SeqCst);
+        self.quota.paused = true;
         for q in &mut self.queues {
             for reply in q.drain(..) {
                 let _ = reply.send(Err(SourceError::QuotaExhausted));
             }
         }
         self.sync_len();
-        self.shared.publish();
+        self.publish();
+    }
+
+    fn publish(&self) {
+        self.shared.quota_tx.send_replace(self.quota);
     }
 
     fn prune_cancelled(&mut self) {
@@ -304,6 +312,21 @@ mod tests {
         while g.queue_len() != n {
             tokio::task::yield_now().await;
         }
+    }
+
+    fn snap(used: u32, limit: u32, paused: bool) -> QuotaSnapshot {
+        QuotaSnapshot {
+            used,
+            limit,
+            paused,
+        }
+    }
+
+    async fn wait_snapshot(rx: &mut watch::Receiver<QuotaSnapshot>, want: QuotaSnapshot) {
+        tokio::time::timeout(Duration::from_secs(5), rx.wait_for(|s| *s == want))
+            .await
+            .unwrap_or_else(|_| panic!("snapshot never became {want:?}"))
+            .unwrap();
     }
 
     #[tokio::test(start_paused = true)]
@@ -392,16 +415,118 @@ mod tests {
             Err(SourceError::QuotaExhausted)
         );
         g.reset_quota();
-        assert_eq!(
-            *quota.borrow(),
-            QuotaSnapshot {
-                used: 0,
-                limit: 3,
-                paused: false
-            }
-        );
+        // Requests sent after reset_quota are ordered after it.
         g.acquire(Priority::Interactive).await.unwrap();
         assert_eq!(g.used(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reset_after_exhaustion_restores_service() {
+        let g = gate(2.0, 2);
+        let mut quota = g.subscribe_quota();
+        for _ in 0..2 {
+            g.acquire(Priority::Interactive).await.unwrap();
+        }
+        assert_eq!(
+            g.acquire(Priority::Background).await,
+            Err(SourceError::QuotaExhausted)
+        );
+        g.reset_quota();
+        wait_snapshot(&mut quota, snap(0, 2, false)).await;
+        assert_eq!(g.used(), 0);
+        for _ in 0..2 {
+            g.acquire(Priority::Low).await.unwrap();
+        }
+        assert_eq!(*quota.borrow(), snap(2, 2, false));
+        assert_eq!(
+            g.acquire(Priority::Interactive).await,
+            Err(SourceError::QuotaExhausted)
+        );
+        assert_eq!(*quota.borrow(), snap(2, 2, true));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancelled_caller_around_reset_never_wraps_used() {
+        let g = gate(2.0, 5);
+        let mut quota = g.subscribe_quota();
+        g.acquire(Priority::Interactive).await.unwrap();
+        let cancelled = {
+            let g = g.clone();
+            tokio::spawn(async move { g.acquire(Priority::Interactive).await })
+        };
+        wait_queue_len(&g, 1).await;
+        g.reset_quota();
+        cancelled.abort();
+        let _ = cancelled.await;
+        wait_snapshot(&mut quota, snap(0, 5, false)).await;
+        g.acquire(Priority::Background).await.unwrap();
+        assert_eq!(g.used(), 1);
+    }
+
+    /// Real threads: resets, cancellations and grants interleave freely.
+    /// `used` must never exceed the limit (a wrap would show as u32::MAX).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_reset_and_cancel_stress() {
+        let g = gate(100_000.0, 3);
+        let quota = g.subscribe_quota();
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut handles = Vec::new();
+        for i in 0..8u64 {
+            let (g, stop) = (g.clone(), stop.clone());
+            handles.push(tokio::spawn(async move {
+                while !stop.load(Ordering::Relaxed) {
+                    // Every other caller gives up almost immediately.
+                    let wait = Duration::from_micros(if i % 2 == 0 { 1 } else { 1000 });
+                    let _ = tokio::time::timeout(wait, g.acquire(Priority::Background)).await;
+                }
+            }));
+        }
+        {
+            let (g, stop) = (g.clone(), stop.clone());
+            handles.push(tokio::spawn(async move {
+                while !stop.load(Ordering::Relaxed) {
+                    g.reset_quota();
+                    tokio::task::yield_now().await;
+                }
+            }));
+        }
+        let deadline = std::time::Instant::now() + Duration::from_millis(300);
+        while std::time::Instant::now() < deadline {
+            let s = *quota.borrow();
+            assert!(s.used <= s.limit, "used out of range: {s:?}");
+            assert!(g.used() <= 3, "used out of range: {}", g.used());
+            tokio::task::yield_now().await;
+        }
+        stop.store(true, Ordering::Relaxed);
+        for h in handles {
+            h.await.unwrap();
+        }
+        g.reset_quota();
+        tokio::time::timeout(Duration::from_secs(5), g.acquire(Priority::Interactive))
+            .await
+            .expect("acquire after reset timed out")
+            .unwrap();
+        assert!(g.used() <= 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "rate_per_sec must be finite and > 0")]
+    fn rejects_zero_rate() {
+        PriorityGate::spawn(GateConfig {
+            rate_per_sec: 0.0,
+            daily_limit: 1,
+            initial_used: 0,
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "rate_per_sec must be finite and > 0")]
+    fn rejects_non_finite_rate() {
+        PriorityGate::spawn(GateConfig {
+            rate_per_sec: f64::NAN,
+            daily_limit: 1,
+            initial_used: 0,
+        });
     }
 
     #[tokio::test(start_paused = true)]
@@ -435,6 +560,7 @@ mod tests {
             initial_used: 10,
         });
         assert_eq!(g.used(), 10);
+        assert_eq!(*g.subscribe_quota().borrow(), snap(10, 10, true));
         assert_eq!(
             g.acquire(Priority::Interactive).await,
             Err(SourceError::QuotaExhausted)
