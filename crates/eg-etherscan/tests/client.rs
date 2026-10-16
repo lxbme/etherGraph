@@ -13,6 +13,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 struct CountingGate {
     acquires: AtomicU32,
     rate_limited: AtomicU32,
+    quota_exhausted: AtomicU32,
     fail_with: Option<SourceError>,
 }
 
@@ -27,6 +28,9 @@ impl CallGate for CountingGate {
     }
     fn on_rate_limited(&self) {
         self.rate_limited.fetch_add(1, Ordering::SeqCst);
+    }
+    fn on_quota_exhausted(&self) {
+        self.quota_exhausted.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -58,6 +62,8 @@ impl Transport for RealTimeHttp {
 const OK: &str = r#"{"status":"1","message":"OK","result":["fine"]}"#;
 const RATE: &str =
     r#"{"status":"0","message":"NOTOK","result":"Max calls per sec rate limit reached (3/sec)"}"#;
+const DAILY: &str =
+    r#"{"status":"0","message":"NOTOK","result":"Max daily rate limit reached. 100000 (100%)"}"#;
 const BAD_KEY: &str = r#"{"status":"0","message":"NOTOK","result":"Invalid API Key (#err2)"}"#;
 
 fn setup(
@@ -190,4 +196,15 @@ async fn stats_count_calls_retries_errors() {
     assert_eq!(s.calls, 2);
     assert_eq!(s.retries, 1);
     assert_eq!(s.errors["network"], 1);
+}
+
+#[tokio::test]
+async fn daily_limit_pauses_gate() {
+    let server = MockServer::start().await;
+    mount_sequence(&server, vec![body(DAILY)]).await;
+    let (client, gate, _) = setup(&server, CountingGate::default());
+    let err = client.call(Priority::Background, &[]).await.unwrap_err();
+    assert_eq!(err, SourceError::QuotaExhausted);
+    assert_eq!(gate.quota_exhausted.load(Ordering::SeqCst), 1);
+    assert_eq!(gate.acquires.load(Ordering::SeqCst), 1);
 }

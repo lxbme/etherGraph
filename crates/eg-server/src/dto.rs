@@ -41,6 +41,9 @@ pub struct StatusDto {
     pub retries: u64,
     #[ts(type = "Record<string, number>")]
     pub errors: BTreeMap<String, u64>,
+    /// `"invalid_key"` once Etherscan rejected the API key; null otherwise.
+    #[ts(type = r#""invalid_key" | null"#)]
+    pub degraded: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

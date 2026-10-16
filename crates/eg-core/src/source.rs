@@ -68,6 +68,9 @@ pub trait CallGate: Send + Sync {
     /// Returns `Err(QuotaExhausted)` when the daily quota is used up.
     async fn acquire(&self, p: Priority) -> Result<(), SourceError>;
     fn on_rate_limited(&self);
+    /// The upstream reported its daily limit: stop granting permits until the
+    /// quota is reset. No-op by default (test gates).
+    fn on_quota_exhausted(&self) {}
 }
 
 /// Results are always ordered by block descending.

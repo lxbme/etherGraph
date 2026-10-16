@@ -32,3 +32,4 @@ eg-core = { path = "../eg-core", features = ["testing"] }
 http-body-util = "0.1"
 sqlx = { workspace = true }
 tower = { workspace = true, features = ["util"] }
+async-trait = { workspace = true }

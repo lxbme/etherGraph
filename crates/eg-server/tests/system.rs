@@ -42,6 +42,7 @@ async fn status_ok(pool: PgPool) {
     assert_eq!(body["calls"], 0);
     assert_eq!(body["retries"], 0);
     assert_eq!(body["errors"], json!({}));
+    assert_eq!(body["degraded"], serde_json::Value::Null);
     assert_eq!(body["rate"], 1000.0);
     let reset_at = chrono::DateTime::parse_from_rfc3339(body["reset_at"].as_str().unwrap())
         .unwrap()
@@ -504,4 +505,34 @@ async fn recent_jobs_and_single_job_expose_errors(pool: PgPool) {
     let (status, body) = get(&app, "/api/jobs/abc").await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_eq!(body["error"]["code"], "invalid_input");
+}
+
+/// Answers every request with Etherscan's invalid-key error.
+struct BadKeyTransport;
+
+#[async_trait::async_trait]
+impl eg_etherscan::Transport for BadKeyTransport {
+    async fn get(
+        &self,
+        _params: &[(String, String)],
+    ) -> Result<String, eg_core::source::SourceError> {
+        Ok(r#"{"status":"0","message":"NOTOK","result":"Invalid API Key (#err2)"}"#.into())
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn status_reports_invalid_key_as_degraded(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let client = eg_etherscan::EtherscanClient::new(
+        std::sync::Arc::new(BadKeyTransport),
+        state.gate.clone(),
+        "bad".into(),
+        state.stats.clone(),
+    );
+    let err = client.call(Priority::Interactive, &[]).await.unwrap_err();
+    assert_eq!(err, eg_core::source::SourceError::InvalidKey);
+    let (status, body) = get(&app, "/api/status").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["degraded"], "invalid_key");
+    assert_eq!(body["errors"]["invalid_key"], 1);
 }

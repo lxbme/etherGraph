@@ -130,8 +130,10 @@ impl EtherscanClient {
                 Err(e) => e,
             };
             self.stats.record_error(&err);
-            if err == SourceError::RateLimited {
-                self.gate.on_rate_limited();
+            match err {
+                SourceError::RateLimited => self.gate.on_rate_limited(),
+                SourceError::QuotaExhausted => self.gate.on_quota_exhausted(),
+                _ => {}
             }
             if !err.is_retryable() || attempt >= MAX_ATTEMPTS {
                 return Err(err);

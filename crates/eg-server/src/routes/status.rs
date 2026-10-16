@@ -13,6 +13,12 @@ pub async fn status(State(s): State<AppState>) -> Result<Json<StatusDto>, ApiErr
     let jobs_active = s.store.active_jobs().await?.len();
     let quota = *s.gate.subscribe_quota().borrow();
     let stats = s.stats.snapshot();
+    // An invalid key fails every call; the frontend shows a banner.
+    let degraded = stats
+        .errors
+        .get("invalid_key")
+        .is_some_and(|n| *n > 0)
+        .then(|| "invalid_key".to_owned());
     Ok(Json(StatusDto {
         quota_used: quota.used,
         quota_limit: quota.limit,
@@ -24,5 +30,6 @@ pub async fn status(State(s): State<AppState>) -> Result<Json<StatusDto>, ApiErr
         calls: stats.calls,
         retries: stats.retries,
         errors: stats.errors,
+        degraded,
     }))
 }

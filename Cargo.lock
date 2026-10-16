@@ -1375,6 +1375,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
+ "async-trait",
  "axum",
  "chrono",
  "clap",

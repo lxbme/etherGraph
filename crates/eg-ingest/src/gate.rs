@@ -31,8 +31,13 @@ pub struct QuotaSnapshot {
 type Reply = oneshot::Sender<Result<(), SourceError>>;
 
 enum Msg {
-    Acquire { priority: Priority, reply: Reply },
+    Acquire {
+        priority: Priority,
+        reply: Reply,
+    },
     ResetQuota,
+    /// The upstream reported its daily limit before our own count did.
+    QuotaExhausted,
 }
 
 /// State readable from any thread. The dispatcher task is the only writer of
@@ -129,6 +134,13 @@ impl CallGate for PriorityGate {
     fn on_rate_limited(&self) {
         *self.shared.slow_until.lock().unwrap() = Some(Instant::now() + SLOWDOWN);
     }
+
+    /// Marks the day's quota as used up (`used = limit`, paused) until
+    /// [`PriorityGate::reset_quota`]; queued requests fail with `QuotaExhausted`.
+    fn on_quota_exhausted(&self) {
+        // A send error means the dispatcher is gone; nothing left to pause.
+        let _ = self.tx.send(Msg::QuotaExhausted);
+    }
 }
 
 struct Dispatcher {
@@ -199,6 +211,10 @@ impl Dispatcher {
                 self.quota.used = 0;
                 self.quota.paused = false;
                 self.publish();
+            }
+            Msg::QuotaExhausted => {
+                self.quota.used = self.quota.limit;
+                self.exhaust();
             }
         }
     }
@@ -507,6 +523,30 @@ mod tests {
             .expect("acquire after reset timed out")
             .unwrap();
         assert!(g.used() <= 3);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn upstream_quota_exhaustion_pauses_gate() {
+        let g = gate(2.0, 1000);
+        let mut quota = g.subscribe_quota();
+        g.acquire(Priority::Interactive).await.unwrap();
+        // The next request waits for its slot when the upstream reports the
+        // daily limit; it fails along with every later request.
+        let queued = {
+            let g = g.clone();
+            tokio::spawn(async move { g.acquire(Priority::Background).await })
+        };
+        wait_queue_len(&g, 1).await;
+        g.on_quota_exhausted();
+        assert_eq!(queued.await.unwrap(), Err(SourceError::QuotaExhausted));
+        wait_snapshot(&mut quota, snap(1000, 1000, true)).await;
+        assert_eq!(
+            g.acquire(Priority::Interactive).await,
+            Err(SourceError::QuotaExhausted)
+        );
+        g.reset_quota();
+        g.acquire(Priority::Low).await.unwrap();
+        assert_eq!(g.used(), 1);
     }
 
     #[test]
