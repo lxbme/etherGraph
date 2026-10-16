@@ -225,7 +225,8 @@ pub struct NodeSummaryDto {
     pub address: String,
     #[ts(type = r#""eoa" | "contract" | "unknown""#)]
     pub kind: String,
-    /// ENS name, else first label, else contract name.
+    /// ENS name, else a user label, else the first imported label, else the
+    /// contract name.
     pub display_name: Option<String>,
     pub ens: Option<String>,
     pub contract_name: Option<String>,

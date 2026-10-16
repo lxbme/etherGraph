@@ -3,7 +3,8 @@ import type { LabelDto } from "./LabelDto";
 
 export type NodeSummaryDto = { address: string, kind: "eoa" | "contract" | "unknown", 
 /**
- * ENS name, else first label, else contract name.
+ * ENS name, else a user label, else the first imported label, else the
+ * contract name.
  */
 display_name: string | null, ens: string | null, contract_name: string | null, labels: Array<LabelDto>, 
 /**

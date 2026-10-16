@@ -82,9 +82,14 @@ pub fn summarize(
         .filter(|e| e.status == EnsStatus::Ok)
         .and_then(|e| e.name.clone());
     let contract_name = account.and_then(|a| a.contract_name.clone());
+    // The user's own label beats imported datasets.
+    let label = labels
+        .iter()
+        .find(|l| l.source == "user")
+        .or_else(|| labels.first());
     let display_name = ens_name
         .clone()
-        .or_else(|| labels.first().map(|l| l.text.clone()))
+        .or_else(|| label.map(|l| l.text.clone()))
         .or_else(|| contract_name.clone());
     let kind = match account.map(|a| a.kind) {
         Some(AccountKind::Eoa) => "eoa",
@@ -223,6 +228,22 @@ mod tests {
         assert_eq!(n(None, &[], None), None);
         let s = summarize(A, None, Some(&off), &[], &[], 0, 500);
         assert_eq!((s.ens, s.kind.as_str()), (None, "unknown"));
+    }
+
+    #[test]
+    fn display_name_prefers_user_label_over_imported() {
+        let mut imported = label("Binance 14", "exchange");
+        imported.source = "import:etherscan".into();
+        let mine = label("my hot wallet", "other");
+        let labels = [imported.clone(), mine];
+        let s = summarize(A, None, None, &labels, &[], 0, 500);
+        assert_eq!(s.display_name.as_deref(), Some("my hot wallet"));
+        // ENS still wins; with only imported labels the first one is used.
+        let ok = ens("a.eth", EnsStatus::Ok);
+        let s = summarize(A, None, Some(&ok), &labels, &[], 0, 500);
+        assert_eq!(s.display_name.as_deref(), Some("a.eth"));
+        let s = summarize(A, None, None, &[imported], &[], 0, 500);
+        assert_eq!(s.display_name.as_deref(), Some("Binance 14"));
     }
 
     #[test]
