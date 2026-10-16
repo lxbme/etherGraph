@@ -1,9 +1,15 @@
 //! eg-store: Postgres persistence.
 pub mod convert;
 mod edges;
+mod labels;
+mod meta;
 mod transfers;
+mod txs;
 
 pub use edges::{TransferCursor, TransferQuery, TransferScope};
+pub use labels::LabelRow;
+pub use meta::{AccountRow, EnsRow, EnsStatus};
+pub use txs::TxRow;
 
 use chrono::{DateTime, Utc};
 use eg_core::source::TokenInfo;

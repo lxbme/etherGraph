@@ -86,11 +86,11 @@ fn push_filter(qb: &mut QueryBuilder<Postgres>, f: &EdgeFilter) {
     }
 }
 
-fn to_u64(v: i64, what: &str) -> Result<u64> {
+pub(crate) fn to_u64(v: i64, what: &str) -> Result<u64> {
     u64::try_from(v).map_err(|_| StoreError::Invalid(format!("negative {what} {v}")))
 }
 
-fn transfer_from_row(r: &PgRow) -> Result<Transfer> {
+pub(crate) fn transfer_from_row(r: &PgRow) -> Result<Transfer> {
     let hash: Vec<u8> = r.try_get("tx_hash")?;
     let kind: i16 = r.try_get("kind")?;
     Ok(Transfer {
