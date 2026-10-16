@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-pub use alloy_primitives::{Address, Bytes, B256, U256};
+pub use alloy_primitives::{Address, B256, Bytes, U256};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -81,8 +81,12 @@ pub fn assign_sub_ids(transfers: &mut [Transfer]) {
             t.sub_id = "top".to_string();
             continue;
         }
-        let asset = t.asset.map_or_else(|| "eth".to_string(), |a| format!("{a:#x}"));
-        let token_id = t.token_id.map_or_else(|| "-".to_string(), |v| v.to_string());
+        let asset = t
+            .asset
+            .map_or_else(|| "eth".to_string(), |a| format!("{a:#x}"));
+        let token_id = t
+            .token_id
+            .map_or_else(|| "-".to_string(), |v| v.to_string());
         let key = format!(
             "{}:{}:{:#x}:{:#x}:{}:{}",
             t.kind.as_str(),
@@ -106,14 +110,27 @@ pub enum AccountKind {
     Unknown,
 }
 
-pub const LABEL_CATEGORIES: [&str; 7] =
-    ["exchange", "defi", "bridge", "mixer", "scam", "sanctioned", "other"];
+pub const LABEL_CATEGORIES: [&str; 7] = [
+    "exchange",
+    "defi",
+    "bridge",
+    "mixer",
+    "scam",
+    "sanctioned",
+    "other",
+];
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn tr(kind: TransferKind, asset: Option<Address>, from: Address, to: Address, amt: u64) -> Transfer {
+    fn tr(
+        kind: TransferKind,
+        asset: Option<Address>,
+        from: Address,
+        to: Address,
+        amt: u64,
+    ) -> Transfer {
         Transfer {
             tx_hash: TxHash::repeat_byte(1),
             sub_id: String::new(),
@@ -132,28 +149,49 @@ mod tests {
 
     #[test]
     fn sub_id_top_level_is_top() {
-        let mut v = vec![tr(TransferKind::Native, None, Address::repeat_byte(1), Address::repeat_byte(2), 5)];
+        let mut v = vec![tr(
+            TransferKind::Native,
+            None,
+            Address::repeat_byte(1),
+            Address::repeat_byte(2),
+            5,
+        )];
         assign_sub_ids(&mut v);
         assert_eq!(v[0].sub_id, "top");
     }
 
     #[test]
     fn sub_ids_distinguish_identical_transfers() {
-        let (a, b, c, usdt) = (Address::repeat_byte(0xa), Address::repeat_byte(0xb), Address::repeat_byte(0xc), Address::repeat_byte(0xd));
+        let (a, b, c, usdt) = (
+            Address::repeat_byte(0xa),
+            Address::repeat_byte(0xb),
+            Address::repeat_byte(0xc),
+            Address::repeat_byte(0xd),
+        );
         let mut v = vec![
             tr(TransferKind::Erc20, Some(usdt), a, b, 100),
             tr(TransferKind::Erc20, Some(usdt), a, b, 100),
             tr(TransferKind::Erc20, Some(usdt), a, c, 100),
         ];
         assign_sub_ids(&mut v);
-        assert_eq!(v[0].sub_id, format!("erc20:{usdt:#x}:{a:#x}:{b:#x}:100:-:0"));
-        assert_eq!(v[1].sub_id, format!("erc20:{usdt:#x}:{a:#x}:{b:#x}:100:-:1"));
+        assert_eq!(
+            v[0].sub_id,
+            format!("erc20:{usdt:#x}:{a:#x}:{b:#x}:100:-:0")
+        );
+        assert_eq!(
+            v[1].sub_id,
+            format!("erc20:{usdt:#x}:{a:#x}:{b:#x}:100:-:1")
+        );
         assert!(v[2].sub_id.ends_with(":0"));
     }
 
     #[test]
     fn sub_ids_stable_across_subset() {
-        let (a, b, c) = (Address::repeat_byte(1), Address::repeat_byte(2), Address::repeat_byte(3));
+        let (a, b, c) = (
+            Address::repeat_byte(1),
+            Address::repeat_byte(2),
+            Address::repeat_byte(3),
+        );
         let x = tr(TransferKind::Internal, None, a, b, 7);
         let y = tr(TransferKind::Internal, None, a, c, 9);
         let mut full = vec![x.clone(), y, x.clone()];

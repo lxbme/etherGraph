@@ -146,13 +146,18 @@ pub struct ContractCreation {
 
 #[async_trait]
 pub trait ChainSource: Send + Sync {
-    async fn history_page(&self, p: Priority, q: &HistoryQuery) -> Result<HistoryPage, SourceError>;
+    async fn history_page(&self, p: Priority, q: &HistoryQuery)
+    -> Result<HistoryPage, SourceError>;
     async fn tx(&self, p: Priority, hash: TxHash) -> Result<Option<RawTx>, SourceError>;
     async fn receipt(&self, p: Priority, hash: TxHash) -> Result<Option<RawReceipt>, SourceError>;
     async fn internal_txs(&self, p: Priority, hash: TxHash) -> Result<Vec<Transfer>, SourceError>;
     async fn block_timestamp(&self, p: Priority, block: u64) -> Result<DateTime<Utc>, SourceError>;
     async fn latest_block(&self, p: Priority) -> Result<u64, SourceError>;
-    async fn contract_source(&self, p: Priority, addr: Address) -> Result<ContractSource, SourceError>;
+    async fn contract_source(
+        &self,
+        p: Priority,
+        addr: Address,
+    ) -> Result<ContractSource, SourceError>;
     /// `addrs.len() <= 5`.
     async fn contract_creation(
         &self,

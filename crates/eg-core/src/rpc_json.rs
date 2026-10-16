@@ -18,7 +18,9 @@ fn req_str<'a>(j: &'a Value, field: &str) -> Result<&'a str, SourceError> {
 }
 
 fn parse_quantity(field: &str, s: &str) -> Result<U256, SourceError> {
-    let h = s.strip_prefix("0x").ok_or_else(|| perr(field, "missing 0x prefix"))?;
+    let h = s
+        .strip_prefix("0x")
+        .ok_or_else(|| perr(field, "missing 0x prefix"))?;
     if h.is_empty() {
         return Err(perr(field, "empty quantity"));
     }
@@ -54,7 +56,9 @@ pub fn parse_tx(json: &Value) -> Result<RawTx, SourceError> {
     Ok(RawTx {
         hash: parse_b256("hash", req_str(json, "hash")?)?,
         from: parse_addr("from", req_str(json, "from")?)?,
-        to: opt_str(json, "to")?.map(|s| parse_addr("to", s)).transpose()?,
+        to: opt_str(json, "to")?
+            .map(|s| parse_addr("to", s))
+            .transpose()?,
         value: parse_quantity("value", req_str(json, "value")?)?,
         input: parse_bytes("input", opt_str(json, "input")?.unwrap_or("0x"))?,
         block_number: opt_str(json, "blockNumber")?
@@ -165,6 +169,9 @@ mod tests {
         assert!(t.to.is_none());
         assert_eq!(t.value, U256::from(10u64).pow(U256::from(18u64)));
         assert_eq!(t.block_number, Some(16));
-        assert!(matches!(parse_tx(&serde_json::json!({"hash": "zz"})), Err(SourceError::Parse(_))));
+        assert!(matches!(
+            parse_tx(&serde_json::json!({"hash": "zz"})),
+            Err(SourceError::Parse(_))
+        ));
     }
 }
