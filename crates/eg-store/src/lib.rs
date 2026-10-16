@@ -1,15 +1,20 @@
 //! eg-store: Postgres persistence.
 pub mod convert;
 mod edges;
+mod jobs;
 mod labels;
 mod meta;
+mod quota;
 mod transfers;
 mod txs;
+mod workspaces;
 
 pub use edges::{TransferCursor, TransferQuery, TransferScope};
+pub use jobs::{JobKind, JobRow, JobStatus, NewJob};
 pub use labels::LabelRow;
 pub use meta::{AccountRow, EnsRow, EnsStatus};
 pub use txs::TxRow;
+pub use workspaces::{WorkspaceMeta, WorkspaceRow};
 
 use chrono::{DateTime, Utc};
 use eg_core::source::TokenInfo;

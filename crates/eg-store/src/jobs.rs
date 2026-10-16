@@ -1,0 +1,422 @@
+use chrono::{DateTime, Utc};
+use eg_core::source::Priority;
+use serde::{Deserialize, Serialize};
+use sqlx::Row;
+use sqlx::postgres::PgRow;
+
+use crate::{Result, Store, StoreError};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobKind {
+    SyncAddress,
+    FetchTx,
+    ContractMeta,
+    ResolveNames,
+    TokenMeta,
+}
+
+impl JobKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            JobKind::SyncAddress => "sync_address",
+            JobKind::FetchTx => "fetch_tx",
+            JobKind::ContractMeta => "contract_meta",
+            JobKind::ResolveNames => "resolve_names",
+            JobKind::TokenMeta => "token_meta",
+        }
+    }
+
+    fn parse(s: &str) -> Result<Self> {
+        Ok(match s {
+            "sync_address" => JobKind::SyncAddress,
+            "fetch_tx" => JobKind::FetchTx,
+            "contract_meta" => JobKind::ContractMeta,
+            "resolve_names" => JobKind::ResolveNames,
+            "token_meta" => JobKind::TokenMeta,
+            _ => return Err(StoreError::Invalid(format!("unknown job kind {s}"))),
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobStatus {
+    Pending,
+    Running,
+    PausedQuota,
+    Done,
+    Failed,
+    Cancelled,
+}
+
+impl JobStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            JobStatus::Pending => "pending",
+            JobStatus::Running => "running",
+            JobStatus::PausedQuota => "paused_quota",
+            JobStatus::Done => "done",
+            JobStatus::Failed => "failed",
+            JobStatus::Cancelled => "cancelled",
+        }
+    }
+
+    fn parse(s: &str) -> Result<Self> {
+        Ok(match s {
+            "pending" => JobStatus::Pending,
+            "running" => JobStatus::Running,
+            "paused_quota" => JobStatus::PausedQuota,
+            "done" => JobStatus::Done,
+            "failed" => JobStatus::Failed,
+            "cancelled" => JobStatus::Cancelled,
+            _ => return Err(StoreError::Invalid(format!("unknown job status {s}"))),
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct NewJob {
+    pub key: String,
+    pub kind: JobKind,
+    pub params: serde_json::Value,
+    pub priority: Priority,
+}
+
+#[derive(Clone, Debug)]
+pub struct JobRow {
+    pub id: i64,
+    pub key: String,
+    pub kind: JobKind,
+    pub params: serde_json::Value,
+    pub priority: Priority,
+    pub status: JobStatus,
+    pub progress: Option<serde_json::Value>,
+    pub attempts: i32,
+    pub error: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+macro_rules! job_cols {
+    () => {
+        "id, key, kind, params, priority, status, progress, attempts, error, created_at, updated_at"
+    };
+}
+
+fn job_row(r: &PgRow) -> Result<JobRow> {
+    let kind: String = r.try_get("kind")?;
+    let status: String = r.try_get("status")?;
+    Ok(JobRow {
+        id: r.try_get("id")?,
+        key: r.try_get("key")?,
+        kind: JobKind::parse(&kind)?,
+        params: r.try_get("params")?,
+        priority: Priority::from_i16(r.try_get("priority")?),
+        status: JobStatus::parse(&status)?,
+        progress: r.try_get("progress")?,
+        attempts: r.try_get("attempts")?,
+        error: r.try_get("error")?,
+        created_at: r.try_get("created_at")?,
+        updated_at: r.try_get("updated_at")?,
+    })
+}
+
+impl Store {
+    /// Returns `(id, true)` for a new job, or the existing active job's
+    /// `(id, false)` when one with the same key is pending/running/paused.
+    pub async fn enqueue(&self, j: &NewJob) -> Result<(i64, bool)> {
+        let inserted: Option<i64> = sqlx::query_scalar(
+            "INSERT INTO jobs (key, kind, params, priority, status) \
+             VALUES ($1, $2, $3, $4, 'pending') \
+             ON CONFLICT (key) WHERE status IN ('pending','running','paused_quota') \
+             DO NOTHING RETURNING id",
+        )
+        .bind(&j.key)
+        .bind(j.kind.as_str())
+        .bind(&j.params)
+        .bind(j.priority.as_i16())
+        .fetch_optional(&self.pool)
+        .await?;
+        if let Some(id) = inserted {
+            return Ok((id, true));
+        }
+        let id: i64 = sqlx::query_scalar(
+            "SELECT id FROM jobs WHERE key = $1 \
+             AND status IN ('pending','running','paused_quota')",
+        )
+        .bind(&j.key)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok((id, false))
+    }
+
+    /// Claims the highest-priority, oldest pending job and marks it running.
+    pub async fn claim_next(&self) -> Result<Option<JobRow>> {
+        let sql = concat!(
+            "UPDATE jobs SET status = 'running', updated_at = now() WHERE id = ( \
+             SELECT id FROM jobs WHERE status = 'pending' \
+             ORDER BY priority ASC, created_at ASC, id ASC \
+             FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING ",
+            job_cols!()
+        );
+        let row = sqlx::query(sql).fetch_optional(&self.pool).await?;
+        row.as_ref().map(job_row).transpose()
+    }
+
+    pub async fn update_progress(&self, id: i64, p: &serde_json::Value) -> Result<()> {
+        let res = sqlx::query("UPDATE jobs SET progress = $1, updated_at = now() WHERE id = $2")
+            .bind(p)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        if res.rows_affected() == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+
+    pub async fn complete_job(&self, id: i64) -> Result<()> {
+        self.set_status(id, "done", true).await
+    }
+
+    /// Increments `attempts`, records the error, and re-queues (`retry`) or fails the job.
+    pub async fn fail_job(&self, id: i64, err: &str, retry: bool) -> Result<()> {
+        let status = if retry { "pending" } else { "failed" };
+        let res = sqlx::query(
+            "UPDATE jobs SET status = $1, error = $2, attempts = attempts + 1, \
+             updated_at = now() WHERE id = $3",
+        )
+        .bind(status)
+        .bind(err)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        if res.rows_affected() == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+
+    pub async fn pause_job_quota(&self, id: i64) -> Result<()> {
+        self.set_status(id, "paused_quota", false).await
+    }
+
+    pub async fn resume_paused(&self) -> Result<u64> {
+        let res = sqlx::query(
+            "UPDATE jobs SET status = 'pending', updated_at = now() WHERE status = 'paused_quota'",
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    /// Pending jobs become cancelled; running jobs get `cancel_requested`.
+    /// Any other state (or unknown id) returns false.
+    pub async fn cancel_job(&self, id: i64) -> Result<bool> {
+        let res = sqlx::query(
+            "UPDATE jobs SET updated_at = now(), \
+             status = CASE WHEN status = 'pending' THEN 'cancelled' ELSE status END, \
+             cancel_requested = (status = 'running') OR cancel_requested \
+             WHERE id = $1 AND status IN ('pending', 'running')",
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn cancel_requested(&self, id: i64) -> Result<bool> {
+        sqlx::query_scalar("SELECT cancel_requested FROM jobs WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(StoreError::NotFound)
+    }
+
+    pub async fn mark_cancelled(&self, id: i64) -> Result<()> {
+        self.set_status(id, "cancelled", false).await
+    }
+
+    /// Startup recovery: running jobs go back to pending.
+    pub async fn reset_running(&self) -> Result<u64> {
+        let res = sqlx::query(
+            "UPDATE jobs SET status = 'pending', updated_at = now() WHERE status = 'running'",
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    pub async fn active_jobs(&self) -> Result<Vec<JobRow>> {
+        let sql = concat!(
+            "SELECT ",
+            job_cols!(),
+            " FROM jobs \
+             WHERE status IN ('pending','running','paused_quota') ORDER BY created_at, id"
+        );
+        let rows = sqlx::query(sql).fetch_all(&self.pool).await?;
+        rows.iter().map(job_row).collect()
+    }
+
+    async fn set_status(&self, id: i64, status: &str, clear_error: bool) -> Result<()> {
+        let res = sqlx::query(
+            "UPDATE jobs SET status = $1, updated_at = now(), \
+             error = CASE WHEN $3 THEN NULL ELSE error END WHERE id = $2",
+        )
+        .bind(status)
+        .bind(id)
+        .bind(clear_error)
+        .execute(&self.pool)
+        .await?;
+        if res.rows_affected() == 0 {
+            return Err(StoreError::NotFound);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use sqlx::PgPool;
+
+    fn nj(key: &str, p: Priority) -> NewJob {
+        NewJob {
+            key: key.into(),
+            kind: JobKind::SyncAddress,
+            params: json!({"a": 1}),
+            priority: p,
+        }
+    }
+
+    #[sqlx::test]
+    async fn enqueue_dedupes_active_key(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (a, new_a) = s.enqueue(&nj("k", Priority::Background)).await.unwrap();
+        let (b, new_b) = s.enqueue(&nj("k", Priority::Background)).await.unwrap();
+        assert!(new_a && !new_b);
+        assert_eq!(a, b);
+        let j = s.claim_next().await.unwrap().unwrap();
+        s.complete_job(j.id).await.unwrap();
+        let (c, new_c) = s.enqueue(&nj("k", Priority::Background)).await.unwrap();
+        assert!(new_c);
+        assert_ne!(a, c);
+    }
+
+    #[sqlx::test]
+    async fn claim_respects_priority(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        s.enqueue(&nj("low", Priority::Low)).await.unwrap();
+        s.enqueue(&nj("hi", Priority::Interactive)).await.unwrap();
+        let j = s.claim_next().await.unwrap().unwrap();
+        assert_eq!(j.key, "hi");
+        assert_eq!(j.status, JobStatus::Running);
+        assert_eq!(j.priority, Priority::Interactive);
+        assert_eq!(j.kind, JobKind::SyncAddress);
+        assert_eq!(j.params, json!({"a": 1}));
+        assert_eq!(s.claim_next().await.unwrap().unwrap().key, "low");
+        assert!(s.claim_next().await.unwrap().is_none());
+    }
+
+    #[sqlx::test]
+    async fn claim_skip_locked_no_double_claim(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        s.enqueue(&nj("a", Priority::Background)).await.unwrap();
+        s.enqueue(&nj("b", Priority::Background)).await.unwrap();
+        let (x, y) = tokio::join!(s.claim_next(), s.claim_next());
+        let (x, y) = (x.unwrap().unwrap(), y.unwrap().unwrap());
+        assert_ne!(x.id, y.id);
+    }
+
+    #[sqlx::test]
+    async fn reset_running_requeues(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        s.enqueue(&nj("a", Priority::Background)).await.unwrap();
+        let j = s.claim_next().await.unwrap().unwrap();
+        assert_eq!(s.reset_running().await.unwrap(), 1);
+        let again = s.claim_next().await.unwrap().unwrap();
+        assert_eq!(again.id, j.id);
+    }
+
+    #[sqlx::test]
+    async fn pause_and_resume(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        s.enqueue(&nj("a", Priority::Background)).await.unwrap();
+        let j = s.claim_next().await.unwrap().unwrap();
+        s.pause_job_quota(j.id).await.unwrap();
+        assert!(s.claim_next().await.unwrap().is_none());
+        let act = s.active_jobs().await.unwrap();
+        assert_eq!(act.len(), 1);
+        assert_eq!(act[0].status, JobStatus::PausedQuota);
+        assert_eq!(s.resume_paused().await.unwrap(), 1);
+        assert_eq!(s.claim_next().await.unwrap().unwrap().id, j.id);
+    }
+
+    #[sqlx::test]
+    async fn cancel_pending_vs_running(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (p, _) = s.enqueue(&nj("p", Priority::Interactive)).await.unwrap();
+        let (r, _) = s.enqueue(&nj("r", Priority::Background)).await.unwrap();
+        let running = s.claim_next().await.unwrap().unwrap();
+        assert_eq!(running.id, p);
+        // swap roles: `p` is running, `r` is pending
+        assert!(s.cancel_job(r).await.unwrap());
+        assert!(!s.cancel_requested(r).await.unwrap());
+        assert!(s.claim_next().await.unwrap().is_none());
+        assert!(s.cancel_job(p).await.unwrap());
+        assert!(s.cancel_requested(p).await.unwrap());
+        s.mark_cancelled(p).await.unwrap();
+        assert!(s.active_jobs().await.unwrap().is_empty());
+        assert!(!s.cancel_job(p).await.unwrap());
+        assert!(!s.cancel_job(9999).await.unwrap());
+    }
+
+    #[sqlx::test]
+    async fn fail_progress_complete(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        s.enqueue(&nj("a", Priority::Background)).await.unwrap();
+        let j = s.claim_next().await.unwrap().unwrap();
+        s.update_progress(j.id, &json!({"n": 3})).await.unwrap();
+        s.fail_job(j.id, "boom", true).await.unwrap();
+        let j2 = s.claim_next().await.unwrap().unwrap();
+        assert_eq!(j2.attempts, 1);
+        assert_eq!(j2.error.as_deref(), Some("boom"));
+        assert_eq!(j2.progress, Some(json!({"n": 3})));
+        s.fail_job(j2.id, "dead", false).await.unwrap();
+        let st: String = sqlx::query_scalar("SELECT status FROM jobs WHERE id = $1")
+            .bind(j2.id)
+            .fetch_one(s.pool())
+            .await
+            .unwrap();
+        assert_eq!(st, "failed");
+        s.enqueue(&nj("b", Priority::Background)).await.unwrap();
+        let b = s.claim_next().await.unwrap().unwrap();
+        s.fail_job(b.id, "x", true).await.unwrap();
+        let b = s.claim_next().await.unwrap().unwrap();
+        s.complete_job(b.id).await.unwrap();
+        let e: Option<String> = sqlx::query_scalar("SELECT error FROM jobs WHERE id = $1")
+            .bind(b.id)
+            .fetch_one(s.pool())
+            .await
+            .unwrap();
+        assert!(e.is_none());
+    }
+
+    #[sqlx::test]
+    async fn unknown_status_text_is_invalid(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        sqlx::query(
+            "INSERT INTO jobs (key, kind, params, priority, status) \
+             VALUES ('k', 'bogus', '{}', 1, 'pending')",
+        )
+        .execute(s.pool())
+        .await
+        .unwrap();
+        assert!(matches!(
+            s.claim_next().await.unwrap_err(),
+            StoreError::Invalid(_)
+        ));
+    }
+}
