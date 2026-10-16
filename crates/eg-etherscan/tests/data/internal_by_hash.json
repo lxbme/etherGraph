@@ -1,0 +1,5 @@
+{"status":"1","message":"OK","result":[
+{"blockNumber":"100","timeStamp":"1700000100","from":"0x00000000000000000000000000000000000000b2","to":"0x00000000000000000000000000000000000000a1","value":"7","contractAddress":"","type":"call","traceId":"0_1","isError":"0","errCode":""},
+{"blockNumber":"100","timeStamp":"1700000100","from":"0x00000000000000000000000000000000000000b2","to":"0x00000000000000000000000000000000000000c3","value":"9","contractAddress":"","type":"call","traceId":"0_2","isError":"1","errCode":"Reverted"},
+{"blockNumber":"100","timeStamp":"1700000100","from":"0x00000000000000000000000000000000000000b2","to":"0x00000000000000000000000000000000000000c3","value":"4","contractAddress":"","type":"call","traceId":"0_3","isError":"0","errCode":""}
+]}

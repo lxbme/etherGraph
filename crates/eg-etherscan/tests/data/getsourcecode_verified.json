@@ -1,0 +1,1 @@
+{"status":"1","message":"OK","result":[{"SourceCode":"contract X {}","ABI":"[{\"type\":\"constructor\"}]","ContractName":"FiatTokenProxy","Proxy":"1","Implementation":"0x00000000000000000000000000000000000000d4"}]}

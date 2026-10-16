@@ -930,6 +930,7 @@ name = "eg-etherscan"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "eg-core",
  "hex",
  "rand 0.9.5",
