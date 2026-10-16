@@ -1,7 +1,7 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useGraph } from "../graph/store";
-import { useJobProgress, useQuota, useSseState } from "../shell/statusStore";
+import { ACTIVE_JOB_STATUSES, useJobProgress, useQuota, useSseState } from "../shell/statusStore";
 import { toast } from "../shell/Toasts";
 import { api } from "./endpoints";
 import type { Event } from "./generated/Event";
@@ -15,8 +15,6 @@ import { subscribeEvents } from "./sse";
 const COALESCE_MS = 500;
 
 /** Retry delays for the initial status load; the last one repeats. */
-const ACTIVE_STATUSES = new Set(["pending", "running", "paused_quota"]);
-
 const STATUS_RETRY_MS = [2000, 5000, 10000, 30000];
 
 /**
@@ -145,7 +143,7 @@ export function useEvents(): void {
         case "JobProgress":
           useJobProgress.getState().upsert(e);
           // A job we have not listed yet: refresh the list so its target can be shown.
-          if (ACTIVE_STATUSES.has(e.status) && !qc.getQueryData<JobDto[]>(qk.jobs())?.some((j) => j.id === e.job_id)) {
+          if (ACTIVE_JOB_STATUSES.has(e.status) && !qc.getQueryData<JobDto[]>(qk.jobs())?.some((j) => j.id === e.job_id)) {
             void qc.invalidateQueries({ queryKey: qk.jobs() });
           }
           if (e.status === "failed" && e.kind === "fetch_tx") {

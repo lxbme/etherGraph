@@ -28,7 +28,8 @@ export const useQuota = create<{
   setDegraded: (degraded) => set({ degraded }),
 }));
 
-const ACTIVE = new Set(["pending", "running", "paused_quota"]);
+/** Job statuses that still count as running work. */
+export const ACTIVE_JOB_STATUSES: ReadonlySet<string> = new Set(["pending", "running", "paused_quota"]);
 
 export const useJobProgress = create<{
   byId: Record<number, JobProgressEvent>;
@@ -50,5 +51,5 @@ export const useJobProgress = create<{
         lastId: s.lastId !== null && drop.has(s.lastId) ? null : s.lastId,
       };
     }),
-  activeCount: () => Object.values(get().byId).filter((e) => ACTIVE.has(e.status)).length,
+  activeCount: () => Object.values(get().byId).filter((e) => ACTIVE_JOB_STATUSES.has(e.status)).length,
 }));
