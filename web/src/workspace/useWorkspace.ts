@@ -28,6 +28,11 @@ export const useWorkspace = create<WorkspaceStore>()((set) => ({
   clear: () => set({ id: null, name: null, updatedAt: null, dirty: false }),
 }));
 
+/** Bumped on every persisted graph change; lets a save notice edits made while it was in flight. */
+let graphVersion = 0;
+/** Bumped whenever the canvas is replaced; stale viewport restores bail out. */
+let restoreGen = 0;
+
 // Any change to the persisted part of the graph store marks the workspace dirty (selection/highlight excluded).
 useGraph.subscribe((s, prev) => {
   if (
@@ -37,6 +42,7 @@ useGraph.subscribe((s, prev) => {
     s.expandedPairs !== prev.expandedPairs ||
     s.ui !== prev.ui
   ) {
+    graphVersion++;
     useWorkspace.getState().markDirty();
   }
 });
@@ -65,9 +71,16 @@ export function captureState(): WorkspaceStateV1 {
 
 const asJson = (s: WorkspaceStateV1) => s as unknown as JsonValue;
 
-export async function saveNew(name: string): Promise<void> {
-  const w = await api.createWorkspace({ name, state: asJson(captureState()) });
+/** Marks saved, unless the graph changed while the request was in flight. */
+function commitSaved(w: WorkspaceDto, versionAtSave: number): void {
   useWorkspace.getState().setCurrent(w);
+  if (graphVersion !== versionAtSave) useWorkspace.getState().markDirty();
+}
+
+export async function saveNew(name: string): Promise<void> {
+  const v = graphVersion;
+  const w = await api.createWorkspace({ name, state: asJson(captureState()) });
+  commitSaved(w, v);
 }
 
 /** "Save as": a new workspace from the current canvas, which becomes the current one. */
@@ -76,9 +89,10 @@ export const saveAs = saveNew;
 export async function saveCurrent(): Promise<"saved" | "conflict"> {
   const { id, name, updatedAt } = useWorkspace.getState();
   if (id == null || name == null || updatedAt == null) throw new Error("no current workspace");
+  const v = graphVersion;
   try {
     const w = await api.updateWorkspace(id, { name, state: asJson(captureState()), expected_updated_at: updatedAt });
-    useWorkspace.getState().setCurrent(w);
+    commitSaved(w, v);
     return "saved";
   } catch (err) {
     if (err instanceof ApiError && err.code === "conflict") return "conflict";
@@ -91,12 +105,13 @@ export async function overwriteCurrent(): Promise<void> {
   const { id, name } = useWorkspace.getState();
   if (id == null || name == null) throw new Error("no current workspace");
   const latest = await api.workspace(id);
+  const v = graphVersion;
   const w = await api.updateWorkspace(id, {
     name,
     state: asJson(captureState()),
     expected_updated_at: latest.updated_at,
   });
-  useWorkspace.getState().setCurrent(w);
+  commitSaved(w, v);
 }
 
 /** Renames without touching the saved state (the server's state is echoed back). */
@@ -118,20 +133,27 @@ export async function renameCurrent(name: string): Promise<"saved" | "conflict">
 
 export async function deleteWorkspace(id: number): Promise<void> {
   await api.deleteWorkspace(id);
-  if (useWorkspace.getState().id === id) useWorkspace.getState().clear();
+  if (useWorkspace.getState().id === id) {
+    useWorkspace.getState().clear();
+    // The canvas stays, now unsaved: dirty iff there is something on it.
+    if (useGraph.getState().centers.length > 0) useWorkspace.getState().markDirty();
+  }
 }
 
 export function newWorkspace(): void {
+  restoreGen++;
   useGraph.getState().reset();
   useWorkspace.getState().clear();
 }
 
-/** Applies the saved viewport once the restored graph has produced nodes on the live canvas. */
-function applyViewportLater(state: WorkspaceStateV1): void {
+/** Applies the saved viewport once the restored graph's nodes are on the live canvas (unless superseded). */
+function applyViewportLater(state: WorkspaceStateV1, gen: number): void {
+  const expected = state.nodes.filter((n) => !n.hidden).map((n) => n.address.toLowerCase());
   let tries = 0;
   const attempt = () => {
+    if (gen !== restoreGen) return;
     const cy = getMainCy();
-    if (cy && (cy.nodes().nonempty() || state.centers.length === 0)) {
+    if (cy && (expected.length === 0 || expected.some((a) => cy.getElementById(a).nonempty()))) {
       cy.viewport({ zoom: state.viewport.zoom, pan: state.viewport.pan });
     } else if (++tries < 100) {
       setTimeout(attempt, 50);
@@ -153,10 +175,11 @@ function applyState(state: WorkspaceStateV1): void {
   useGraph.getState().loadSnapshot({
     centers: state.centers,
     filter: state.filter,
+    sort: state.sort,
     expandedPairs: state.expanded_pairs.map(([a, b]) => pairKey(a, b)),
     ui,
   });
-  applyViewportLater(state);
+  applyViewportLater(state, ++restoreGen);
 }
 
 /** Opens a workspace; false (with a toast, canvas untouched) when it cannot be loaded. */

@@ -1,11 +1,13 @@
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
-import type { GraphState, Pos } from "../graph/store";
+import type { GraphState, Pos, SortKey } from "../graph/store";
 
 export interface WorkspaceStateV1 {
   nodes: { address: string; x?: number; y?: number; pinned: boolean; hidden: boolean; note: string }[];
   centers: string[];
   expanded_pairs: [string, string][];
   filter: EdgeFilterDto;
+  /** Absent in older states: means "count". */
+  sort?: SortKey;
   viewport: { zoom: number; pan: { x: number; y: number } };
 }
 
@@ -22,7 +24,7 @@ export interface SerializeOpts {
 const lc = (s: string) => s.toLowerCase();
 
 export function serialize(
-  state: Pick<GraphState, "centers" | "filter" | "expandedPairs" | "ui">,
+  state: Pick<GraphState, "centers" | "filter" | "sort" | "expandedPairs" | "ui">,
   viewport: WorkspaceStateV1["viewport"],
   opts: SerializeOpts = {},
 ): WorkspaceStateV1 {
@@ -50,10 +52,12 @@ export function serialize(
     centers: [...state.centers],
     expanded_pairs: [...state.expandedPairs].map((k) => k.split("|") as [string, string]),
     filter: state.filter,
+    sort: state.sort,
     viewport: { zoom: viewport.zoom, pan: { ...viewport.pan } },
   };
 }
 
+const SORTS: readonly string[] = ["count", "amount", "recent"];
 const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -81,6 +85,7 @@ export function deserialize(
     return bad("expanded_pairs 格式错误");
   }
   if (!isObj(filter)) return bad("filter 格式错误");
+  if (v.sort !== undefined && !(isStr(v.sort) && SORTS.includes(v.sort))) return bad("sort 格式错误");
   if (!isObj(viewport) || !isNum(viewport.zoom) || !isObj(viewport.pan) || !isNum(viewport.pan.x) || !isNum(viewport.pan.y)) {
     return bad("viewport 格式错误");
   }

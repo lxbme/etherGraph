@@ -37,6 +37,12 @@ function download(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
+/** Safe download base name: no path separators/control chars, no leading dots. */
+export function safeFileName(name: string | null): string {
+  const cleaned = (name ?? "").replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").replace(/^\.+/, "");
+  return cleaned.trim() === "" ? "未命名" : cleaned;
+}
+
 function themeBg(): string {
   const v = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
   return v || "#ffffff";
@@ -90,6 +96,7 @@ function OpenDialog({ onPick, onCancel }: { onPick(id: number): void; onCancel()
   const [items, setItems] = useState<WorkspaceMetaDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<WorkspaceMetaDto | null>(null);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -123,13 +130,31 @@ function OpenDialog({ onPick, onCancel }: { onPick(id: number): void; onCancel()
           <li key={w.id} className="dialog__row">
             <button className="btn dialog__name" onClick={() => onPick(w.id)}>{w.name}</button>
             <span className="dialog__calls">{new Date(w.updated_at).toLocaleString()}</span>
-            <button className="btn" aria-label={`删除 ${w.name}`} disabled={busy === w.id} onClick={() => remove(w)}>删除</button>
+            <button className="btn" aria-label={`删除 ${w.name}`} disabled={busy === w.id} onClick={() => setPendingDelete(w)}>删除</button>
           </li>
         ))}
       </ul>
       <div className="dialog__actions">
         <button className="btn" onClick={onCancel}>关闭</button>
       </div>
+      {pendingDelete && (
+        <Modal label="确认删除">
+          <p>确定删除画布「{pendingDelete.name}」？</p>
+          <div className="dialog__actions">
+            <button className="btn" onClick={() => setPendingDelete(null)}>取消</button>
+            <button
+              className="btn"
+              onClick={() => {
+                const w = pendingDelete;
+                setPendingDelete(null);
+                void remove(w);
+              }}
+            >
+              删除
+            </button>
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 }
@@ -189,11 +214,11 @@ export function WorkspaceMenu() {
     const cy = getMainCy();
     if (!cy) return toast("没有可导出的画布", "error");
     const blob = cy.png({ full: true, scale: 2, bg: themeBg(), output: "blob" });
-    download(blob, `ethergraph-${name ?? "未命名"}.png`);
+    download(blob, `ethergraph-${safeFileName(name)}.png`);
   };
   const exportJson = () => {
     const body = JSON.stringify({ name: name ?? "未命名", schema_version: SCHEMA_VERSION, state: captureState() }, null, 2);
-    download(new Blob([body], { type: "application/json" }), `ethergraph-${name ?? "未命名"}.json`);
+    download(new Blob([body], { type: "application/json" }), `ethergraph-${safeFileName(name)}.json`);
   };
 
   const item = (label: string, fn: () => void, disabled = false) => (

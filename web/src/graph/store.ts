@@ -52,7 +52,7 @@ export interface GraphState {
   canRedo(): boolean;
   reset(): void;
   /** Replaces the whole canvas state (as after opening a workspace) without any history; clears selection. */
-  loadSnapshot(v: { centers: string[]; filter: EdgeFilterDto; expandedPairs: string[]; ui: Record<string, NodeUi> }): void;
+  loadSnapshot(v: { centers: string[]; filter: EdgeFilterDto; sort?: SortKey; expandedPairs: string[]; ui: Record<string, NodeUi> }): void;
   /** Internal history stacks. */
   _past: HistoryEntry[];
   _future: HistoryEntry[];
@@ -243,6 +243,7 @@ export const useGraph = create<GraphState>()((set, get) => {
         ...initial(),
         centers: [...new Set(v.centers.map(lc))],
         filter: v.filter,
+        sort: v.sort ?? "count",
         expandedPairs: new Set(v.expandedPairs),
         ui,
       });

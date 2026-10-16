@@ -1,10 +1,12 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "../api/endpoints";
 import { ApiError } from "../api/errors";
 import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
+import { getMainCy } from "../graph/cyRegistry";
 import { useGraph } from "../graph/store";
 import { deserialize, serialize } from "./serialize";
 import {
+  deleteWorkspace,
   loadWorkspace,
   overwriteCurrent,
   saveCurrent,
@@ -21,6 +23,7 @@ vi.mock("../api/endpoints", () => ({
     deleteWorkspace: vi.fn(),
   },
 }));
+vi.mock("../graph/cyRegistry", () => ({ getMainCy: vi.fn(() => null), setMainCy: vi.fn() }));
 const m = vi.mocked(api);
 
 const A = "0x" + "a".repeat(40);
@@ -150,5 +153,99 @@ describe("loading", () => {
     await expect(loadWorkspace(8)).resolves.toBe(false);
     expect(g().centers).toEqual([A]);
     expect(useWorkspace.getState().id).toBe(7);
+  });
+});
+
+describe("sort persistence", () => {
+  test("sort round-trips through serialize/deserialize/load", async () => {
+    g().setCenters([A]);
+    g().applyFilter({}, "recent");
+    const s = serialize(g(), VP);
+    expect(s.sort).toBe("recent");
+    expect(deserialize(JSON.parse(JSON.stringify(s)), 1)).toEqual({ ok: true, state: s });
+    g().reset();
+    m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(s)) }));
+    await loadWorkspace(7);
+    expect(g().sort).toBe("recent");
+  });
+
+  test("a state without sort loads as count; an invalid sort is rejected", async () => {
+    const { sort: _omit, ...legacy } = serialize(g(), VP);
+    expect(deserialize(legacy, 1).ok).toBe(true);
+    expect(deserialize({ ...legacy, sort: "bogus" }, 1).ok).toBe(false);
+    g().applyFilter({}, "amount");
+    m.workspace.mockResolvedValue(dto({ state: legacy as never }));
+    await loadWorkspace(7);
+    expect(g().sort).toBe("count");
+  });
+});
+
+describe("viewport restore", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.mocked(getMainCy).mockReturnValue(null);
+  });
+
+  test("a superseded restore never applies its viewport", async () => {
+    vi.useFakeTimers();
+    const viewport = vi.fn();
+    vi.mocked(getMainCy).mockReturnValue({
+      getElementById: () => ({ nonempty: () => true }),
+      viewport,
+    } as never);
+    const st = (zoom: number) => {
+      g().setCenters([A]);
+      const s = serialize(g(), { zoom, pan: { x: 0, y: 0 } }, { nodes: [A] });
+      return JSON.parse(JSON.stringify(s));
+    };
+    m.workspace.mockResolvedValueOnce(dto({ state: st(2) })).mockResolvedValueOnce(dto({ state: st(3) }));
+    await loadWorkspace(1);
+    await loadWorkspace(2);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(viewport).toHaveBeenCalledTimes(1);
+    expect(viewport).toHaveBeenCalledWith({ zoom: 3, pan: { x: 0, y: 0 } });
+  });
+
+  test("waits until a restored node is on the canvas", async () => {
+    vi.useFakeTimers();
+    const viewport = vi.fn();
+    let present = false;
+    vi.mocked(getMainCy).mockReturnValue({
+      getElementById: () => ({ nonempty: () => present }),
+      viewport,
+    } as never);
+    g().setCenters([A]);
+    const state = JSON.parse(JSON.stringify(serialize(g(), VP, { nodes: [A] })));
+    m.workspace.mockResolvedValue(dto({ state }));
+    await loadWorkspace(1);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(viewport).not.toHaveBeenCalled();
+    present = true;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(viewport).toHaveBeenCalledWith(VP);
+  });
+});
+
+describe("dirty edge cases", () => {
+  test("save keeps dirty when the graph changed while the request was in flight", async () => {
+    useWorkspace.getState().setCurrent(dto());
+    g().addCenter(A);
+    m.updateWorkspace.mockImplementation(async () => {
+      g().addCenter(B);
+      return dto({ updated_at: "T2" });
+    });
+    await saveCurrent();
+    expect(useWorkspace.getState()).toMatchObject({ updatedAt: "T2", dirty: true });
+  });
+
+  test("deleting the current workspace leaves a dirty canvas iff it is non-empty", async () => {
+    m.deleteWorkspace.mockResolvedValue(undefined);
+    useWorkspace.getState().setCurrent(dto());
+    await deleteWorkspace(7);
+    expect(useWorkspace.getState()).toMatchObject({ id: null, dirty: false });
+    g().addCenter(A);
+    useWorkspace.getState().setCurrent(dto());
+    await deleteWorkspace(7);
+    expect(useWorkspace.getState()).toMatchObject({ id: null, dirty: true });
   });
 });
