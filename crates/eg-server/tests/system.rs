@@ -471,6 +471,31 @@ async fn cancel_pending_sync_settles_syncing_kinds(pool: PgPool) {
     assert_eq!(st(addr, TransferKind::Native), SyncState::Ok);
     assert_eq!(st(addr, TransferKind::Erc20), SyncState::Failed);
     assert_eq!(st(other, TransferKind::Native), SyncState::Syncing);
+
+    // While another sync of the same address is still active, its `syncing`
+    // kinds are left alone.
+    let running = enqueue_sync(
+        &state.ctx,
+        other,
+        SyncDirection::Older,
+        Priority::Background,
+    )
+    .await
+    .unwrap();
+    state.store.claim_next().await.unwrap().unwrap();
+    let pending = enqueue_sync(
+        &state.ctx,
+        other,
+        SyncDirection::Latest,
+        Priority::Background,
+    )
+    .await
+    .unwrap();
+    assert_ne!(running, pending);
+    let (status, _) = delete(&app, &format!("/api/jobs/{pending}")).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let rows = state.store.sync_rows(&[other]).await.unwrap();
+    assert_eq!(rows[0].state, SyncState::Syncing);
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]

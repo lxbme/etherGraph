@@ -5,7 +5,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use eg_ingest::Event;
 use eg_ingest::handlers::SyncParams;
-use eg_store::{JobKind, JobStatus};
+use eg_store::{JobKind, JobStatus, StoreError};
 use serde::Deserialize;
 
 use crate::dto::JobDto;
@@ -74,7 +74,7 @@ pub async fn cancel(
         .ok_or_else(|| ApiError::not_found(format!("no active job {id}")))?;
     if status == JobStatus::Cancelled {
         if kind == JobKind::SyncAddress {
-            settle_cancelled_sync(&s, id).await?;
+            settle_cancelled_sync(&s, id).await;
         }
         s.ctx.bus.publish(Event::JobProgress {
             job_id: id,
@@ -89,16 +89,35 @@ pub async fn cancel(
 }
 
 /// A pending or paused sync may have left kinds `syncing` (it ran before being
-/// re-queued or paused); nothing will finish them now.
-async fn settle_cancelled_sync(s: &AppState, id: i64) -> Result<(), ApiError> {
-    let Some(job) = s.store.job(id).await? else {
-        return Ok(());
-    };
-    match serde_json::from_value::<SyncParams>(job.params) {
-        Ok(p) => {
+/// re-queued or paused); nothing will finish them now. Kinds are left alone
+/// while another sync of the same address is still active. Failures are
+/// logged: the cancellation itself already happened.
+async fn settle_cancelled_sync(s: &AppState, id: i64) {
+    let result: Result<(), StoreError> = async {
+        let Some(job) = s.store.job(id).await? else {
+            return Ok(());
+        };
+        let p = match serde_json::from_value::<SyncParams>(job.params) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(job_id = id, error = %e, "cancelled sync has bad params");
+                return Ok(());
+            }
+        };
+        let prefix = format!("sync:{:#x}:", p.address);
+        let other_active = s
+            .store
+            .active_jobs()
+            .await?
+            .iter()
+            .any(|j| j.kind == JobKind::SyncAddress && j.key.starts_with(&prefix));
+        if !other_active {
             s.store.settle_syncing(p.address).await?;
         }
-        Err(e) => tracing::warn!(job_id = id, error = %e, "cancelled sync has bad params"),
+        Ok(())
     }
-    Ok(())
+    .await;
+    if let Err(e) = result {
+        tracing::warn!(job_id = id, error = %e, "settling a cancelled sync failed");
+    }
 }
