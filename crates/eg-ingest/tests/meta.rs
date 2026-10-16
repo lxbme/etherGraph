@@ -1,0 +1,322 @@
+use std::sync::{Arc, Mutex};
+
+use alloy_primitives::{Address, B256, Bytes, address};
+use alloy_sol_types::{SolCall, SolValue, sol};
+use eg_core::source::{ContractCreation, ContractSource, SourceError};
+use eg_core::testing::FakeSource;
+use eg_core::types::AccountKind;
+use eg_decode::encode_reverse;
+use eg_ingest::config::IngestConfig;
+use eg_ingest::handlers::{ContractMetaHandler, ResolveNamesHandler, TokenMetaHandler};
+use eg_ingest::{Event, EventBus, JobCtx, JobError, JobHandler};
+use eg_store::{EnsStatus, JobKind, NewJob, Store};
+use serde_json::{Value, json};
+use sqlx::PgPool;
+use tokio::sync::Notify;
+
+sol! {
+    interface M3 {
+        struct Call3 { address target; bool allowFailure; bytes callData; }
+        struct Res { bool success; bytes returnData; }
+        function aggregate3(Call3[] calldata calls) external payable returns (Res[] memory returnData);
+    }
+}
+
+struct Env {
+    ctx: JobCtx,
+    fake: Arc<FakeSource>,
+}
+
+fn env(pool: PgPool) -> Env {
+    let fake = Arc::new(FakeSource::new());
+    let ctx = JobCtx {
+        store: Store::from_pool(pool),
+        source: fake.clone(),
+        bus: EventBus::new(),
+        cfg: Arc::new(IngestConfig::default()),
+        wake: Arc::new(Notify::new()),
+    };
+    Env { ctx, fake }
+}
+
+async fn run(e: &Env, h: &dyn JobHandler, kind: JobKind, params: Value) -> Result<(), JobError> {
+    e.ctx
+        .store
+        .enqueue(&NewJob {
+            key: format!("t:{params}"),
+            kind,
+            params,
+            priority: eg_core::source::Priority::Low,
+        })
+        .await
+        .unwrap();
+    let job = e.ctx.store.claim_next().await.unwrap().unwrap();
+    h.run(&job, &e.ctx).await
+}
+
+fn a(n: u8) -> Address {
+    Address::repeat_byte(n)
+}
+
+fn add_contract(e: &Env, addr: Address, name: &str, imp: Option<Address>) {
+    e.fake.add_contract(
+        ContractSource {
+            address: addr,
+            name: Some(name.into()),
+            abi_json: Some("[]".into()),
+            is_proxy: imp.is_some(),
+            implementation: imp,
+        },
+        ContractCreation {
+            address: addr,
+            creator: a(0xee),
+            tx_hash: B256::repeat_byte(0x42),
+        },
+    );
+}
+
+fn agg_ret(items: Vec<(bool, Vec<u8>)>) -> Bytes {
+    let r: Vec<M3::Res> = items
+        .into_iter()
+        .map(|(success, d)| M3::Res {
+            success,
+            returnData: d.into(),
+        })
+        .collect();
+    M3::aggregate3Call::abi_encode_returns(&r).into()
+}
+
+fn sub_calls(data: &Bytes) -> Vec<M3::Call3> {
+    M3::aggregate3Call::abi_decode(data).unwrap().calls
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn contract_meta_classifies_eoa_and_contract(pool: PgPool) {
+    let e = env(pool);
+    add_contract(&e, a(1), "Foo", None);
+    let addrs: Vec<Address> = (1..=6).map(a).collect();
+    let list: Vec<String> = addrs.iter().map(|x| format!("{x:#x}")).collect();
+    let mut rx = e.ctx.bus.subscribe();
+    run(
+        &e,
+        &ContractMetaHandler,
+        JobKind::ContractMeta,
+        json!({"addresses": list}),
+    )
+    .await
+    .unwrap();
+    // 2 creation calls (5 + 1) + 1 contract_source
+    assert_eq!(e.fake.calls(), 3);
+    let rows = e.ctx.store.accounts(&addrs).await.unwrap();
+    assert_eq!(rows.len(), 6);
+    let c = rows.iter().find(|r| r.address == a(1)).unwrap();
+    assert_eq!(c.kind, AccountKind::Contract);
+    assert_eq!(c.contract_name.as_deref(), Some("Foo"));
+    assert_eq!(c.creator, Some(a(0xee)));
+    assert_eq!(c.creation_tx, Some(B256::repeat_byte(0x42)));
+    assert!(
+        rows.iter()
+            .filter(|r| r.address != a(1))
+            .all(|r| r.kind == AccountKind::Eoa && r.contract_name.is_none())
+    );
+    let abis = e.ctx.store.abis(&[a(1), a(2)]).await.unwrap();
+    assert_eq!(abis.get(&a(1)).unwrap().as_deref(), Some("[]"));
+    assert!(!abis.contains_key(&a(2)));
+    match rx.try_recv().unwrap() {
+        Event::MetaUpdated { addresses } => assert_eq!(addresses.len(), 6),
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn proxy_enqueues_implementation(pool: PgPool) {
+    let e = env(pool);
+    add_contract(&e, a(1), "Proxy", Some(a(9)));
+    run(
+        &e,
+        &ContractMetaHandler,
+        JobKind::ContractMeta,
+        json!({"addresses": [format!("{:#x}", a(1))]}),
+    )
+    .await
+    .unwrap();
+    let acc = e.ctx.store.accounts(&[a(1)]).await.unwrap();
+    assert!(acc[0].is_proxy);
+    assert_eq!(acc[0].implementation, Some(a(9)));
+    let n: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = $1 AND params::text LIKE $2")
+            .bind(JobKind::ContractMeta.as_str())
+            .bind(format!("%{:#x}%", a(9)))
+            .fetch_one(e.ctx.store.pool())
+            .await
+            .unwrap();
+    assert_eq!(n, 1);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn invalid_params_rejected(pool: PgPool) {
+    let e = env(pool);
+    let r = run(
+        &e,
+        &TokenMetaHandler,
+        JobKind::TokenMeta,
+        json!({"addresses": []}),
+    )
+    .await;
+    assert!(matches!(r, Err(JobError::Invalid(_))));
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn token_meta_bytes32_symbol(pool: PgPool) {
+    let e = env(pool);
+    let tok = address!("0x9f8f72aa9304c8b593d555f12ef6589cc3a579a2");
+    e.fake.on_eth_call(|_to, data| {
+        let calls = sub_calls(data);
+        assert_eq!(calls.len(), 3);
+        assert!(calls.iter().all(|c| c.allowFailure));
+        let mut mkr = b"MKR".to_vec();
+        mkr.resize(32, 0);
+        let mut dec = vec![0u8; 32];
+        dec[31] = 18;
+        Ok(agg_ret(vec![
+            (true, dec),
+            (true, mkr),
+            (true, "Maker".abi_encode()),
+        ]))
+    });
+    run(
+        &e,
+        &TokenMetaHandler,
+        JobKind::TokenMeta,
+        json!({"tokens": [format!("{tok:#x}")]}),
+    )
+    .await
+    .unwrap();
+    let t = e.ctx.store.tokens(&[tok]).await.unwrap();
+    assert_eq!(t[0].symbol.as_deref(), Some("MKR"));
+    assert_eq!(t[0].name.as_deref(), Some("Maker"));
+    assert_eq!(t[0].decimals, Some(18));
+    assert_eq!(t[0].kind, eg_core::types::TransferKind::Erc20);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn token_meta_failed_subcall_and_empty_string(pool: PgPool) {
+    let e = env(pool);
+    let tok = a(5);
+    e.fake.on_eth_call(|_to, _data| {
+        Ok(agg_ret(vec![
+            (false, vec![]),
+            (true, "".abi_encode()),
+            (true, "Name".abi_encode()),
+        ]))
+    });
+    run(
+        &e,
+        &TokenMetaHandler,
+        JobKind::TokenMeta,
+        json!({"tokens": [format!("{tok:#x}")]}),
+    )
+    .await
+    .unwrap();
+    let t = e.ctx.store.tokens(&[tok]).await.unwrap();
+    assert_eq!(t[0].decimals, None);
+    assert_eq!(t[0].symbol, None);
+    assert_eq!(t[0].name.as_deref(), Some("Name"));
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn token_meta_batches_by_third(pool: PgPool) {
+    let e = env(pool);
+    let sizes = Arc::new(Mutex::new(Vec::new()));
+    let s2 = sizes.clone();
+    e.fake.on_eth_call(move |_to, data| {
+        let n = sub_calls(data).len();
+        s2.lock().unwrap().push(n);
+        Ok(agg_ret(vec![(false, vec![]); n]))
+    });
+    let toks: Vec<String> = (1..=20u8).map(|i| format!("{:#x}", a(i))).collect();
+    // 50 / 3 = 16 tokens per call -> 16 + 4
+    run(
+        &e,
+        &TokenMetaHandler,
+        JobKind::TokenMeta,
+        json!({"tokens": toks}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(*sizes.lock().unwrap(), vec![48, 12]);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn names_offchain_and_none(pool: PgPool) {
+    let e = env(pool);
+    let (x, y, z) = (a(1), a(2), a(3));
+    e.fake.on_eth_call(move |to, data| {
+        assert_eq!(to, IngestConfig::default().multicall3);
+        let calls = sub_calls(data);
+        assert_eq!(calls[0].callData, encode_reverse(x));
+        assert!(calls.iter().all(|c| c.allowFailure));
+        let ok = ("vitalik.eth".to_string(), a(0), a(0)).abi_encode_params();
+        let offchain = vec![0x55, 0x6f, 0x18, 0x30, 0, 0];
+        Ok(agg_ret(vec![
+            (true, ok),
+            (false, vec![]),
+            (false, offchain),
+        ]))
+    });
+    let mut rx = e.ctx.bus.subscribe();
+    let list: Vec<String> = [x, y, z].iter().map(|v| format!("{v:#x}")).collect();
+    run(
+        &e,
+        &ResolveNamesHandler,
+        JobKind::ResolveNames,
+        json!({"addresses": list}),
+    )
+    .await
+    .unwrap();
+    let rows = e.ctx.store.ens(&[x, y, z]).await.unwrap();
+    let st = |ad: Address| rows.iter().find(|r| r.address == ad).unwrap();
+    assert_eq!(st(x).status, EnsStatus::Ok);
+    assert_eq!(st(x).name.as_deref(), Some("vitalik.eth"));
+    assert_eq!(st(y).status, EnsStatus::None);
+    assert_eq!(st(z).status, EnsStatus::Offchain);
+    match rx.try_recv().unwrap() {
+        Event::NamesResolved { items } => assert_eq!(items.len(), 3),
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn names_batch_rpc_error_marks_error(pool: PgPool) {
+    let e = env(pool);
+    e.fake.fail_next(SourceError::Rpc {
+        code: 3,
+        message: "execution reverted".into(),
+    });
+    let list = vec![format!("{:#x}", a(1)), format!("{:#x}", a(2))];
+    run(
+        &e,
+        &ResolveNamesHandler,
+        JobKind::ResolveNames,
+        json!({"addresses": list}),
+    )
+    .await
+    .unwrap();
+    let rows = e.ctx.store.ens(&[a(1), a(2)]).await.unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|r| r.status == EnsStatus::Error));
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn names_network_error_propagates(pool: PgPool) {
+    let e = env(pool);
+    e.fake.fail_next(SourceError::Network("down".into()));
+    let r = run(
+        &e,
+        &ResolveNamesHandler,
+        JobKind::ResolveNames,
+        json!({"addresses": [format!("{:#x}", a(1))]}),
+    )
+    .await;
+    assert!(matches!(r, Err(JobError::Source(SourceError::Network(_)))));
+}
