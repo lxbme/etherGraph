@@ -4,6 +4,7 @@ use std::str::FromStr;
 
 use alloy_primitives::{Address, B256, U256};
 use chrono::{DateTime, Utc};
+use eg_core::filter::Direction;
 use eg_core::types::TransferKind;
 
 use crate::error::{ApiError, invalid};
@@ -59,6 +60,18 @@ pub fn parse_time(s: &str, field: &str) -> Result<DateTime<Utc>, ApiError> {
 
 pub fn parse_kind(s: &str) -> Result<TransferKind, ApiError> {
     TransferKind::parse(s).ok_or_else(|| invalid(format!("unknown transfer kind {s:?}")))
+}
+
+/// `in` / `out` / `both` (absent means `both`).
+pub fn parse_direction(s: Option<&str>) -> Result<Direction, ApiError> {
+    match s {
+        None | Some("both") => Ok(Direction::Both),
+        Some("in") => Ok(Direction::In),
+        Some("out") => Ok(Direction::Out),
+        Some(other) => Err(invalid(format!(
+            "direction must be \"in\", \"out\" or \"both\", got {other:?}"
+        ))),
+    }
 }
 
 /// Converts a non-negative decimal string (`"123"`, `"1000.5"`) in whole units

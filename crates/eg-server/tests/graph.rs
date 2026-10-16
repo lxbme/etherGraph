@@ -732,6 +732,46 @@ async fn transfers_paginate_and_filter(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
+async fn transfers_direction_for_address_scope(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    seed(
+        &state,
+        vec![
+            tr(1, C, A, None, U256::from(1), 0),
+            tr(2, C, B, None, U256::from(2), 10),
+            tr(3, A, C, None, U256::from(3), 20),
+        ],
+    )
+    .await;
+    let c = hex(C);
+    let amounts = |b: &Value| -> Vec<String> {
+        b["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["amount"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    for (dir, want) in [
+        ("in", vec!["3"]),
+        ("out", vec!["2", "1"]),
+        ("both", vec!["3", "2", "1"]),
+    ] {
+        let (s, b) = get(&app, &format!("/api/transfers?address={c}&direction={dir}")).await;
+        assert_eq!(s, StatusCode::OK, "{dir}: {b}");
+        assert_eq!(amounts(&b), want, "{dir}");
+    }
+    // Only meaningful for the address scope; unknown values are rejected.
+    for q in [
+        format!("from={c}&to={}&direction=in", hex(A)),
+        format!("address={c}&direction=sideways"),
+    ] {
+        let (s, b) = get(&app, &format!("/api/transfers?{q}")).await;
+        assert_invalid(s, &b);
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
 async fn amounts_are_decimal_strings(pool: PgPool) {
     let (app, state, _) = test_app(pool);
     seed(&state, vec![tr(1, C, A, None, U256::MAX, 0)]).await;

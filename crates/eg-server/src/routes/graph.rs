@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 use axum::Json;
 use axum::extract::State;
-use eg_core::filter::{AssetFilter, Direction, EdgeFilter, EdgeQuery, SortBy, TimeRange};
+use eg_core::filter::{AssetFilter, EdgeFilter, EdgeQuery, SortBy, TimeRange};
 use eg_core::types::Address;
 use eg_store::Store;
 
@@ -14,7 +14,7 @@ use crate::dto::{
 };
 use crate::error::{ApiError, invalid};
 use crate::nodes::{enqueue_missing_meta, load_nodes, token_map};
-use crate::parse::{parse_amount, parse_asset, parse_kind, parse_time};
+use crate::parse::{parse_amount, parse_asset, parse_direction, parse_kind, parse_time};
 use crate::routes::{ApiJson, parse_addresses};
 use crate::state::AppState;
 
@@ -130,16 +130,7 @@ async fn edge_filter(store: &Store, f: EdgeFilterDto) -> Result<EdgeFilter, ApiE
         .iter()
         .map(|k| parse_kind(k))
         .collect::<Result<Vec<_>, _>>()?;
-    let direction = match f.direction.as_deref() {
-        None | Some("both") => Direction::Both,
-        Some("in") => Direction::In,
-        Some("out") => Direction::Out,
-        Some(other) => {
-            return Err(invalid(format!(
-                "direction must be \"in\", \"out\" or \"both\", got {other:?}"
-            )));
-        }
-    };
+    let direction = parse_direction(f.direction.as_deref())?;
 
     let mut parsed = Vec::new();
     for a in f.assets.unwrap_or_default() {

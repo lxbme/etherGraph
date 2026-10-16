@@ -1,5 +1,6 @@
 //! `GET /api/transfers`: keyset-paginated transfer list for one address
-//! (`address=`) or one ordered pair (`from=&to=`).
+//! (`address=`, optionally narrowed by `direction=in|out|both`) or one
+//! ordered pair (`from=&to=`).
 
 use axum::Json;
 use axum::extract::State;
@@ -10,7 +11,7 @@ use serde::Deserialize;
 use crate::dto::{TransferDto, TransferPageDto};
 use crate::error::{ApiError, invalid};
 use crate::nodes::token_map;
-use crate::parse::{parse_address, parse_asset, parse_kind, parse_time};
+use crate::parse::{parse_address, parse_asset, parse_direction, parse_kind, parse_time};
 use crate::routes::ApiQuery;
 use crate::routes::graph::asset_filters;
 use crate::state::AppState;
@@ -33,6 +34,8 @@ pub struct TransfersQuery {
     pub time_to: Option<String>,
     /// Comma-separated transfer kinds.
     pub kinds: Option<String>,
+    /// `in` / `out` / `both` relative to `address`; only valid with the address scope.
+    pub direction: Option<String>,
     pub cursor: Option<String>,
     pub limit: Option<String>,
 }
@@ -49,6 +52,10 @@ pub async fn list(
         },
         _ => return Err(invalid("pass either address or both from and to")),
     };
+    if q.direction.is_some() && !matches!(scope, TransferScope::Address(_)) {
+        return Err(invalid("direction is only valid with address"));
+    }
+    let direction = parse_direction(q.direction.as_deref())?;
     let asset = q.asset.as_deref().map(parse_asset).transpose()?;
     let assets = match (asset, q.min_amount) {
         (_, None) => Vec::new(),
@@ -98,7 +105,7 @@ pub async fn list(
                 time,
                 kinds,
                 assets,
-                ..EdgeFilter::default()
+                direction,
             },
             cursor,
             limit,
