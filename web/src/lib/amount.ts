@@ -35,7 +35,8 @@ export function parseHumanAmount(input: string, decimals: number): string | null
   let intPart = dot === -1 ? s : s.slice(0, dot);
   const fracPart = dot === -1 ? "" : s.slice(dot + 1);
   if (intPart.includes(",")) {
-    if (!/^\d{1,3}(,\d{3})+$/.test(intPart)) return null;
+    // Grouped thousands: a 1-3 digit leading group without a leading zero ("0,001" is rejected), then groups of 3.
+    if (!/^[1-9]\d{0,2}(,\d{3})+$/.test(intPart)) return null;
     intPart = intPart.replace(/,/g, "");
   }
   if (!/^\d*$/.test(intPart) || !/^\d*$/.test(fracPart)) return null;

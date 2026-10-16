@@ -53,4 +53,11 @@ describe("parseHumanAmount", () => {
     }
     expect(parseHumanAmount("1.5", 0)).toBeNull();
   });
+  test("comma groups: a 1-3 digit leading group without a leading zero, then groups of exactly 3", () => {
+    expect(parseHumanAmount("12,345,678", 0)).toBe("12345678");
+    expect(parseHumanAmount("999,000.25", 2)).toBe("99900025");
+    for (const s of ["0,001", "00,001", "01,000", "1,0000", "1234,567", "1,00,000", "0,000"]) {
+      expect(parseHumanAmount(s, 6), s).toBeNull();
+    }
+  });
 });
