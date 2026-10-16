@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use eg_core::source::{CallGate, Priority, SourceError};
@@ -148,8 +149,15 @@ async fn gives_up_after_max_attempts() {
         .mount(&server)
         .await;
     let (client, gate, _) = setup(&server, CountingGate::default());
+    let start = tokio::time::Instant::now();
     let err = client.call(Priority::Interactive, &[]).await.unwrap_err();
+    let elapsed = start.elapsed();
     assert!(matches!(err, SourceError::Network(_)));
+    // Sleeps after attempts 1..=4 only: 1+2+4+8 = 15s, plus <= 4 * 250ms jitter.
+    assert!(
+        elapsed >= Duration::from_secs(15) && elapsed <= Duration::from_secs(16),
+        "elapsed {elapsed:?}"
+    );
     assert_eq!(gate.acquires.load(Ordering::SeqCst), MAX_ATTEMPTS);
     assert_eq!(MAX_ATTEMPTS, 5);
 }
