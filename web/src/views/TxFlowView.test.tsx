@@ -18,7 +18,14 @@ vi.mock("../graph/CytoscapeView", () => ({
     return <div data-testid="cy" />;
   },
 }));
-vi.mock("../panels/NodeDetail", () => ({ NodeDetail: ({ address }: { address: string }) => <div>detail:{address}</div> }));
+vi.mock("../panels/NodeDetail", () => ({
+  NodeDetail: ({ address, onNavigate }: { address: string; onNavigate?: (a: string) => void }) => (
+    <div>
+      detail:{address}
+      <button onClick={() => onNavigate?.("0x" + "cc".repeat(20))}>impl-link</button>
+    </div>
+  ),
+}));
 
 const A = "0x" + "aa".repeat(20);
 const B = "0x" + "bb".repeat(20);
@@ -132,4 +139,45 @@ test("failed job shows the error and retry refetches", async () => {
   fireEvent.click(screen.getByRole("button", { name: "重试" }));
   await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
   expect(await screen.findByText("✓ 成功")).toBeInTheDocument();
+});
+
+test("NodeDetail address links select locally and leave the main graph untouched", async () => {
+  vi.spyOn(api, "tx").mockResolvedValue(ready());
+  renderView();
+  await screen.findByTestId("cy");
+  act(() => h.props!.onTapNode(B, { shift: false }));
+  fireEvent.click(screen.getByRole("button", { name: "impl-link" }));
+  expect(screen.getByText(/detail:0xcccc/)).toBeInTheDocument();
+  expect(useGraph.getState().centers).toEqual([]);
+  expect(useGraph.getState().selection).toBeNull();
+});
+
+test("flows table is sorted by seq and a missing recipient shows 合约创建", async () => {
+  const r = ready({ flows: [{ ...flow, seq: 2, amount: "2000000" }, { ...flow, seq: 1, amount: "1000000" }] });
+  r.flow!.tx.to = null;
+  vi.spyOn(api, "tx").mockResolvedValue(r);
+  renderView();
+  await screen.findByText("1 USDT");
+  const rows = screen.getAllByRole("row").slice(1);
+  expect(rows[0]).toHaveTextContent("1 USDT");
+  expect(rows[1]).toHaveTextContent("2 USDT");
+  expect(screen.getByText(/合约创建 · swap/)).toBeInTheDocument();
+});
+
+test("pending refetches every 5s and stops once ready", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const spy = vi.spyOn(api, "tx").mockResolvedValue({ status: "pending", flow: null, job_id: 7 });
+    renderView();
+    await screen.findByText(/正在获取交易/);
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockResolvedValue(ready());
+    await act(() => vi.advanceTimersByTimeAsync(5100));
+    await screen.findByText("✓ 成功");
+    expect(spy).toHaveBeenCalledTimes(2);
+    await act(() => vi.advanceTimersByTimeAsync(15000));
+    expect(spy).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
 });

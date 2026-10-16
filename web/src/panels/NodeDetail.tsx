@@ -22,7 +22,7 @@ const KINDS: { value: SyncStatusDto["kind"]; label: string }[] = [
 const STATES: Record<SyncStatusDto["state"], string> = { syncing: "同步中", ok: "已同步", failed: "失败" };
 const KIND_NAMES: Record<string, string> = { eoa: "外部账户", contract: "合约", unknown: "未知" };
 
-function AddrButton({ addr }: { addr: string }) {
+function AddrButton({ addr, onNavigate }: { addr: string; onNavigate?: (addr: string) => void }) {
   const addCenter = useGraph((s) => s.addCenter);
   const select = useGraph((s) => s.select);
   return (
@@ -30,6 +30,7 @@ function AddrButton({ addr }: { addr: string }) {
       className="detail__link detail__mono"
       title={addr}
       onClick={() => {
+        if (onNavigate) return onNavigate(addr.toLowerCase());
         addCenter(addr);
         select({ kind: "node", address: addr.toLowerCase() });
       }}
@@ -58,7 +59,7 @@ function Note({ address }: { address: string }) {
   );
 }
 
-export function NodeDetail({ address }: { address: string }) {
+export function NodeDetail({ address, onNavigate }: { address: string; onNavigate?: (addr: string) => void }) {
   const qc = useQueryClient();
   const openTx = useTabs((t) => t.openTx);
   const editorFor = useUi((u) => u.labelEditorFor);
@@ -105,10 +106,10 @@ export function NodeDetail({ address }: { address: string }) {
         {p.is_proxy && (
           <>
             <dt>代理</dt>
-            <dd>{p.implementation ? <AddrButton addr={p.implementation} /> : "是"}</dd>
+            <dd>{p.implementation ? <AddrButton addr={p.implementation} onNavigate={onNavigate} /> : "是"}</dd>
           </>
         )}
-        {p.creator && (<><dt>部署者</dt><dd><AddrButton addr={p.creator} /></dd></>)}
+        {p.creator && (<><dt>部署者</dt><dd><AddrButton addr={p.creator} onNavigate={onNavigate} /></dd></>)}
         {p.creation_tx && (
           <>
             <dt>部署交易</dt>

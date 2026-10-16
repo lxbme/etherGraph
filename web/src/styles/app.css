@@ -431,3 +431,5 @@ body,
 .txview__tables table { width: 100%; border-collapse: collapse; }
 .txview__tables th, .txview__tables td { padding: 3px 8px; text-align: left; border-top: 1px solid var(--border); }
 .txview__arg { margin-right: 10px; }
+.main__tx { flex: 1; min-height: 0; display: flex; }
+.main__tx[hidden] { display: none; }

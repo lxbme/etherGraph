@@ -44,7 +44,14 @@ function Shell() {
           <div className="main__graph" hidden={!!tx}>
             <ResizableSplit top={<AddressGraph />} bottom={<TransferTable />} />
           </div>
-          {tx && "kind" in tx && <TxFlowView hash={tx.hash} />}
+          {tabs.map(
+            (t) =>
+              "kind" in t && (
+                <div key={t.hash} className="main__tx" hidden={t.id !== active}>
+                  <TxFlowView hash={t.hash} />
+                </div>
+              ),
+          )}
         </div>
         {detailOpen && (
           <aside className="main__right">

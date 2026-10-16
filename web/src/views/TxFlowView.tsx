@@ -49,7 +49,7 @@ function Header({ flow }: { flow: TxFlowDto }) {
       <div className="txview__call">
         {call ? (
           <>
-            <span>{targetName} · {call.signature}</span>
+            <span>{tx.to ? targetName : "合约创建"} · {call.signature}</span>
             {call.args.length > 0 && (
               <details>
                 <summary>参数（{call.args.length}）</summary>
@@ -94,7 +94,7 @@ function Tables({ flow, onPick }: { flow: TxFlowDto; onPick(addr: string): void 
         <table>
           <thead><tr><th>#</th><th>From</th><th>To</th><th>金额</th><th>类别</th></tr></thead>
           <tbody>
-            {flow.flows.map((f, i) => (
+            {[...flow.flows].sort((a, b) => a.seq - b.seq).map((f, i) => (
               <tr key={`${f.seq}-${i}`}>
                 <td>{f.seq}</td>
                 <td>{addr(f.from)}</td>
@@ -202,7 +202,7 @@ export function TxFlowView({ hash }: { hash: string }) {
       </div>
       {selected && (
         <aside className="txview__side detail">
-          <NodeDetail address={selected} />
+          <NodeDetail address={selected} onNavigate={setSelected} />
           <button
             className="txview__add"
             onClick={() => {
