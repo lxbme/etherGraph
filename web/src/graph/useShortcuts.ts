@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import { useUi } from "../panels/uiStore";
+import { useTabs } from "../shell/tabs";
 import { focusNode, hideNode, syncNode, togglePin } from "./nodeActions";
 import { useGraph } from "./store";
 
@@ -10,10 +11,14 @@ function isTyping(t: EventTarget | null): boolean {
   return /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable;
 }
 
-/** Global keyboard shortcuts: undo/redo, and S/P/H/F/L on the selected node. Inactive while typing. */
+/**
+ * Global keyboard shortcuts: undo/redo, and S/P/H/F/L on the selected node. Inactive while typing,
+ * and while a tx tab is shown (the address graph they act on is hidden then).
+ */
 export function useShortcuts(getData: () => GraphResponseDto | undefined): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (useTabs.getState().active !== "graph") return;
       if (isTyping(e.target)) return;
       // A dialog or context menu owns the keyboard while open.
       const t = e.target as Element | null;

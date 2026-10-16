@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
+import { api } from "../api/endpoints";
 import { useShortcuts } from "../graph/useShortcuts";
+import { useTabs } from "../shell/tabs";
 import { useGraph } from "../graph/store";
 import { ContextMenu } from "./ContextMenu";
 import { useUi } from "./uiStore";
@@ -20,7 +22,9 @@ const menu = (partial: boolean) => (
 beforeEach(() => {
   useGraph.getState().reset();
   useUi.setState({ labelEditorFor: null });
+  useTabs.setState({ tabs: [{ id: "graph" }], active: "graph" });
 });
+afterEach(() => vi.restoreAllMocks());
 
 test("'older' item only appears for partial nodes", () => {
   const { unmount } = render(menu(false));
@@ -62,4 +66,27 @@ test("Ctrl+S, Ctrl+F and Alt+H trigger no action and no preventDefault", () => {
     expect(ev.defaultPrevented).toBe(false);
   }
   expect(useGraph.getState().ui[A]).toBeUndefined();
+});
+
+test("graph shortcuts do nothing while a tx tab is active", () => {
+  const TXH = "0x" + "11".repeat(32);
+  const sync = vi.spyOn(api, "sync").mockResolvedValue({ jobs: [] } as never);
+  render(<Host />);
+  act(() => {
+    useGraph.getState().select({ kind: "node", address: A });
+    useGraph.getState().setPinned([A], true); // something to undo
+    useTabs.getState().openTx(TXH);
+  });
+  for (const init of [{ key: "s" }, { key: "h" }, { key: "p" }, { key: "f" }, { key: "l" }, { key: "z", ctrlKey: true }]) {
+    const ev = new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true });
+    document.body.dispatchEvent(ev);
+    expect(ev.defaultPrevented, init.key).toBe(false);
+  }
+  expect(sync).not.toHaveBeenCalled();
+  expect(useGraph.getState().ui[A]).toMatchObject({ pinned: true, hidden: false });
+  expect(useUi.getState().labelEditorFor).toBeNull();
+  // Back on the graph tab they work again.
+  act(() => useTabs.getState().activate("graph"));
+  fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+  expect(useGraph.getState().ui[A]?.pinned).toBe(false);
 });
