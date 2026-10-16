@@ -4,6 +4,8 @@ use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::classify::classify;
+
 #[async_trait]
 pub trait Transport: Send + Sync {
     /// Perform a GET with the given query params; returns the raw response body.
@@ -73,7 +75,10 @@ impl Transport for FixtureTransport {
     }
 }
 
-/// Forwards to HTTP and records each successful response body to `<dir>/<fixture_key>.json`.
+/// Forwards to HTTP and records each successful response body to
+/// `<dir>/<fixture_key>.json`. Bodies that classify as an error (rate limit,
+/// quota, invalid key, ...) are passed on but not recorded, so a replay never
+/// serves a transient failure.
 pub struct RecordingTransport {
     inner: HttpTransport,
     dir: PathBuf,
@@ -92,6 +97,9 @@ impl RecordingTransport {
 impl Transport for RecordingTransport {
     async fn get(&self, params: &[(String, String)]) -> Result<String, SourceError> {
         let body = self.inner.get(params).await?;
+        if classify(&body).is_err() {
+            return Ok(body);
+        }
         tokio::fs::create_dir_all(&self.dir)
             .await
             .map_err(|e| SourceError::Network(format!("record: {e}")))?;
@@ -215,15 +223,16 @@ mod tests {
         let params = [p("a", "b"), p("apikey", "k")];
 
         let ok = MockServer::start().await;
+        let fine = r#"{"status":"1","message":"OK","result":[]}"#;
         Mock::given(method("GET"))
-            .respond_with(ResponseTemplate::new(200).set_body_string("body"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(fine))
             .mount(&ok)
             .await;
         let t = RecordingTransport::new(HttpTransport::new(&ok.uri()), &dir);
-        assert_eq!(t.get(&params).await.unwrap(), "body");
+        assert_eq!(t.get(&params).await.unwrap(), fine);
         assert_eq!(
             FixtureTransport::new(&dir).get(&params).await.unwrap(),
-            "body"
+            fine
         );
 
         let bad = MockServer::start().await;
@@ -235,6 +244,18 @@ mod tests {
         let t = RecordingTransport::new(HttpTransport::new(&bad.uri()), &dir2);
         assert!(t.get(&params).await.is_err());
         assert!(!dir2.exists());
+
+        // A 200 whose body is an Etherscan error is passed on, not recorded.
+        let limited = MockServer::start().await;
+        let rate = r#"{"status":"0","message":"NOTOK","result":"Max calls per sec rate limit reached (3/sec)"}"#;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(rate))
+            .mount(&limited)
+            .await;
+        let dir3 = tempdir("rec3").join("nested");
+        let t = RecordingTransport::new(HttpTransport::new(&limited.uri()), &dir3);
+        assert_eq!(t.get(&params).await.unwrap(), rate);
+        assert!(!dir3.exists());
     }
 
     fn tempdir(name: &str) -> PathBuf {
