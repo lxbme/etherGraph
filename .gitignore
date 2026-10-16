@@ -1,0 +1,7 @@
+/target
+/docs/superpowers/
+/.superpowers/
+/config.toml
+/web/node_modules
+/web/dist
+.env
