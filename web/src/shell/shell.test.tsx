@@ -93,6 +93,30 @@ describe('banners', () => {
     expect(screen.getByText('实时更新已断开，正在重连…')).toBeInTheDocument()
   })
 
+  it('SSE banner: none during the first connect, kept through reconnect attempts', () => {
+    useSseState.setState({ state: 'connecting', firstConnectDone: false })
+    render(<App />)
+    const banner = () => screen.queryByText('实时更新已断开，正在重连…')
+    expect(banner()).toBeNull()
+    act(() => useSseState.getState().set('open'))
+    expect(banner()).toBeNull()
+    act(() => useSseState.getState().set('closed'))
+    expect(banner()).toBeInTheDocument()
+    act(() => useSseState.getState().set('connecting'))
+    expect(banner()).toBeInTheDocument()
+    act(() => useSseState.getState().set('open'))
+    expect(banner()).toBeNull()
+  })
+
+  it('SSE banner shows when the very first connect fails', () => {
+    useSseState.setState({ state: 'connecting', firstConnectDone: false })
+    render(<App />)
+    act(() => useSseState.getState().set('closed'))
+    expect(screen.getByText('实时更新已断开，正在重连…')).toBeInTheDocument()
+    act(() => useSseState.getState().set('connecting'))
+    expect(screen.getByText('实时更新已断开，正在重连…')).toBeInTheDocument()
+  })
+
   it('quota paused shows the reset time banner', () => {
     useQuota.setState({ quota: { used: 100, limit: 100, paused: true, reset_at: '2026-10-18T00:00:00Z' } })
     render(<App />)

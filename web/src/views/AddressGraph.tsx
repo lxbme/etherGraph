@@ -121,7 +121,9 @@ export function AddressGraph() {
       {centers.length > 0 && error != null && (
         <div className="address-graph__status address-graph__status--error" role="alert">{messageFor(error)}</div>
       )}
-      {centers.length > 0 && error == null && isFetching && <div className="address-graph__status">加载中…</div>}
+      {centers.length > 0 && error == null && isFetching && !data && <div className="address-graph__status">加载中…</div>}
+      {/* Background refetch (data already shown): a small non-blocking dot. */}
+      {data && isFetching && <div className="address-graph__refreshing" role="status" aria-label="更新中" />}
     </div>
   );
 }

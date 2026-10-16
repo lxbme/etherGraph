@@ -166,3 +166,22 @@ test("drag end stores positions and records an undoable move", async () => {
   expect(useGraph.getState().ui[A]?.pos).toEqual({ x: 1, y: 2 });
   expect(useGraph.getState().ui[B]?.pos).toEqual({ x: 5, y: 5 });
 });
+
+test("loading text only before the first data; background refetches use a subtle indicator", async () => {
+  let release!: () => void;
+  vi.mocked(api.graphEdges).mockImplementation(() => new Promise((r) => { release = () => r(data); }));
+  useGraph.getState().addCenter(A);
+  mount();
+  expect(await screen.findByText("加载中…")).toBeInTheDocument();
+  act(() => release());
+  await waitFor(() => expect(ids()).toContain(A));
+  expect(screen.queryByText("加载中…")).toBeNull();
+  expect(screen.queryByLabelText("更新中")).toBeNull();
+
+  act(() => useGraph.getState().setSort("recent")); // new key: previous data kept while it loads
+  expect(await screen.findByLabelText("更新中")).toBeInTheDocument();
+  expect(screen.queryByText("加载中…")).toBeNull();
+  expect(ids()).toContain(A);
+  act(() => release());
+  await waitFor(() => expect(screen.queryByLabelText("更新中")).toBeNull());
+});

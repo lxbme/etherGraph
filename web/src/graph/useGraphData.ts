@@ -17,7 +17,8 @@ export function useGraphData(): { data?: GraphResponseDto; isFetching: boolean; 
   const enabled = centers.length > 0;
   const q = useQuery({
     queryKey: graphQueryKey({ centers, filter, sort }),
-    queryFn: () => api.graphEdges({ addresses: centers, filter, sort }),
+    // The signal aborts the HTTP request when the query is cancelled (e.g. superseded by a refetch).
+    queryFn: ({ signal }) => api.graphEdges({ addresses: centers, filter, sort }, { signal }),
     enabled,
     placeholderData: keepPreviousData,
   });

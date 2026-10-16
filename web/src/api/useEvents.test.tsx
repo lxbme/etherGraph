@@ -1,13 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react";
 import { useGraph } from "../graph/store";
-import { graphQueryKey } from "../graph/useGraphData";
+import { graphQueryKey, useGraphData } from "../graph/useGraphData";
 import { Banners } from "../shell/Banners";
 import { useJobProgress, useQuota, useSseState } from "../shell/statusStore";
 import { Toasts } from "../shell/Toasts";
 import { api } from "./endpoints";
 import type { Event } from "./generated/Event";
 import type { GraphResponseDto } from "./generated/GraphResponseDto";
+import type { JobDto } from "./generated/JobDto";
 import type { NodeSummaryDto } from "./generated/NodeSummaryDto";
 import type { StatusDto } from "./generated/StatusDto";
 import { qk } from "./queryClient";
@@ -70,6 +71,7 @@ beforeEach(() => {
     return unsubscribe;
   });
   vi.spyOn(api, "status").mockResolvedValue(status);
+  vi.spyOn(api, "jobs").mockResolvedValue([]);
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -194,4 +196,107 @@ test("writes SSE state, loads status on mount and unsubscribes on unmount", asyn
   expect(unsubscribe).toHaveBeenCalledTimes(1);
   advance(1000);
   expect(spy).not.toHaveBeenCalled();
+});
+
+const job = (id: number): JobDto => ({
+  id, key: `k${id}`, kind: "sync_address", status: "running", priority: "interactive", params: null,
+  progress: null, attempts: 0, error: null, created_at: "", updated_at: "",
+});
+const progress = (job_id: number) =>
+  ({ type: "JobProgress" as const, job_id, kind: "sync_address" as const, fetched: 0, cursor_block: null, status: "running" as const, error: null });
+
+test("Lagged reloads status and drops job progress for jobs that are no longer active", async () => {
+  mount();
+  await act(async () => {});
+  send(progress(1));
+  send(progress(2));
+  vi.mocked(api.jobs).mockResolvedValue([job(2)]);
+  vi.mocked(api.status).mockResolvedValue({ ...status, paused: true, degraded: null });
+  send({ type: "Lagged" });
+  await act(async () => {});
+  expect(api.status).toHaveBeenCalledTimes(2);
+  expect(api.jobs).toHaveBeenCalledTimes(2);
+  expect(Object.keys(useJobProgress.getState().byId)).toEqual(["2"]);
+  expect(useQuota.getState().quota?.paused).toBe(true);
+  expect(useQuota.getState().degraded).toBeNull();
+});
+
+test("a failed mount status load is retried with backoff until it succeeds once", async () => {
+  vi.mocked(api.status).mockRejectedValue(new Error("down"));
+  mount();
+  const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+  await tick(0);
+  expect(api.status).toHaveBeenCalledTimes(1);
+  // Retries after 2s, 5s, 10s, then every 30s.
+  for (const [wait, calls] of [[1999, 1], [1, 2], [5000, 3], [10000, 4], [30000, 5], [30000, 6]] as const) {
+    await tick(wait);
+    expect(api.status).toHaveBeenCalledTimes(calls);
+  }
+  expect(useQuota.getState().quota).toBeNull();
+  vi.mocked(api.status).mockResolvedValue(status);
+  await tick(30000);
+  expect(api.status).toHaveBeenCalledTimes(7);
+  expect(useQuota.getState().quota?.used).toBe(10);
+  await tick(120000);
+  expect(api.status).toHaveBeenCalledTimes(7);
+});
+
+test("an address in any cached graph result counts as on the canvas", () => {
+  useGraph.getState().addCenter(A);
+  // Older key (another filter) still cached, e.g. shown as placeholder while the new key loads.
+  qc.setQueryData(qk.graph([A], { filter: { kinds: ["erc20"] }, sort: "count" }), {
+    nodes: [node(A), node(B)], edges: [], omitted: {}, coverage: {},
+  } satisfies GraphResponseDto);
+  mount();
+  const spy = vi.spyOn(qc, "invalidateQueries");
+  send({ type: "AddressDataChanged", address: B });
+  advance(500);
+  expect(callsFor(spy, "graph")).toBe(1);
+});
+
+test("a slow graph fetch completes during an event storm and is refetched once after it", async () => {
+  useGraph.getState().addCenter(A);
+  const calls: { start: number; signal?: AbortSignal }[] = [];
+  let completed = 0;
+  vi.spyOn(api, "graphEdges").mockImplementation((_req, opts) => {
+    const n = calls.length;
+    calls.push({ start: Date.now(), signal: opts?.signal });
+    return new Promise((resolve) =>
+      setTimeout(() => {
+        completed++;
+        resolve({ nodes: [node(A)], edges: [], omitted: { [A]: n }, coverage: {} });
+      }, 800),
+    );
+  });
+  function GraphHarness() {
+    useEvents();
+    useGraphData();
+    return null;
+  }
+  render(
+    <QueryClientProvider client={qc}>
+      <GraphHarness />
+    </QueryClientProvider>,
+  );
+  // Results that actually landed in the cache (a cancelled fetch never does).
+  let landed = 0;
+  qc.getQueryCache().subscribe((ev) => {
+    if (ev.type === "updated" && ev.action.type === "success" && ev.query.queryKey[0] === "graph") landed++;
+  });
+  let lastEvent = 0;
+  for (let t = 0; t < 4000; t += 50) {
+    lastEvent = Date.now();
+    act(() => emit({ type: "AddressDataChanged", address: A }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+  }
+  const landedDuringStorm = landed;
+  await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+
+  expect(landedDuringStorm).toBeGreaterThanOrEqual(2);
+  expect(calls.every((c) => !c.signal?.aborted)).toBe(true);
+  expect(completed).toBe(calls.length);
+  expect(landed).toBe(calls.length);
+  expect(calls.filter((c) => c.start > lastEvent)).toHaveLength(1);
+  const data = qc.getQueryData<GraphResponseDto>(graphQueryKey(useGraph.getState()));
+  expect(data?.omitted[A]).toBe(calls.length - 1);
 });

@@ -36,7 +36,7 @@ test("graph query uses centers, filter and sort and skips when no centers", asyn
   });
   await waitFor(() => expect(result.current.data).toEqual(resp(A)));
   expect(spy).toHaveBeenCalledTimes(1);
-  expect(spy).toHaveBeenCalledWith({ addresses: [A], filter, sort: "recent" });
+  expect(spy).toHaveBeenCalledWith({ addresses: [A], filter, sort: "recent" }, { signal: expect.any(AbortSignal) });
   expect(qc.getQueryData(qk.graph([A], { filter, sort: "recent" }))).toEqual(resp(A));
 });
 
@@ -67,4 +67,17 @@ test("exposes the request error", async () => {
   const { result } = renderHook(() => useGraphData(), { wrapper });
   act(() => useGraph.getState().addCenter(A));
   await waitFor(() => expect(result.current.error).toBe(err));
+});
+
+test("a cancelled graph query aborts its HTTP request", async () => {
+  let signal: AbortSignal | undefined;
+  vi.spyOn(api, "graphEdges").mockImplementation((_req, opts) => {
+    signal = opts?.signal;
+    return new Promise(() => {});
+  });
+  renderHook(() => useGraphData(), { wrapper });
+  act(() => useGraph.getState().addCenter(A));
+  await waitFor(() => expect(signal).toBeDefined());
+  await act(() => qc.cancelQueries({ queryKey: ["graph"] }));
+  expect(signal!.aborted).toBe(true);
 });

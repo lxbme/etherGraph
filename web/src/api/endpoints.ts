@@ -31,8 +31,8 @@ export interface TransfersParams {
 
 export const api = {
   search: (q: string) => request<SearchResultDto>("GET", "/api/search", { query: { q } }),
-  graphEdges: (req: GraphRequestDto) =>
-    request<GraphResponseDto>("POST", "/api/graph/edges", { body: req }),
+  graphEdges: (req: GraphRequestDto, opts?: { signal?: AbortSignal }) =>
+    request<GraphResponseDto>("POST", "/api/graph/edges", { body: req, signal: opts?.signal }),
   transfers: (p: TransfersParams) =>
     request<TransferPageDto>("GET", "/api/transfers", {
       query: {

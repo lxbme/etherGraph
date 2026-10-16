@@ -47,3 +47,11 @@ test("request rejects with internal ApiError on non-JSON 200 body", async () => 
   expect(err).toBeInstanceOf(ApiError);
   expect(err.code).toBe("internal");
 });
+
+test("request forwards the abort signal to fetch", async () => {
+  const f = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+  vi.stubGlobal("fetch", f);
+  const ac = new AbortController();
+  await request("POST", "/api/x", { body: {}, signal: ac.signal });
+  expect(f.mock.calls[0]![1].signal).toBe(ac.signal);
+});

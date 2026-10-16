@@ -10,7 +10,7 @@ const KNOWN: ApiErrorCode[] = [
 export async function request<T>(
   method: Method,
   path: string,
-  opts: { query?: Record<string, string | undefined>; body?: unknown } = {},
+  opts: { query?: Record<string, string | undefined>; body?: unknown; signal?: AbortSignal } = {},
 ): Promise<T> {
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(opts.query ?? {})) {
@@ -19,6 +19,7 @@ export async function request<T>(
   const qs = params.toString();
   const url = qs ? `${path}?${qs}` : path;
   const init: RequestInit = { method };
+  if (opts.signal) init.signal = opts.signal;
   if (opts.body !== undefined) {
     init.headers = { "Content-Type": "application/json" };
     init.body = JSON.stringify(opts.body);

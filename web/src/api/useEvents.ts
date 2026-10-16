@@ -1,7 +1,6 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useGraph } from "../graph/store";
-import { graphQueryKey } from "../graph/useGraphData";
 import { useJobProgress, useQuota, useSseState } from "../shell/statusStore";
 import { toast } from "../shell/Toasts";
 import { api } from "./endpoints";
@@ -13,20 +12,31 @@ import { subscribeEvents } from "./sse";
 /** Bursts of data/meta events are merged into one invalidation per window. */
 const COALESCE_MS = 500;
 
-/** Collects addresses and flushes them once, `COALESCE_MS` after the first one of a window arrived. */
-function coalescer(flush: (addrs: Set<string>) => void) {
+/** Retry delays for the initial status load; the last one repeats. */
+const STATUS_RETRY_MS = [2000, 5000, 10000, 30000];
+
+/**
+ * Collects addresses and flushes them once, `COALESCE_MS` after the first one of a window arrived.
+ * While `busy()` holds, the flush is postponed by another window (pending addresses are kept), so
+ * an invalidation never cancels a fetch that is still running.
+ */
+function coalescer(flush: (addrs: Set<string>) => void, busy: () => boolean) {
   let pending = new Set<string>();
   let timer: ReturnType<typeof setTimeout> | null = null;
+  const fire = () => {
+    if (busy()) {
+      timer = setTimeout(fire, COALESCE_MS);
+      return;
+    }
+    timer = null;
+    const batch = pending;
+    pending = new Set();
+    flush(batch);
+  };
   return {
     add(addrs: Iterable<string>) {
       for (const a of addrs) pending.add(a.toLowerCase());
-      if (timer !== null) return;
-      timer = setTimeout(() => {
-        timer = null;
-        const batch = pending;
-        pending = new Set();
-        flush(batch);
-      }, COALESCE_MS);
+      if (timer === null) timer = setTimeout(fire, COALESCE_MS);
     },
     cancel() {
       if (timer !== null) clearTimeout(timer);
@@ -35,12 +45,15 @@ function coalescer(flush: (addrs: Set<string>) => void) {
   };
 }
 
-/** True when the address is a center or a node of the current graph. */
+/**
+ * True when the address is a center or a node of any cached graph result (the current key may
+ * still be loading while the previous result is shown as placeholder).
+ */
 function onCanvas(qc: QueryClient, addr: string): boolean {
-  const s = useGraph.getState();
-  if (s.centers.includes(addr)) return true;
-  const data = qc.getQueryData<GraphResponseDto>(graphQueryKey(s));
-  return !!data?.nodes.some((n) => n.address.toLowerCase() === addr);
+  if (useGraph.getState().centers.includes(addr)) return true;
+  return qc
+    .getQueriesData<GraphResponseDto>({ queryKey: ["graph"] })
+    .some(([, data]) => !!data?.nodes.some((n) => n.address.toLowerCase() === addr));
 }
 
 const TRANSFER_ADDR_FIELDS = ["address", "from", "to"];
@@ -60,6 +73,8 @@ export function useEvents(): void {
   const qc = useQueryClient();
 
   useEffect(() => {
+    let alive = true;
+    const graphBusy = () => qc.isFetching({ queryKey: ["graph"] }) > 0;
     const invalidateAddresses = (addrs: Set<string>) => {
       for (const a of addrs) void qc.invalidateQueries({ queryKey: qk.address(a) });
     };
@@ -69,11 +84,48 @@ export function useEvents(): void {
       void qc.invalidateQueries({
         predicate: (q) => q.queryKey[0] === "transfers" && transfersTouch(q.queryKey[1], addrs),
       });
-    });
+    }, graphBusy);
     const metaChanged = coalescer((addrs) => {
       void qc.invalidateQueries({ queryKey: ["graph"] });
       invalidateAddresses(addrs);
-    });
+    }, graphBusy);
+
+    /** Quota/degraded from /api/status; drops progress of tracked jobs that are no longer active. */
+    const refreshStatus = async (): Promise<boolean> => {
+      const tracked = Object.keys(useJobProgress.getState().byId).map(Number);
+      const [status, jobs] = await Promise.allSettled([api.status(), api.jobs()]);
+      if (!alive) return false;
+      if (jobs.status === "fulfilled") {
+        const active = new Set(jobs.value.map((j) => j.id));
+        useJobProgress.getState().remove(tracked.filter((id) => !active.has(id)));
+      }
+      if (status.status !== "fulfilled") return false;
+      const s = status.value;
+      const q = useQuota.getState();
+      q.setQuota({ used: s.quota_used, limit: s.quota_limit, paused: s.paused, reset_at: s.reset_at });
+      q.setDegraded(s.degraded);
+      return true;
+    };
+    // Until the status has loaded once, failures are retried with backoff.
+    let statusLoaded = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+    const loadStatus = () => {
+      void refreshStatus().then((ok) => {
+        if (ok) {
+          statusLoaded = true;
+          if (retryTimer !== null) clearTimeout(retryTimer);
+          retryTimer = null;
+          return;
+        }
+        if (!alive || statusLoaded || retryTimer !== null) return;
+        const delay = STATUS_RETRY_MS[Math.min(attempt++, STATUS_RETRY_MS.length - 1)];
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          loadStatus();
+        }, delay);
+      });
+    };
 
     const onEvent = (e: Event) => {
       switch (e.type) {
@@ -101,27 +153,18 @@ export function useEvents(): void {
           useQuota.getState().setQuota({ used: e.used, limit: e.limit, paused: e.paused, reset_at: e.reset_at });
           break;
         case "Lagged":
+          // Events were missed: refetch everything and resync the status stores.
           void qc.invalidateQueries();
+          loadStatus();
           break;
       }
     };
 
-    let alive = true;
-    api
-      .status()
-      .then((s) => {
-        if (!alive) return;
-        const q = useQuota.getState();
-        q.setQuota({ used: s.quota_used, limit: s.quota_limit, paused: s.paused, reset_at: s.reset_at });
-        q.setDegraded(s.degraded);
-      })
-      .catch(() => {
-        // Status is best-effort; QuotaStatus events and the SSE banner cover the live state.
-      });
-
+    loadStatus();
     const unsubscribe = subscribeEvents(onEvent, (s) => useSseState.getState().set(s));
     return () => {
       alive = false;
+      if (retryTimer !== null) clearTimeout(retryTimer);
       unsubscribe();
       dataChanged.cancel();
       metaChanged.cancel();
