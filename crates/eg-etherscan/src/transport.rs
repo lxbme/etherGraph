@@ -38,7 +38,7 @@ impl Transport for HttpTransport {
             .query(params)
             .send()
             .await
-            .map_err(|e| SourceError::Network(e.to_string()))?;
+            .map_err(|e| SourceError::Network(e.without_url().to_string()))?;
         let status = resp.status();
         if status.is_server_error() {
             return Err(SourceError::Network(format!("http {status}")));
@@ -48,7 +48,7 @@ impl Transport for HttpTransport {
         }
         resp.text()
             .await
-            .map_err(|e| SourceError::Network(e.to_string()))
+            .map_err(|e| SourceError::Network(e.without_url().to_string()))
     }
 }
 
@@ -194,6 +194,17 @@ mod tests {
 
         let r = HttpTransport::new("http://127.0.0.1:1").get(&[]).await;
         assert!(matches!(r, Err(SourceError::Network(_))), "{r:?}");
+    }
+
+    #[tokio::test]
+    async fn network_error_does_not_leak_apikey() {
+        let r = HttpTransport::new("http://127.0.0.1:1")
+            .get(&[p("apikey", "SECRET123")])
+            .await;
+        match r {
+            Err(SourceError::Network(m)) => assert!(!m.contains("SECRET123"), "{m}"),
+            other => panic!("{other:?}"),
+        }
     }
 
     #[tokio::test]
