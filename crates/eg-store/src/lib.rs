@@ -211,6 +211,31 @@ impl Store {
         Ok(())
     }
 
+    /// Settles every `syncing` kind of `addr` that no job will finish: `ok`
+    /// when it has coverage (`to_block` set), else `failed`. Returns the
+    /// number of rows changed.
+    pub async fn settle_syncing(&self, addr: Address) -> Result<u64> {
+        self.settle(addr, None).await
+    }
+
+    /// [`Store::settle_syncing`] for one kind.
+    pub async fn settle_syncing_kind(&self, addr: Address, kind: TransferKind) -> Result<u64> {
+        self.settle(addr, Some(kind)).await
+    }
+
+    async fn settle(&self, addr: Address, kind: Option<TransferKind>) -> Result<u64> {
+        let res = sqlx::query(
+            "UPDATE address_sync SET state = CASE WHEN to_block IS NULL THEN 'failed' \
+             ELSE 'ok' END WHERE address = $1 AND state = 'syncing' \
+             AND ($2::smallint IS NULL OR kind = $2)",
+        )
+        .bind(addr_to_bytes(addr))
+        .bind(kind.map(TransferKind::as_i16))
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected())
+    }
+
     pub async fn sync_rows(&self, addrs: &[Address]) -> Result<Vec<SyncRow>> {
         let keys: Vec<Vec<u8>> = addrs.iter().copied().map(addr_to_bytes).collect();
         let rows = sqlx::query(
@@ -585,6 +610,58 @@ mod tests {
             store.sync_rows(&[a]).await.unwrap()[0].state,
             SyncState::Failed
         );
+    }
+
+    #[sqlx::test]
+    async fn settle_syncing_restores_ok_or_failed(pool: PgPool) {
+        let store = Store::from_pool(pool.clone());
+        let job = new_job(&pool).await;
+        let (a, b) = (Address::repeat_byte(1), Address::repeat_byte(2));
+        let covered = |kind| SyncUpdate {
+            address: a,
+            kind,
+            from_block: 1,
+            to_block: 2,
+            truncated: false,
+            expected_from: None,
+        };
+        for k in [TransferKind::Native, TransferKind::Internal] {
+            store
+                .write_page(job, &[], &[], &json!({}), Some(&covered(k)))
+                .await
+                .unwrap();
+        }
+        for (addr, k) in [
+            (a, TransferKind::Native),
+            (a, TransferKind::Erc20),
+            (a, TransferKind::Erc721),
+            (b, TransferKind::Native),
+        ] {
+            store
+                .set_sync_state(addr, k, SyncState::Syncing)
+                .await
+                .unwrap();
+        }
+        let state = |rows: &[SyncRow], k| rows.iter().find(|r| r.kind == k).unwrap().state;
+
+        assert_eq!(
+            store
+                .settle_syncing_kind(a, TransferKind::Erc721)
+                .await
+                .unwrap(),
+            1
+        );
+        let rows = store.sync_rows(&[a]).await.unwrap();
+        assert_eq!(state(&rows, TransferKind::Erc721), SyncState::Failed);
+        assert_eq!(state(&rows, TransferKind::Native), SyncState::Syncing);
+
+        assert_eq!(store.settle_syncing(a).await.unwrap(), 2);
+        let rows = store.sync_rows(&[a]).await.unwrap();
+        assert_eq!(state(&rows, TransferKind::Native), SyncState::Ok);
+        assert_eq!(state(&rows, TransferKind::Internal), SyncState::Ok);
+        assert_eq!(state(&rows, TransferKind::Erc20), SyncState::Failed);
+        let rows = store.sync_rows(&[b]).await.unwrap();
+        assert_eq!(state(&rows, TransferKind::Native), SyncState::Syncing);
     }
 
     #[sqlx::test]

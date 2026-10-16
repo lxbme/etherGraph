@@ -254,12 +254,14 @@ impl Plan<'_> {
                 .await?;
             if update.is_some() && !applied {
                 // Rows are stored, but the claim would no longer be honest;
-                // the row keeps whatever the concurrent sync wrote.
+                // the row keeps the concurrent sync's coverage. This job is
+                // done with the kind, so it must not stay `syncing`.
                 tracing::info!(
                     job_id = job.id,
                     kind = kind.as_str(),
                     "coverage boundary moved during sync; coverage left unchanged"
                 );
+                ctx.store.settle_syncing_kind(self.address, kind).await?;
             }
             ctx.bus.publish(Event::AddressDataChanged {
                 address: self.address,

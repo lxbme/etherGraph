@@ -287,6 +287,12 @@ impl Store {
         Ok(res.rows_affected())
     }
 
+    pub async fn job(&self, id: i64) -> Result<Option<JobRow>> {
+        let sql = concat!("SELECT ", job_cols!(), " FROM jobs WHERE id = $1");
+        let row = sqlx::query(sql).bind(id).fetch_optional(&self.pool).await?;
+        row.as_ref().map(job_row).transpose()
+    }
+
     pub async fn active_jobs(&self) -> Result<Vec<JobRow>> {
         let sql = concat!(
             "SELECT ",

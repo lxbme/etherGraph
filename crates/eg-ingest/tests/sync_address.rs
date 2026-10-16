@@ -646,3 +646,22 @@ async fn background_job_never_uses_interactive_priority(pool: PgPool) {
         qs.iter().map(|(p, _)| *p).collect::<Vec<_>>()
     );
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn guard_miss_settles_syncing_state(pool: PgPool) {
+    let e = env(pool, 3000);
+    e.fake.set_latest_block(6000);
+    native_blocks(&e, 5000);
+    run_to_done(&e, "latest", params("latest", &["native"])).await;
+    // Before the Older sync's last page another job moves the boundary and
+    // is itself still syncing the kind.
+    e.spy.sql_before_history(
+        6,
+        "UPDATE address_sync SET from_block = 30000, to_block = 50000, truncated = true, \
+         state = 'syncing', last_synced_at = now()",
+    );
+    run_to_done(&e, "older", params("older", &["native"])).await;
+    let r = row(&e, TransferKind::Native).await;
+    assert_eq!((r.from_block, r.to_block), (Some(30000), Some(50000)));
+    assert_eq!(r.state, SyncState::Ok);
+}

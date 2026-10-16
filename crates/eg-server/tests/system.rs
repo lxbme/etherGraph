@@ -422,3 +422,52 @@ fn config_debug_redacts_api_key() {
     let none = Config::default();
     assert!(format!("{none:?}").contains("api_key: None"));
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn cancel_pending_sync_settles_syncing_kinds(pool: PgPool) {
+    use eg_core::types::TransferKind;
+    use eg_ingest::{SyncDirection, enqueue_sync};
+    use eg_store::SyncState;
+    let (app, state, _) = test_app(pool.clone());
+    let (addr, other) = (Address::repeat_byte(0xaa), Address::repeat_byte(0xbb));
+    for (a, kind, to_block) in [
+        (addr, TransferKind::Native, Some(20i64)),
+        (addr, TransferKind::Erc20, None),
+        (other, TransferKind::Native, None),
+    ] {
+        sqlx::query(
+            "INSERT INTO address_sync (address, kind, from_block, to_block, state) \
+             VALUES ($1, $2, $3, $3, 'syncing')",
+        )
+        .bind(a.as_slice().to_vec())
+        .bind(kind.as_i16())
+        .bind(to_block)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    // The job ran, was paused by the quota and left its kinds `syncing`.
+    let id = enqueue_sync(
+        &state.ctx,
+        addr,
+        SyncDirection::Latest,
+        Priority::Background,
+    )
+    .await
+    .unwrap();
+    state.store.claim_next().await.unwrap().unwrap();
+    state.store.pause_job_quota(id).await.unwrap();
+    let (status, _) = delete(&app, &format!("/api/jobs/{id}")).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
+    let rows = state.store.sync_rows(&[addr, other]).await.unwrap();
+    let st = |a, k| {
+        rows.iter()
+            .find(|r| r.address == a && r.kind == k)
+            .unwrap()
+            .state
+    };
+    assert_eq!(st(addr, TransferKind::Native), SyncState::Ok);
+    assert_eq!(st(addr, TransferKind::Erc20), SyncState::Failed);
+    assert_eq!(st(other, TransferKind::Native), SyncState::Syncing);
+}

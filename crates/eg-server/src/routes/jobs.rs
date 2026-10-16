@@ -4,7 +4,8 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use eg_ingest::Event;
-use eg_store::JobStatus;
+use eg_ingest::handlers::SyncParams;
+use eg_store::{JobKind, JobStatus};
 use serde::Deserialize;
 
 use crate::dto::JobDto;
@@ -51,6 +52,9 @@ pub async fn cancel(
         .await?
         .ok_or_else(|| ApiError::not_found(format!("no active job {id}")))?;
     if status == JobStatus::Cancelled {
+        if kind == JobKind::SyncAddress {
+            settle_cancelled_sync(&s, id).await?;
+        }
         s.ctx.bus.publish(Event::JobProgress {
             job_id: id,
             kind,
@@ -60,4 +64,19 @@ pub async fn cancel(
         });
     }
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// A pending or paused sync may have left kinds `syncing` (it ran before being
+/// re-queued or paused); nothing will finish them now.
+async fn settle_cancelled_sync(s: &AppState, id: i64) -> Result<(), ApiError> {
+    let Some(job) = s.store.job(id).await? else {
+        return Ok(());
+    };
+    match serde_json::from_value::<SyncParams>(job.params) {
+        Ok(p) => {
+            s.store.settle_syncing(p.address).await?;
+        }
+        Err(e) => tracing::warn!(job_id = id, error = %e, "cancelled sync has bad params"),
+    }
+    Ok(())
 }
