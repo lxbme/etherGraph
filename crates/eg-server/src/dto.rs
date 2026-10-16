@@ -307,8 +307,12 @@ pub struct SyncRequestDto {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SyncResponseDto {
+    /// Lower bound: first pages only.
     pub estimated_calls: Option<u32>,
     pub estimated_seconds: Option<f64>,
+    /// Estimated calls per requested address.
+    #[ts(type = "Record<string, number> | null")]
+    pub per_address: Option<HashMap<String, u32>>,
     #[ts(type = "Array<number> | null")]
     pub jobs: Option<Vec<i64>>,
 }

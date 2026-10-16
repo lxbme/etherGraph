@@ -563,9 +563,11 @@ async fn sync_dry_run_estimates(pool: PgPool) {
     )
     .await;
     assert_eq!(s, StatusCode::OK, "{b}");
-    assert_eq!(b["estimated_calls"], 10);
+    // eth_blockNumber + 5 first pages for each never-synced address.
+    assert_eq!(b["estimated_calls"], 12);
     let secs = b["estimated_seconds"].as_f64().unwrap();
-    assert!((secs - 10.0 / 2.8).abs() < 1e-9, "{secs}");
+    assert!((secs - 12.0 / 2.8).abs() < 1e-9, "{secs}");
+    assert_eq!(b["per_address"], json!({hex(A): 6, hex(B): 0, hex(C): 6}));
     assert_eq!(b["jobs"], Value::Null);
     assert!(state.store.active_jobs().await.unwrap().is_empty());
 
@@ -577,6 +579,7 @@ async fn sync_dry_run_estimates(pool: PgPool) {
     .await;
     assert_eq!(s, StatusCode::OK, "{b}");
     assert_eq!(b["estimated_calls"], 5);
+    assert_eq!(b["per_address"], json!({hex(B): 5}));
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
@@ -590,6 +593,7 @@ async fn sync_enqueues_background_jobs(pool: PgPool) {
     .await;
     assert_eq!(s, StatusCode::OK, "{b}");
     assert_eq!(b["estimated_calls"], Value::Null);
+    assert_eq!(b["per_address"], Value::Null);
     let ids = b["jobs"].as_array().unwrap();
     assert_eq!(ids.len(), 2);
     let jobs = jobs_of(&state, JobKind::SyncAddress).await;

@@ -6,7 +6,7 @@ use chrono::Utc;
 use eg_core::source::Priority;
 use eg_ingest::{SyncDirection, enqueue_sync, estimate};
 
-use crate::dto::{SyncRequestDto, SyncResponseDto};
+use crate::dto::{SyncRequestDto, SyncResponseDto, hex_addr};
 use crate::error::{ApiError, invalid};
 use crate::routes::{ApiJson, parse_addresses};
 use crate::state::AppState;
@@ -39,6 +39,12 @@ pub async fn sync(
         return Ok(Json(SyncResponseDto {
             estimated_calls: Some(e.calls),
             estimated_seconds: Some(e.seconds),
+            per_address: Some(
+                e.per_address
+                    .iter()
+                    .map(|(a, n)| (hex_addr(*a), *n))
+                    .collect(),
+            ),
             jobs: None,
         }));
     }
@@ -49,6 +55,7 @@ pub async fn sync(
     Ok(Json(SyncResponseDto {
         estimated_calls: None,
         estimated_seconds: None,
+        per_address: None,
         jobs: Some(jobs),
     }))
 }

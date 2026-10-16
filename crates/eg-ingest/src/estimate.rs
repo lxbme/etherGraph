@@ -1,6 +1,6 @@
 //! Call-cost estimate for the 2-hop expansion confirmation.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
@@ -9,15 +9,21 @@ use eg_store::SyncRow;
 
 use crate::enqueue::SyncDirection;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Estimate {
     pub calls: u32,
     pub seconds: f64,
+    /// Calls per requested address (0 when it needs none).
+    pub per_address: HashMap<Address, u32>,
 }
 
-/// Estimated provider calls (and time at `rate` calls/s) to bring `addrs` up
-/// to date. `Latest`: 5 calls (one per kind) for an address with no sync rows
-/// or any row never synced / older than `stale_after`. `Older`: one call per
+/// Calls a Latest sync makes before paging: `eth_blockNumber` for the head.
+const LATEST_HEAD_CALLS: u32 = 1;
+
+/// Lower-bound estimate of provider calls (and time at `rate` calls/s) to
+/// bring `addrs` up to date; deeper pages are not counted. `Latest`: the head
+/// lookup plus one first page per kind (6) for an address with no sync rows or
+/// any row never synced / older than `stale_after`. `Older`: one call per
 /// truncated kind.
 pub fn estimate(
     addrs: &[Address],
@@ -27,12 +33,14 @@ pub fn estimate(
     stale_after: Duration,
     rate: f64,
 ) -> Estimate {
-    let mut seen = HashSet::new();
     let stale = chrono::Duration::from_std(stale_after).unwrap_or(chrono::Duration::MAX);
-    let mut calls = 0u32;
-    for addr in addrs.iter().filter(|a| seen.insert(**a)) {
+    let mut per_address = HashMap::new();
+    for addr in addrs {
+        if per_address.contains_key(addr) {
+            continue;
+        }
         let own: Vec<&SyncRow> = rows.iter().filter(|r| r.address == *addr).collect();
-        calls += match dir {
+        let calls = match dir {
             SyncDirection::Latest => {
                 let needs = own.is_empty()
                     || own.iter().any(|r| match r.last_synced_at {
@@ -40,17 +48,20 @@ pub fn estimate(
                         Some(t) => now.signed_duration_since(t) > stale,
                     });
                 if needs {
-                    TransferKind::ALL.len() as u32
+                    LATEST_HEAD_CALLS + TransferKind::ALL.len() as u32
                 } else {
                     0
                 }
             }
             SyncDirection::Older => own.iter().filter(|r| r.truncated).count() as u32,
         };
+        per_address.insert(*addr, calls);
     }
+    let calls = per_address.values().sum();
     Estimate {
         calls,
         seconds: f64::from(calls) / rate,
+        per_address,
     }
 }
 
@@ -98,8 +109,13 @@ mod tests {
             Duration::from_secs(600),
             2.8,
         );
-        assert_eq!(e.calls, 10);
-        assert!((e.seconds - 10.0 / 2.8).abs() < 1e-9);
+        // eth_blockNumber plus one first page per kind, for `never` and `stale`.
+        assert_eq!(e.calls, 12);
+        assert!((e.seconds - 12.0 / 2.8).abs() < 1e-9);
+        assert_eq!(
+            e.per_address,
+            HashMap::from([(never, 6), (fresh, 0), (stale, 6), (other, 0)])
+        );
     }
 
     #[test]
@@ -121,5 +137,9 @@ mod tests {
         );
         assert_eq!(e.calls, 3);
         assert!((e.seconds - 1.5).abs() < 1e-9);
+        assert_eq!(
+            e.per_address,
+            HashMap::from([(a, 2), (b, 1), (Address::repeat_byte(3), 0)])
+        );
     }
 }

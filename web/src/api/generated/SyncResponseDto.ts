@@ -3,4 +3,12 @@
 /**
  * Dry run: the estimate fields are set; otherwise `jobs`.
  */
-export type SyncResponseDto = { estimated_calls: number | null, estimated_seconds: number | null, jobs: Array<number> | null, };
+export type SyncResponseDto = { 
+/**
+ * Lower bound: first pages only.
+ */
+estimated_calls: number | null, estimated_seconds: number | null, 
+/**
+ * Estimated calls per requested address.
+ */
+per_address: Record<string, number> | null, jobs: Array<number> | null, };
