@@ -10,6 +10,28 @@ const COALESCE_MS = 500;
 /** Long enough that a second (wrongly un-merged) refetch would have fired: 3× the merge window. */
 const NO_MORE_REFETCH_MS = 3 * COALESCE_MS;
 
+/** Model position of a node on the address graph (null when absent). */
+function nodePos(page: Page, id: string): Promise<{ x: number; y: number } | null> {
+  return page.evaluate((id) => {
+    const cy = (window as unknown as { __etherGraphCy?: import("cytoscape").Core | null }).__etherGraphCy;
+    const n = cy?.$id(id);
+    return n && n.nonempty() ? { ...n.position() } : null;
+  }, id);
+}
+
+/** The node's position once it stopped moving (the incremental layout animates small graphs). */
+async function settledPos(page: Page, id: string): Promise<{ x: number; y: number }> {
+  let last = await nodePos(page, id);
+  await expect(async () => {
+    await page.waitForTimeout(250);
+    const cur = await nodePos(page, id);
+    const same = !!cur && !!last && cur.x === last.x && cur.y === last.y;
+    last = cur;
+    expect(same, `${id} settled`).toBe(true);
+  }).toPass({ timeout: 5000 });
+  return last!;
+}
+
 async function searchAddress(page: Page, mock: MockApi, addr: string) {
   await page.goto("/?e2e=1");
   await page.getByRole("searchbox", { name: "搜索" }).fill(addr);
@@ -112,6 +134,26 @@ test("AddressDataChanged over SSE refreshes the graph exactly once", async ({ pa
   expect(mock.count(GRAPH)).toBe(2);
   expect(mock.count("GET /api/events")).toBeGreaterThanOrEqual(2);
 
+  expect(mock.unhandled).toEqual([]);
+});
+
+test("a node dropped by a filter returns to its previous position on undo", async ({ page, mock }) => {
+  await searchAddress(page, mock, A);
+  await expectLaidOut(page, "main", 4);
+  const before = await settledPos(page, C);
+
+  mock.on(GRAPH, () => ({ json: graphFiltered }));
+  await page.getByRole("button", { name: /过滤/ }).click();
+  const dialog = page.getByRole("dialog", { name: "过滤" });
+  await dialog.getByLabel("ETH", { exact: true }).check();
+  await dialog.getByRole("button", { name: "应用" }).click();
+  await expect.poll(async () => (await snapshot(page, "main"))?.nodes.map((n) => n.id).sort()).toEqual([A, B, D].sort());
+
+  await page.keyboard.press("Control+z");
+  await expect.poll(async () => (await snapshot(page, "main"))?.nodes.length).toBe(4);
+  const after = await settledPos(page, C);
+  expect(after!.x).toBeCloseTo(before!.x, 3);
+  expect(after!.y).toBeCloseTo(before!.y, 3);
   expect(mock.unhandled).toEqual([]);
 });
 

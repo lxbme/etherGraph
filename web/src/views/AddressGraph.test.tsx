@@ -284,3 +284,11 @@ test("'显示隐藏节点 (N)' appears while nodes are hidden and unhides them a
   act(() => useGraph.getState().undo());
   expect(ids()).toEqual([A]);
 });
+
+test("a failing query after a success keeps the previous nodes and shows the error inline", async () => {
+  await mountWithData();
+  vi.mocked(api.graphEdges).mockRejectedValue(new ApiError("internal", 500, "boom"));
+  act(() => useGraph.getState().setSort("recent"));
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(ids()).toEqual([A, B, `c:${A}>${B}`]);
+});

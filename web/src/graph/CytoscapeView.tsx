@@ -35,11 +35,15 @@ const isNodeDef = (d: cytoscape.ElementDefinition) => d.group !== "edges" && d.d
  * and updates data/classes in place. A definition's `position` is applied to an existing
  * node only when it differs from the one applied last time (`prev`), so positions the user
  * dragged or the layout produced are never reset by unrelated updates.
+ *
+ * `lastPos` (updated in place) remembers where removed nodes were: a node that comes back
+ * without a definition position (unhidden, filter undone…) returns there and is not new.
  */
 export function syncElements(
   cy: cytoscape.Core,
   defs: cytoscape.ElementDefinition[],
   prev: AppliedPositions,
+  lastPos: Map<string, Pos> = new Map(),
 ): { newNodeIds: string[]; structureChanged: boolean; positions: AppliedPositions } {
   const byId = new Map<string, cytoscape.ElementDefinition>();
   for (const d of defs) if (d.data.id) byId.set(d.data.id, d);
@@ -57,6 +61,10 @@ export function syncElements(
     });
     if (stale.nonempty()) {
       structureChanged = true;
+      stale.nodes().forEach((node) => {
+        const p = node.position();
+        lastPos.set(node.id(), { x: p.x, y: p.y });
+      });
       cy.remove(stale);
     }
 
@@ -66,8 +74,11 @@ export function syncElements(
       if (isNode) positions.set(id, d.position && { ...d.position });
       const el = cy.getElementById(id);
       if (el.empty()) {
-        toAdd.push(d.position ? { ...d, position: { ...d.position } } : d);
-        if (isNode && !d.position) newNodeIds.push(id);
+        const back = isNode && !d.position ? lastPos.get(id) : undefined;
+        const pos = d.position ?? back;
+        toAdd.push(pos ? { ...d, position: { ...pos } } : d);
+        if (isNode && !pos) newNodeIds.push(id);
+        if (isNode) lastPos.delete(id);
         continue;
       }
       const cur = el.data() as Record<string, unknown>;
@@ -93,6 +104,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
   const appliedRef = useRef<AppliedPositions>(new Map());
+  const lastPosRef = useRef<Map<string, Pos>>(new Map());
   const refitRef = useRef<ReturnType<typeof createRefitGuard> | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
@@ -112,6 +124,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
     });
     cyRef.current = cy;
     appliedRef.current = new Map();
+    lastPosRef.current = new Map();
     const p = () => propsRef.current;
     // Deferred (microtask) callbacks must not fire after this instance was torn down.
     let alive = true;
@@ -215,7 +228,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
     const cy = cyRef.current;
     if (!cy) return;
     const wasEmpty = cy.nodes().empty();
-    const r = syncElements(cy, props.elements, appliedRef.current);
+    const r = syncElements(cy, props.elements, appliedRef.current, lastPosRef.current);
     appliedRef.current = r.positions;
     if (props.layout === "dagre-lr") {
       if (r.structureChanged) {

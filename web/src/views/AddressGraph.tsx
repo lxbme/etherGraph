@@ -11,6 +11,7 @@ import { useShortcuts } from "../graph/useShortcuts";
 import { BatchBar } from "../panels/BatchBar";
 import { ContextMenu } from "../panels/ContextMenu";
 import { ExpandDialog } from "../panels/ExpandDialog";
+import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { useGraph, type Pos } from "../graph/store";
 import { graphStylesheet } from "../graph/styles";
@@ -38,8 +39,13 @@ const lc = (s: string) => s.toLowerCase();
 
 /** The address relationship canvas: store + graph data → Cytoscape, and interactions back into the store/API. */
 export function AddressGraph() {
-  const { data, isFetching, error } = useGraphData();
+  const { data: fresh, isFetching, error } = useGraphData();
   const centers = useGraph((s) => s.centers);
+  // A failed query (e.g. after a filter change) keeps showing the last good result; the error is shown inline.
+  const lastGood = useRef<GraphResponseDto | undefined>(undefined);
+  if (fresh) lastGood.current = fresh;
+  else if (centers.length === 0) lastGood.current = undefined;
+  const data = fresh ?? (error != null ? lastGood.current : undefined);
   const expandedPairs = useGraph((s) => s.expandedPairs);
   const ui = useGraph((s) => s.ui);
   const selection = useGraph((s) => s.selection);

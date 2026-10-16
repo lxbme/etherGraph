@@ -58,4 +58,17 @@ describe("syncElements", () => {
     syncElements(cy, [n("a", { position: { x: 7, y: 8 } })], r2.positions); // e.g. undo
     expect(cy.getElementById("a").position()).toEqual({ x: 7, y: 8 });
   });
+
+  test("a node that left and comes back without a definition position returns where it was, not as new", () => {
+    const cy = cytoscape({ headless: true });
+    const last = new Map<string, { x: number; y: number }>();
+    const r1 = syncElements(cy, [n("a"), n("c"), e("ac", "a", "c")], new Map(), last);
+    cy.getElementById("c").position({ x: 120, y: -40 }); // placed by the layout
+    const r2 = syncElements(cy, [n("a")], r1.positions, last); // e.g. filtered out
+    expect(cy.getElementById("c").empty()).toBe(true);
+    const r3 = syncElements(cy, [n("a"), n("c"), e("ac", "a", "c"), n("d")], r2.positions, last); // undo
+    expect(cy.getElementById("c").position()).toEqual({ x: 120, y: -40 });
+    expect(r3.newNodeIds).toEqual(["d"]);
+    expect(r3.structureChanged).toBe(true);
+  });
 });
