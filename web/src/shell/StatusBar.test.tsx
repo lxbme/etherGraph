@@ -3,6 +3,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "../api/endpoints";
+import { qk } from "../api/queryClient";
+import { statusQuery } from "../api/statusQuery";
 import type { JobDto } from "../api/generated/JobDto";
 import type { StatusDto } from "../api/generated/StatusDto";
 import { StatusBar } from "./StatusBar";
@@ -28,8 +30,7 @@ const prog = (over: Partial<JobProgressEvent> = {}): JobProgressEvent => ({
   type: "JobProgress", job_id: 1, kind: "sync_address", fetched: 3000, cursor_block: null, status: "running", error: null, ...over,
 });
 
-function wrap(ui: React.ReactElement) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function wrap(ui: React.ReactElement, qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
 }
 
@@ -109,5 +110,39 @@ describe("jobs popover", () => {
     expect(screen.getByText("0xabab…abab")).toBeInTheDocument();
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "任务" })).toBeNull();
+  });
+});
+
+describe("status loading", () => {
+  test("a concurrent fetchQuery and the StatusBar share one in-flight request and one quota write", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    wrap(<StatusBar />, qc);
+    await qc.fetchQuery(statusQuery);
+    expect(m.status).toHaveBeenCalledTimes(1);
+    expect(useQuota.getState().quota?.used).toBe(10);
+  });
+
+  test("remounting does not reapply cached status over a newer quota", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const first = wrap(<StatusBar />, qc);
+    await screen.findByText("队列 7");
+    first.unmount();
+    const newer = { used: 99, limit: 100, paused: false, reset_at: "2026-10-18T00:00:00Z" };
+    useQuota.setState({ quota: newer });
+    m.status.mockReturnValue(new Promise(() => {}));
+    wrap(<StatusBar />, qc);
+    expect(await screen.findByText("队列 7")).toBeInTheDocument();
+    expect(useQuota.getState().quota).toEqual(newer);
+  });
+
+  test("a job created after mount gets its target once the list refetches", async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    wrap(<StatusBar />, qc);
+    await waitFor(() => expect(m.jobs).toHaveBeenCalledTimes(1));
+    m.jobs.mockResolvedValue([job({ id: 9 })]);
+    useJobProgress.getState().upsert(prog({ job_id: 9 }));
+    expect(await screen.findByText("同步地址 · 已取 3,000 条")).toBeInTheDocument();
+    await qc.invalidateQueries({ queryKey: qk.jobs() });
+    expect(await screen.findByText("同步地址 0x3f2a…91c0（更早） · 已取 3,000 条")).toBeInTheDocument();
   });
 });

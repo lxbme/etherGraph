@@ -300,3 +300,13 @@ test("a slow graph fetch completes during an event storm and is refetched once a
   const data = qc.getQueryData<GraphResponseDto>(graphQueryKey(useGraph.getState()));
   expect(data?.omitted[A]).toBe(calls.length - 1);
 });
+
+test("JobProgress for a job missing from the cached jobs list invalidates the list", async () => {
+  mount();
+  await act(async () => {});
+  qc.setQueryData(qk.jobs(), [job(1)]);
+  send(progress(1));
+  expect(qc.getQueryState(qk.jobs())?.isInvalidated).toBe(false);
+  send(progress(2));
+  expect(qc.getQueryState(qk.jobs())?.isInvalidated).toBe(true);
+});

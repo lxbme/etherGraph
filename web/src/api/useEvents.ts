@@ -5,14 +5,18 @@ import { useJobProgress, useQuota, useSseState } from "../shell/statusStore";
 import { toast } from "../shell/Toasts";
 import { api } from "./endpoints";
 import type { Event } from "./generated/Event";
+import type { JobDto } from "./generated/JobDto";
 import type { GraphResponseDto } from "./generated/GraphResponseDto";
 import { qk } from "./queryClient";
+import { statusQuery } from "./statusQuery";
 import { subscribeEvents } from "./sse";
 
 /** Bursts of data/meta events are merged into one invalidation per window. */
 const COALESCE_MS = 500;
 
 /** Retry delays for the initial status load; the last one repeats. */
+const ACTIVE_STATUSES = new Set(["pending", "running", "paused_quota"]);
+
 const STATUS_RETRY_MS = [2000, 5000, 10000, 30000];
 
 /**
@@ -93,18 +97,13 @@ export function useEvents(): void {
     /** Quota/degraded from /api/status; drops progress of tracked jobs that are no longer active. */
     const refreshStatus = async (): Promise<boolean> => {
       const tracked = Object.keys(useJobProgress.getState().byId).map(Number);
-      const [status, jobs] = await Promise.allSettled([api.status(), api.jobs()]);
+      const [status, jobs] = await Promise.allSettled([qc.fetchQuery(statusQuery), api.jobs()]);
       if (!alive) return false;
       if (jobs.status === "fulfilled") {
         const active = new Set(jobs.value.map((j) => j.id));
         useJobProgress.getState().remove(tracked.filter((id) => !active.has(id)));
       }
-      if (status.status !== "fulfilled") return false;
-      const s = status.value;
-      const q = useQuota.getState();
-      q.setQuota({ used: s.quota_used, limit: s.quota_limit, paused: s.paused, reset_at: s.reset_at });
-      q.setDegraded(s.degraded);
-      return true;
+      return status.status === "fulfilled";
     };
     // Until the status has loaded once, failures are retried with backoff.
     let statusLoaded = false;
@@ -145,6 +144,10 @@ export function useEvents(): void {
           break;
         case "JobProgress":
           useJobProgress.getState().upsert(e);
+          // A job we have not listed yet: refresh the list so its target can be shown.
+          if (ACTIVE_STATUSES.has(e.status) && !qc.getQueryData<JobDto[]>(qk.jobs())?.some((j) => j.id === e.job_id)) {
+            void qc.invalidateQueries({ queryKey: qk.jobs() });
+          }
           if (e.status === "failed" && e.kind === "fetch_tx") {
             toast(`交易抓取失败：${e.error ?? "未知原因"}`, "error");
           }
