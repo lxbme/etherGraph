@@ -1,7 +1,4 @@
 // Stubs replaced by later tasks (swap the imports in App.tsx).
-export function TransferTable() {
-  return <div className="placeholder">转账明细</div>;
-}
 export function DetailPanel() {
   return <div className="placeholder">节点详情</div>;
 }
