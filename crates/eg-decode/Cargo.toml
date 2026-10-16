@@ -3,3 +3,14 @@ name = "eg-decode"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
+
+[dependencies]
+eg-core = { path = "../eg-core" }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
+alloy-dyn-abi = { workspace = true }
+alloy-json-abi = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
