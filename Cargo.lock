@@ -1183,6 +1183,7 @@ dependencies = [
  "chrono",
  "eg-core",
  "eg-store",
+ "futures",
  "hex",
  "serde",
  "serde_json",

@@ -184,3 +184,60 @@ async fn enqueue_meta_chunks_and_dedupes(pool: PgPool) {
     );
     assert_eq!(rows[0].params["addresses"].as_array().unwrap().len(), 20);
 }
+
+struct PanicHandler;
+#[async_trait]
+impl JobHandler for PanicHandler {
+    async fn run(&self, j: &JobRow, _: &JobCtx) -> Result<(), JobError> {
+        if j.key == "boom" {
+            panic!("kaboom");
+        }
+        Ok(())
+    }
+}
+
+struct ErrHandler(fn() -> JobError);
+#[async_trait]
+impl JobHandler for ErrHandler {
+    async fn run(&self, _: &JobRow, _: &JobCtx) -> Result<(), JobError> {
+        Err((self.0)())
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn panicking_handler_fails_job_and_worker_survives(pool: PgPool) {
+    let c = ctx(pool);
+    let (bad, _) = c.store.enqueue(&job("boom")).await.unwrap();
+    let hs = Runner::spawn(c.clone(), 1, handlers(Arc::new(PanicHandler)));
+    wait_status(&c, bad, "failed").await;
+    let err: Option<String> = sqlx::query_scalar("SELECT error FROM jobs WHERE id = $1")
+        .bind(bad)
+        .fetch_one(c.store.pool())
+        .await
+        .unwrap();
+    assert!(err.unwrap().contains("handler panicked: kaboom"));
+    let (good, _) = c.store.enqueue(&job("fine")).await.unwrap();
+    c.wake.notify_waiters();
+    wait_status(&c, good, "done").await;
+    hs.iter().for_each(|h| h.abort());
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn non_retryable_source_error_fails_immediately(pool: PgPool) {
+    let c = ctx(pool);
+    let (id, _) = c.store.enqueue(&job("a")).await.unwrap();
+    let h = Arc::new(ErrHandler(|| SourceError::InvalidKey.into()));
+    let hs = Runner::spawn(c.clone(), 1, handlers(h));
+    assert_eq!(wait_status(&c, id, "failed").await, 1);
+    hs.iter().for_each(|h| h.abort());
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn cancelled_handler_marks_cancelled(pool: PgPool) {
+    let c = ctx(pool);
+    let (id, _) = c.store.enqueue(&job("a")).await.unwrap();
+    let h = Arc::new(ErrHandler(|| JobError::Cancelled));
+    let hs = Runner::spawn(c.clone(), 1, handlers(h));
+    wait_status(&c, id, "cancelled").await;
+    hs.iter().for_each(|h| h.abort());
+}

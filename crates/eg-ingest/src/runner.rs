@@ -1,12 +1,14 @@
 //! Job runner: workers claim jobs from Postgres and dispatch to handlers.
 
 use std::collections::HashMap;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use eg_core::source::{ChainSource, SourceError};
 use eg_store::{JobKind, JobRow, JobStatus, Store, StoreError};
+use futures::FutureExt;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
@@ -78,28 +80,37 @@ fn publish_status(ctx: &JobCtx, job: &JobRow, status: JobStatus) {
 
 async fn worker_loop(ctx: JobCtx, handlers: Handlers) {
     loop {
+        // Register interest before claiming so a notify between the claim and
+        // the wait is not lost.
+        let notified = ctx.wake.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
         match ctx.store.claim_next().await {
             Ok(Some(job)) => process(&ctx, &handlers, job).await,
-            Ok(None) => idle(&ctx).await,
+            Ok(None) => {
+                let _ = tokio::time::timeout(Duration::from_secs(1), notified).await;
+            }
             Err(e) => {
                 tracing::warn!(error = %e, "claim_next failed");
-                idle(&ctx).await;
+                let _ = tokio::time::timeout(Duration::from_secs(1), notified).await;
             }
         }
     }
 }
 
-async fn idle(ctx: &JobCtx) {
-    let _ = tokio::time::timeout(Duration::from_secs(1), ctx.wake.notified()).await;
+fn panic_message(p: &(dyn std::any::Any + Send)) -> String {
+    p.downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| p.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown".into())
 }
 
-async fn process(ctx: &JobCtx, handlers: &Handlers, job: JobRow) {
-    publish_status(ctx, &job, JobStatus::Running);
-    let result = match handlers.get(&job.kind) {
-        Some(h) => h.run(&job, ctx).await,
-        None => Err(JobError::Invalid("no handler".into())),
-    };
-    let (status, outcome) = match result {
+async fn record_outcome(
+    ctx: &JobCtx,
+    job: &JobRow,
+    result: &Result<(), JobError>,
+) -> (JobStatus, Result<(), StoreError>) {
+    match result {
         Ok(()) => (JobStatus::Done, ctx.store.complete_job(job.id).await),
         Err(JobError::Source(SourceError::QuotaExhausted)) => (
             JobStatus::PausedQuota,
@@ -118,12 +129,43 @@ async fn process(ctx: &JobCtx, handlers: &Handlers, job: JobRow) {
                 ctx.store.fail_job(job.id, &e.to_string(), retry).await,
             )
         }
-    };
-    match outcome {
-        Ok(()) => publish_status(ctx, &job, status),
-        Err(e) => tracing::error!(job_id = job.id, error = %e, "failed to record job outcome"),
     }
-    if status == JobStatus::Pending {
-        ctx.wake.notify_waiters();
+}
+
+async fn process(ctx: &JobCtx, handlers: &Handlers, job: JobRow) {
+    publish_status(ctx, &job, JobStatus::Running);
+    let result = match handlers.get(&job.kind) {
+        Some(h) => match AssertUnwindSafe(h.run(&job, ctx)).catch_unwind().await {
+            Ok(r) => r,
+            Err(p) => Err(JobError::Invalid(format!(
+                "handler panicked: {}",
+                panic_message(p.as_ref())
+            ))),
+        },
+        None => Err(JobError::Invalid("no handler".into())),
+    };
+    // Retrying the write re-applies the same idempotent-enough transition; a
+    // failed write would otherwise leave the job stuck in `running`.
+    let mut backoff = Duration::from_millis(100);
+    for attempt in 0..4 {
+        let (status, outcome) = record_outcome(ctx, &job, &result).await;
+        match outcome {
+            Ok(()) => {
+                publish_status(ctx, &job, status);
+                if status == JobStatus::Pending {
+                    ctx.wake.notify_waiters();
+                }
+                return;
+            }
+            Err(e) if attempt == 3 => {
+                tracing::error!(job_id = job.id, error = %e, "failed to record job outcome");
+                return;
+            }
+            Err(e) => {
+                tracing::warn!(job_id = job.id, error = %e, "retrying outcome write");
+                tokio::time::sleep(backoff).await;
+                backoff *= 2;
+            }
+        }
     }
 }
