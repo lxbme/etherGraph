@@ -78,6 +78,9 @@ impl JobStatus {
     }
 }
 
+/// Pending jobs older than this are claimed as if their priority were Background.
+pub const AGING_SECS: f64 = 120.0;
+
 #[derive(Clone, Debug)]
 pub struct NewJob {
     pub key: String,
@@ -127,7 +130,8 @@ fn job_row(r: &PgRow) -> Result<JobRow> {
 
 impl Store {
     /// Returns `(id, true)` for a new job, or the existing active job's
-    /// `(id, false)` when one with the same key is pending/running/paused.
+    /// `(id, false)` when one with the same key is pending/running/paused. A
+    /// more urgent request raises the existing job's priority.
     pub async fn enqueue(&self, j: &NewJob) -> Result<(i64, bool)> {
         // The conflicting job may finish between the INSERT and the SELECT, so retry.
         for _ in 0..5 {
@@ -154,6 +158,13 @@ impl Store {
             .fetch_optional(&self.pool)
             .await?;
             if let Some(id) = existing {
+                // Same as `priority = LEAST(priority, $2)`, without rewriting
+                // the row when nothing changes.
+                sqlx::query("UPDATE jobs SET priority = $2 WHERE id = $1 AND priority > $2")
+                    .bind(id)
+                    .bind(j.priority.as_i16())
+                    .execute(&self.pool)
+                    .await?;
                 return Ok((id, false));
             }
         }
@@ -163,16 +174,28 @@ impl Store {
         )))
     }
 
-    /// Claims the highest-priority, oldest pending job and marks it running.
+    /// Claims the most urgent, oldest pending job and marks it running. A job
+    /// waiting longer than [`AGING_SECS`] is ordered as if it were Background.
     pub async fn claim_next(&self) -> Result<Option<JobRow>> {
+        self.claim_next_with_max_priority(i16::MAX).await
+    }
+
+    /// Like [`Store::claim_next`], restricted to jobs whose own priority is at
+    /// most `max` (`0` claims Interactive jobs only); aging affects ordering only.
+    pub async fn claim_next_with_max_priority(&self, max: i16) -> Result<Option<JobRow>> {
         let sql = concat!(
             "UPDATE jobs SET status = 'running', updated_at = now() WHERE id = ( \
-             SELECT id FROM jobs WHERE status = 'pending' \
-             ORDER BY priority ASC, created_at ASC, id ASC \
+             SELECT id FROM jobs WHERE status = 'pending' AND priority <= $1 \
+             ORDER BY LEAST(priority, CASE WHEN now() - created_at > make_interval(secs => $2) \
+             THEN 1 ELSE priority END) ASC, created_at ASC, id ASC \
              FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING ",
             job_cols!()
         );
-        let row = sqlx::query(sql).fetch_optional(&self.pool).await?;
+        let row = sqlx::query(sql)
+            .bind(max)
+            .bind(AGING_SECS)
+            .fetch_optional(&self.pool)
+            .await?;
         row.as_ref().map(job_row).transpose()
     }
 
@@ -359,6 +382,65 @@ mod tests {
         assert_eq!(j.params, json!({"a": 1}));
         assert_eq!(s.claim_next().await.unwrap().unwrap().key, "low");
         assert!(s.claim_next().await.unwrap().is_none());
+    }
+
+    #[sqlx::test]
+    async fn enqueue_conflict_upgrades_priority(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (a, _) = s.enqueue(&nj("k", Priority::Background)).await.unwrap();
+        let (b, new_b) = s.enqueue(&nj("k", Priority::Interactive)).await.unwrap();
+        assert!(!new_b);
+        assert_eq!(a, b);
+        // A less urgent request never downgrades the queued job.
+        s.enqueue(&nj("k", Priority::Low)).await.unwrap();
+        let j = s.claim_next().await.unwrap().unwrap();
+        assert_eq!((j.id, j.priority), (a, Priority::Interactive));
+    }
+
+    #[sqlx::test]
+    async fn aged_low_job_orders_as_background(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (old_low, _) = s.enqueue(&nj("old-low", Priority::Low)).await.unwrap();
+        sqlx::query("UPDATE jobs SET created_at = now() - interval '121 seconds' WHERE id = $1")
+            .bind(old_low)
+            .execute(s.pool())
+            .await
+            .unwrap();
+        let (fresh_low, _) = s.enqueue(&nj("fresh-low", Priority::Low)).await.unwrap();
+        let (bg, _) = s.enqueue(&nj("bg", Priority::Background)).await.unwrap();
+        let (hi, _) = s.enqueue(&nj("hi", Priority::Interactive)).await.unwrap();
+        let mut order = Vec::new();
+        while let Some(j) = s.claim_next().await.unwrap() {
+            order.push(j.id);
+        }
+        assert_eq!(order, vec![hi, old_low, bg, fresh_low]);
+    }
+
+    #[sqlx::test]
+    async fn claim_with_max_priority_skips_less_urgent(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (low, _) = s.enqueue(&nj("low", Priority::Low)).await.unwrap();
+        sqlx::query("UPDATE jobs SET created_at = now() - interval '1 hour' WHERE id = $1")
+            .bind(low)
+            .execute(s.pool())
+            .await
+            .unwrap();
+        let (bg, _) = s.enqueue(&nj("bg", Priority::Background)).await.unwrap();
+        // An aged Low job is ordered like Background but is still not Interactive.
+        assert!(s.claim_next_with_max_priority(0).await.unwrap().is_none());
+        let (hi, _) = s.enqueue(&nj("hi", Priority::Interactive)).await.unwrap();
+        assert_eq!(
+            s.claim_next_with_max_priority(0).await.unwrap().unwrap().id,
+            hi
+        );
+        assert!(s.claim_next_with_max_priority(0).await.unwrap().is_none());
+        // The filter uses the job's own priority, not the aged one.
+        assert_eq!(
+            s.claim_next_with_max_priority(1).await.unwrap().unwrap().id,
+            bg
+        );
+        assert!(s.claim_next_with_max_priority(1).await.unwrap().is_none());
+        assert_eq!(s.claim_next().await.unwrap().unwrap().id, low);
     }
 
     #[sqlx::test]

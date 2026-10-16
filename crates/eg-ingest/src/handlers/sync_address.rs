@@ -57,6 +57,9 @@ struct Plan<'a> {
     address: Address,
     direction: SyncDirection,
     kinds: Vec<TransferKind>,
+    /// Gate priority of each kind's first page: Interactive only for an
+    /// Interactive job, otherwise Background (as are all later pages).
+    first_page: Priority,
 }
 
 #[async_trait]
@@ -70,12 +73,16 @@ impl JobHandler for SyncAddressHandler {
             address: params.address,
             direction: params.direction,
             kinds: params.kinds(),
+            first_page: match job.priority {
+                Priority::Interactive => Priority::Interactive,
+                Priority::Background | Priority::Low => Priority::Background,
+            },
         };
         let mut prog = match &job.progress {
             Some(v) => serde_json::from_value(v.clone())
                 .map_err(|e| JobError::Invalid(format!("bad sync progress: {e}")))?,
             None => {
-                let head = ctx.source.latest_block(Priority::Interactive).await?;
+                let head = ctx.source.latest_block(plan.first_page).await?;
                 let rows = ctx.store.sync_rows(&[plan.address]).await?;
                 let p = plan.progress_from(0, &rows, head);
                 ctx.store.update_progress(job.id, &to_json(&p)?).await?;
@@ -200,7 +207,7 @@ impl Plan<'_> {
                 return Err(JobError::Cancelled);
             }
             let priority = if prog.cursor.fetched == 0 {
-                Priority::Interactive
+                self.first_page
             } else {
                 Priority::Background
             };

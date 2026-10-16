@@ -241,3 +241,62 @@ async fn cancelled_handler_marks_cancelled(pool: PgPool) {
     wait_status(&c, id, "cancelled").await;
     hs.iter().for_each(|h| h.abort());
 }
+
+/// Jobs whose key starts with `long` block until permits are added.
+struct BlockingHandler(tokio::sync::Semaphore);
+#[async_trait]
+impl JobHandler for BlockingHandler {
+    async fn run(&self, j: &JobRow, _: &JobCtx) -> Result<(), JobError> {
+        if j.key.starts_with("long") {
+            self.0.acquire().await.unwrap().forget();
+        }
+        Ok(())
+    }
+}
+
+async fn count_status(ctx: &JobCtx, want: &str) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM jobs WHERE status = $1")
+        .bind(want)
+        .fetch_one(ctx.store.pool())
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn reserved_worker_runs_interactive_while_others_busy(pool: PgPool) {
+    let c = ctx(pool);
+    let mut long = Vec::new();
+    for k in ["long1", "long2", "long3"] {
+        long.push(c.store.enqueue(&job(k)).await.unwrap().0);
+    }
+    let h = Arc::new(BlockingHandler(tokio::sync::Semaphore::new(0)));
+    let hs = Runner::spawn(c.clone(), 3, handlers(h.clone()));
+    for _ in 0..200 {
+        if count_status(&c, "running").await == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    // Worker #0 only takes Interactive jobs, so one long job stays queued.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(count_status(&c, "running").await, 2);
+    assert_eq!(count_status(&c, "pending").await, 1);
+
+    let (quick, _) = c
+        .store
+        .enqueue(&NewJob {
+            priority: Priority::Interactive,
+            ..job("quick")
+        })
+        .await
+        .unwrap();
+    c.wake.notify_waiters();
+    wait_status(&c, quick, "done").await;
+    assert_eq!(count_status(&c, "running").await, 2);
+
+    h.0.add_permits(3);
+    for id in long {
+        wait_status(&c, id, "done").await;
+    }
+    hs.iter().for_each(|h| h.abort());
+}

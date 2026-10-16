@@ -617,3 +617,32 @@ async fn bad_params_are_invalid(pool: PgPool) {
     let err = run_once(&e, id).await.unwrap_err();
     assert!(matches!(err, JobError::Invalid(_)), "{err:?}");
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn background_job_never_uses_interactive_priority(pool: PgPool) {
+    let e = env(pool, 10_000);
+    e.fake.set_latest_block(1000);
+    native_blocks(&e, 3);
+    for p in [Priority::Background, Priority::Low] {
+        let (id, _) = e
+            .ctx
+            .store
+            .enqueue(&NewJob {
+                key: format!("bg-{p:?}"),
+                kind: JobKind::SyncAddress,
+                params: params("latest", &[]),
+                priority: p,
+            })
+            .await
+            .unwrap();
+        run_once(&e, id).await.unwrap();
+        e.ctx.store.complete_job(id).await.unwrap();
+    }
+    let qs = e.spy.queries();
+    assert_eq!(qs.len(), 10);
+    assert!(
+        qs.iter().all(|(p, _)| *p == Priority::Background),
+        "{:?}",
+        qs.iter().map(|(p, _)| *p).collect::<Vec<_>>()
+    );
+}

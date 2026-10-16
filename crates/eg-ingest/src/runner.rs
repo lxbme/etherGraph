@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use eg_core::source::{ChainSource, SourceError};
+use eg_core::source::{ChainSource, Priority, SourceError};
 use eg_store::{JobKind, JobRow, JobStatus, Store, StoreError};
 use futures::FutureExt;
 use tokio::sync::Notify;
@@ -63,6 +63,8 @@ pub struct Runner;
 type Handlers = Arc<HashMap<JobKind, Arc<dyn JobHandler>>>;
 
 impl Runner {
+    /// With two or more workers, worker #0 is reserved for Interactive jobs so
+    /// a user request never waits behind long Background/Low jobs.
     pub fn spawn(
         ctx: JobCtx,
         workers: usize,
@@ -70,7 +72,14 @@ impl Runner {
     ) -> Vec<JoinHandle<()>> {
         let handlers: Handlers = Arc::new(handlers);
         (0..workers)
-            .map(|_| tokio::spawn(worker_loop(ctx.clone(), handlers.clone())))
+            .map(|i| {
+                let max = if i == 0 && workers > 1 {
+                    Priority::Interactive.as_i16()
+                } else {
+                    i16::MAX
+                };
+                tokio::spawn(worker_loop(ctx.clone(), handlers.clone(), max))
+            })
             .collect()
     }
 }
@@ -85,14 +94,15 @@ fn publish_status(ctx: &JobCtx, job: &JobRow, status: JobStatus) {
     });
 }
 
-async fn worker_loop(ctx: JobCtx, handlers: Handlers) {
+/// Claims only jobs whose priority is at most `max_priority`.
+async fn worker_loop(ctx: JobCtx, handlers: Handlers, max_priority: i16) {
     loop {
         // Register interest before claiming so a notify between the claim and
         // the wait is not lost.
         let notified = ctx.wake.notified();
         tokio::pin!(notified);
         notified.as_mut().enable();
-        match ctx.store.claim_next().await {
+        match ctx.store.claim_next_with_max_priority(max_priority).await {
             Ok(Some(job)) => {
                 let span = tracing::info_span!("job", id = job.id, kind = job.kind.as_str());
                 process(&ctx, &handlers, job).instrument(span).await
