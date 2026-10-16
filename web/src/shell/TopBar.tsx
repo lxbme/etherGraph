@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { FilterPanel } from "../panels/FilterPanel";
 import { SearchBox } from "../search/SearchBox";
 import { useQuota } from "./statusStore";
 
@@ -15,7 +16,7 @@ export function TopBar({ search, filter, workspaceMenu, onToggleDetail }: TopBar
     <header className="topbar">
       <h1 className="topbar__title">etherGraph</h1>
       {search ?? <SearchBox />}
-      {filter ?? <button className="btn" disabled>⚙ 过滤 ▾</button>}
+      {filter ?? <FilterPanel />}
       <span className={`pill${quota?.paused ? " pill--warn" : ""}`}>
         额度 {quota ? `${quota.used}/${quota.limit}` : "—"}
       </span>
