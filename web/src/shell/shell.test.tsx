@@ -6,6 +6,10 @@ import { useTabs } from './tabs'
 import { useJobProgress, useQuota, useSseState } from './statusStore'
 import { toast } from './Toasts'
 
+// Cytoscape cannot render in jsdom and the SSE stream is covered by api/useEvents.test.tsx.
+vi.mock('../graph/CytoscapeView', () => ({ CytoscapeView: () => <div data-testid="cy" /> }))
+vi.mock('../api/useEvents', () => ({ useEvents: () => {} }))
+
 const H1 = '0x' + 'ab'.repeat(32)
 const A1 = '0x' + '12'.repeat(20)
 
@@ -168,10 +172,10 @@ describe('fix round 1', () => {
 
   it('graph content stays mounted while a tx tab is active', () => {
     render(<App />)
-    const before = screen.getByText('关系图画布')
+    const before = screen.getByText('输入地址、交易哈希或 ENS 开始探索')
     act(() => useTabs.getState().openTx(H1))
     act(() => useTabs.getState().activate('graph'))
-    expect(screen.getByText('关系图画布')).toBe(before)
+    expect(screen.getByText('输入地址、交易哈希或 ENS 开始探索')).toBe(before)
     expect(before.closest('.main__graph')).not.toHaveAttribute('hidden')
   })
 })

@@ -1,0 +1,168 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import type cytoscape from "cytoscape";
+import { api } from "../api/endpoints";
+import { ApiError } from "../api/errors";
+import type { EdgeDto } from "../api/generated/EdgeDto";
+import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
+import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
+import { useBoxSelection } from "../graph/boxSelection";
+import type { CytoscapeViewProps } from "../graph/CytoscapeView";
+import { pairKey, useGraph } from "../graph/store";
+import { Toasts } from "../shell/Toasts";
+import { AddressGraph } from "./AddressGraph";
+
+const h = vi.hoisted(() => ({ props: null as CytoscapeViewProps | null, renders: 0 }));
+vi.mock("../graph/CytoscapeView", () => ({
+  CytoscapeView: (p: CytoscapeViewProps) => {
+    h.props = p;
+    h.renders++;
+    return <div data-testid="cy" />;
+  },
+}));
+
+const A = "0x" + "aa".repeat(20);
+const B = "0x" + "bb".repeat(20);
+
+const node = (address: string, synced: boolean): NodeSummaryDto => ({
+  address, kind: "eoa", display_name: null, ens: null, contract_name: null, labels: [],
+  partial: false, syncing: false, synced, hot: false,
+});
+const edge: EdgeDto = {
+  from: A, to: B, asset: null, asset_kind: "native", count: 3, sum: "1000", first_ts: "", last_ts: "",
+  decimals: 18, symbol: "ETH",
+};
+const data: GraphResponseDto = { nodes: [node(A, true), node(B, false)], edges: [edge], omitted: {}, coverage: {} };
+
+const props = () => {
+  if (!h.props) throw new Error("CytoscapeView not rendered");
+  return h.props;
+};
+const ids = () => props().elements.map((e) => e.data.id);
+
+/** Minimal Cytoscape stand-in for the onReady handle. */
+function fakeCy() {
+  const unselect = vi.fn();
+  const handlers: Record<string, (e: unknown) => void> = {};
+  const cy = {
+    $: vi.fn(() => ({ unselect })),
+    on: vi.fn((ev: string, _sel: string, fn: (e: unknown) => void) => { handlers[ev] = fn; }),
+  };
+  const grab = (id: string, pos: { x: number; y: number }) =>
+    handlers.grab?.({ target: { id: () => id, position: () => ({ ...pos }) } });
+  return { cy: cy as unknown as cytoscape.Core, unselect, grab, $: cy.$ };
+}
+
+function mount() {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const tree = () => (
+    <QueryClientProvider client={qc}>
+      <AddressGraph />
+      <Toasts />
+    </QueryClientProvider>
+  );
+  return { ...render(tree()), tree };
+}
+
+async function mountWithData() {
+  useGraph.getState().addCenter(A);
+  const r = mount();
+  await waitFor(() => expect(ids()).toContain(A));
+  const f = fakeCy();
+  act(() => props().onReady?.(f.cy));
+  return { ...r, f };
+}
+
+beforeEach(() => {
+  h.props = null;
+  h.renders = 0;
+  useGraph.getState().reset();
+  useBoxSelection.setState({ ids: [] });
+  vi.spyOn(api, "graphEdges").mockResolvedValue(data);
+});
+afterEach(() => vi.restoreAllMocks());
+
+test("empty canvas shows the guide text and no elements", () => {
+  mount();
+  expect(screen.getByText("输入地址、交易哈希或 ENS 开始探索")).toBeInTheDocument();
+  expect(props().elements).toEqual([]);
+  expect(props().layout).toBe("incremental");
+  expect(api.graphEdges).not.toHaveBeenCalled();
+});
+
+test("graph data flows into elements; elements and stylesheet are memoized", async () => {
+  const { rerender, tree } = await mountWithData();
+  expect(screen.queryByText("输入地址、交易哈希或 ENS 开始探索")).toBeNull();
+  expect(ids()).toEqual([A, B, `c:${A}>${B}`]);
+  const { elements, stylesheet } = props();
+  const before = h.renders;
+  rerender(tree());
+  expect(h.renders).toBeGreaterThan(before);
+  expect(props().elements).toBe(elements);
+  expect(props().stylesheet).toBe(stylesheet);
+});
+
+test("hidden nodes and their edges are left out", async () => {
+  await mountWithData();
+  act(() => useGraph.getState().setHidden([B], true));
+  expect(ids()).toEqual([A]);
+});
+
+test("tapping a node or an edge selects it and clears native selection", async () => {
+  const { f } = await mountWithData();
+  act(() => props().onTapNode(B, { shift: false }));
+  expect(useGraph.getState().selection).toEqual({ kind: "node", address: B });
+  expect(f.$).toHaveBeenCalledWith(":selected");
+  expect(f.unselect).toHaveBeenCalled();
+  expect(props().elements.find((e) => e.data.id === B)?.classes).toContain("selected");
+
+  f.unselect.mockClear();
+  act(() => props().onTapEdge(A, B));
+  expect(useGraph.getState().selection).toEqual({ kind: "pair", a: A, b: B });
+  expect(f.unselect).toHaveBeenCalled();
+});
+
+test("double-clicking an unsynced node starts a sync and toasts", async () => {
+  const sync = vi.spyOn(api, "sync").mockResolvedValue({ jobs: [] } as never);
+  await mountWithData();
+  act(() => props().onDblTapNode(A)); // synced: nothing
+  expect(sync).not.toHaveBeenCalled();
+  act(() => props().onDblTapNode(B));
+  expect(sync).toHaveBeenCalledWith({ addresses: [B] });
+  expect(await screen.findByText("已开始同步 0xbbbb…bbbb")).toBeInTheDocument();
+});
+
+test("a failed sync shows the mapped error", async () => {
+  vi.spyOn(api, "sync").mockRejectedValue(new ApiError("quota_exhausted", 429, "q"));
+  await mountWithData();
+  act(() => props().onDblTapNode(B));
+  expect(await screen.findByText("今日 Etherscan 调用额度已用完")).toBeInTheDocument();
+});
+
+test("double-clicking an edge toggles the pair", async () => {
+  await mountWithData();
+  act(() => props().onDblTapEdge(B, A));
+  expect(useGraph.getState().expandedPairs.has(pairKey(A, B))).toBe(true);
+  expect(ids()).toContain(`e:${A}>${B}:eth`);
+});
+
+test("box selection is stored and native selection cleared; empty boxes are ignored", async () => {
+  const { f } = await mountWithData();
+  act(() => props().onBoxSelect([A, B]));
+  expect(useBoxSelection.getState().ids).toEqual([A, B]);
+  expect(f.unselect).toHaveBeenCalled();
+  act(() => props().onBoxSelect([]));
+  expect(useBoxSelection.getState().ids).toEqual([A, B]);
+});
+
+test("drag end stores positions and records an undoable move", async () => {
+  const { f } = await mountWithData();
+  act(() => useGraph.getState().setPositions({ [B]: { x: 5, y: 5 } }));
+  f.grab(A, { x: 1, y: 2 }); // A was placed by the layout: position known only from the grab
+  act(() => props().onDragEnd({ [A]: { x: 10, y: 20 }, [B]: { x: 50, y: 60 } }));
+  expect(useGraph.getState().ui[A]?.pos).toEqual({ x: 10, y: 20 });
+  expect(useGraph.getState().ui[B]?.pos).toEqual({ x: 50, y: 60 });
+  act(() => useGraph.getState().undo());
+  expect(useGraph.getState().ui[A]?.pos).toEqual({ x: 1, y: 2 });
+  expect(useGraph.getState().ui[B]?.pos).toEqual({ x: 5, y: 5 });
+});

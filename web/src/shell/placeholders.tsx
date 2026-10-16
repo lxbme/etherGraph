@@ -1,7 +1,4 @@
 // Stubs replaced by later tasks (swap the imports in App.tsx).
-export function AddressGraph() {
-  return <div className="placeholder">关系图画布</div>;
-}
 export function TransferTable() {
   return <div className="placeholder">转账明细</div>;
 }

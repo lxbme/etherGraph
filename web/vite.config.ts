@@ -12,4 +12,18 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        // Cytoscape and its layout extensions are large; keep them out of the app chunk.
+        codeSplitting: {
+          groups: [
+            { name: 'cytoscape', test: /node_modules[\\/]cytoscape[\\/]/ },
+            { name: 'graph-layouts', test: /node_modules[\\/](cytoscape-[^\\/]+|layout-base|cose-base|dagre|graphlib|@dagrejs)[\\/]/ },
+            { name: 'vendor', test: /node_modules[\\/]/ },
+          ],
+        },
+      },
+    },
+  },
 })

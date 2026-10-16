@@ -1,4 +1,7 @@
+import { QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
+import { queryClient } from "./api/queryClient";
+import { useEvents } from "./api/useEvents";
 import { Banners } from "./shell/Banners";
 import { ResizableSplit } from "./shell/ResizableSplit";
 import { StatusBar } from "./shell/StatusBar";
@@ -6,15 +9,25 @@ import { TabBar } from "./shell/TabBar";
 import { Toasts } from "./shell/Toasts";
 import { TopBar } from "./shell/TopBar";
 import { useHashRouting } from "./shell/hashRoute";
-import { AddressGraph, DetailPanel, TransferTable, TxView } from "./shell/placeholders";
+import { DetailPanel, TransferTable, TxView } from "./shell/placeholders";
 import { useTabs } from "./shell/tabs";
+import { AddressGraph } from "./views/AddressGraph";
 
 function initialDetailOpen(): boolean {
   return typeof window.matchMedia !== "function" || !window.matchMedia("(max-width: 899px)").matches;
 }
 
 export function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <Shell />
+    </QueryClientProvider>
+  );
+}
+
+function Shell() {
   useHashRouting();
+  useEvents();
   const { tabs, active } = useTabs();
   const [detailOpen, setDetailOpen] = useState(initialDetailOpen);
   const tx = tabs.find((t) => t.id === active && "kind" in t);
