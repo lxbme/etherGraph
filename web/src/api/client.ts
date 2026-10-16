@@ -44,5 +44,11 @@ export async function request<T>(
     throw new ApiError(code, res.status, message);
   }
   if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  const text = await res.text();
+  if (text === "") return undefined as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ApiError("internal", res.status, "invalid response body");
+  }
 }

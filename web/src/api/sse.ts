@@ -55,6 +55,7 @@ export function subscribeEvents(
   connect();
 
   return () => {
+    if (stopped) return;
     stopped = true;
     if (timer !== null) clearTimeout(timer);
     timer = null;

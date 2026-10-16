@@ -35,3 +35,15 @@ test("request sends JSON body and query", async () => {
   expect(init.method).toBe("POST");
   expect(init.body).toBe('{"k":1}');
 });
+
+test("request resolves undefined on empty 200 body", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response("", { status: 200 })));
+  expect(await request("GET", "/x")).toBeUndefined();
+});
+
+test("request rejects with internal ApiError on non-JSON 200 body", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response("not json", { status: 200 })));
+  const err = (await request("GET", "/x").catch((e: unknown) => e)) as ApiError;
+  expect(err).toBeInstanceOf(ApiError);
+  expect(err.code).toBe("internal");
+});

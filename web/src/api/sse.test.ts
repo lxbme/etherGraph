@@ -67,6 +67,9 @@ test("subscribeEvents dispatches typed events and reconnects with backoff", () =
   expect(FakeES.instances).toHaveLength(4);
 
   stop();
+  const n = states.length;
+  stop();
+  expect(states).toHaveLength(n);
   expect(inst(3).closed).toBe(true);
   vi.advanceTimersByTime(60000);
   expect(FakeES.instances).toHaveLength(4);
