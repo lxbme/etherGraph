@@ -980,3 +980,46 @@ async fn tokens_without_decimals_are_not_requeued(pool: PgPool) {
     assert_eq!(s, StatusCode::OK, "{b}");
     assert!(jobs_of(&state, JobKind::TokenMeta).await.is_empty());
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn transfers_min_amount_matches_edge_threshold(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let unknown = Address::repeat_byte(0x66);
+    token(&state, USDT, "USDT", Some(6)).await;
+    token(&state, unknown, "UNK", None).await;
+    seed(
+        &state,
+        vec![
+            tr(1, C, A, Some(USDT), U256::from(1_500_000), 0),
+            tr(2, C, A, Some(USDT), U256::from(3_000_000), 10),
+            tr(3, C, A, Some(USDT), U256::from(10_000_000), 20),
+            tr(4, C, B, None, U256::from(10u64.pow(18)), 30),
+            tr(5, C, B, None, U256::from(10u64.pow(17)), 40),
+        ],
+    )
+    .await;
+    let c = hex(C);
+    for (asset, min, want) in [(hex(USDT), "2", 2), ("eth".to_owned(), "0.5", 1)] {
+        let filter = json!({"assets": [{"asset": asset, "min_amount": min}]});
+        let (s, b) = post_json(&app, "/api/graph/edges", &graph_req(filter)).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        assert_eq!(b["edges"].as_array().unwrap().len(), 1, "{b}");
+        assert_eq!(b["edges"][0]["count"], want, "{b}");
+        let (s, b) = get(
+            &app,
+            &format!("/api/transfers?address={c}&asset={asset}&min_amount={min}"),
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        assert_eq!(b["items"].as_array().unwrap().len(), want, "{b}");
+    }
+    for q in [
+        "min_amount=1".to_owned(),
+        format!("asset={}&min_amount=1", hex(unknown)),
+        format!("asset={}&min_amount=-1", hex(USDT)),
+        format!("asset={}&min_amount=0.0000001", hex(USDT)),
+    ] {
+        let (s, b) = get(&app, &format!("/api/transfers?address={c}&{q}")).await;
+        assert_invalid(s, &b);
+    }
+}

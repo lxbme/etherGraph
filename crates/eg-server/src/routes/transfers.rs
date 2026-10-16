@@ -12,6 +12,7 @@ use crate::error::{ApiError, invalid};
 use crate::nodes::token_map;
 use crate::parse::{parse_address, parse_asset, parse_kind, parse_time};
 use crate::routes::ApiQuery;
+use crate::routes::graph::asset_filters;
 use crate::state::AppState;
 
 const DEFAULT_LIMIT: u32 = 50;
@@ -25,6 +26,9 @@ pub struct TransfersQuery {
     pub to: Option<String>,
     /// `eth` or a token address.
     pub asset: Option<String>,
+    /// Decimal string in whole units of `asset` (required with it), scaled by
+    /// the asset's decimals as for graph edges.
+    pub min_amount: Option<String>,
     pub time_from: Option<String>,
     pub time_to: Option<String>,
     /// Comma-separated transfer kinds.
@@ -46,6 +50,11 @@ pub async fn list(
         _ => return Err(invalid("pass either address or both from and to")),
     };
     let asset = q.asset.as_deref().map(parse_asset).transpose()?;
+    let assets = match (asset, q.min_amount) {
+        (_, None) => Vec::new(),
+        (None, Some(_)) => return Err(invalid("min_amount requires asset")),
+        (Some(a), Some(min)) => asset_filters(&s.store, vec![(a, Some(min))]).await?,
+    };
     let kinds = q
         .kinds
         .as_deref()
@@ -88,6 +97,7 @@ pub async fn list(
             filter: EdgeFilter {
                 time,
                 kinds,
+                assets,
                 ..EdgeFilter::default()
             },
             cursor,

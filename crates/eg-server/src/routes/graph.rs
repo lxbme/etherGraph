@@ -109,8 +109,7 @@ pub async fn edges(
     }))
 }
 
-/// Converts the request filter; `min_amount`s are scaled by the asset's
-/// decimals (18 for ETH, `tokens.decimals` otherwise).
+/// Converts the request filter; `min_amount`s are scaled as in [`asset_filters`].
 async fn edge_filter(store: &Store, f: EdgeFilterDto) -> Result<EdgeFilter, ApiError> {
     let time = f.time.unwrap_or_default();
     let time = TimeRange {
@@ -147,6 +146,23 @@ async fn edge_filter(store: &Store, f: EdgeFilterDto) -> Result<EdgeFilter, ApiE
         let asset = a.asset.as_deref().map(parse_asset).transpose()?.flatten();
         parsed.push((asset, a.min_amount));
     }
+    let assets = asset_filters(store, parsed).await?;
+    Ok(EdgeFilter {
+        time,
+        kinds,
+        direction,
+        assets,
+    })
+}
+
+/// Per-asset filters from `(asset, min_amount)` pairs (`None` asset is ETH).
+/// A `min_amount` is a decimal string in whole units, scaled by the asset's
+/// decimals (18 for ETH, `tokens.decimals` otherwise); unknown decimals or a
+/// malformed amount are `invalid_input`.
+pub(crate) async fn asset_filters(
+    store: &Store,
+    parsed: Vec<(Option<Address>, Option<String>)>,
+) -> Result<Vec<AssetFilter>, ApiError> {
     let need_decimals: Vec<Address> = parsed
         .iter()
         .filter(|(_, min)| min.is_some())
@@ -172,10 +188,5 @@ async fn edge_filter(store: &Store, f: EdgeFilterDto) -> Result<EdgeFilter, ApiE
         };
         assets.push(AssetFilter { asset, min_raw });
     }
-    Ok(EdgeFilter {
-        time,
-        kinds,
-        direction,
-        assets,
-    })
+    Ok(assets)
 }
