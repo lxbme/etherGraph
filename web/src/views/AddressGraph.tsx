@@ -79,14 +79,17 @@ export function AddressGraph() {
     if (!data) return;
     const addrs = neighborsOf(node.address, data.edges);
     const byAddr = new Map(data.nodes.map((n) => [lc(n.address), n]));
-    const neighbors = addrs.map((a) => byAddr.get(a)).filter((n): n is NodeSummaryDto => !!n);
+    const neighbors = addrs
+      .filter((a) => !ui[a]?.hidden)
+      .map((a) => byAddr.get(a))
+      .filter((n): n is NodeSummaryDto => !!n);
     if (neighbors.length === 0) {
       toast("没有可展开的邻居");
       return;
     }
     setExpand({
       neighbors,
-      preChecked: top ? topNeighbors(node.address, data.nodes, data.edges, filter) : undefined,
+      preChecked: top ? topNeighbors(node.address, data.nodes, data.edges.filter((e) => !ui[lc(e.from)]?.hidden && !ui[lc(e.to)]?.hidden), filter) : undefined,
     });
   };
 

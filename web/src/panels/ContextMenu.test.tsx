@@ -52,3 +52,14 @@ test("Ctrl+Z undoes hide; shortcuts ignored while typing in an input", () => {
   fireEvent.keyDown(document.body, { key: "l" });
   expect(useUi.getState().labelEditorFor).toBe(A);
 });
+
+test("Ctrl+S, Ctrl+F and Alt+H trigger no action and no preventDefault", () => {
+  render(<Host />);
+  act(() => useGraph.getState().select({ kind: "node", address: A }));
+  for (const init of [{ key: "s", ctrlKey: true }, { key: "f", ctrlKey: true }, { key: "h", altKey: true }]) {
+    const ev = new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true });
+    document.body.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+  }
+  expect(useGraph.getState().ui[A]).toBeUndefined();
+});

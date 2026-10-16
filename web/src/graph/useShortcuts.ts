@@ -15,6 +15,9 @@ export function useShortcuts(getData: () => GraphResponseDto | undefined): void 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isTyping(e.target)) return;
+      // A dialog or context menu owns the keyboard while open.
+      const t = e.target as Element | null;
+      if (document.querySelector('[role="dialog"],[role="menu"]') || t?.closest?.('[role="dialog"],[role="menu"]')) return;
       const key = e.key.toLowerCase();
       const mod = e.ctrlKey || e.metaKey;
       const g = useGraph.getState();

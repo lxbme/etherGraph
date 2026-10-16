@@ -208,3 +208,40 @@ test("right-clicking a node opens the menu; Escape closes it", async () => {
   act(() => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
   expect(screen.queryByRole("menu")).toBeNull();
 });
+
+test("'older' menu item syncs with direction older", async () => {
+  const sync = vi.spyOn(api, "sync").mockResolvedValue({ jobs: [] } as never);
+  vi.spyOn(api, "graphEdges").mockResolvedValue({ ...data, nodes: [{ ...node(A, true), partial: true }, node(B, false)] });
+  await mountWithData();
+  act(() => props().onCxtNode(A, { x: 1, y: 1 }));
+  act(() => screen.getByText("继续拉更早的记录").click());
+  expect(sync).toHaveBeenCalledWith({ addresses: [A], direction: "older" });
+  expect(screen.queryByRole("menu")).toBeNull();
+});
+
+test("top-K item opens the dialog with exactly the top 10 pre-checked; hidden neighbours are excluded", async () => {
+  const x = (i: number) => "0x" + i.toString(16).padStart(40, "1");
+  const many = Array.from({ length: 12 }, (_, i) => x(i + 1));
+  vi.spyOn(api, "sync").mockResolvedValue({ estimated_calls: 0, estimated_seconds: 0, jobs: null, per_address: {} });
+  vi.spyOn(api, "status").mockResolvedValue({ rate: 2 } as never);
+  vi.spyOn(api, "graphEdges").mockResolvedValue({
+    ...data, nodes: [node(A, true), ...many.map((m) => node(m, true))],
+    edges: many.map((m, i) => ({ ...edge, to: m, count: i + 1 })),
+  });
+  await mountWithData();
+  act(() => useGraph.getState().setHidden([many[11]!], true)); // highest count, hidden
+  act(() => props().onCxtNode(A, { x: 1, y: 1 }));
+  act(() => screen.getByText(/前 10 个/).click());
+  const boxes = (await screen.findAllByRole("checkbox")) as HTMLInputElement[];
+  expect(boxes).toHaveLength(11);
+  expect(boxes.filter((b) => b.checked)).toHaveLength(10);
+  expect(boxes.filter((b) => !b.checked)).toHaveLength(1); // the lowest-count one
+});
+
+test("expanding a node with no neighbours toasts", async () => {
+  vi.spyOn(api, "graphEdges").mockResolvedValue({ ...data, edges: [] });
+  await mountWithData();
+  act(() => props().onCxtNode(A, { x: 1, y: 1 }));
+  act(() => screen.getByText("选择…").click());
+  expect(await screen.findByText("没有可展开的邻居")).toBeInTheDocument();
+});

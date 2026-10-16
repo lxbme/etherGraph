@@ -78,3 +78,43 @@ test("top-K picks the 10 highest-count non-hot neighbors", () => {
   ];
   expect(topNeighbors(me, nodes, e2, { assets: [{ asset: "eth" }] }, 1)).toEqual([addr(1)]);
 });
+
+import { ApiError } from "../api/errors";
+
+test("dry-run failure keeps confirm disabled, shows the error, never syncs for real; retry recovers", async () => {
+  const sync = vi.spyOn(api, "sync").mockRejectedValueOnce(new ApiError("upstream_error", 502, "x"));
+  render(<ExpandDialog neighbors={[node(1)]} onClose={() => {}} />);
+  const btn = screen.getByRole("button", { name: "开始同步" });
+  expect(btn).toBeDisabled(); // pending
+  fireEvent.click(btn);
+  expect(sync).toHaveBeenCalledTimes(1);
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(btn).toBeDisabled();
+  fireEvent.click(btn);
+  expect(sync.mock.calls.every(([r]) => r.dry_run === true)).toBe(true);
+
+  sync.mockResolvedValueOnce({ estimated_calls: 2, estimated_seconds: 1, jobs: null, per_address: { [addr(1)]: 2 } });
+  fireEvent.click(screen.getByRole("button", { name: "重试" }));
+  await screen.findByText(/预计 2 次调用/);
+  expect(btn).toBeEnabled();
+});
+
+test("a row without a per_address entry shows a dash", async () => {
+  vi.spyOn(api, "sync").mockResolvedValue({ estimated_calls: 0, estimated_seconds: 0, jobs: null, per_address: {} });
+  render(<ExpandDialog neighbors={[node(1)]} onClose={() => {}} />);
+  await screen.findByText(/预计 0 次调用/);
+  expect(screen.getByText("—")).toBeInTheDocument();
+});
+
+test("shortcuts are suppressed while the dialog is open", async () => {
+  vi.spyOn(api, "sync").mockResolvedValue({ estimated_calls: 0, estimated_seconds: 0, jobs: null, per_address: {} });
+  const { useShortcuts } = await import("../graph/useShortcuts");
+  function Host() { useShortcuts(() => undefined); return null; }
+  render(<><Host /><ExpandDialog neighbors={[node(1)]} onClose={() => {}} /></>);
+  act(() => useGraph.getState().select({ kind: "node", address: addr(1) }));
+  useGraph.getState().setHidden([addr(5)], true);
+  fireEvent.keyDown(document.body, { key: "h" });
+  expect(useGraph.getState().ui[addr(1)]?.hidden).toBeFalsy();
+  fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+  expect(useGraph.getState().ui[addr(5)]?.hidden).toBe(true);
+});

@@ -12,7 +12,7 @@ export function BatchBar() {
       <span>已选 {ids.length} 个节点</span>
       <button onClick={() => { g().setPinned(ids, true); clear(); }}>固定</button>
       <button onClick={() => { g().setHidden(ids, true); clear(); }}>隐藏</button>
-      <button onClick={() => { for (const id of ids) g().addCenter(id); clear(); }}>展开为中心</button>
+      <button onClick={() => { g().setCenters([...g().centers, ...ids]); clear(); }}>展开为中心</button>
       <button onClick={clear}>取消</button>
     </div>
   );

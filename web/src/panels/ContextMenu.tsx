@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { focusNode, hideNode, syncNode, togglePin } from "../graph/nodeActions";
 import { useGraph } from "../graph/store";
@@ -39,18 +39,32 @@ export function ContextMenu(p: ContextMenuProps) {
     };
   }, [onClose]);
 
+  const ref = useRef<HTMLDivElement>(null);
+  // Keep the menu inside the viewport.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.left = `${Math.max(0, Math.min(p.x, window.innerWidth - el.offsetWidth - 4))}px`;
+    el.style.top = `${Math.max(0, Math.min(p.y, window.innerHeight - el.offsetHeight - 4))}px`;
+  }, [p.x, p.y]);
+
   const run = (fn: () => void) => () => {
     fn();
     onClose();
   };
-  const copy = () =>
+  const copy = () => {
+    if (!navigator.clipboard) {
+      toast("复制失败", "error");
+      return;
+    }
     navigator.clipboard
-      ?.writeText(addr)
+      .writeText(addr)
       .then(() => toast("已复制"))
       .catch(() => toast("复制失败", "error"));
+  };
 
   return (
-    <div className="ctx-menu" role="menu" style={{ left: p.x, top: p.y }}>
+    <div className="ctx-menu" role="menu" ref={ref} style={{ left: p.x, top: p.y }}>
       <button role="menuitem" onClick={run(() => syncNode(addr))}>同步 / 刷新<kbd>S</kbd></button>
       {node.partial && (
         <button role="menuitem" onClick={run(() => syncNode(addr, "older"))}>继续拉更早的记录</button>

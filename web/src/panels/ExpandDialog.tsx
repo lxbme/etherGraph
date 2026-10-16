@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
@@ -31,31 +31,41 @@ export function ExpandDialog({ neighbors, preChecked, onClose }: ExpandDialogPro
   const [busy, setBusy] = useState(false);
   const quota = useQuota((s) => s.quota);
 
-  // One dry run for all neighbours, one status fetch, both on open.
-  useEffect(() => {
-    let alive = true;
+  const [error, setError] = useState<string | null>(null);
+  const aliveRef = useRef(true);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  const runDry = useCallback(() => {
+    setError(null);
     const addresses = neighbors.map((n) => lc(n.address));
     api
       .sync({ addresses, dry_run: true })
       .then((r) => {
-        if (!alive) return;
+        if (!aliveRef.current) return;
         const per: Record<string, number> = {};
         for (const [k, v] of Object.entries(r.per_address ?? {})) per[lc(k)] = v;
         setPerAddress(per);
       })
       .catch((err) => {
-        if (alive) toast(messageFor(err), "error");
+        if (aliveRef.current) setError(messageFor(err));
       });
+  }, [neighbors]);
+
+  // One dry run for all neighbours (retryable), one status fetch, both on open.
+  useEffect(() => {
+    aliveRef.current = true;
+    runDry();
     api
       .status()
       .then((s) => {
-        if (alive && s.rate > 0) setRate(s.rate);
+        if (aliveRef.current && s.rate > 0) setRate(s.rate);
       })
       .catch(() => {});
+    dialogRef.current?.focus();
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
     return () => {
-      alive = false;
+      aliveRef.current = false;
       window.removeEventListener("keydown", onKey);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -79,11 +89,11 @@ export function ExpandDialog({ neighbors, preChecked, onClose }: ExpandDialogPro
 
   const confirm = async () => {
     const addresses = neighbors.map((n) => lc(n.address)).filter((a) => checked.has(a));
-    if (addresses.length === 0) return;
+    if (addresses.length === 0 || perAddress == null) return;
     setBusy(true);
     try {
       await api.sync({ addresses });
-      for (const a of addresses) useGraph.getState().addCenter(a);
+      useGraph.getState().setCenters([...useGraph.getState().centers, ...addresses]);
       toast(`已开始同步 ${addresses.length} 个地址`);
       onClose();
     } catch (err) {
@@ -93,13 +103,8 @@ export function ExpandDialog({ neighbors, preChecked, onClose }: ExpandDialogPro
   };
 
   return (
-    <div className="dialog-backdrop" onMouseDown={onClose}>
-      <div
-        className="dialog"
-        role="dialog"
-        aria-label="展开邻居"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+    <div className="dialog-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="dialog" role="dialog" aria-modal="true" aria-label="展开邻居" tabIndex={-1} ref={dialogRef}>
         <h3 className="dialog__title">展开邻居（{neighbors.length}）</h3>
         <ul className="dialog__list">
           {neighbors.map((n) => {
@@ -112,7 +117,7 @@ export function ExpandDialog({ neighbors, preChecked, onClose }: ExpandDialogPro
                   <span className="dialog__name">{n.display_name ?? shortAddr(addr)}</span>
                   {n.hot && <span className="dialog__tag">热门</span>}
                   <span className="dialog__calls">
-                    {perAddress == null ? "…" : c === 0 ? "已同步" : `${c ?? 0} 次`}
+                    {perAddress == null ? "…" : c === undefined ? "—" : c === 0 ? "已同步" : `${c} 次`}
                   </span>
                 </label>
               </li>
@@ -120,13 +125,18 @@ export function ExpandDialog({ neighbors, preChecked, onClose }: ExpandDialogPro
           })}
         </ul>
         <div className="dialog__summary">
-          {perAddress == null
+          {error != null ? (
+            <>
+              <span role="alert">{error}</span>{" "}
+              <button type="button" onClick={runDry}>重试</button>
+            </>
+          ) : perAddress == null
             ? "估算中…"
             : `预计 ${calls} 次调用 · 约 ${seconds} 秒${remaining != null ? ` · 今日剩余额度 ${remaining}` : ""}`}
         </div>
         <div className="dialog__actions">
           <button type="button" onClick={onClose}>取消</button>
-          <button type="button" disabled={checked.size === 0 || busy} onClick={confirm}>开始同步</button>
+          <button type="button" disabled={perAddress == null || error != null || checked.size === 0 || busy} onClick={confirm}>开始同步</button>
         </div>
       </div>
     </div>
