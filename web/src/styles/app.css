@@ -73,6 +73,7 @@ body,
   font-size: 12px;
 }
 .pill--warn { color: var(--cat-mixer); border-color: var(--cat-mixer); }
+.pill--error { color: var(--cat-scam); border-color: var(--cat-scam); }
 
 .tabbar {
   display: flex;
@@ -454,3 +455,25 @@ body,
 .wsmenu__list .btn:hover:not(:disabled) { background: var(--bg); }
 .wsmenu__input { padding: 4px 6px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; }
 .wsmenu__error { color: var(--cat-scam); font-size: 12px; }
+
+.jobs { position: relative; }
+.jobs__popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  width: 560px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px 12px;
+  color: var(--fg);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+.jobs__popover h3 { margin: 6px 0 4px; font-size: 12px; color: var(--fg-muted); }
+.jobs__table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.jobs__table th, .jobs__table td { padding: 2px 6px; text-align: left; white-space: nowrap; }
+.jobs__err { max-width: 200px; overflow: hidden; text-overflow: ellipsis; color: var(--cat-scam); }
+.jobs__empty { margin: 2px 0; font-size: 12px; color: var(--fg-muted); }

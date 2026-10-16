@@ -32,17 +32,23 @@ const ACTIVE = new Set(["pending", "running", "paused_quota"]);
 
 export const useJobProgress = create<{
   byId: Record<number, JobProgressEvent>;
+  /** Job whose progress arrived most recently. */
+  lastId: number | null;
   upsert(e: JobProgressEvent): void;
   /** Forget these jobs (e.g. they finished while events were missed). */
   remove(ids: number[]): void;
   activeCount(): number;
 }>((set, get) => ({
   byId: {},
-  upsert: (e) => set((s) => ({ byId: { ...s.byId, [e.job_id]: e } })),
+  lastId: null,
+  upsert: (e) => set((s) => ({ byId: { ...s.byId, [e.job_id]: e }, lastId: e.job_id })),
   remove: (ids) =>
     set((s) => {
       const drop = new Set(ids);
-      return { byId: Object.fromEntries(Object.entries(s.byId).filter(([id]) => !drop.has(Number(id)))) };
+      return {
+        byId: Object.fromEntries(Object.entries(s.byId).filter(([id]) => !drop.has(Number(id)))),
+        lastId: s.lastId !== null && drop.has(s.lastId) ? null : s.lastId,
+      };
     }),
   activeCount: () => Object.values(get().byId).filter((e) => ACTIVE.has(e.status)).length,
 }));
