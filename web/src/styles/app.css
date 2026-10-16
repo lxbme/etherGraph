@@ -1,0 +1,53 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.topbar__search {
+  flex: 1;
+  max-width: 560px;
+  padding: 6px 10px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.topbar__search:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.topbar__search::placeholder {
+  color: var(--fg-muted);
+}

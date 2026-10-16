@@ -1,0 +1,40 @@
+:root {
+  --bg: #f6f7f9;
+  --fg: #1c2229;
+  --fg-muted: #5f6b78;
+  --panel: #ffffff;
+  --border: #d9dee4;
+  --accent: #4a9eff;
+
+  --cat-exchange: #3b7dd8;
+  --cat-defi: #8a5cd6;
+  --cat-bridge: #2a9d9d;
+  --cat-mixer: #e06a2b;
+  --cat-scam: #c23b3b;
+  --cat-none: #9aa3ad;
+
+  --asset-eth: #8c8cff;
+  --asset-stable: #2bb673;
+  --asset-erc20: #e0a030;
+  --asset-nft: #999999;
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans SC', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14181d;
+    --fg: #e6e9ed;
+    --fg-muted: #98a3b0;
+    --panel: #1d232a;
+    --border: #323a44;
+  }
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+}
