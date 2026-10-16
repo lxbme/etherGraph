@@ -499,7 +499,7 @@ async fn cancel_requested_stops_before_next_page(pool: PgPool) {
     native_blocks(&e, 100);
     let id = enqueue(&e, "s", params("latest", &["native"])).await;
     let job = e.ctx.store.claim_next().await.unwrap().unwrap();
-    assert!(e.ctx.store.cancel_job(id).await.unwrap());
+    assert!(e.ctx.store.cancel_job(id).await.unwrap().is_some());
 
     let err = SyncAddressHandler.run(&job, &e.ctx).await.unwrap_err();
     assert!(matches!(err, JobError::Cancelled));
@@ -523,7 +523,7 @@ async fn cancel_restores_ok_when_coverage_exists(pool: PgPool) {
     e.fake.set_latest_block(6000);
     let id = enqueue(&e, "s", params("latest", &["native"])).await;
     let job = e.ctx.store.claim_next().await.unwrap().unwrap();
-    assert!(e.ctx.store.cancel_job(id).await.unwrap());
+    assert!(e.ctx.store.cancel_job(id).await.unwrap().is_some());
     let err = SyncAddressHandler.run(&job, &e.ctx).await.unwrap_err();
     assert!(matches!(err, JobError::Cancelled));
     let r = row(&e, TransferKind::Native).await;

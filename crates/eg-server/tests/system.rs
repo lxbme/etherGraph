@@ -72,6 +72,47 @@ async fn cancel_pending_job_204_then_404(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
+async fn cancel_paused_job_204(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let (id, _) = state.store.enqueue(&job("a")).await.unwrap();
+    state.store.claim_next().await.unwrap().unwrap();
+    state.store.pause_job_quota(id).await.unwrap();
+    let (status, _) = get(&app, "/api/jobs?active=true").await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = delete(&app, &format!("/api/jobs/{id}")).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(state.store.active_jobs().await.unwrap().is_empty());
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn cancel_publishes_cancelled_progress(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let mut rx = state.ctx.bus.subscribe();
+    let (pending, _) = state.store.enqueue(&job("a")).await.unwrap();
+    let (status, _) = delete(&app, &format!("/api/jobs/{pending}")).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    match rx.try_recv().unwrap() {
+        Event::JobProgress {
+            job_id,
+            kind,
+            status,
+            ..
+        } => {
+            assert_eq!(job_id, pending);
+            assert_eq!(kind, JobKind::SyncAddress);
+            assert_eq!(status, eg_store::JobStatus::Cancelled);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    // A running job is only flagged; the runner reports the cancellation.
+    let (running, _) = state.store.enqueue(&job("b")).await.unwrap();
+    state.store.claim_next().await.unwrap().unwrap();
+    let (status, _) = delete(&app, &format!("/api/jobs/{running}")).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(rx.try_recv().is_err());
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
 async fn cancel_bad_id_is_invalid_input(pool: PgPool) {
     let (app, _, _) = test_app(pool);
     let (status, body) = delete(&app, "/api/jobs/abc").await;
@@ -364,4 +405,20 @@ fn export_bindings_compile() {
     }
     let status = std::fs::read_to_string(dir.join("StatusDto.ts")).unwrap();
     assert!(!status.contains("bigint"), "{status}");
+}
+
+#[test]
+fn config_debug_redacts_api_key() {
+    let cfg = Config::parse(
+        "[etherscan]\napi_key = \"SECRETKEY123\"\n[server]\ndatabase_url = \"postgres://x\"\n",
+        env(&[]),
+    )
+    .unwrap();
+    for s in [format!("{cfg:?}"), format!("{:#?}", cfg.etherscan)] {
+        assert!(!s.contains("SECRETKEY123"), "{s}");
+        assert!(s.contains("***"), "{s}");
+        assert!(s.contains("rate_per_sec"), "{s}");
+    }
+    let none = Config::default();
+    assert!(format!("{none:?}").contains("api_key: None"));
 }

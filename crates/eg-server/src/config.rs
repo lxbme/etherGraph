@@ -20,13 +20,25 @@ pub struct Config {
     pub source: SourceCfg,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+/// `Debug` prints the API key as `***`.
+#[derive(Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct EtherscanCfg {
     pub api_key: Option<String>,
     pub base_url: String,
     pub rate_per_sec: f64,
     pub daily_limit: u32,
+}
+
+impl std::fmt::Debug for EtherscanCfg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EtherscanCfg")
+            .field("api_key", &self.api_key.as_ref().map(|_| "***"))
+            .field("base_url", &self.base_url)
+            .field("rate_per_sec", &self.rate_per_sec)
+            .field("daily_limit", &self.daily_limit)
+            .finish()
+    }
 }
 
 impl Default for EtherscanCfg {

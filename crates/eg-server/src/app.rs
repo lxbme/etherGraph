@@ -3,7 +3,8 @@
 use axum::Router;
 use axum::routing::{delete, get};
 use tower_http::services::{ServeDir, ServeFile};
-use tower_http::trace::TraceLayer;
+use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
+use tracing::Level;
 
 use crate::error::ApiError;
 use crate::routes::{events, jobs, status};
@@ -23,7 +24,11 @@ pub fn router(state: AppState) -> Router {
         let index = ServeFile::new(dir.join("index.html"));
         app = app.fallback_service(ServeDir::new(dir).fallback(index));
     }
-    app.layer(TraceLayer::new_for_http()).with_state(state)
+    // One INFO span per request plus an INFO line per response.
+    let trace = TraceLayer::new_for_http()
+        .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+        .on_response(DefaultOnResponse::new().level(Level::INFO));
+    app.layer(trace).with_state(state)
 }
 
 async fn api_not_found() -> ApiError {

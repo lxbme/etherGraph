@@ -97,15 +97,33 @@ async fn serve(path: &Path, source: Option<SourceMode>) -> anyhow::Result<()> {
         .await
         .with_context(|| format!("binding {}", cfg.server.listen))?;
     tracing::info!(addr = %cfg.server.listen, source = ?cfg.source.mode, "listening");
-    // Open SSE streams never finish, so shut down on Ctrl-C without draining
-    // connections; persist the quota count first.
+    // Open SSE streams never finish, so shut down on SIGINT/SIGTERM without
+    // draining connections; persist the quota count first.
     tokio::select! {
         r = axum::serve(listener, router(state.clone())) => r?,
-        r = tokio::signal::ctrl_c() => {
-            r?;
-            tracing::info!("shutting down");
+        r = shutdown_signal() => {
+            let signal = r?;
+            tracing::info!(signal, "shutting down");
             persist_quota(&state).await;
         }
     }
     Ok(())
+}
+
+/// Resolves with the signal's name on Ctrl-C (SIGINT) or, on Unix, SIGTERM.
+async fn shutdown_signal() -> anyhow::Result<&'static str> {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut term = signal(SignalKind::terminate())?;
+        tokio::select! {
+            r = tokio::signal::ctrl_c() => r.map(|()| "SIGINT").map_err(Into::into),
+            _ = term.recv() => Ok("SIGTERM"),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await?;
+        Ok("ctrl-c")
+    }
 }

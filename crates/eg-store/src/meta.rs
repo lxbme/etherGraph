@@ -8,6 +8,7 @@ use eg_core::types::{AccountKind, Address, TransferKind, TxHash};
 use serde::Serialize;
 use sqlx::Row;
 use sqlx::postgres::PgRow;
+use ts_rs::TS;
 
 use crate::convert::{addr_to_bytes, bytes_to_addr};
 use crate::transfers::upsert_tokens_conn;
@@ -25,8 +26,9 @@ pub struct AccountRow {
     pub meta_fetched_at: DateTime<Utc>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "lowercase")]
+#[ts(export)]
 pub enum EnsStatus {
     Ok,
     None,

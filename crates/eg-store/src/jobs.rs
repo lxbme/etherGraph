@@ -3,11 +3,13 @@ use eg_core::source::Priority;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use sqlx::postgres::PgRow;
+use ts_rs::TS;
 
 use crate::{Result, Store, StoreError};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum JobKind {
     SyncAddress,
     FetchTx,
@@ -39,8 +41,9 @@ impl JobKind {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
+#[ts(export)]
 pub enum JobStatus {
     Pending,
     Running,
@@ -220,19 +223,23 @@ impl Store {
         Ok(res.rows_affected())
     }
 
-    /// Pending jobs become cancelled; running jobs get `cancel_requested`.
-    /// Any other state (or unknown id) returns false.
-    pub async fn cancel_job(&self, id: i64) -> Result<bool> {
-        let res = sqlx::query(
+    /// Pending and quota-paused jobs become cancelled; running jobs get
+    /// `cancel_requested`. Returns the job's kind and resulting status (`Cancelled`, or `Running`
+    /// when only flagged); `None` for an unknown or finished job.
+    pub async fn cancel_job(&self, id: i64) -> Result<Option<(JobKind, JobStatus)>> {
+        let row: Option<(String, String)> = sqlx::query_as(
             "UPDATE jobs SET updated_at = now(), \
-             status = CASE WHEN status = 'pending' THEN 'cancelled' ELSE status END, \
+             status = CASE WHEN status IN ('pending', 'paused_quota') THEN 'cancelled' \
+             ELSE status END, \
              cancel_requested = (status = 'running') OR cancel_requested \
-             WHERE id = $1 AND status IN ('pending', 'running')",
+             WHERE id = $1 AND status IN ('pending', 'running', 'paused_quota') \
+             RETURNING kind, status",
         )
         .bind(id)
-        .execute(&self.pool)
+        .fetch_optional(&self.pool)
         .await?;
-        Ok(res.rows_affected() > 0)
+        row.map(|(k, st)| Ok((JobKind::parse(&k)?, JobStatus::parse(&st)?)))
+            .transpose()
     }
 
     pub async fn cancel_requested(&self, id: i64) -> Result<bool> {
@@ -402,15 +409,37 @@ mod tests {
         let running = s.claim_next().await.unwrap().unwrap();
         assert_eq!(running.id, first);
         // `first` (Interactive) is running, `second` is pending
-        assert!(s.cancel_job(second).await.unwrap());
+        assert_eq!(
+            s.cancel_job(second).await.unwrap(),
+            Some((JobKind::SyncAddress, JobStatus::Cancelled))
+        );
         assert!(!s.cancel_requested(second).await.unwrap());
         assert!(s.claim_next().await.unwrap().is_none());
-        assert!(s.cancel_job(first).await.unwrap());
+        assert_eq!(
+            s.cancel_job(first).await.unwrap(),
+            Some((JobKind::SyncAddress, JobStatus::Running))
+        );
         assert!(s.cancel_requested(first).await.unwrap());
         s.mark_cancelled(first).await.unwrap();
         assert!(s.active_jobs().await.unwrap().is_empty());
-        assert!(!s.cancel_job(first).await.unwrap());
-        assert!(!s.cancel_job(9999).await.unwrap());
+        assert_eq!(s.cancel_job(first).await.unwrap(), None);
+        assert_eq!(s.cancel_job(9999).await.unwrap(), None);
+    }
+
+    #[sqlx::test]
+    async fn cancel_paused_job(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        s.enqueue(&nj("a", Priority::Background)).await.unwrap();
+        let j = s.claim_next().await.unwrap().unwrap();
+        s.pause_job_quota(j.id).await.unwrap();
+        assert_eq!(
+            s.cancel_job(j.id).await.unwrap(),
+            Some((JobKind::SyncAddress, JobStatus::Cancelled))
+        );
+        assert!(!s.cancel_requested(j.id).await.unwrap());
+        assert!(s.active_jobs().await.unwrap().is_empty());
+        assert_eq!(s.resume_paused().await.unwrap(), 0);
+        assert_eq!(s.cancel_job(j.id).await.unwrap(), None);
     }
 
     #[sqlx::test]

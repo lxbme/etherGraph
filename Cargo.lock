@@ -1343,6 +1343,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "ts-rs",
 ]
 
 [[package]]
@@ -1386,6 +1387,7 @@ dependencies = [
  "sqlx",
  "thiserror",
  "tokio",
+ "ts-rs",
 ]
 
 [[package]]

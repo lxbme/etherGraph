@@ -3,6 +3,8 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use eg_ingest::Event;
+use eg_store::JobStatus;
 use serde::Deserialize;
 
 use crate::dto::JobDto;
@@ -32,8 +34,9 @@ pub async fn list(
     Ok(Json(jobs.into_iter().map(JobDto::from).collect()))
 }
 
-/// 204 when the job was cancelled (pending) or flagged for cancellation
-/// (running); 404 when it does not exist or has already finished.
+/// 204 when the job was cancelled (pending or quota-paused) or flagged for
+/// cancellation (running); 404 when it does not exist or has already finished.
+/// An immediate cancellation is announced here; the runner announces flagged ones.
 pub async fn cancel(
     State(s): State<AppState>,
     Path(id): Path<String>,
@@ -41,9 +44,19 @@ pub async fn cancel(
     let id: i64 = id
         .parse()
         .map_err(|_| invalid(format!("invalid job id {id:?}")))?;
-    if s.store.cancel_job(id).await? {
-        Ok(StatusCode::NO_CONTENT)
-    } else {
-        Err(ApiError::not_found(format!("no active job {id}")))
+    let (kind, status) = s
+        .store
+        .cancel_job(id)
+        .await?
+        .ok_or_else(|| ApiError::not_found(format!("no active job {id}")))?;
+    if status == JobStatus::Cancelled {
+        s.ctx.bus.publish(Event::JobProgress {
+            job_id: id,
+            kind,
+            fetched: 0,
+            cursor_block: None,
+            status,
+        });
     }
+    Ok(StatusCode::NO_CONTENT)
 }
