@@ -1,13 +1,13 @@
 //! Router assembly.
 
 use axum::Router;
-use axum::routing::{delete, get};
+use axum::routing::{delete, get, post};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
 use crate::error::ApiError;
-use crate::routes::{events, jobs, status};
+use crate::routes::{address, events, graph, jobs, search, status, sync, transfers};
 use crate::state::AppState;
 
 /// All `/api` routes; when `server.static_dir` exists, other paths are served
@@ -18,6 +18,11 @@ pub fn router(state: AppState) -> Router {
         .route("/jobs", get(jobs::list))
         .route("/jobs/{id}", delete(jobs::cancel))
         .route("/events", get(events::events))
+        .route("/search", get(search::search))
+        .route("/address/{addr}", get(address::profile))
+        .route("/sync", post(sync::sync))
+        .route("/graph/edges", post(graph::edges))
+        .route("/transfers", get(transfers::list))
         .fallback(api_not_found);
     let mut app = Router::new().nest("/api", api);
     if let Some(dir) = state.cfg.server.static_dir.as_ref().filter(|d| d.is_dir()) {

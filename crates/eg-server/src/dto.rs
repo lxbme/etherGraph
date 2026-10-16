@@ -3,11 +3,13 @@
 //! Addresses, hashes and amounts are strings (lowercase hex / decimal);
 //! timestamps are RFC 3339 strings. 64-bit integers are bound as `number`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use eg_core::source::Priority;
-use eg_store::JobRow;
+use eg_core::filter::Edge;
+use eg_core::source::{Priority, TokenInfo};
+use eg_core::types::{Address, Transfer};
+use eg_store::{JobRow, LabelRow, SyncRow};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -97,4 +99,289 @@ pub struct ErrorDetail {
     )]
     pub code: String,
     pub message: String,
+}
+
+// ------------------------------------------------------------------ search
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SearchResultDto {
+    #[ts(type = r#""address" | "tx" | "ens""#)]
+    pub kind: String,
+    /// Lowercase address or hash; for `ens` the normalized name.
+    pub value: String,
+    /// Set for `ens` only.
+    pub resolved_address: Option<String>,
+}
+
+// ------------------------------------------------------------------ graph
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
+#[ts(export, optional_fields = nullable)]
+pub struct TimeRangeDto {
+    /// RFC 3339, inclusive.
+    pub from: Option<String>,
+    /// RFC 3339, inclusive.
+    pub to: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
+#[ts(export, optional_fields = nullable)]
+pub struct AssetFilterDto {
+    /// `"eth"` (any case), a token address, or null for ETH.
+    pub asset: Option<String>,
+    /// Decimal string in whole units (e.g. `"1000.5"`), scaled by the asset's decimals.
+    pub min_amount: Option<String>,
+}
+
+/// Absent fields mean unrestricted.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, TS)]
+#[ts(export, optional_fields = nullable)]
+pub struct EdgeFilterDto {
+    pub time: Option<TimeRangeDto>,
+    #[ts(optional = nullable, type = r#"Array<"native" | "internal" | "erc20" | "erc721" | "erc1155"> | null"#)]
+    pub kinds: Option<Vec<String>>,
+    /// Relative to the requested addresses; default `"both"`.
+    #[ts(optional = nullable, type = r#""in" | "out" | "both" | null"#)]
+    pub direction: Option<String>,
+    pub assets: Option<Vec<AssetFilterDto>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export, optional_fields = nullable)]
+pub struct GraphRequestDto {
+    /// 1 to 50 center addresses.
+    pub addresses: Vec<String>,
+    pub filter: Option<EdgeFilterDto>,
+    /// Default 200; values above 1000 are clamped to 1000.
+    pub limit_per_address: Option<u32>,
+    /// Default `"count"`; `"amount"` requires exactly one asset in the filter.
+    #[ts(optional = nullable, type = r#""count" | "amount" | "recent" | null"#)]
+    pub sort: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LabelDto {
+    #[ts(type = "number")]
+    pub id: i64,
+    pub text: String,
+    pub category: String,
+    /// `user` or `import:<dataset>`.
+    pub source: String,
+}
+
+impl From<&LabelRow> for LabelDto {
+    fn from(l: &LabelRow) -> Self {
+        Self {
+            id: l.id,
+            text: l.text.clone(),
+            category: l.category.clone(),
+            source: l.source.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SyncStatusDto {
+    #[ts(type = r#""native" | "internal" | "erc20" | "erc721" | "erc1155""#)]
+    pub kind: String,
+    #[ts(type = "number | null")]
+    pub from_block: Option<u64>,
+    #[ts(type = "number | null")]
+    pub to_block: Option<u64>,
+    pub truncated: bool,
+    #[ts(type = r#""syncing" | "ok" | "failed""#)]
+    pub state: String,
+    pub last_synced_at: Option<String>,
+}
+
+impl From<&SyncRow> for SyncStatusDto {
+    fn from(r: &SyncRow) -> Self {
+        Self {
+            kind: r.kind.as_str().to_owned(),
+            from_block: r.from_block,
+            to_block: r.to_block,
+            truncated: r.truncated,
+            state: r.state.as_str().to_owned(),
+            last_synced_at: r.last_synced_at.map(rfc3339),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct NodeSummaryDto {
+    pub address: String,
+    #[ts(type = r#""eoa" | "contract" | "unknown""#)]
+    pub kind: String,
+    /// ENS name, else first label, else contract name.
+    pub display_name: Option<String>,
+    pub ens: Option<String>,
+    pub contract_name: Option<String>,
+    pub labels: Vec<LabelDto>,
+    /// Some category stopped at the record cap.
+    pub partial: bool,
+    /// Some category is syncing right now.
+    pub syncing: bool,
+    /// All five categories have been synced at least once.
+    pub synced: bool,
+    /// Exchange/DeFi label or more neighbours than `hot_neighbor_threshold`.
+    pub hot: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct EdgeDto {
+    pub from: String,
+    pub to: String,
+    /// Token address; null for ETH.
+    pub asset: Option<String>,
+    #[ts(type = "number")]
+    pub count: u64,
+    /// Raw amount sum, decimal string.
+    pub sum: String,
+    pub first_ts: String,
+    pub last_ts: String,
+    /// 18 for ETH; null when the token's decimals are unknown.
+    pub decimals: Option<u8>,
+    pub symbol: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct GraphResponseDto {
+    pub nodes: Vec<NodeSummaryDto>,
+    pub edges: Vec<EdgeDto>,
+    /// Neighbours dropped by `limit_per_address`, per center (only when > 0).
+    #[ts(type = "Record<string, number>")]
+    pub omitted: HashMap<String, u64>,
+    /// Sync coverage of every node.
+    pub coverage: HashMap<String, Vec<SyncStatusDto>>,
+}
+
+// ------------------------------------------------------------------ address
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AddressProfileDto {
+    pub node: NodeSummaryDto,
+    pub is_proxy: bool,
+    pub implementation: Option<String>,
+    pub creator: Option<String>,
+    pub creation_tx: Option<String>,
+    pub coverage: Vec<SyncStatusDto>,
+    /// Timestamp of the earliest stored transfer.
+    pub first_seen: Option<String>,
+    /// Timestamp of the latest stored transfer.
+    pub last_seen: Option<String>,
+}
+
+// ------------------------------------------------------------------ sync
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export, optional_fields = nullable)]
+pub struct SyncRequestDto {
+    /// 1 to 50 addresses.
+    pub addresses: Vec<String>,
+    /// Default `"latest"`.
+    #[ts(optional = nullable, type = r#""latest" | "older" | null"#)]
+    pub direction: Option<String>,
+    pub dry_run: Option<bool>,
+}
+
+/// Dry run: the estimate fields are set; otherwise `jobs`.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SyncResponseDto {
+    pub estimated_calls: Option<u32>,
+    pub estimated_seconds: Option<f64>,
+    #[ts(type = "Array<number> | null")]
+    pub jobs: Option<Vec<i64>>,
+}
+
+// ------------------------------------------------------------------ transfers
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TransferDto {
+    pub tx_hash: String,
+    pub sub_id: String,
+    #[ts(type = r#""native" | "internal" | "erc20" | "erc721" | "erc1155""#)]
+    pub kind: String,
+    #[ts(type = "number")]
+    pub block_number: u64,
+    pub ts: String,
+    pub from: String,
+    pub to: String,
+    /// Token address; null for ETH.
+    pub asset: Option<String>,
+    /// Raw amount, decimal string.
+    pub amount: String,
+    pub token_id: Option<String>,
+    pub decimals: Option<u8>,
+    pub symbol: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TransferPageDto {
+    pub items: Vec<TransferDto>,
+    /// Pass back as `cursor` for the next page; null on the last page.
+    pub next_cursor: Option<String>,
+}
+
+pub fn hex_addr(a: Address) -> String {
+    format!("{a:#x}")
+}
+
+/// Display metadata of an asset: ETH is `(18, "ETH")`, tokens come from `tokens`.
+pub fn asset_meta(
+    asset: Option<Address>,
+    tokens: &HashMap<Address, TokenInfo>,
+) -> (Option<u8>, Option<String>) {
+    match asset {
+        None => (Some(18), Some("ETH".to_owned())),
+        Some(a) => tokens
+            .get(&a)
+            .map_or((None, None), |t| (t.decimals, t.symbol.clone())),
+    }
+}
+
+impl EdgeDto {
+    pub fn new(e: &Edge, tokens: &HashMap<Address, TokenInfo>) -> Self {
+        let (decimals, symbol) = asset_meta(e.asset, tokens);
+        Self {
+            from: hex_addr(e.from),
+            to: hex_addr(e.to),
+            asset: e.asset.map(hex_addr),
+            count: e.count,
+            sum: e.sum.to_string(),
+            first_ts: rfc3339(e.first_ts),
+            last_ts: rfc3339(e.last_ts),
+            decimals,
+            symbol,
+        }
+    }
+}
+
+impl TransferDto {
+    pub fn new(t: &Transfer, tokens: &HashMap<Address, TokenInfo>) -> Self {
+        let (decimals, symbol) = asset_meta(t.asset, tokens);
+        Self {
+            tx_hash: format!("{:#x}", t.tx_hash),
+            sub_id: t.sub_id.clone(),
+            kind: t.kind.as_str().to_owned(),
+            block_number: t.block_number,
+            ts: rfc3339(t.ts),
+            from: hex_addr(t.from),
+            to: hex_addr(t.to),
+            asset: t.asset.map(hex_addr),
+            amount: t.amount.to_string(),
+            token_id: t.token_id.map(|v| v.to_string()),
+            decimals,
+            symbol,
+        }
+    }
 }

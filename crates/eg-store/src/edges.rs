@@ -238,6 +238,21 @@ impl Store {
         Ok(res)
     }
 
+    /// Earliest and latest timestamps of transfers sent or received by `addr`;
+    /// `None` when there are none.
+    pub async fn address_activity(
+        &self,
+        addr: Address,
+    ) -> Result<Option<(DateTime<Utc>, DateTime<Utc>)>> {
+        let (first, last): (Option<DateTime<Utc>>, Option<DateTime<Utc>>) = sqlx::query_as(
+            "SELECT min(ts), max(ts) FROM transfers WHERE from_addr = $1 OR to_addr = $1",
+        )
+        .bind(addr_to_bytes(addr))
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(first.zip(last))
+    }
+
     /// One page of transfers ordered by `(ts, tx_hash, sub_id)` descending; the
     /// returned cursor is `Some` only when more rows follow.
     pub async fn list_transfers(
@@ -718,6 +733,20 @@ mod tests {
         let ca = find(&r.edges, C, A, Some(USDT));
         assert_eq!((ca.count, ca.sum), (2, U256::MAX));
         assert_eq!(U256_MAX_DEC, U256::MAX.to_string());
+    }
+
+    #[sqlx::test]
+    async fn address_activity_spans_both_directions(pool: PgPool) {
+        let store = seed(&pool).await;
+        assert_eq!(
+            store.address_activity(C).await.unwrap(),
+            Some((at(100), at(600)))
+        );
+        assert_eq!(
+            store.address_activity(D).await.unwrap(),
+            Some((at(500), at(500)))
+        );
+        assert_eq!(store.address_activity(e(9)).await.unwrap(), None);
     }
 
     #[test]

@@ -55,3 +55,15 @@ pub async fn get(app: &Router, uri: &str) -> (StatusCode, serde_json::Value) {
 pub async fn delete(app: &Router, uri: &str) -> (StatusCode, serde_json::Value) {
     send(app, Request::delete(uri).body(Body::empty()).unwrap()).await
 }
+
+pub async fn post_json(
+    app: &Router,
+    uri: &str,
+    body: &serde_json::Value,
+) -> (StatusCode, serde_json::Value) {
+    let req = Request::post(uri)
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    send(app, req).await
+}
