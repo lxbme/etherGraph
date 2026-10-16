@@ -137,7 +137,7 @@ impl Store {
         };
 
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-            "WITH f AS (SELECT from_addr, to_addr, asset, amount, ts FROM transfers WHERE (",
+            "WITH f AS (SELECT from_addr, to_addr, asset, kind, amount, ts FROM transfers WHERE (",
         );
         if out {
             qb.push("from_addr = ANY(")
@@ -154,11 +154,16 @@ impl Store {
         }
         qb.push(")");
         push_filter(&mut qb, &q.filter);
-        qb.push(
+        // Internal transfers move ETH, so they count as native for `asset_kind`.
+        qb.push(format!(
             "), g AS (SELECT from_addr, to_addr, asset, count(*) AS cnt, sum(amount) AS total, \
-             min(ts) AS first_ts, max(ts) AS last_ts FROM f GROUP BY 1, 2, 3), \
+             min(ts) AS first_ts, max(ts) AS last_ts, \
+             max(CASE WHEN kind = {internal} THEN {native}::smallint ELSE kind END) AS asset_kind \
+             FROM f GROUP BY 1, 2, 3), \
              p AS (",
-        );
+            internal = TransferKind::Internal.as_i16(),
+            native = TransferKind::Native.as_i16(),
+        ));
         if out {
             qb.push(
                 "SELECT from_addr AS center, to_addr AS nb, cnt, total, last_ts FROM g \
@@ -194,7 +199,7 @@ impl Store {
              FROM (SELECT center, nb, sum(cnt) AS k_count, sum(total) AS k_amount, \
              max(last_ts) AS k_recent FROM p GROUP BY 1, 2) s) \
              SELECT g.from_addr, g.to_addr, g.asset, g.cnt, LEAST(g.total, {U256_MAX_DEC}) AS total, \
-             g.first_ts, g.last_ts, \
+             g.first_ts, g.last_ts, g.asset_kind, \
              NULL::bytea AS center, NULL::bigint AS omitted FROM g \
              WHERE EXISTS (SELECT 1 FROM r WHERE r.rk <= "
         ));
@@ -208,7 +213,7 @@ impl Store {
         if inb {
             qb.push("(r.center = g.to_addr AND r.nb = g.from_addr)");
         }
-        qb.push(")) UNION ALL SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, center, n - ")
+        qb.push(")) UNION ALL SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, center, n - ")
             .push_bind(limit)
             .push(" FROM (SELECT DISTINCT center, n FROM r WHERE n > ")
             .push_bind(limit)
@@ -229,6 +234,11 @@ impl Store {
                 asset: r
                     .try_get::<Option<Vec<u8>>, _>("asset")?
                     .map(|b| bytes_to_addr(&b)),
+                asset_kind: {
+                    let k: i16 = r.try_get("asset_kind")?;
+                    TransferKind::from_i16(k)
+                        .ok_or_else(|| StoreError::Invalid(format!("unknown kind {k}")))?
+                },
                 count: to_u64(r.try_get("cnt")?, "count")?,
                 sum: bd_to_u256(&r.try_get("total")?)?,
                 first_ts: r.try_get("first_ts")?,
@@ -733,6 +743,36 @@ mod tests {
         let ca = find(&r.edges, C, A, Some(USDT));
         assert_eq!((ca.count, ca.sum), (2, U256::MAX));
         assert_eq!(U256_MAX_DEC, U256::MAX.to_string());
+    }
+
+    #[sqlx::test]
+    async fn edges_report_asset_kind(pool: PgPool) {
+        let nft = Address::repeat_byte(0x77);
+        let multi = Address::repeat_byte(0x78);
+        let mut v = vec![
+            tr(1, C, A, None, 1, 100),
+            tr(2, C, B, Some(USDT), 1, 100),
+            tr(3, C, D, Some(nft), 1, 100),
+            tr(4, C, e(1), Some(multi), 1, 100),
+            tr(5, C, e(2), None, 1, 100),
+        ];
+        v[2].kind = TransferKind::Erc721;
+        v[3].kind = TransferKind::Erc1155;
+        v[4].kind = TransferKind::Internal;
+        assign_sub_ids(&mut v);
+        let store = Store::from_pool(pool);
+        store.upsert_transfers(&v).await.unwrap();
+        let r = store
+            .query_edges(&query(EdgeFilter::default(), 100, SortBy::Count))
+            .await
+            .unwrap();
+        let kind = |to, asset| find(&r.edges, C, to, asset).asset_kind;
+        assert_eq!(kind(A, None), TransferKind::Native);
+        assert_eq!(kind(B, Some(USDT)), TransferKind::Erc20);
+        assert_eq!(kind(D, Some(nft)), TransferKind::Erc721);
+        assert_eq!(kind(e(1), Some(multi)), TransferKind::Erc1155);
+        // Internal ETH transfers count as native for the edge's asset kind.
+        assert_eq!(kind(e(2), None), TransferKind::Native);
     }
 
     #[sqlx::test]

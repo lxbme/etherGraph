@@ -244,6 +244,9 @@ pub struct EdgeDto {
     pub to: String,
     /// Token address; null for ETH.
     pub asset: Option<String>,
+    /// `native` for ETH (internal transfers included), else the token standard.
+    #[ts(type = r#""native" | "erc20" | "erc721" | "erc1155""#)]
+    pub asset_kind: String,
     #[ts(type = "number")]
     pub count: u64,
     /// Raw amount sum, decimal string.
@@ -362,6 +365,7 @@ impl EdgeDto {
             from: hex_addr(e.from),
             to: hex_addr(e.to),
             asset: e.asset.map(hex_addr),
+            asset_kind: e.asset_kind.as_str().to_owned(),
             count: e.count,
             sum: e.sum.to_string(),
             first_ts: rfc3339(e.first_ts),

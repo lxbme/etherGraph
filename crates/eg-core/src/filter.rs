@@ -57,6 +57,9 @@ pub struct Edge {
     pub from: Address,
     pub to: Address,
     pub asset: Option<Address>,
+    /// `Native` for ETH (internal transfers included); otherwise the token
+    /// standard of the grouped transfers. Never `Internal`.
+    pub asset_kind: TransferKind,
     pub count: u64,
     pub sum: U256,
     pub first_ts: DateTime<Utc>,

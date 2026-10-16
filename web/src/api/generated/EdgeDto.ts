@@ -4,7 +4,11 @@ export type EdgeDto = { from: string, to: string,
 /**
  * Token address; null for ETH.
  */
-asset: string | null, count: number, 
+asset: string | null, 
+/**
+ * `native` for ETH (internal transfers included), else the token standard.
+ */
+asset_kind: "native" | "erc20" | "erc721" | "erc1155", count: number, 
 /**
  * Raw amount sum, decimal string.
  */

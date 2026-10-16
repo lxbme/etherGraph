@@ -260,13 +260,15 @@ async fn graph_edges_returns_nodes_and_enqueues_meta(pool: PgPool) {
     assert_eq!(
         *eth,
         json!({
-            "from": hex(C), "to": hex(A), "asset": null, "count": 2, "sum": "12",
+            "from": hex(C), "to": hex(A), "asset": null, "asset_kind": "native",
+            "count": 2, "sum": "12",
             "first_ts": "2023-11-14T22:13:20.000Z", "last_ts": "2023-11-14T22:13:30.000Z",
             "decimals": 18, "symbol": "ETH",
         })
     );
     let usdt = edges.iter().find(|e| e["asset"] == hex(USDT)).unwrap();
     assert_eq!(usdt["decimals"], Value::Null);
+    assert_eq!(usdt["asset_kind"], "erc20");
     assert_eq!(b["omitted"], json!({}));
     let coverage = b["coverage"].as_object().unwrap();
     assert_eq!(coverage.len(), 3);
@@ -963,6 +965,7 @@ async fn tokens_without_decimals_are_not_requeued(pool: PgPool) {
     let req = json!({"addresses": [hex(C)]});
     let (s, b) = post_json(&app, "/api/graph/edges", &req).await;
     assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["edges"][0]["asset_kind"], "erc721", "{b}");
     let jobs = jobs_of(&state, JobKind::TokenMeta).await;
     assert_eq!(jobs.len(), 1);
     let job = &jobs[0];
