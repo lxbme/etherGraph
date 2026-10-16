@@ -11,6 +11,7 @@ use eg_store::{JobKind, JobRow, JobStatus, Store, StoreError};
 use futures::FutureExt;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
+use tracing::Instrument;
 
 use crate::config::IngestConfig;
 use crate::events::{Event, EventBus};
@@ -92,7 +93,10 @@ async fn worker_loop(ctx: JobCtx, handlers: Handlers) {
         tokio::pin!(notified);
         notified.as_mut().enable();
         match ctx.store.claim_next().await {
-            Ok(Some(job)) => process(&ctx, &handlers, job).await,
+            Ok(Some(job)) => {
+                let span = tracing::info_span!("job", id = job.id, kind = job.kind.as_str());
+                process(&ctx, &handlers, job).instrument(span).await
+            }
             Ok(None) => {
                 let _ = tokio::time::timeout(Duration::from_secs(1), notified).await;
             }

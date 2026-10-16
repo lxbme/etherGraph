@@ -1,0 +1,49 @@
+//! `GET /api/jobs?active=true`, `DELETE /api/jobs/{id}`.
+
+use axum::Json;
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use serde::Deserialize;
+
+use crate::dto::JobDto;
+use crate::error::{ApiError, invalid};
+use crate::state::AppState;
+
+#[derive(Deserialize)]
+pub struct JobsQuery {
+    /// Parsed by hand so a malformed value gets the JSON error body.
+    pub active: Option<String>,
+}
+
+/// Only active jobs (pending, running, paused) are listed; `active` defaults to true.
+pub async fn list(
+    State(s): State<AppState>,
+    Query(q): Query<JobsQuery>,
+) -> Result<Json<Vec<JobDto>>, ApiError> {
+    match q.active.as_deref() {
+        None | Some("true") => {}
+        Some(other) => {
+            return Err(invalid(format!(
+                "active={other:?} is not supported; use true"
+            )));
+        }
+    }
+    let jobs = s.store.active_jobs().await?;
+    Ok(Json(jobs.into_iter().map(JobDto::from).collect()))
+}
+
+/// 204 when the job was cancelled (pending) or flagged for cancellation
+/// (running); 404 when it does not exist or has already finished.
+pub async fn cancel(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let id: i64 = id
+        .parse()
+        .map_err(|_| invalid(format!("invalid job id {id:?}")))?;
+    if s.store.cancel_job(id).await? {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found(format!("no active job {id}")))
+    }
+}
