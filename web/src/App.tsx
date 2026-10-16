@@ -11,7 +11,7 @@ import { TopBar } from "./shell/TopBar";
 import { useHashRouting } from "./shell/hashRoute";
 import { TransferTable } from "./panels/TransferTable";
 import { DetailPanel } from "./panels/DetailPanel";
-import { TxView } from "./shell/placeholders";
+import { TxFlowView } from "./views/TxFlowView";
 import { useTabs } from "./shell/tabs";
 import { AddressGraph } from "./views/AddressGraph";
 
@@ -44,7 +44,7 @@ function Shell() {
           <div className="main__graph" hidden={!!tx}>
             <ResizableSplit top={<AddressGraph />} bottom={<TransferTable />} />
           </div>
-          {tx && "kind" in tx && <TxView hash={tx.hash} />}
+          {tx && "kind" in tx && <TxFlowView hash={tx.hash} />}
         </div>
         {detailOpen && (
           <aside className="main__right">

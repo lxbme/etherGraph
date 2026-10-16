@@ -56,7 +56,8 @@ describe('hash routing', () => {
     history.replaceState(null, '', '#/tx/' + H1)
     render(<App />)
     expect(useTabs.getState().active).toBe(H1)
-    expect(screen.getAllByText(/交易 0xabab/).length).toBeGreaterThan(1)
+    expect(screen.getAllByText(/交易 0xabab/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/正在获取交易/)).toBeInTheDocument()
   })
 
   it('#/address/<addr> adds a center and activates graph', () => {

@@ -412,3 +412,22 @@ body,
 .label-editor__count { align-self: flex-end; color: var(--fg-muted); font-size: 12px; }
 .label-editor__count--bad { color: var(--cat-scam); }
 .label-editor__actions { display: flex; gap: 8px; }
+
+.txview { flex: 1; min-height: 0; display: flex; }
+.txview__main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.txview__side { width: 300px; flex: none; background: var(--panel); border-left: 1px solid var(--border); }
+.txview__add { margin-top: 12px; }
+.txview__header { padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 13px; }
+.txview__meta { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 4px; color: var(--fg-muted); }
+.txview__ok { color: var(--asset-stable); }
+.txview__fail { color: var(--cat-scam); }
+.txview__muted { color: var(--fg-muted); }
+.txview__tag { padding: 0 6px; font-size: 11px; color: var(--fg-muted); border: 1px solid var(--border); border-radius: 8px; }
+.txview__banner { padding: 6px 12px; font-size: 12px; color: var(--fg-muted); background: var(--panel); border-bottom: 1px solid var(--border); }
+.txview__graph { flex: 1; min-height: 200px; position: relative; }
+.txview__tables { flex: none; max-height: 40%; overflow: auto; background: var(--panel); border-top: 1px solid var(--border); font-size: 12px; }
+.txview__tabs { display: flex; gap: 4px; padding: 4px 8px; }
+.txview__tabs button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.txview__tables table { width: 100%; border-collapse: collapse; }
+.txview__tables th, .txview__tables td { padding: 3px 8px; text-align: left; border-top: 1px solid var(--border); }
+.txview__arg { margin-right: 10px; }

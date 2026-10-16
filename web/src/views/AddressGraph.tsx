@@ -21,7 +21,7 @@ import { toast } from "../shell/Toasts";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 const hasMatchMedia = () => typeof window !== "undefined" && typeof window.matchMedia === "function";
 
-function useColorScheme(): "light" | "dark" {
+export function useColorScheme(): "light" | "dark" {
   const [dark, setDark] = useState(() => hasMatchMedia() && window.matchMedia(DARK_QUERY).matches);
   useEffect(() => {
     if (!hasMatchMedia()) return;
