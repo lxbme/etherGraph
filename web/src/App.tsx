@@ -13,6 +13,8 @@ import { TransferTable } from "./panels/TransferTable";
 import { DetailPanel } from "./panels/DetailPanel";
 import { TxFlowView } from "./views/TxFlowView";
 import { useTabs } from "./shell/tabs";
+import { WorkspaceMenu } from "./shell/WorkspaceMenu";
+import { saveStatusLabel, useWorkspace } from "./workspace/useWorkspace";
 import { AddressGraph } from "./views/AddressGraph";
 
 function initialDetailOpen(): boolean {
@@ -32,11 +34,12 @@ function Shell() {
   useEvents();
   const { tabs, active } = useTabs();
   const [detailOpen, setDetailOpen] = useState(initialDetailOpen);
+  const wsStatus = useWorkspace((s) => saveStatusLabel(s));
   const tx = tabs.find((t) => t.id === active && "kind" in t);
 
   return (
     <div className="app">
-      <TopBar onToggleDetail={() => setDetailOpen((v) => !v)} />
+      <TopBar workspaceMenu={<WorkspaceMenu />} onToggleDetail={() => setDetailOpen((v) => !v)} />
       <TabBar />
       <Banners />
       <div className="main">
@@ -59,7 +62,7 @@ function Shell() {
           </aside>
         )}
       </div>
-      <StatusBar />
+      <StatusBar saveStatus={wsStatus} />
       <Toasts />
     </div>
   );

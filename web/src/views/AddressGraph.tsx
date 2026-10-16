@@ -2,6 +2,7 @@ import type cytoscape from "cytoscape";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
+import { setMainCy } from "../graph/cyRegistry";
 import { useBoxSelection } from "../graph/boxSelection";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { toElements } from "../graph/elements";
@@ -110,8 +111,11 @@ export function AddressGraph() {
     clearNativeSelection();
   }, [selection]);
 
+  useEffect(() => () => setMainCy(null), []);
+
   const onReady = (cy: cytoscape.Core) => {
     cyRef.current = cy;
+    setMainCy(cy);
     cy.on("viewport", () => setMenu(null));
     cy.on("grab", "node", (e) => {
       const p = e.target.position();

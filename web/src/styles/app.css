@@ -433,3 +433,24 @@ body,
 .txview__arg { margin-right: 10px; }
 .main__tx { flex: 1; min-height: 0; display: flex; }
 .main__tx[hidden] { display: none; }
+
+.wsmenu { position: relative; }
+.wsmenu__list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 50;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+.wsmenu__list .btn { text-align: left; border: 0; background: transparent; }
+.wsmenu__list .btn:hover:not(:disabled) { background: var(--bg); }
+.wsmenu__input { padding: 4px 6px; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; }
+.wsmenu__error { color: var(--cat-scam); font-size: 12px; }
