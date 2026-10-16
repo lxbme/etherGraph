@@ -133,3 +133,45 @@ describe('split + layout', () => {
     await u.click(screen.getByRole('button', { name: '详情栏' }))
   })
 })
+
+describe('fix round 1', () => {
+  it('hashchange to #/address keeps the hash and selects the node', () => {
+    render(<App />)
+    const A2 = '0x' + '34'.repeat(20)
+    act(() => {
+      history.replaceState(null, '', '#/address/' + A2)
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    })
+    expect(location.hash).toBe('#/address/' + A2)
+    expect(useGraph.getState().selection).toEqual({ kind: 'node', address: A2 })
+  })
+
+  it('keyboard resize persists and changes the inline height', async () => {
+    render(<App />)
+    const sep = screen.getByRole('separator')
+    const bottom = sep.nextElementSibling as HTMLElement
+    expect(bottom.style.height).toBe('32%')
+    sep.focus()
+    await userEvent.setup().keyboard('{ArrowUp}')
+    expect(bottom.style.height).toMatch(/px$/)
+    expect(Number(localStorage.getItem('ethergraph.splitHeight'))).toBeGreaterThanOrEqual(120)
+  })
+
+  it('clamps an oversized stored height on mount', () => {
+    localStorage.setItem('ethergraph.splitHeight', '900')
+    const spy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 500 } as DOMRect)
+    render(<App />)
+    const bottom = screen.getByRole('separator').nextElementSibling as HTMLElement
+    expect(bottom.style.height).toBe('380px')
+    spy.mockRestore()
+  })
+
+  it('graph content stays mounted while a tx tab is active', () => {
+    render(<App />)
+    const before = screen.getByText('关系图画布')
+    act(() => useTabs.getState().openTx(H1))
+    act(() => useTabs.getState().activate('graph'))
+    expect(screen.getByText('关系图画布')).toBe(before)
+    expect(before.closest('.main__graph')).not.toHaveAttribute('hidden')
+  })
+})

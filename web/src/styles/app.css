@@ -107,6 +107,8 @@ body,
 }
 
 .main { position: relative; display: flex; flex: 1; min-height: 0; }
+.main__graph { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.main__graph[hidden] { display: none; }
 .main__left { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .main__right {
   width: 320px;
@@ -128,7 +130,7 @@ body,
 }
 
 .split { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-.split__top { flex: 1; min-height: 0; position: relative; }
+.split__top { flex: 1; min-height: 120px; position: relative; }
 .split__handle {
   flex: none;
   height: 6px;
@@ -137,7 +139,7 @@ body,
   touch-action: none;
 }
 .split__handle:hover, .split__handle:focus-visible { background: var(--accent); outline: none; }
-.split__bottom { flex: none; min-height: 120px; overflow: auto; background: var(--panel); }
+.split__bottom { flex: none; min-height: 120px; max-height: calc(100% - 120px); overflow: auto; background: var(--panel); }
 
 .placeholder { padding: 12px; color: var(--fg-muted); }
 

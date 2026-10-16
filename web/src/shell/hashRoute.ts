@@ -16,13 +16,21 @@ export function parseHash(hash: string): Route {
   return null;
 }
 
+let applying = false;
+
 export function applyRoute(r: Route): void {
   if (!r) return;
-  if (r.kind === "address") {
-    useGraph.getState().addCenter(r.addr);
-    useTabs.getState().activate("graph");
-  } else {
-    useTabs.getState().openTx(r.hash);
+  applying = true;
+  try {
+    if (r.kind === "address") {
+      useGraph.getState().addCenter(r.addr);
+      useGraph.getState().select({ kind: "node", address: r.addr });
+      useTabs.getState().activate("graph");
+    } else {
+      useTabs.getState().openTx(r.hash);
+    }
+  } finally {
+    applying = false;
   }
 }
 
@@ -34,6 +42,7 @@ function currentHash(): string {
 }
 
 function writeBack() {
+  if (applying) return;
   const h = currentHash();
   if (location.hash !== h) history.replaceState(null, "", h);
 }

@@ -26,11 +26,10 @@ export function App() {
       <Banners />
       <div className="main">
         <div className="main__left">
-          {tx && "kind" in tx ? (
-            <TxView hash={tx.hash} />
-          ) : (
+          <div className="main__graph" hidden={!!tx}>
             <ResizableSplit top={<AddressGraph />} bottom={<TransferTable />} />
-          )}
+          </div>
+          {tx && "kind" in tx && <TxView hash={tx.hash} />}
         </div>
         {detailOpen && (
           <aside className="main__right">
