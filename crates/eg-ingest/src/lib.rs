@@ -1,5 +1,6 @@
 //! eg-ingest
 pub mod config;
+pub mod cursor;
 pub mod enqueue;
 pub mod events;
 pub mod gate;

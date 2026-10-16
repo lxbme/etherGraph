@@ -37,6 +37,12 @@ impl JobError {
     }
 }
 
+/// Whether the runner re-queues `job` after it failed with `e` (quota pauses
+/// are handled separately).
+pub(crate) fn will_retry(e: &JobError, job: &JobRow, cfg: &IngestConfig) -> bool {
+    e.is_retryable() && job.attempts + 1 < cfg.max_attempts
+}
+
 #[derive(Clone)]
 pub struct JobCtx {
     pub store: Store,
@@ -118,7 +124,7 @@ async fn record_outcome(
         ),
         Err(JobError::Cancelled) => (JobStatus::Cancelled, ctx.store.mark_cancelled(job.id).await),
         Err(e) => {
-            let retry = e.is_retryable() && job.attempts + 1 < ctx.cfg.max_attempts;
+            let retry = will_retry(e, job, &ctx.cfg);
             let status = if retry {
                 JobStatus::Pending
             } else {
