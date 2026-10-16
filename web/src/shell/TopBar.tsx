@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { SearchBox } from "../search/SearchBox";
 import { useQuota } from "./statusStore";
 
 export interface TopBarProps {
@@ -13,14 +14,7 @@ export function TopBar({ search, filter, workspaceMenu, onToggleDetail }: TopBar
   return (
     <header className="topbar">
       <h1 className="topbar__title">etherGraph</h1>
-      {search ?? (
-        <input
-          type="search"
-          className="topbar__search"
-          placeholder="搜索 地址 / 交易哈希 / ENS"
-          aria-label="搜索"
-        />
-      )}
+      {search ?? <SearchBox />}
       {filter ?? <button className="btn" disabled>⚙ 过滤 ▾</button>}
       <span className={`pill${quota?.paused ? " pill--warn" : ""}`}>
         额度 {quota ? `${quota.used}/${quota.limit}` : "—"}
