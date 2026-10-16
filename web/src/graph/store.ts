@@ -27,6 +27,8 @@ export interface GraphState {
   ui: Record<string, NodeUi>;
   selection: Selection;
   highlightTransfer: { from: string; to: string; asset: string | null } | null;
+  /** Bumped by `reset` and `loadSnapshot`: a new canvas whose nodes have nothing to do with earlier ones. */
+  epoch: number;
   addCenter(a: string): void;
   /** Makes `a` a shown center (adds it and/or unhides it) in one history step; no-op if it already is. */
   revealCenter(a: string): void;
@@ -161,6 +163,7 @@ export const useGraph = create<GraphState>()((set, get) => {
 
   return {
     ...initial(),
+    epoch: 0,
     addCenter: (a) => {
       const addr = lc(a);
       if (get().centers.includes(addr)) return;
@@ -256,7 +259,7 @@ export const useGraph = create<GraphState>()((set, get) => {
     canRedo: () => get()._future.length > 0,
     reset: () => {
       useAssetRegistry.getState().clear();
-      set(initial());
+      set({ ...initial(), epoch: get().epoch + 1 });
     },
     loadSnapshot: (v) => {
       useAssetRegistry.getState().clear();
@@ -264,6 +267,7 @@ export const useGraph = create<GraphState>()((set, get) => {
       for (const [k, u] of Object.entries(v.ui)) ui[lc(k)] = { ...u };
       set({
         ...initial(),
+        epoch: get().epoch + 1,
         centers: [...new Set(v.centers.map(lc))],
         filter: v.filter,
         sort: v.sort ?? "count",

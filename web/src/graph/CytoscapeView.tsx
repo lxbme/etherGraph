@@ -22,6 +22,11 @@ export interface CytoscapeViewProps {
   onTapBackground?(): void;
   onDragEnd(positions: Record<string, Pos>): void;
   onReady?(cy: cytoscape.Core): void;
+  /**
+   * A change starts a new canvas (new/opened workspace): positions of nodes from before it are not
+   * remembered, so they are laid out afresh if they show up again.
+   */
+  positionsEpoch?: number;
 }
 
 const classStr = (c: cytoscape.ElementDefinition["classes"]) =>
@@ -105,6 +110,9 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
   const cyRef = useRef<cytoscape.Core | null>(null);
   const appliedRef = useRef<AppliedPositions>(new Map());
   const lastPosRef = useRef<Map<string, Pos>>(new Map());
+  const epochRef = useRef(props.positionsEpoch ?? 0);
+  /** Nodes still on the canvas from an earlier epoch. */
+  const staleRef = useRef<Set<string>>(new Set());
   const refitRef = useRef<ReturnType<typeof createRefitGuard> | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
@@ -228,8 +236,23 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
     const cy = cyRef.current;
     if (!cy) return;
     const wasEmpty = cy.nodes().empty();
+    const epoch = props.positionsEpoch ?? 0;
+    if (epoch !== epochRef.current) {
+      epochRef.current = epoch;
+      lastPosRef.current = new Map();
+      staleRef.current = new Set(cy.nodes().map((n) => n.id()));
+    }
     const r = syncElements(cy, props.elements, appliedRef.current, lastPosRef.current);
     appliedRef.current = r.positions;
+    // An earlier canvas's node leaving now must not be remembered; one positioned by the new canvas is its own.
+    for (const id of staleRef.current) {
+      if (cy.getElementById(id).empty()) {
+        lastPosRef.current.delete(id);
+        staleRef.current.delete(id);
+      } else if (r.positions.get(id)) {
+        staleRef.current.delete(id);
+      }
+    }
     if (props.layout === "dagre-lr") {
       if (r.structureChanged) {
         runDagreLayout(cy);
@@ -247,7 +270,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
         refitRef.current?.noteLayout();
       }
     }
-  }, [props.elements, props.layout]);
+  }, [props.elements, props.layout, props.positionsEpoch]);
 
   return <div ref={containerRef} className="cy-view" style={{ width: "100%", height: "100%" }} />;
 }

@@ -50,6 +50,7 @@ export function AddressGraph() {
   const ui = useGraph((s) => s.ui);
   const selection = useGraph((s) => s.selection);
   const highlightTransfer = useGraph((s) => s.highlightTransfer);
+  const epoch = useGraph((s) => s.epoch);
 
   const theme = useColorScheme();
   const stylesheet = useMemo(() => graphStylesheet(theme), [theme]);
@@ -165,6 +166,7 @@ export function AddressGraph() {
         elements={elements}
         stylesheet={stylesheet}
         layout="incremental"
+        positionsEpoch={epoch}
         onTapNode={(id) => {
           useBoxSelection.getState().clear();
           useGraph.getState().select({ kind: "node", address: lc(id) });

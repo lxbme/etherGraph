@@ -44,6 +44,17 @@ describe("graph store", () => {
     expect(g().ui[A]?.hidden).toBe(true);
   });
 
+  test("reset and loadSnapshot start a new canvas epoch; edits do not", () => {
+    const e0 = g().epoch;
+    g().addCenter(A);
+    g().setHidden([B], true);
+    expect(g().epoch).toBe(e0);
+    g().reset();
+    expect(g().epoch).toBe(e0 + 1);
+    g().loadSnapshot({ centers: [A], filter: {}, expandedPairs: [], ui: {} });
+    expect(g().epoch).toBe(e0 + 2);
+  });
+
   test("addCenter lowercases and dedupes", () => {
     g().addCenter(A.toUpperCase().replace("0X", "0x"));
     g().addCenter(A);
