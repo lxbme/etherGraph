@@ -410,4 +410,59 @@ mod tests {
         );
         assert_eq!(store.tokens(&[a]).await.unwrap()[0].decimals, Some(18));
     }
+
+    #[sqlx::test]
+    async fn accounts_full_roundtrip_and_batch_dedupe(pool: PgPool) {
+        let store = Store::from_pool(pool);
+        let full = AccountRow {
+            address: Address::repeat_byte(1),
+            kind: eg_core::types::AccountKind::Contract,
+            contract_name: Some("Proxy".into()),
+            is_proxy: true,
+            implementation: Some(Address::repeat_byte(2)),
+            creator: Some(Address::repeat_byte(3)),
+            creation_tx: Some(eg_core::types::TxHash::repeat_byte(4)),
+            meta_fetched_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+        };
+        let mut first = acct(5, 0);
+        first.contract_name = Some("first".into());
+        let mut last = acct(5, 0);
+        last.contract_name = Some("last".into());
+        store
+            .upsert_accounts(&[last.clone(), full.clone(), first, last.clone()])
+            .await
+            .unwrap();
+        let got = store
+            .accounts(&[Address::repeat_byte(5), full.address])
+            .await
+            .unwrap();
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0], full);
+        assert_eq!(got[1].contract_name.as_deref(), Some("last"));
+    }
+
+    #[sqlx::test]
+    async fn needing_lists_dedupe_in_input_order(pool: PgPool) {
+        let store = Store::from_pool(pool);
+        let (a, b, c) = (
+            Address::repeat_byte(3),
+            Address::repeat_byte(1),
+            Address::repeat_byte(2),
+        );
+        let ttl = Duration::from_secs(3600);
+        let input = [a, b, a, c, b];
+        assert_eq!(
+            store.addrs_needing_meta(&input, ttl).await.unwrap(),
+            vec![a, b, c]
+        );
+        assert_eq!(
+            store.addrs_needing_ens(&input, ttl).await.unwrap(),
+            vec![a, b, c]
+        );
+        store.upsert_accounts(&[acct(1, 0)]).await.unwrap();
+        assert_eq!(
+            store.addrs_needing_meta(&input, ttl).await.unwrap(),
+            vec![a, c]
+        );
+    }
 }

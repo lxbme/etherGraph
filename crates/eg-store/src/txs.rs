@@ -106,7 +106,6 @@ impl Store {
 mod tests {
     use crate::*;
     use alloy_primitives::{B256, U256};
-    use chrono::Utc;
     use serde_json::json;
     use sqlx::PgPool;
 
@@ -134,7 +133,46 @@ mod tests {
         row.success = true;
         store.upsert_transaction(&row).await.unwrap();
         assert_eq!(store.transaction(row.hash).await.unwrap().unwrap(), row);
-        let _ = Utc::now();
         assert!(store.transfers_of_tx(row.hash).await.unwrap().is_empty());
+    }
+
+    #[sqlx::test]
+    async fn transfers_of_tx_ordering(pool: PgPool) {
+        use eg_core::types::{Transfer, TransferKind};
+        let store = Store::from_pool(pool);
+        let h = B256::repeat_byte(9);
+        let mk = |sub: &str, log: Option<u64>| Transfer {
+            tx_hash: h,
+            sub_id: sub.to_string(),
+            kind: TransferKind::Erc20,
+            block_number: 1,
+            ts: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            from: Address::repeat_byte(1),
+            to: Address::repeat_byte(2),
+            asset: Some(Address::repeat_byte(3)),
+            amount: U256::from(1),
+            token_id: None,
+            trace_id: None,
+            log_index: log,
+        };
+        store
+            .upsert_transfers(&[
+                mk("a", Some(2)),
+                mk("n", None),
+                mk("b", Some(1)),
+                mk("z", Some(1)),
+                mk("c", Some(1)),
+                mk("m", None),
+            ])
+            .await
+            .unwrap();
+        let got: Vec<String> = store
+            .transfers_of_tx(h)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|t| t.sub_id)
+            .collect();
+        assert_eq!(got, ["b", "c", "z", "a", "m", "n"]);
     }
 }
