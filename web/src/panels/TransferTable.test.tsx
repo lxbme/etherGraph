@@ -98,17 +98,36 @@ test("carries over kinds, time and the single asset threshold", async () => {
   );
 });
 
-test("node scope passes no asset with several asset filters", async () => {
+test("node scope passes the filter direction", async () => {
   const spy = vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null });
   act(() => {
-    useGraph.getState().setFilter({ assets: [{ asset: null, min_amount: "1" }, { asset: USDC }] });
+    useGraph.getState().setFilter({ direction: "in" });
     useGraph.getState().select({ kind: "node", address: A });
   });
   renderTable();
   await screen.findByText("没有符合条件的转账");
-  const arg = spy.mock.calls[0]![0];
-  expect(arg.asset).toBeUndefined();
-  expect(arg.minAmount).toBeUndefined();
+  expect(spy).toHaveBeenCalledWith(expect.objectContaining({ address: A, direction: "in" }));
+});
+
+test("node scope with several filtered assets renders one section per asset", async () => {
+  const spy = vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null });
+  act(() => {
+    useGraph.getState().setFilter({ direction: "out", assets: [{ asset: null, min_amount: "1" }, { asset: USDC.toUpperCase().replace("0X", "0x") }] });
+    useGraph.getState().select({ kind: "node", address: A });
+  });
+  renderTable();
+  const sections = await screen.findAllByTestId("transfer-group");
+  expect(sections).toHaveLength(2);
+  expect(sections[0]).toHaveTextContent("ETH");
+  expect(sections[0]).toHaveTextContent("≥ 1");
+  // The first section starts open.
+  await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+  expect(spy.mock.calls[0]![0]).toMatchObject({ address: A, direction: "out", asset: null, minAmount: "1" });
+  fireEvent.click(sections[1]!.querySelector("button")!);
+  await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+  const second = spy.mock.calls[1]![0];
+  expect(second).toMatchObject({ address: A, direction: "out", asset: USDC });
+  expect(second.minAmount).toBeUndefined();
 });
 
 test("pair selection renders collapsible groups with header totals", async () => {

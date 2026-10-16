@@ -22,6 +22,8 @@ export interface TransfersParams {
   to?: string;
   asset?: string | null;
   minAmount?: string;
+  /** Only with `address`: "in" / "out" relative to it ("both" or absent: either side). */
+  direction?: "in" | "out" | "both";
   kinds?: string[];
   timeFrom?: string;
   timeTo?: string;
@@ -41,6 +43,7 @@ export const api = {
         to: p.to,
         asset: p.asset === null ? "eth" : p.asset,
         min_amount: p.minAmount,
+        direction: p.direction,
         kinds: p.kinds && p.kinds.length > 0 ? p.kinds.join(",") : undefined,
         time_from: p.timeFrom,
         time_to: p.timeTo,

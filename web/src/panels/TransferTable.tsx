@@ -5,6 +5,7 @@ import { messageFor } from "../api/errors";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
 import type { TransferDto } from "../api/generated/TransferDto";
 import { qk } from "../api/queryClient";
+import { useAssetRegistry } from "../graph/assetRegistry";
 import { useGraph } from "../graph/store";
 import { useGraphData } from "../graph/useGraphData";
 import { shortAddr } from "../lib/address";
@@ -208,6 +209,47 @@ function PairGroups({ a, b }: { a: string; b: string }) {
   );
 }
 
+/** Node scope with two or more filtered assets: one collapsible section per asset, each with its threshold. */
+function AssetSections({ address, filter }: { address: string; filter: EdgeFilterDto }) {
+  const known = useAssetRegistry((r) => r.assets);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const assets = [...new Set((filter.assets ?? []).map((f) => normAsset(f.asset)))];
+  return (
+    <>
+      {assets.map((asset, i) => {
+        const key = asset ?? "eth";
+        const isOpen = open[key] ?? i === 0;
+        const min = thresholdFor(filter, asset);
+        const symbol = symbolOf(asset, asset === null ? "ETH" : known[asset]?.symbol ?? null);
+        return (
+          <section key={key} className="transfers__group" data-testid="transfer-group">
+            <button
+              type="button"
+              className="transfers__group-head"
+              aria-expanded={isOpen}
+              onClick={() => setOpen((o) => ({ ...o, [key]: !isOpen }))}
+            >
+              {isOpen ? "▾" : "▸"} {symbol}
+              {min !== undefined ? ` · ≥ ${min}` : ""}
+            </button>
+            {isOpen && (
+              <TransferRows
+                selected={address}
+                params={{ ...nodeParams(filter, address), asset, minAmount: min }}
+              />
+            )}
+          </section>
+        );
+      })}
+    </>
+  );
+}
+
+/** Address-scope params: the shared carry-over plus the filter direction (the canvas shows only that side). */
+function nodeParams(filter: EdgeFilterDto, address: string): TransfersParams {
+  return { ...baseParams(filter), address, direction: filter.direction ?? undefined };
+}
+
 export function TransferTable() {
   const selection = useGraph((s) => s.selection);
   const filter = useGraph((s) => s.filter);
@@ -216,13 +258,18 @@ export function TransferTable() {
   if (!selection) {
     body = <div className="transfers__msg">选择一个节点或一条边查看转账明细</div>;
   } else if (selection.kind === "node") {
-    const only = filter.assets?.length === 1 ? normAsset(filter.assets[0]!.asset) : undefined;
-    const params: TransfersParams = { ...baseParams(filter), address: selection.address };
-    if (only !== undefined) {
-      params.asset = only;
-      params.minAmount = thresholdFor(filter, only);
+    const n = filter.assets?.length ?? 0;
+    if (n >= 2) {
+      body = <AssetSections key={`${selection.address}|${JSON.stringify(filter)}`} address={selection.address} filter={filter} />;
+    } else {
+      const params = nodeParams(filter, selection.address);
+      if (n === 1) {
+        const only = normAsset(filter.assets![0]!.asset);
+        params.asset = only;
+        params.minAmount = thresholdFor(filter, only);
+      }
+      body = <TransferRows key={JSON.stringify(params)} params={params} selected={selection.address} />;
     }
-    body = <TransferRows key={JSON.stringify(params)} params={params} selected={selection.address} />;
   } else {
     body = <PairGroups key={`${selection.a}|${selection.b}`} a={selection.a} b={selection.b} />;
   }
