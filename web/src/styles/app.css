@@ -345,7 +345,6 @@ body,
   cursor: pointer;
 }
 .ctx-menu button:hover { background: var(--bg); }
-.ctx-menu kbd { color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; }
 .ctx-menu__group { padding: 5px 12px 2px; font-size: 11px; color: var(--fg-muted); }
 .ctx-menu__sub { padding-left: 24px !important; }
 
@@ -392,6 +391,7 @@ body,
 .dialog__tag { padding: 0 6px; font-size: 11px; color: #fff; background: var(--cat-mixer); border-radius: 8px; }
 .dialog__calls { color: var(--fg-muted); font-size: 12px; }
 .dialog__summary { font-size: 12px; color: var(--fg-muted); }
+.dialog__warn { font-size: 12px; color: var(--cat-mixer); }
 .dialog__actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 .detail { padding: 12px; overflow: auto; height: 100%; font-size: 13px; }

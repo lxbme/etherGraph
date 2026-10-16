@@ -66,7 +66,7 @@ export function ContextMenu(p: ContextMenuProps) {
 
   return (
     <div className="ctx-menu" role="menu" ref={ref} style={{ left: p.x, top: p.y }}>
-      <button role="menuitem" onClick={run(() => syncNode(addr))}>同步 / 刷新<kbd>S</kbd></button>
+      <button role="menuitem" onClick={run(() => syncNode(addr))}>同步 / 刷新</button>
       {node.partial && (
         <button role="menuitem" onClick={run(() => syncNode(addr, "older"))}>继续拉更早的记录</button>
       )}
@@ -75,13 +75,13 @@ export function ContextMenu(p: ContextMenuProps) {
       <button role="menuitem" className="ctx-menu__sub" onClick={run(p.onExpandTop)}>
         前 {TOP_K} 个（按{p.byAmount ? "金额" : "笔数"}）
       </button>
-      <button role="menuitem" onClick={run(() => togglePin(addr))}>{pinned ? "取消固定" : "固定"}<kbd>P</kbd></button>
-      <button role="menuitem" onClick={run(() => hideNode(addr))}>从画布隐藏<kbd>H</kbd></button>
+      <button role="menuitem" onClick={run(() => togglePin(addr))}>{pinned ? "取消固定" : "固定"}</button>
+      <button role="menuitem" onClick={run(() => hideNode(addr))}>从画布隐藏</button>
       {isCenter && (
         <button role="menuitem" onClick={run(() => useGraph.getState().removeCenter(addr))}>移出中心</button>
       )}
-      <button role="menuitem" onClick={run(() => focusNode(addr, p.data))}>只看这个节点的邻域<kbd>F</kbd></button>
-      <button role="menuitem" onClick={run(() => useUi.getState().openLabelEditor(addr))}>添加标签 / 备注<kbd>L</kbd></button>
+      <button role="menuitem" onClick={run(() => focusNode(addr, p.data))}>只看这个节点的邻域</button>
+      <button role="menuitem" onClick={run(() => useUi.getState().openLabelEditor(addr))}>添加标签 / 备注</button>
       <button role="menuitem" onClick={run(() => void copy())}>复制地址</button>
       <button
         role="menuitem"

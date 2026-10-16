@@ -118,3 +118,15 @@ test("shortcuts are suppressed while the dialog is open", async () => {
   fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
   expect(useGraph.getState().ui[addr(5)]?.hidden).toBe(true);
 });
+
+test("warns (without blocking) when the estimate exceeds today's remaining quota", async () => {
+  useQuota.setState({ quota: { used: 4995, limit: 5000, paused: false, reset_at: "" } });
+  vi.spyOn(api, "sync").mockResolvedValue({
+    estimated_calls: 9, estimated_seconds: 3, jobs: null, per_address: { [addr(1)]: 4, [addr(2)]: 5 },
+  });
+  render(<ExpandDialog neighbors={[node(1), node(2)]} onClose={() => {}} />);
+  expect(await screen.findByText("预计调用超过今日剩余额度")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "开始同步" })).toBeEnabled();
+  fireEvent.click(screen.getAllByRole("checkbox")[1]!); // 4 calls left: within the remaining 5
+  expect(screen.queryByText("预计调用超过今日剩余额度")).toBeNull();
+});

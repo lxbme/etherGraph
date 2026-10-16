@@ -134,6 +134,10 @@ export function ExpandDialog({ neighbors, preChecked, onClose }: ExpandDialogPro
             ? "估算中…"
             : `预计 ${calls} 次调用 · 约 ${seconds} 秒${remaining != null ? ` · 今日剩余额度 ${remaining}` : ""}`}
         </div>
+        {/* A warning only: the sync still runs, pausing when the quota is used up. */}
+        {error == null && perAddress != null && remaining != null && calls > remaining && (
+          <div className="dialog__warn" role="alert">预计调用超过今日剩余额度</div>
+        )}
         <div className="dialog__actions">
           <button type="button" onClick={onClose}>取消</button>
           <button type="button" disabled={perAddress == null || error != null || checked.size === 0 || busy} onClick={confirm}>开始同步</button>

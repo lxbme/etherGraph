@@ -44,6 +44,11 @@ test("'移出中心' only shows for centers and removes the center", () => {
   expect(useGraph.getState().centers).toEqual([]);
 });
 
+test("no key hints that would suggest the keys work while the menu is open", () => {
+  const { container } = render(menu(false));
+  expect(container.querySelector("kbd")).toBeNull();
+});
+
 function Host() {
   useShortcuts(() => undefined);
   return <input aria-label="t" />;
