@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use alloy_primitives::{Address, B256, Bytes, address};
 use alloy_sol_types::{SolCall, SolValue, sol};
-use eg_core::source::{ContractCreation, ContractSource, SourceError};
+use eg_core::source::{ContractCreation, ContractSource, Priority, SourceError};
 use eg_core::testing::FakeSource;
 use eg_core::types::AccountKind;
 use eg_decode::encode_reverse;
@@ -319,4 +319,139 @@ async fn names_network_error_propagates(pool: PgPool) {
     )
     .await;
     assert!(matches!(r, Err(JobError::Source(SourceError::Network(_)))));
+}
+
+/// Delegates to `FakeSource`, failing `contract_source` for one address once
+/// and counting `contract_source` calls per address.
+struct FlakySource {
+    inner: Arc<FakeSource>,
+    fail_for: Address,
+    failed: Mutex<bool>,
+    source_calls: Mutex<Vec<Address>>,
+}
+
+#[async_trait::async_trait]
+impl eg_core::source::ChainSource for FlakySource {
+    async fn history_page(
+        &self,
+        p: Priority,
+        q: &eg_core::source::HistoryQuery,
+    ) -> Result<eg_core::source::HistoryPage, SourceError> {
+        self.inner.history_page(p, q).await
+    }
+    async fn tx(
+        &self,
+        p: Priority,
+        h: B256,
+    ) -> Result<Option<eg_core::source::RawTx>, SourceError> {
+        self.inner.tx(p, h).await
+    }
+    async fn receipt(
+        &self,
+        p: Priority,
+        h: B256,
+    ) -> Result<Option<eg_core::source::RawReceipt>, SourceError> {
+        self.inner.receipt(p, h).await
+    }
+    async fn internal_txs(
+        &self,
+        p: Priority,
+        h: B256,
+    ) -> Result<Vec<eg_core::types::Transfer>, SourceError> {
+        self.inner.internal_txs(p, h).await
+    }
+    async fn block_timestamp(
+        &self,
+        p: Priority,
+        b: u64,
+    ) -> Result<chrono::DateTime<chrono::Utc>, SourceError> {
+        self.inner.block_timestamp(p, b).await
+    }
+    async fn latest_block(&self, p: Priority) -> Result<u64, SourceError> {
+        self.inner.latest_block(p).await
+    }
+    async fn contract_source(
+        &self,
+        p: Priority,
+        a: Address,
+    ) -> Result<ContractSource, SourceError> {
+        self.source_calls.lock().unwrap().push(a);
+        if a == self.fail_for && !std::mem::replace(&mut *self.failed.lock().unwrap(), true) {
+            return Err(SourceError::Timeout);
+        }
+        self.inner.contract_source(p, a).await
+    }
+    async fn contract_creation(
+        &self,
+        p: Priority,
+        a: &[Address],
+    ) -> Result<Vec<ContractCreation>, SourceError> {
+        self.inner.contract_creation(p, a).await
+    }
+    async fn eth_call(&self, p: Priority, to: Address, d: Bytes) -> Result<Bytes, SourceError> {
+        self.inner.eth_call(p, to, d).await
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn contract_meta_partial_failure_keeps_progress_and_retry_skips_done(pool: PgPool) {
+    let mut e = env(pool);
+    for (i, n) in [(1u8, "A"), (2, "B"), (3, "C")] {
+        add_contract(&e, a(i), n, None);
+    }
+    let flaky = Arc::new(FlakySource {
+        inner: e.fake.clone(),
+        fail_for: a(2),
+        failed: Mutex::new(false),
+        source_calls: Mutex::new(Vec::new()),
+    });
+    e.ctx.source = flaky.clone();
+    let list: Vec<String> = (1..=3).map(|i| format!("{:#x}", a(i))).collect();
+    let mut rx = e.ctx.bus.subscribe();
+
+    let r = run(
+        &e,
+        &ContractMetaHandler,
+        JobKind::ContractMeta,
+        json!({"addresses": list}),
+    )
+    .await;
+    assert!(matches!(r, Err(JobError::Source(SourceError::Timeout))));
+    let rows = e.ctx.store.accounts(&[a(1), a(2), a(3)]).await.unwrap();
+    let mut got: Vec<_> = rows
+        .iter()
+        .map(|r| (r.address, r.contract_name.clone().unwrap()))
+        .collect();
+    got.sort();
+    assert_eq!(got, vec![(a(1), "A".to_string()), (a(3), "C".to_string())]);
+    match rx.try_recv().unwrap() {
+        Event::MetaUpdated { addresses } => assert_eq!(addresses, vec![a(1), a(3)]),
+        other => panic!("unexpected {other:?}"),
+    }
+
+    // Retry (same params, new job key): only the failed address is redone.
+    flaky.source_calls.lock().unwrap().clear();
+    let list: Vec<String> = (1..=3).map(|i| format!("{:#x}", a(i))).collect();
+    e.ctx
+        .store
+        .enqueue(&NewJob {
+            key: "retry".into(),
+            kind: JobKind::ContractMeta,
+            params: json!({"addresses": list}),
+            priority: eg_core::source::Priority::Low,
+        })
+        .await
+        .unwrap();
+    let job = e.ctx.store.claim_next().await.unwrap().unwrap();
+    ContractMetaHandler.run(&job, &e.ctx).await.unwrap();
+    assert_eq!(*flaky.source_calls.lock().unwrap(), vec![a(2)]);
+    assert_eq!(
+        e.ctx
+            .store
+            .accounts(&[a(1), a(2), a(3)])
+            .await
+            .unwrap()
+            .len(),
+        3
+    );
 }

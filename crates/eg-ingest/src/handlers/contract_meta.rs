@@ -30,6 +30,11 @@ impl JobHandler for ContractMetaHandler {
             .map_err(|e| JobError::Invalid(format!("bad contract_meta params: {e}")))?;
         let mut seen = HashSet::new();
         let addrs: Vec<Address> = addresses.into_iter().filter(|a| seen.insert(*a)).collect();
+        // A retried job only redoes addresses that still lack fresh metadata.
+        let addrs = ctx
+            .store
+            .addrs_needing_meta(&addrs, ctx.cfg.meta_ttl)
+            .await?;
         let p = Priority::Low;
 
         let mut creations = HashMap::new();
@@ -42,6 +47,8 @@ impl JobHandler for ContractMetaHandler {
         let now = Utc::now();
         let mut rows = Vec::with_capacity(addrs.len());
         let mut impls = Vec::new();
+        let mut done = Vec::with_capacity(addrs.len());
+        let mut first_err: Option<JobError> = None;
         for addr in &addrs {
             let Some(creation) = creations.get(addr) else {
                 rows.push(AccountRow {
@@ -54,9 +61,16 @@ impl JobHandler for ContractMetaHandler {
                     creation_tx: None,
                     meta_fetched_at: now,
                 });
+                done.push(*addr);
                 continue;
             };
-            let src = ctx.source.contract_source(p, *addr).await?;
+            let src = match ctx.source.contract_source(p, *addr).await {
+                Ok(src) => src,
+                Err(e) => {
+                    first_err.get_or_insert(e.into());
+                    continue;
+                }
+            };
             ctx.store.upsert_abi(*addr, src.abi_json.as_deref()).await?;
             if let Some(imp) = src.implementation.filter(|_| src.is_proxy) {
                 impls.push(imp);
@@ -71,6 +85,7 @@ impl JobHandler for ContractMetaHandler {
                 creation_tx: Some(creation.tx_hash),
                 meta_fetched_at: now,
             });
+            done.push(*addr);
         }
         ctx.store.upsert_accounts(&rows).await?;
 
@@ -83,7 +98,10 @@ impl JobHandler for ContractMetaHandler {
                 enqueue_meta(ctx, &need).await?;
             }
         }
-        ctx.bus.publish(Event::MetaUpdated { addresses: addrs });
-        Ok(())
+        if !done.is_empty() {
+            ctx.bus.publish(Event::MetaUpdated { addresses: done });
+        }
+        // Partial progress is stored; fail so the runner retries the rest.
+        first_err.map_or(Ok(()), Err)
     }
 }

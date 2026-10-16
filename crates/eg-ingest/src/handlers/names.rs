@@ -74,7 +74,14 @@ impl JobHandler for ResolveNamesHandler {
                         });
                     }
                 }
-                _ => rows.extend(chunk.iter().map(|a| error_row(*a, now))),
+                other => {
+                    tracing::warn!(
+                        decoded = ?other.map(|r| r.len()),
+                        expected = chunk.len(),
+                        "bad multicall result for ENS batch"
+                    );
+                    rows.extend(chunk.iter().map(|a| error_row(*a, now)));
+                }
             }
         }
         ctx.store.upsert_ens(&rows).await?;
