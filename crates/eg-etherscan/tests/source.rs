@@ -217,6 +217,38 @@ async fn nft_and_1155_pages_record_token_info() {
 }
 
 #[tokio::test]
+async fn malformed_token_decimal_is_unknown_not_an_error() {
+    let row = |n: u8, dec: &str| {
+        format!(
+            r#"{{"blockNumber":"200","timeStamp":"1700000200","hash":"0x{n:064x}","from":"0x{:040x}","to":"0x{:040x}","contractAddress":"0x{:040x}","tokenName":"T","tokenSymbol":"T","tokenDecimal":"{dec}","value":"1","logIndex":"1"}}"#,
+            0xa1, 0xb2, n
+        )
+    };
+    let body = format!(
+        r#"{{"status":"1","message":"OK","result":[{},{},{}]}}"#,
+        row(1, "abc"),
+        row(2, "300"),
+        row(3, "6")
+    );
+    let server = MockServer::start().await;
+    serve(&server, "account", "tokentx", body).await;
+    let page = source(&server)
+        .history_page(P, &query(TransferKind::Erc20))
+        .await
+        .unwrap();
+    assert_eq!(page.transfers.len(), 3);
+    let dec: Vec<(Address, Option<u8>)> = page
+        .tokens
+        .iter()
+        .map(|t| (t.address, t.decimals))
+        .collect();
+    assert_eq!(
+        dec,
+        vec![(addr(1), None), (addr(2), None), (addr(3), Some(6))]
+    );
+}
+
+#[tokio::test]
 async fn unverified_contract_has_no_abi() {
     let server = MockServer::start().await;
     serve(

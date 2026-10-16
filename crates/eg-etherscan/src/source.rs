@@ -232,14 +232,12 @@ impl ChainSource for EtherscanSource {
                             kind,
                             name: non_empty(&r.token_name),
                             symbol: non_empty(&r.token_symbol),
-                            // NFTs have no decimals (tokennfttx reports "0").
-                            decimals: if kind == TransferKind::Erc20 {
-                                non_empty(&r.token_decimal)
-                                    .map(|s| s.parse::<u8>().map_err(|e| perr("tokenDecimal", e)))
-                                    .transpose()?
-                            } else {
-                                None
-                            },
+                            // NFTs have no decimals (tokennfttx reports "0"). A
+                            // malformed or out-of-range value is unknown, not an
+                            // error: it must not fail the whole page.
+                            decimals: (kind == TransferKind::Erc20)
+                                .then(|| r.token_decimal.parse::<u8>().ok())
+                                .flatten(),
                         });
                     }
                     transfers.push(t);
