@@ -86,7 +86,11 @@ fn parse_log(j: &Value) -> Result<RawLog, SourceError> {
 }
 
 pub fn parse_receipt(json: &Value) -> Result<RawReceipt, SourceError> {
-    let success = parse_quantity("status", req_str(json, "status")?)? == U256::from(1u8);
+    // Pre-Byzantium receipts carry `root` instead of `status` and cannot encode failure.
+    let success = match opt_str(json, "status")? {
+        Some(s) => parse_quantity("status", s)? == U256::from(1u8),
+        None => true,
+    };
     let logs = match json.get("logs") {
         None | Some(Value::Null) => Vec::new(),
         Some(Value::Array(a)) => a.iter().map(parse_log).collect::<Result<_, _>>()?,
@@ -131,6 +135,23 @@ mod tests {
         assert_eq!(r.gas_used, U256::from(21000u64));
         assert_eq!(r.effective_gas_price, U256::from(1_000_000_000u64));
         assert!(r.contract_address.is_none());
+    }
+
+    #[test]
+    fn parse_receipt_pre_byzantium_root_only() {
+        let j = serde_json::json!({
+            "root": "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "gasUsed": "0x5208", "logs": []
+        });
+        let r = parse_receipt(&j).unwrap();
+        assert!(r.success);
+        assert_eq!(r.effective_gas_price, U256::ZERO);
+    }
+
+    #[test]
+    fn parse_receipt_malformed_gas_used() {
+        let j = serde_json::json!({"status": "0x1", "gasUsed": "nope", "logs": []});
+        assert!(matches!(parse_receipt(&j), Err(SourceError::Parse(_))));
     }
 
     #[test]

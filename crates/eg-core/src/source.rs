@@ -121,6 +121,7 @@ pub struct RawTx {
 pub struct RawReceipt {
     pub success: bool,
     pub gas_used: U256,
+    /// ZERO when the receipt has no effectiveGasPrice (pre-London); callers fall back to the tx gasPrice.
     pub effective_gas_price: U256,
     pub contract_address: Option<Address>,
     pub logs: Vec<RawLog>,
