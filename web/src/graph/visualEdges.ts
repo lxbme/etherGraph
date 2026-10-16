@@ -53,16 +53,21 @@ export function deriveVisualEdges(
     const expanded = expandedPairs.has(pairKey(from, to));
 
     if (!expanded) {
-      const sorted = [...dir].sort(byCountDesc);
-      const dominant = sorted[0]!;
+      const groups = [...groupBy(dir, assetKey).values()]
+        .map((g) => {
+          const list = [...g].sort(byCountDesc);
+          return { dominant: list[0]!, count: sumCount(list) };
+        })
+        .sort((a, b) => b.count - a.count || assetKey(a.dominant).localeCompare(assetKey(b.dominant)));
+      const dominant = groups[0]!.dominant;
       out.push({
         id: `c:${from}>${to}`,
         from,
         to,
         color: assetClass(dominant.asset, dominant.asset_kind),
-        count: sumCount(sorted),
-        assets: sorted,
-        badge: sorted.length > 1 ? `×${sorted.length}` : null,
+        count: sumCount(dir),
+        assets: [...dir].sort(byCountDesc),
+        badge: groups.length > 1 ? `×${groups.length}` : null,
         expanded: false,
       });
       continue;

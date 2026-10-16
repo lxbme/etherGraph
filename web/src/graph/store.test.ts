@@ -108,4 +108,12 @@ describe("graph store", () => {
     g().undo();
     expect(hidden(C)).toBe(false);
   });
+
+  test("focusNeighborhood hides nodes supplied only via allNodes", () => {
+    g().setCenters([A]);
+    g().focusNeighborhood(A, [B], [A, B, C, D.toUpperCase().replace("0X", "0x")]);
+    expect(g().ui[C]?.hidden).toBe(true);
+    expect(g().ui[D]?.hidden).toBe(true);
+    expect(g().ui[B]?.hidden).toBe(false);
+  });
 });

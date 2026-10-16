@@ -42,6 +42,24 @@ describe("deriveVisualEdges", () => {
     expect(v[0]!.color).toBe("erc20");
   });
 
+  test("collapsed badge counts distinct assets, not rows", () => {
+    const v = deriveVisualEdges([edge({ count: 1 }), edge({ count: 2 })], none, none);
+    expect(v[0]).toMatchObject({ badge: null, count: 3, color: "eth" });
+    const w = deriveVisualEdges(
+      [edge({ count: 3 }), edge({ count: 3 }), edge({ count: 5, asset: USDT, asset_kind: "erc20" })],
+      none, none,
+    );
+    expect(w[0]).toMatchObject({ badge: "×2", color: "eth", count: 11 });
+  });
+
+  test("count tie between ETH and an ERC20: ETH wins", () => {
+    const v = deriveVisualEdges(
+      [edge({ count: 4, asset: tok(1), asset_kind: "erc20" }), edge({ count: 4 })],
+      none, none,
+    );
+    expect(v[0]!.color).toBe("eth");
+  });
+
   test("expanded pair yields per-asset parallel edges capped at 5 plus 'other N'", () => {
     const es = Array.from({ length: 8 }, (_, i) =>
       edge({ count: 100 - i, asset: tok(i + 1), asset_kind: "erc20" }),

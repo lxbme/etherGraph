@@ -41,8 +41,8 @@ export interface GraphState {
   commitMove(prevPositions: Record<string, Pos>): void;
   select(s: Selection): void;
   setHighlightTransfer(h: GraphState["highlightTransfer"]): void;
-  /** Hides every known node except `a` and its neighbors (and unhides those). */
-  focusNeighborhood(a: string, neighbors: string[]): void;
+  /** Hides every known node (centers, ui keys, `allNodes`) except `a` and its neighbors (and unhides those). */
+  focusNeighborhood(a: string, neighbors: string[], allNodes?: string[]): void;
   undo(): void;
   redo(): void;
   canUndo(): boolean;
@@ -193,10 +193,10 @@ export const useGraph = create<GraphState>()((set, get) => {
       }),
     select: (selection) => set({ selection }),
     setHighlightTransfer: (highlightTransfer) => set({ highlightTransfer }),
-    focusNeighborhood: (a, neighbors) =>
+    focusNeighborhood: (a, neighbors, allNodes = []) =>
       tracked((s) => {
         const keep = new Set([lc(a), ...neighbors.map(lc)]);
-        const known = new Set([...s.centers, ...Object.keys(s.ui), ...keep]);
+        const known = new Set([...s.centers, ...Object.keys(s.ui), ...allNodes.map(lc), ...keep]);
         const ui = { ...s.ui };
         for (const k of known) ui[k] = { ...(ui[k] ?? blankUi()), hidden: !keep.has(k) };
         return { ui };
