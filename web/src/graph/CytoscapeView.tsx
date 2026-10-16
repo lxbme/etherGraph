@@ -1,5 +1,6 @@
 import cytoscape from "cytoscape";
 import { useEffect, useRef, type JSX } from "react";
+import { createRefitGuard } from "./refit";
 import { runDagreLayout, runIncrementalLayout } from "./layout";
 
 type Pos = { x: number; y: number };
@@ -92,6 +93,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
   const appliedRef = useRef<AppliedPositions>(new Map());
+  const refitRef = useRef<ReturnType<typeof createRefitGuard> | null>(null);
   const propsRef = useRef(props);
   propsRef.current = props;
 
@@ -156,15 +158,27 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       });
     });
 
+    const refit = createRefitGuard({
+      size: () => ({ width: container.clientWidth, height: container.clientHeight }),
+      resize: () => cy.resize(),
+      fit: () => cy.fit(undefined, 30),
+    });
+    refitRef.current = refit;
+    const onUserViewport = () => refit.noteUserViewport();
+    container.addEventListener("wheel", onUserViewport, { passive: true });
+    container.addEventListener("pointerdown", onUserViewport);
     let ro: ResizeObserver | undefined;
     if (typeof ResizeObserver !== "undefined") {
-      ro = new ResizeObserver(() => cy.resize());
+      ro = new ResizeObserver(() => refit.onResize());
       ro.observe(container);
     }
     propsRef.current.onReady?.(cy);
     return () => {
       alive = false;
       ro?.disconnect();
+      container.removeEventListener("wheel", onUserViewport);
+      container.removeEventListener("pointerdown", onUserViewport);
+      refitRef.current = null;
       cy.destroy();
       cyRef.current = null;
     };
@@ -183,12 +197,21 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
     const r = syncElements(cy, props.elements, appliedRef.current);
     appliedRef.current = r.positions;
     if (props.layout === "dagre-lr") {
-      if (r.structureChanged) runDagreLayout(cy);
+      if (r.structureChanged) {
+        runDagreLayout(cy);
+        refitRef.current?.noteLayout();
+      }
     } else {
-      if (r.newNodeIds.length > 0) runIncrementalLayout(cy, r.newNodeIds);
+      if (r.newNodeIds.length > 0) {
+        runIncrementalLayout(cy, r.newNodeIds);
+        refitRef.current?.noteLayout();
+      }
       // A full layout fits by itself; a canvas restored from stored positions needs an explicit fit.
       const fullLayout = r.newNodeIds.length === cy.nodes().length;
-      if (wasEmpty && cy.nodes().nonempty() && !fullLayout) cy.fit(undefined, 40);
+      if (wasEmpty && cy.nodes().nonempty() && !fullLayout) {
+        cy.fit(undefined, 40);
+        refitRef.current?.noteLayout();
+      }
     }
   }, [props.elements, props.layout]);
 
