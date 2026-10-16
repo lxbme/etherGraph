@@ -3,8 +3,8 @@
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use eg_ingest::Event;
 use eg_ingest::handlers::SyncParams;
+use eg_ingest::{Event, other_sync_active};
 use eg_store::{JobKind, JobStatus, StoreError};
 use serde::Deserialize;
 
@@ -104,14 +104,7 @@ async fn settle_cancelled_sync(s: &AppState, id: i64) {
                 return Ok(());
             }
         };
-        let prefix = format!("sync:{:#x}:", p.address);
-        let other_active = s
-            .store
-            .active_jobs()
-            .await?
-            .iter()
-            .any(|j| j.kind == JobKind::SyncAddress && j.key.starts_with(&prefix));
-        if !other_active {
+        if !other_sync_active(&s.store, p.address, Some(id)).await? {
             s.store.settle_syncing(p.address).await?;
         }
         Ok(())

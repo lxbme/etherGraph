@@ -666,3 +666,33 @@ async fn guard_miss_settles_syncing_state(pool: PgPool) {
     assert_eq!((r.from_block, r.to_block), (Some(30000), Some(50000)));
     assert_eq!(r.state, SyncState::Ok);
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn guard_miss_leaves_state_to_another_active_sync(pool: PgPool) {
+    let e = env(pool, 3000);
+    e.fake.set_latest_block(6000);
+    native_blocks(&e, 5000);
+    run_to_done(&e, "latest", params("latest", &["native"])).await;
+    e.spy.sql_before_history(
+        6,
+        "UPDATE address_sync SET from_block = 30000, to_block = 50000, truncated = true, \
+         state = 'syncing', last_synced_at = now()",
+    );
+    let id = enqueue(&e, "older", params("older", &["native"])).await;
+    // The concurrent Latest sync that moved the boundary is still queued.
+    e.ctx
+        .store
+        .enqueue(&NewJob {
+            key: format!("sync:{ADDR:#x}:latest"),
+            kind: JobKind::SyncAddress,
+            params: params("latest", &["native"]),
+            priority: Priority::Background,
+        })
+        .await
+        .unwrap();
+    run_once(&e, id).await.unwrap();
+    assert_eq!(
+        row(&e, TransferKind::Native).await.state,
+        SyncState::Syncing
+    );
+}

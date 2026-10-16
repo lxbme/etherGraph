@@ -12,7 +12,7 @@ use eg_store::{JobRow, JobStatus, SyncRow, SyncState, SyncUpdate};
 use serde::{Deserialize, Serialize};
 
 use crate::cursor::{Cursor, Step, advance};
-use crate::enqueue::SyncDirection;
+use crate::enqueue::{SyncDirection, other_sync_active};
 use crate::events::Event;
 use crate::runner::{JobCtx, JobError, JobHandler, will_retry};
 
@@ -255,13 +255,16 @@ impl Plan<'_> {
             if update.is_some() && !applied {
                 // Rows are stored, but the claim would no longer be honest;
                 // the row keeps the concurrent sync's coverage. This job is
-                // done with the kind, so it must not stay `syncing`.
+                // done with the kind, so unless another sync of the address
+                // is still active, the kind must not stay `syncing`.
                 tracing::info!(
                     job_id = job.id,
                     kind = kind.as_str(),
                     "coverage boundary moved during sync; coverage left unchanged"
                 );
-                ctx.store.settle_syncing_kind(self.address, kind).await?;
+                if !other_sync_active(&ctx.store, self.address, Some(job.id)).await? {
+                    ctx.store.settle_syncing_kind(self.address, kind).await?;
+                }
             }
             ctx.bus.publish(Event::AddressDataChanged {
                 address: self.address,

@@ -4,7 +4,7 @@ use std::fmt;
 
 use eg_core::source::Priority;
 use eg_core::types::{Address, TxHash};
-use eg_store::{JobKind, NewJob, StoreError};
+use eg_store::{JobKind, NewJob, Store, StoreError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -37,6 +37,10 @@ async fn enqueue_one(ctx: &JobCtx, job: NewJob) -> Result<i64, StoreError> {
     Ok(id)
 }
 
+fn sync_key_prefix(addr: Address) -> String {
+    format!("sync:{addr:#x}:")
+}
+
 pub async fn enqueue_sync(
     ctx: &JobCtx,
     addr: Address,
@@ -46,7 +50,7 @@ pub async fn enqueue_sync(
     enqueue_one(
         ctx,
         NewJob {
-            key: format!("sync:{addr:#x}:{dir}"),
+            key: format!("{}{dir}", sync_key_prefix(addr)),
             kind: JobKind::SyncAddress,
             params: json!({"address": format!("{addr:#x}"), "direction": dir, "kinds": []}),
             priority: p,
@@ -131,4 +135,17 @@ pub async fn enqueue_names(ctx: &JobCtx, addrs: &[Address]) -> Result<Vec<i64>, 
 pub async fn enqueue_tokens(ctx: &JobCtx, tokens: &[Address]) -> Result<Vec<i64>, StoreError> {
     let n = ctx.cfg.multicall_batch_size;
     enqueue_chunks(ctx, tokens, n, "token:", JobKind::TokenMeta, "tokens").await
+}
+
+/// Whether a SyncAddress job for `addr` other than `except` is pending,
+/// running or paused, i.e. some job will still settle its `syncing` kinds.
+pub async fn other_sync_active(
+    store: &Store,
+    addr: Address,
+    except: Option<i64>,
+) -> Result<bool, StoreError> {
+    let prefix = sync_key_prefix(addr);
+    Ok(store.active_jobs().await?.iter().any(|j| {
+        j.kind == JobKind::SyncAddress && Some(j.id) != except && j.key.starts_with(&prefix)
+    }))
 }
