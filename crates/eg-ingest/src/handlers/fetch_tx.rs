@@ -138,6 +138,7 @@ impl JobHandler for FetchTxHandler {
             fetched: u32::try_from(transfers.len()).unwrap_or(u32::MAX),
             cursor_block: Some(block),
             status: JobStatus::Running,
+            error: None,
         });
         ctx.bus.publish(Event::TxReady { hash });
         Ok(())

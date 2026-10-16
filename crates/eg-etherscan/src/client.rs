@@ -58,6 +58,21 @@ fn error_name(e: &SourceError) -> &'static str {
     }
 }
 
+/// How much of an unparseable response body is logged.
+const SNIPPET_CHARS: usize = 512;
+
+/// The first [`SNIPPET_CHARS`] characters of `body` with any occurrence of
+/// `api_key` replaced. Response bodies never echo the key, but a log line must
+/// not leak it even if one did.
+fn body_snippet(body: &str, api_key: &str) -> String {
+    let redacted = if api_key.is_empty() {
+        body.to_owned()
+    } else {
+        body.replace(api_key, "<redacted>")
+    };
+    redacted.chars().take(SNIPPET_CHARS).collect()
+}
+
 pub struct EtherscanClient {
     transport: Arc<dyn Transport>,
     gate: Arc<dyn CallGate>,
@@ -97,7 +112,17 @@ impl EtherscanClient {
             self.gate.acquire(p).await?;
             self.stats.calls.fetch_add(1, Ordering::Relaxed);
             let result = match self.transport.get(&full).await {
-                Ok(body) => classify(&body),
+                Ok(body) => {
+                    let r = classify(&body);
+                    if let Err(e @ SourceError::Parse(_)) = &r {
+                        tracing::warn!(
+                            error = %e,
+                            body = %body_snippet(&body, &self.api_key),
+                            "unparseable Etherscan response"
+                        );
+                    }
+                    r
+                }
                 Err(e) => Err(e),
             };
             let err = match result {
@@ -119,5 +144,25 @@ impl EtherscanClient {
             .await;
             attempt += 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn body_snippet_truncates_and_redacts() {
+        let long = format!("<html>{}</html>", "é".repeat(600));
+        let s = body_snippet(&long, "KEY");
+        assert_eq!(s.chars().count(), SNIPPET_CHARS);
+        assert!(long.starts_with(&s));
+        let leaky = "error for apikey=SECRET123: SECRET123";
+        assert_eq!(
+            body_snippet(leaky, "SECRET123"),
+            "error for apikey=<redacted>: <redacted>"
+        );
+        // An empty key must not turn every gap into "<redacted>".
+        assert_eq!(body_snippet("abc", ""), "abc");
     }
 }

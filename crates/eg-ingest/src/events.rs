@@ -21,6 +21,9 @@ pub enum Event {
         #[ts(type = "number | null")]
         cursor_block: Option<u64>,
         status: JobStatus,
+        // Why the job failed; set only with status `failed`.
+        // (Plain comment: ts-rs would copy a doc comment into the binding.)
+        error: Option<String>,
     },
     AddressDataChanged {
         #[ts(type = "string")]
@@ -94,7 +97,8 @@ mod tests {
                 kind: JobKind::SyncAddress,
                 fetched: 2,
                 cursor_block: Some(3),
-                status: JobStatus::Running,
+                status: JobStatus::Failed,
+                error: Some("boom".into()),
             },
             Event::AddressDataChanged {
                 address: Address::repeat_byte(0xab),
@@ -166,6 +170,7 @@ mod tests {
         // Hex/time values are strings and 64-bit ints are plain numbers.
         assert!(!decl.contains("bigint"), "{decl}");
         assert!(ts_member(&decl, "JobProgress").contains("cursor_block: number | null"));
+        assert!(ts_member(&decl, "JobProgress").contains("error: string | null"));
         assert!(ts_member(&decl, "TxReady").contains("hash: string"));
         assert!(ts_member(&decl, "QuotaStatus").contains("reset_at: string"));
         assert!(ts_member(&decl, "MetaUpdated").contains("addresses: Array<string>"));
@@ -202,9 +207,11 @@ mod tests {
             fetched: 0,
             cursor_block: None,
             status: JobStatus::PausedQuota,
+            error: None,
         };
         let v = serde_json::to_value(&p).unwrap();
         assert_eq!(v["kind"], "fetch_tx");
         assert_eq!(v["status"], "paused_quota");
+        assert_eq!(v["error"], serde_json::Value::Null);
     }
 }

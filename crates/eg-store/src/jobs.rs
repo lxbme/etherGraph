@@ -287,6 +287,20 @@ impl Store {
         Ok(res.rows_affected())
     }
 
+    /// The `limit` most recently created jobs of any status, newest first.
+    pub async fn recent_jobs(&self, limit: u32) -> Result<Vec<JobRow>> {
+        let sql = concat!(
+            "SELECT ",
+            job_cols!(),
+            " FROM jobs ORDER BY created_at DESC, id DESC LIMIT $1"
+        );
+        let rows = sqlx::query(sql)
+            .bind(i64::from(limit))
+            .fetch_all(&self.pool)
+            .await?;
+        rows.iter().map(job_row).collect()
+    }
+
     pub async fn job(&self, id: i64) -> Result<Option<JobRow>> {
         let sql = concat!("SELECT ", job_cols!(), " FROM jobs WHERE id = $1");
         let row = sqlx::query(sql).bind(id).fetch_optional(&self.pool).await?;
@@ -559,6 +573,36 @@ mod tests {
             .await
             .unwrap();
         assert!(e.is_none());
+    }
+
+    #[sqlx::test]
+    async fn recent_jobs_newest_first_any_status(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (a, _) = s.enqueue(&nj("a", Priority::Background)).await.unwrap();
+        let (b, _) = s.enqueue(&nj("b", Priority::Background)).await.unwrap();
+        let (c, _) = s.enqueue(&nj("c", Priority::Background)).await.unwrap();
+        let first = s.claim_next().await.unwrap().unwrap();
+        s.fail_job(first.id, "boom", false).await.unwrap();
+        s.cancel_job(b).await.unwrap();
+        let all: Vec<(i64, JobStatus)> = s
+            .recent_jobs(10)
+            .await
+            .unwrap()
+            .iter()
+            .map(|j| (j.id, j.status))
+            .collect();
+        assert_eq!(
+            all,
+            vec![
+                (c, JobStatus::Pending),
+                (b, JobStatus::Cancelled),
+                (a, JobStatus::Failed)
+            ]
+        );
+        assert_eq!(s.recent_jobs(2).await.unwrap().len(), 2);
+        let j = s.job(a).await.unwrap().unwrap();
+        assert_eq!(j.error.as_deref(), Some("boom"));
+        assert!(s.job(9999).await.unwrap().is_none());
     }
 
     #[sqlx::test]

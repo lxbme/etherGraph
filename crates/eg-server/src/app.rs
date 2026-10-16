@@ -19,7 +19,7 @@ pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/status", get(status::status))
         .route("/jobs", get(jobs::list))
-        .route("/jobs/{id}", delete(jobs::cancel))
+        .route("/jobs/{id}", get(jobs::get).delete(jobs::cancel))
         .route("/events", get(events::events))
         .route("/search", get(search::search))
         .route("/address/{addr}", get(address::profile))

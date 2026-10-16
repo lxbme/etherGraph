@@ -300,10 +300,11 @@ async fn sync_fetches_all_kinds_and_sets_coverage(pool: PgPool) {
                 fetched,
                 cursor_block,
                 status,
+                error,
             } => {
                 assert_eq!(
-                    (job_id, kind, status),
-                    (id, JobKind::SyncAddress, JobStatus::Running)
+                    (job_id, kind, status, error),
+                    (id, JobKind::SyncAddress, JobStatus::Running, None)
                 );
                 progress.push((fetched, cursor_block));
             }

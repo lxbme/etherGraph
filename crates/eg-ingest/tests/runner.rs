@@ -300,3 +300,32 @@ async fn reserved_worker_runs_interactive_while_others_busy(pool: PgPool) {
     }
     hs.iter().for_each(|h| h.abort());
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn failed_job_event_carries_error(pool: PgPool) {
+    let c = ctx(pool);
+    let mut rx = c.bus.subscribe();
+    let (id, _) = c.store.enqueue(&job("a")).await.unwrap();
+    let h = Arc::new(ErrHandler(|| SourceError::InvalidKey.into()));
+    let hs = Runner::spawn(c.clone(), 1, handlers(h));
+    wait_status(&c, id, "failed").await;
+    let mut got = None;
+    while let Ok(Ok(e)) = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
+        if let Event::JobProgress {
+            job_id,
+            status,
+            error,
+            ..
+        } = e
+        {
+            assert_eq!(job_id, id);
+            if status == JobStatus::Failed {
+                got = Some(error);
+                break;
+            }
+            assert_eq!(error, None, "{status:?}");
+        }
+    }
+    assert_eq!(got, Some(Some("invalid api key".to_string())));
+    hs.iter().for_each(|h| h.abort());
+}

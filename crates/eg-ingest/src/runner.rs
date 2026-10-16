@@ -84,13 +84,14 @@ impl Runner {
     }
 }
 
-fn publish_status(ctx: &JobCtx, job: &JobRow, status: JobStatus) {
+fn publish_status(ctx: &JobCtx, job: &JobRow, status: JobStatus, error: Option<String>) {
     ctx.bus.publish(Event::JobProgress {
         job_id: job.id,
         kind: job.kind,
         fetched: 0,
         cursor_block: None,
         status,
+        error,
     });
 }
 
@@ -144,6 +145,13 @@ async fn record_outcome(
             } else {
                 JobStatus::Failed
             };
+            tracing::warn!(
+                job_id = job.id,
+                kind = job.kind.as_str(),
+                error = %e,
+                retry,
+                "job failed"
+            );
             (
                 status,
                 ctx.store.fail_job(job.id, &e.to_string(), retry).await,
@@ -153,7 +161,7 @@ async fn record_outcome(
 }
 
 async fn process(ctx: &JobCtx, handlers: &Handlers, job: JobRow) {
-    publish_status(ctx, &job, JobStatus::Running);
+    publish_status(ctx, &job, JobStatus::Running, None);
     let result = match handlers.get(&job.kind) {
         Some(h) => match AssertUnwindSafe(h.run(&job, ctx)).catch_unwind().await {
             Ok(r) => r,
@@ -171,7 +179,11 @@ async fn process(ctx: &JobCtx, handlers: &Handlers, job: JobRow) {
         let (status, outcome) = record_outcome(ctx, &job, &result).await;
         match outcome {
             Ok(()) => {
-                publish_status(ctx, &job, status);
+                let error = match &result {
+                    Err(e) if status == JobStatus::Failed => Some(e.to_string()),
+                    _ => None,
+                };
+                publish_status(ctx, &job, status, error);
                 if status == JobStatus::Pending {
                     ctx.wake.notify_waiters();
                 }

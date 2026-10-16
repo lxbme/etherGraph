@@ -146,7 +146,7 @@ async fn active_jobs_listed(pool: PgPool) {
     let (status, body) = get(&app, "/api/jobs").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body.as_array().unwrap().len(), 1);
-    for bad in ["false", "yes"] {
+    for bad in ["no", "yes"] {
         let (status, body) = get(&app, &format!("/api/jobs?active={bad}")).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(body["error"]["code"], "invalid_input");
@@ -470,4 +470,38 @@ async fn cancel_pending_sync_settles_syncing_kinds(pool: PgPool) {
     assert_eq!(st(addr, TransferKind::Native), SyncState::Ok);
     assert_eq!(st(addr, TransferKind::Erc20), SyncState::Failed);
     assert_eq!(st(other, TransferKind::Native), SyncState::Syncing);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn recent_jobs_and_single_job_expose_errors(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let (failed, _) = state.store.enqueue(&job("failed")).await.unwrap();
+    state.store.claim_next().await.unwrap().unwrap();
+    state
+        .store
+        .fail_job(failed, "invalid api key", false)
+        .await
+        .unwrap();
+    for i in 0..55 {
+        state.store.enqueue(&job(&format!("j{i}"))).await.unwrap();
+    }
+    let (status, body) = get(&app, "/api/jobs?active=false").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let jobs = body.as_array().unwrap();
+    assert_eq!(jobs.len(), 50);
+    assert_eq!(jobs[0]["key"], "j54", "newest first");
+
+    let (status, body) = get(&app, &format!("/api/jobs/{failed}")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let dto: JobDto = serde_json::from_value(body).unwrap();
+    assert_eq!(dto.id, failed);
+    assert_eq!(dto.status, "failed");
+    assert_eq!(dto.error.as_deref(), Some("invalid api key"));
+
+    let (status, body) = get(&app, "/api/jobs/999999").await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+    assert_eq!(body["error"]["code"], "not_found");
+    let (status, body) = get(&app, "/api/jobs/abc").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["error"]["code"], "invalid_input");
 }

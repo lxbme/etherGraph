@@ -272,6 +272,7 @@ impl Plan<'_> {
                 fetched,
                 cursor_block: Some(q.end_block),
                 status: JobStatus::Running,
+                error: None,
             });
             if update.is_some() {
                 return Ok(next);
