@@ -1,6 +1,9 @@
 //! eg-store: Postgres persistence.
 pub mod convert;
+mod edges;
 mod transfers;
+
+pub use edges::{TransferCursor, TransferQuery, TransferScope};
 
 use chrono::{DateTime, Utc};
 use eg_core::source::TokenInfo;

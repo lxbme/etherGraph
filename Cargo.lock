@@ -1187,6 +1187,7 @@ name = "eg-store"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "base64 0.22.1",
  "bigdecimal",
  "chrono",
  "eg-core",
