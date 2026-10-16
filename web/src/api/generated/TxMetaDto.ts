@@ -12,4 +12,8 @@ fee: string,
 /**
  * Decoded function name; null when the call is undecodable.
  */
-method: string | null, };
+method: string | null, 
+/**
+ * First 4 calldata bytes as `0x` + 8 hex digits; null for a plain transfer.
+ */
+selector: string | null, };

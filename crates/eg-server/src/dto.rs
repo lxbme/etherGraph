@@ -441,6 +441,8 @@ pub struct TxMetaDto {
     pub fee: String,
     /// Decoded function name; null when the call is undecodable.
     pub method: Option<String>,
+    /// First 4 calldata bytes as `0x` + 8 hex digits; null for a plain transfer.
+    pub selector: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

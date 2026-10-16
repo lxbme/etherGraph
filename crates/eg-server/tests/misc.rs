@@ -119,6 +119,7 @@ async fn tx_pending_then_ready(pool: PgPool) {
     assert_eq!(f["tx"]["fee"], (21000u32 * 7).to_string());
     assert_eq!(f["tx"]["success"], true);
     assert!(f["tx"]["method"].is_null());
+    assert_eq!(f["tx"]["selector"], "0xa9059cbb");
     assert!(f["call"].is_null());
 
     let flows = f["flows"].as_array().unwrap();
@@ -140,7 +141,8 @@ async fn tx_pending_then_ready(pool: PgPool) {
         .iter()
         .map(|n| n["address"].as_str().unwrap())
         .collect();
-    for a in [FROM, TO, OTHER] {
+    // The token contract only emits the log; it is still a node.
+    for a in [FROM, TO, OTHER, TOKEN] {
         assert!(nodes.contains(&format!("{a:#x}").as_str()), "{a}");
     }
 

@@ -68,6 +68,7 @@ pub async fn tx(
                 gas_used: f.tx.gas_used.to_string(),
                 fee: f.tx.fee.to_string(),
                 method: f.call.as_ref().map(|c| c.name.clone()),
+                selector: f.tx.selector.map(alloy_primitives::hex::encode_prefixed),
             },
             call: f.call.as_ref().map(DecodedCallDto::from),
             nodes,

@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use alloy_json_abi::JsonAbi;
 use eg_core::rpc_json::parse_receipt;
-use eg_core::source::RawLog;
+use eg_core::source::{RawLog, RawReceipt};
 use eg_core::types::{Address, Bytes, Transfer, TransferKind, TxHash, U256};
 use eg_decode::{DecodedCall, DecodedEvent, decode_call, decode_event};
 use eg_store::{AccountRow, Store, StoreError, TxRow};
@@ -82,6 +82,32 @@ fn input_of(tx: &TxRow) -> Option<Bytes> {
     Bytes::from_str(tx.raw_tx.get("input")?.as_str()?).ok()
 }
 
+/// Every address a transaction touches, deduplicated in this order: sender,
+/// recipient, created contract (receipt `contractAddress`), the endpoints of
+/// `transfers`, then log emitters. `receipt` is the parsed `raw_receipt`.
+fn participants<'a>(
+    tx: &TxRow,
+    receipt: Option<&RawReceipt>,
+    transfers: impl IntoIterator<Item = (&'a Address, &'a Address)>,
+) -> Vec<Address> {
+    let mut seen = HashSet::new();
+    [
+        Some(tx.from),
+        tx.to,
+        receipt.and_then(|r| r.contract_address),
+    ]
+    .into_iter()
+    .flatten()
+    .chain(transfers.into_iter().flat_map(|(f, t)| [*f, *t]))
+    .chain(
+        receipt
+            .into_iter()
+            .flat_map(|r| r.logs.iter().map(|l| l.address)),
+    )
+    .filter(|a| seen.insert(*a))
+    .collect()
+}
+
 pub fn build_tx_flow(
     tx: &TxRow,
     transfers: &[Transfer],
@@ -129,17 +155,9 @@ pub fn build_tx_flow(
         })
         .collect();
 
-    let mut seen = HashSet::new();
-    let participants: Vec<Address> = [Some(tx.from), tx.to]
-        .into_iter()
-        .flatten()
-        .chain(flows.iter().flat_map(|f| [f.from, f.to]))
-        .filter(|a| seen.insert(*a))
-        .collect();
-
-    let logs: Vec<RawLog> = parse_receipt(&tx.raw_receipt)
-        .map(|r| r.logs)
-        .unwrap_or_default();
+    let receipt = parse_receipt(&tx.raw_receipt).ok();
+    let participants = participants(tx, receipt.as_ref(), flows.iter().map(|f| (&f.from, &f.to)));
+    let logs: &[RawLog] = receipt.as_ref().map_or(&[], |r| &r.logs);
     let events = logs
         .iter()
         .map(|l| decode_event(abi_for(l.address, abis, accounts), l))
@@ -160,17 +178,14 @@ pub async fn load_tx_flow(store: &Store, hash: TxHash) -> Result<Option<TxFlow>,
         return Ok(None);
     };
     let transfers = store.transfers_of_tx(hash).await?;
-    let emitters = parse_receipt(&tx.raw_receipt)
-        .map(|r| r.logs.iter().map(|l| l.address).collect::<Vec<_>>())
-        .unwrap_or_default();
-    let mut seen = HashSet::new();
-    let participants: Vec<Address> = [Some(tx.from), tx.to]
-        .into_iter()
-        .flatten()
-        .chain(transfers.iter().flat_map(|t| [t.from, t.to]))
-        .chain(emitters)
-        .filter(|a| seen.insert(*a))
-        .collect();
+    // A superset of the flow's participants (it includes zero-value transfers),
+    // used to load the accounts and ABIs the flow decodes with.
+    let receipt = parse_receipt(&tx.raw_receipt).ok();
+    let participants = participants(
+        &tx,
+        receipt.as_ref(),
+        transfers.iter().map(|t| (&t.from, &t.to)),
+    );
     let accounts: HashMap<Address, AccountRow> = store
         .accounts(&participants)
         .await?
@@ -287,6 +302,41 @@ mod tests {
     fn zero_value_top_level_is_not_a_flow() {
         let f = build(&[tr(TransferKind::Native, A, B, 0, None, None)]);
         assert!(f.flows.is_empty());
+    }
+
+    #[test]
+    fn zero_value_contract_creation_lists_created_contract() {
+        let receipt = json!({
+            "status": "0x1", "gasUsed": "0x5208", "contractAddress": format!("{C:#x}"), "logs": []
+        });
+        let mut t = tx(None, "0x6080", receipt);
+        t.value = U256::ZERO;
+        let top = tr(TransferKind::Native, A, C, 0, None, None);
+        let f = build_tx_flow(&t, &[top], &HashMap::new(), &HashMap::new());
+        assert!(f.flows.is_empty());
+        assert_eq!(f.participants, vec![A, C]);
+        // Without the stored transfer the receipt still names the contract.
+        let f = build_tx_flow(&t, &[], &HashMap::new(), &HashMap::new());
+        assert_eq!(f.participants, vec![A, C]);
+    }
+
+    #[test]
+    fn log_only_emitter_is_a_participant() {
+        let approval = "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925";
+        let receipt = json!({"status": "0x1", "gasUsed": "0x5208", "logs": [{
+            "address": format!("{TOKEN:#x}"),
+            "topics": [approval, format!("{:#x}", A.into_word()), format!("{:#x}", C.into_word())],
+            "data": format!("0x{:064x}", 1), "logIndex": "0x0"
+        }]});
+        let f = build_tx_flow(
+            &tx(Some(B), "0x", receipt),
+            &[],
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert!(f.flows.is_empty());
+        assert_eq!(f.participants, vec![A, B, TOKEN]);
+        assert_eq!(f.events.len(), 1);
     }
 
     #[test]
