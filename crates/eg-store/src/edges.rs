@@ -47,6 +47,11 @@ impl TransferCursor {
     }
 }
 
+/// `U256::MAX` in decimal; edge sums saturate here so one spam token cannot
+/// make the aggregate unreadable (ranking still uses the uncapped sum).
+const U256_MAX_DEC: &str =
+    "115792089237316195423570985008687907853269984665640564039457584007913129639935";
+
 const TRANSFER_COLS: &str = "tx_hash, sub_id, kind, block_number, ts, from_addr, to_addr, asset, \
                              amount, token_id, trace_id, log_index";
 
@@ -184,7 +189,8 @@ impl Store {
              count(*) OVER (PARTITION BY center) AS n \
              FROM (SELECT center, nb, sum(cnt) AS k_count, sum(total) AS k_amount, \
              max(last_ts) AS k_recent FROM p GROUP BY 1, 2) s) \
-             SELECT g.from_addr, g.to_addr, g.asset, g.cnt, g.total, g.first_ts, g.last_ts, \
+             SELECT g.from_addr, g.to_addr, g.asset, g.cnt, LEAST(g.total, {U256_MAX_DEC}) AS total, \
+             g.first_ts, g.last_ts, \
              NULL::bytea AS center, NULL::bigint AS omitted FROM g \
              WHERE EXISTS (SELECT 1 FROM r WHERE r.rk <= "
         ));
@@ -659,6 +665,27 @@ mod tests {
         let (v, _) = store.list_transfers(&q).await.unwrap();
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].amount, U256::from(200));
+    }
+
+    #[sqlx::test]
+    async fn edge_sum_saturates_at_u256_max(pool: PgPool) {
+        let mut v = vec![
+            tr(1, C, A, Some(USDT), 0, 100),
+            tr(2, C, A, Some(USDT), 0, 200),
+        ];
+        for t in &mut v {
+            t.amount = U256::MAX;
+        }
+        assign_sub_ids(&mut v);
+        let store = Store::from_pool(pool);
+        store.upsert_transfers(&v).await.unwrap();
+        let r = store
+            .query_edges(&query(EdgeFilter::default(), 10, SortBy::Amount))
+            .await
+            .unwrap();
+        let ca = find(&r.edges, C, A, Some(USDT));
+        assert_eq!((ca.count, ca.sum), (2, U256::MAX));
+        assert_eq!(U256_MAX_DEC, U256::MAX.to_string());
     }
 
     #[test]
