@@ -317,3 +317,77 @@ body,
 .filter__hint { color: var(--fg-muted); font-size: 12px; }
 .filter__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .filter__apply:not(:disabled) { color: #fff; background: var(--accent); border-color: var(--accent); }
+
+.ctx-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 190px;
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.ctx-menu button {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 5px 12px;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.ctx-menu button:hover { background: var(--bg); }
+.ctx-menu kbd { color: var(--fg-muted); font-family: var(--font-mono); font-size: 11px; }
+.ctx-menu__group { padding: 5px 12px 2px; font-size: 11px; color: var(--fg-muted); }
+.ctx-menu__sub { padding-left: 24px !important; }
+
+.batch-bar {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+}
+.dialog {
+  width: min(480px, 92vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  background: var(--panel);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.dialog__title { margin: 0; font-size: 15px; }
+.dialog__list { margin: 0; padding: 0; list-style: none; overflow-y: auto; }
+.dialog__row { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+.dialog__name { flex: 1; font-family: var(--font-mono); font-size: 12px; }
+.dialog__tag { padding: 0 6px; font-size: 11px; color: #fff; background: var(--cat-mixer); border-radius: 8px; }
+.dialog__calls { color: var(--fg-muted); font-size: 12px; }
+.dialog__summary { font-size: 12px; color: var(--fg-muted); }
+.dialog__actions { display: flex; justify-content: flex-end; gap: 8px; }

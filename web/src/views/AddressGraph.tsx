@@ -1,10 +1,16 @@
 import type cytoscape from "cytoscape";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import { useBoxSelection } from "../graph/boxSelection";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { toElements } from "../graph/elements";
+import { neighborsOf, topNeighbors } from "../graph/neighbors";
+import { useShortcuts } from "../graph/useShortcuts";
+import { BatchBar } from "../panels/BatchBar";
+import { ContextMenu } from "../panels/ContextMenu";
+import { ExpandDialog } from "../panels/ExpandDialog";
+import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { useGraph, type Pos } from "../graph/store";
 import { graphStylesheet } from "../graph/styles";
 import { useGraphData } from "../graph/useGraphData";
@@ -57,6 +63,39 @@ export function AddressGraph() {
   );
 
   const cyRef = useRef<cytoscape.Core | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  const getData = useCallback(() => dataRef.current, []);
+  useShortcuts(getData);
+
+  const filter = useGraph((s) => s.filter);
+  const [menu, setMenu] = useState<{ x: number; y: number; node: NodeSummaryDto } | null>(null);
+  const [expand, setExpand] = useState<{ neighbors: NodeSummaryDto[]; preChecked?: string[] } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const closeExpand = useCallback(() => setExpand(null), []);
+
+  const openExpand = (node: NodeSummaryDto, top: boolean) => {
+    if (!data) return;
+    const addrs = neighborsOf(node.address, data.edges);
+    const byAddr = new Map(data.nodes.map((n) => [lc(n.address), n]));
+    const neighbors = addrs.map((a) => byAddr.get(a)).filter((n): n is NodeSummaryDto => !!n);
+    if (neighbors.length === 0) {
+      toast("没有可展开的邻居");
+      return;
+    }
+    setExpand({
+      neighbors,
+      preChecked: top ? topNeighbors(node.address, data.nodes, data.edges, filter) : undefined,
+    });
+  };
+
+  const onCxtNode = (id: string, pos: Pos) => {
+    const node = data?.nodes.find((n) => lc(n.address) === lc(id));
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (!node) return;
+    setMenu({ x: pos.x + (rect?.left ?? 0), y: pos.y + (rect?.top ?? 0), node });
+  };
   /** Node positions at the moment they were grabbed: the "before" of a drag for undo. */
   const grabbed = useRef<Record<string, Pos>>({});
 
@@ -70,6 +109,7 @@ export function AddressGraph() {
 
   const onReady = (cy: cytoscape.Core) => {
     cyRef.current = cy;
+    cy.on("viewport", () => setMenu(null));
     cy.on("grab", "node", (e) => {
       const p = e.target.position();
       grabbed.current[e.target.id()] = { x: p.x, y: p.y };
@@ -99,16 +139,20 @@ export function AddressGraph() {
   };
 
   return (
-    <div className="address-graph">
+    <div className="address-graph" ref={rootRef}>
       <CytoscapeView
         elements={elements}
         stylesheet={stylesheet}
         layout="incremental"
-        onTapNode={(id) => useGraph.getState().select({ kind: "node", address: lc(id) })}
+        onTapNode={(id) => {
+          useBoxSelection.getState().clear();
+          useGraph.getState().select({ kind: "node", address: lc(id) });
+        }}
+        onTapBackground={() => useBoxSelection.getState().clear()}
         onTapEdge={(a, b) => useGraph.getState().select({ kind: "pair", a: lc(a), b: lc(b) })}
         onDblTapNode={onDblTapNode}
         onDblTapEdge={(a, b) => useGraph.getState().togglePair(a, b)}
-        onCxtNode={() => {}}
+        onCxtNode={onCxtNode}
         onBoxSelect={(ids) => {
           if (ids.length === 0) return;
           useBoxSelection.getState().set(ids);
@@ -117,6 +161,20 @@ export function AddressGraph() {
         onDragEnd={onDragEnd}
         onReady={onReady}
       />
+      <BatchBar />
+      {menu && data && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          node={menu.node}
+          data={data}
+          byAmount={filter.assets?.length === 1}
+          onExpandSelect={() => openExpand(menu.node, false)}
+          onExpandTop={() => openExpand(menu.node, true)}
+          onClose={closeMenu}
+        />
+      )}
+      {expand && <ExpandDialog neighbors={expand.neighbors} preChecked={expand.preChecked} onClose={closeExpand} />}
       {centers.length === 0 && <div className="address-graph__empty">输入地址、交易哈希或 ENS 开始探索</div>}
       {centers.length > 0 && error != null && (
         <div className="address-graph__status address-graph__status--error" role="alert">{messageFor(error)}</div>

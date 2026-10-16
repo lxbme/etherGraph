@@ -185,3 +185,26 @@ test("loading text only before the first data; background refetches use a subtle
   act(() => release());
   await waitFor(() => expect(screen.queryByLabelText("更新中")).toBeNull());
 });
+
+test("batch bar appears for 2+ box-selected nodes; background/node tap clears it", async () => {
+  await mountWithData();
+  act(() => props().onBoxSelect([A, B]));
+  expect(screen.getByText("已选 2 个节点")).toBeInTheDocument();
+  act(() => props().onTapBackground?.());
+  expect(screen.queryByText("已选 2 个节点")).toBeNull();
+  act(() => props().onBoxSelect([A, B]));
+  act(() => props().onTapNode(A, { shift: false }));
+  expect(useBoxSelection.getState().ids).toEqual([]);
+  act(() => props().onBoxSelect([A, B]));
+  act(() => screen.getByRole("button", { name: "固定" }).click());
+  expect(useGraph.getState().ui[A]?.pinned).toBe(true);
+  expect(useGraph.getState().ui[B]?.pinned).toBe(true);
+});
+
+test("right-clicking a node opens the menu; Escape closes it", async () => {
+  await mountWithData();
+  act(() => props().onCxtNode(A, { x: 10, y: 20 }));
+  expect(screen.getByRole("menu")).toBeInTheDocument();
+  act(() => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+  expect(screen.queryByRole("menu")).toBeNull();
+});

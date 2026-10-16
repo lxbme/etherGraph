@@ -17,6 +17,8 @@ export interface CytoscapeViewProps {
   /** `pos` is the rendered position relative to the canvas container (not page/client coordinates). */
   onCxtNode(id: string, pos: Pos): void;
   onBoxSelect(ids: string[]): void;
+  /** A tap on empty canvas. */
+  onTapBackground?(): void;
   onDragEnd(positions: Record<string, Pos>): void;
   onReady?(cy: cytoscape.Core): void;
 }
@@ -115,6 +117,9 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
     cy.on("tap", "node", (e) => {
       const ev = e.originalEvent as MouseEvent | undefined;
       p().onTapNode(e.target.id(), { shift: !!ev?.shiftKey });
+    });
+    cy.on("tap", (e) => {
+      if (e.target === cy) p().onTapBackground?.();
     });
     cy.on("tap", "edge", (e) => p().onTapEdge(e.target.data("source"), e.target.data("target")));
     cy.on("dbltap", "node", (e) => p().onDblTapNode(e.target.id()));
