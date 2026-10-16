@@ -33,6 +33,26 @@ async function pick(label: string) {
 }
 
 describe("WorkspaceMenu", () => {
+  test("the dropdown closes on an outside mousedown and on Escape", async () => {
+    render(
+      <>
+        <WorkspaceMenu />
+        <button>outside</button>
+      </>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "画布菜单" }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "outside" }));
+    expect(screen.queryByRole("menu")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "画布菜单" }));
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).toBeNull();
+    // A click inside the menu does not count as outside.
+    await userEvent.click(screen.getByRole("button", { name: "画布菜单" }));
+    await userEvent.pointer({ keys: "[MouseLeft>]", target: screen.getByRole("menuitem", { name: "保存" }) });
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+  });
+
   test("409 on save offers reload or overwrite; overwrite refetches updated_at then saves", async () => {
     useWorkspace.getState().setCurrent(dto());
     m.updateWorkspace.mockRejectedValueOnce(new ApiError("conflict", 409, "x"));

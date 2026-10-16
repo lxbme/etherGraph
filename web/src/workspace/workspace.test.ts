@@ -4,6 +4,7 @@ import { ApiError } from "../api/errors";
 import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
 import { getMainCy } from "../graph/cyRegistry";
 import { useGraph } from "../graph/store";
+import { useTabs } from "../shell/tabs";
 import { deserialize, serialize } from "./serialize";
 import {
   deleteWorkspace,
@@ -11,8 +12,10 @@ import {
   overwriteCurrent,
   saveCurrent,
   saveNew,
+  useUnsavedChangesPrompt,
   useWorkspace,
 } from "./useWorkspace";
+import { renderHook } from "@testing-library/react";
 
 vi.mock("../api/endpoints", () => ({
   api: {
@@ -153,6 +156,41 @@ describe("loading", () => {
     await expect(loadWorkspace(8)).resolves.toBe(false);
     expect(g().centers).toEqual([A]);
     expect(useWorkspace.getState().id).toBe(7);
+  });
+});
+
+describe("opening from a tx tab", () => {
+  test("switches to the graph tab before restoring the canvas", async () => {
+    const H = "0x" + "1".repeat(64);
+    useTabs.setState({ tabs: [{ id: "graph" }, { id: H, kind: "tx", hash: H }], active: H });
+    let activeAtRestore: string | null = null;
+    const unsub = useGraph.subscribe((s, p) => {
+      if (s.centers !== p.centers) activeAtRestore = useTabs.getState().active;
+    });
+    const state = serialize((g().setCenters([A]), g()), VP, { nodes: [A], positions: {} });
+    g().reset();
+    m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(state)) }));
+    await loadWorkspace(7);
+    unsub();
+    expect(activeAtRestore).toBe("graph");
+    expect(useTabs.getState().active).toBe("graph");
+  });
+});
+
+describe("leaving the page", () => {
+  test("beforeunload prompts only while the workspace is dirty", () => {
+    const { unmount } = renderHook(() => useUnsavedChangesPrompt());
+    const fire = () => {
+      const ev = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(ev);
+      return ev.defaultPrevented;
+    };
+    expect(fire()).toBe(false);
+    g().addCenter(A);
+    expect(useWorkspace.getState().dirty).toBe(true);
+    expect(fire()).toBe(true);
+    unmount();
+    expect(fire()).toBe(false);
   });
 });
 

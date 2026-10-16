@@ -14,7 +14,7 @@ import { TxFlowView, TxNodeDetail } from "./views/TxFlowView";
 import { useUi } from "./panels/uiStore";
 import { useTabs, type Tab } from "./shell/tabs";
 import { WorkspaceMenu } from "./shell/WorkspaceMenu";
-import { saveStatusLabel, useWorkspace } from "./workspace/useWorkspace";
+import { saveStatusLabel, useUnsavedChangesPrompt, useWorkspace } from "./workspace/useWorkspace";
 import { AddressGraph } from "./views/AddressGraph";
 
 export function App() {
@@ -28,6 +28,7 @@ export function App() {
 function Shell() {
   useHashRouting();
   useEvents();
+  useUnsavedChangesPrompt();
   const { tabs, active } = useTabs();
   const detailOpen = useUi((s) => s.detailOpen);
   const toggleDetail = useUi((s) => s.toggleDetail);

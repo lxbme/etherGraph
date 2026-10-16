@@ -164,6 +164,24 @@ export function WorkspaceMenu() {
   const [open, setOpen] = useState(false);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [busy, setBusy] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Like the filter popover: an outside press or Escape closes the dropdown.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -236,7 +254,7 @@ export function WorkspaceMenu() {
   );
 
   return (
-    <div className="wsmenu">
+    <div className="wsmenu" ref={rootRef}>
       <button className="btn" aria-label="画布菜单" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         {name ?? "画布"}{dirty ? " *" : ""} ▾
       </button>

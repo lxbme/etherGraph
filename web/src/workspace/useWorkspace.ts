@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { create } from "zustand";
 import { api } from "../api/endpoints";
 import { ApiError, messageFor } from "../api/errors";
@@ -5,6 +6,7 @@ import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
 import type { JsonValue } from "../api/generated/serde_json/JsonValue";
 import { getMainCy } from "../graph/cyRegistry";
 import { pairKey, useGraph, type NodeUi, type Pos } from "../graph/store";
+import { useTabs } from "../shell/tabs";
 import { toast } from "../shell/Toasts";
 import { DEFAULT_VIEWPORT, deserialize, serialize, type WorkspaceStateV1 } from "./serialize";
 
@@ -46,6 +48,20 @@ useGraph.subscribe((s, prev) => {
     useWorkspace.getState().markDirty();
   }
 });
+
+/** Asks the browser to confirm leaving the page while the workspace has unsaved changes. */
+export function useUnsavedChangesPrompt(): void {
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!useWorkspace.getState().dirty) return;
+      e.preventDefault();
+      // Older browsers need returnValue set to show the prompt.
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+}
 
 export function saveStatusLabel(w: Pick<WorkspaceStore, "id" | "dirty">): string {
   if (w.id == null) return "未保存";
@@ -163,6 +179,8 @@ function applyViewportLater(state: WorkspaceStateV1, gen: number): void {
 }
 
 function applyState(state: WorkspaceStateV1): void {
+  // The restored canvas (and its saved viewport) belongs to the graph tab: show it first.
+  useTabs.getState().activate("graph");
   const ui: Record<string, NodeUi> = {};
   for (const n of state.nodes) {
     ui[n.address.toLowerCase()] = {
