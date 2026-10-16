@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import { qk } from "../api/queryClient";
 import { CytoscapeView } from "../graph/CytoscapeView";
+import { exposeTxCy } from "../graph/cyRegistry";
 import { useGraph } from "../graph/store";
 import { graphStylesheet } from "../graph/styles";
 import { shortAddr } from "../lib/address";
@@ -153,6 +154,7 @@ export function TxFlowView({ hash }: { hash: string }) {
   const [selected, setSelected] = useState<string | null>(null);
   const flow = q.data?.status === "ready" ? q.data.flow : null;
   const elements = useMemo(() => (flow ? txElements(flow, selected) : []), [flow, selected]);
+  useEffect(() => () => exposeTxCy(hash, null), [hash]);
 
   if (q.isError) {
     return (
@@ -179,7 +181,7 @@ export function TxFlowView({ hash }: { hash: string }) {
   if (!flow) return <div className="placeholder">正在获取交易…</div>;
 
   return (
-    <div className="txview">
+    <div className="txview" data-testid="tx-view">
       <div className="txview__main">
         <Header flow={flow} />
         {flow.completeness === "fund_flow" && <div className="txview__banner">{BANNER}</div>}
@@ -196,6 +198,7 @@ export function TxFlowView({ hash }: { hash: string }) {
             onCxtNode={NOOP}
             onBoxSelect={NOOP}
             onDragEnd={NOOP}
+            onReady={(cy) => exposeTxCy(hash, cy)}
           />
         </div>
         <Tables flow={flow} onPick={setSelected} />

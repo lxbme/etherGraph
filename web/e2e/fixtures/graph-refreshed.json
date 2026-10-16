@@ -1,0 +1,135 @@
+{
+  "nodes": [
+    {
+      "address": "0xa11ce00000000000000000000000000000000001",
+      "kind": "eoa",
+      "display_name": null,
+      "ens": null,
+      "contract_name": null,
+      "labels": [],
+      "partial": false,
+      "syncing": false,
+      "synced": true,
+      "hot": false
+    },
+    {
+      "address": "0xb0b0000000000000000000000000000000000002",
+      "kind": "eoa",
+      "display_name": "Binance 14",
+      "ens": null,
+      "contract_name": null,
+      "labels": [
+        {
+          "id": 1,
+          "text": "Binance 14",
+          "category": "exchange",
+          "source": "import:etherscan"
+        }
+      ],
+      "partial": false,
+      "syncing": false,
+      "synced": false,
+      "hot": true
+    },
+    {
+      "address": "0xc0ffee0000000000000000000000000000000003",
+      "kind": "contract",
+      "display_name": "UniswapV2Router02",
+      "ens": null,
+      "contract_name": "UniswapV2Router02",
+      "labels": [],
+      "partial": false,
+      "syncing": false,
+      "synced": false,
+      "hot": false
+    },
+    {
+      "address": "0xd00d000000000000000000000000000000000004",
+      "kind": "unknown",
+      "display_name": null,
+      "ens": null,
+      "contract_name": null,
+      "labels": [],
+      "partial": false,
+      "syncing": false,
+      "synced": false,
+      "hot": false
+    },
+    {
+      "address": "0xe0e0000000000000000000000000000000000005",
+      "kind": "eoa",
+      "display_name": null,
+      "ens": null,
+      "contract_name": null,
+      "labels": [],
+      "partial": false,
+      "syncing": false,
+      "synced": false,
+      "hot": false
+    }
+  ],
+  "edges": [
+    {
+      "from": "0xa11ce00000000000000000000000000000000001",
+      "to": "0xb0b0000000000000000000000000000000000002",
+      "asset": null,
+      "asset_kind": "native",
+      "count": 3,
+      "sum": "5000000000000000000",
+      "first_ts": "2024-01-10T08:00:00Z",
+      "last_ts": "2024-03-02T12:30:00Z",
+      "decimals": 18,
+      "symbol": null
+    },
+    {
+      "from": "0xb0b0000000000000000000000000000000000002",
+      "to": "0xa11ce00000000000000000000000000000000001",
+      "asset": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+      "asset_kind": "erc20",
+      "count": 2,
+      "sum": "1000000000",
+      "first_ts": "2024-01-10T08:00:00Z",
+      "last_ts": "2024-03-02T12:30:00Z",
+      "decimals": 6,
+      "symbol": "USDT"
+    },
+    {
+      "from": "0xa11ce00000000000000000000000000000000001",
+      "to": "0xc0ffee0000000000000000000000000000000003",
+      "asset": null,
+      "asset_kind": "native",
+      "count": 1,
+      "sum": "500000000000000000",
+      "first_ts": "2024-01-10T08:00:00Z",
+      "last_ts": "2024-03-02T12:30:00Z",
+      "decimals": 18,
+      "symbol": null
+    },
+    {
+      "from": "0xd00d000000000000000000000000000000000004",
+      "to": "0xa11ce00000000000000000000000000000000001",
+      "asset": null,
+      "asset_kind": "native",
+      "count": 4,
+      "sum": "12000000000000000000",
+      "first_ts": "2024-01-10T08:00:00Z",
+      "last_ts": "2024-03-02T12:30:00Z",
+      "decimals": 18,
+      "symbol": null
+    },
+    {
+      "from": "0xa11ce00000000000000000000000000000000001",
+      "to": "0xe0e0000000000000000000000000000000000005",
+      "asset": null,
+      "asset_kind": "native",
+      "count": 1,
+      "sum": "2000000000000000000",
+      "first_ts": "2024-01-10T08:00:00Z",
+      "last_ts": "2024-03-02T12:30:00Z",
+      "decimals": 18,
+      "symbol": null
+    }
+  ],
+  "omitted": {},
+  "coverage": {}
+}

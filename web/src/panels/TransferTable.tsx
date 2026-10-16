@@ -112,6 +112,7 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
               <tr
                 key={`${t.tx_hash}:${t.sub_id}:${t.kind}`}
                 className={active ? "transfers__row transfers__row--active" : "transfers__row"}
+                data-testid="transfer-row"
                 onClick={() => onRow(t)}
               >
                 <td>{formatTime(t.ts)}</td>
@@ -164,7 +165,7 @@ function GroupSection({
   const sum = formatAmount(group.sum, group.decimals);
   const title = `${symbolOf(group.asset, group.symbol)} · ${shortAddr(group.from)}→${shortAddr(group.to)} · ${group.count} 笔 · Σ ${sum.text}`;
   return (
-    <section className="transfers__group">
+    <section className="transfers__group" data-testid="transfer-group">
       <button type="button" className="transfers__group-head" aria-expanded={open} onClick={onToggle}>
         {open ? "▾" : "▸"} {title}
         {sum.unknownDecimals ? " ⚠" : ""}

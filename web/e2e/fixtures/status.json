@@ -1,0 +1,13 @@
+{
+  "quota_used": 120,
+  "quota_limit": 100000,
+  "paused": false,
+  "reset_at": "2026-10-18T00:00:00Z",
+  "queue_len": 0,
+  "rate": 5,
+  "jobs_active": 0,
+  "calls": 120,
+  "retries": 0,
+  "errors": {},
+  "degraded": null
+}

@@ -1,0 +1,112 @@
+{
+  "status": "ready",
+  "job_id": null,
+  "flow": {
+    "tx": {
+      "hash": "0x7e57000000000000000000000000000000000000000000000000000000000001",
+      "block_number": 19350000,
+      "ts": "2024-03-02T12:30:00Z",
+      "from": "0xa11ce00000000000000000000000000000000001",
+      "to": "0xc0ffee0000000000000000000000000000000003",
+      "value": "2000000000000000000",
+      "success": true,
+      "gas_used": "152000",
+      "fee": "3040000000000000",
+      "method": "swapExactETHForTokens",
+      "selector": "0x7ff36ab5"
+    },
+    "call": {
+      "signature": "swapExactETHForTokens(uint256,address[],address,uint256)",
+      "name": "swapExactETHForTokens",
+      "args": []
+    },
+    "nodes": [
+      {
+        "address": "0xa11ce00000000000000000000000000000000001",
+        "kind": "eoa",
+        "display_name": null,
+        "ens": null,
+        "contract_name": null,
+        "labels": [],
+        "partial": false,
+        "syncing": false,
+        "synced": true,
+        "hot": false
+      },
+      {
+        "address": "0xb0b0000000000000000000000000000000000002",
+        "kind": "eoa",
+        "display_name": "Binance 14",
+        "ens": null,
+        "contract_name": null,
+        "labels": [
+          {
+            "id": 1,
+            "text": "Binance 14",
+            "category": "exchange",
+            "source": "import:etherscan"
+          }
+        ],
+        "partial": false,
+        "syncing": false,
+        "synced": false,
+        "hot": true
+      },
+      {
+        "address": "0xc0ffee0000000000000000000000000000000003",
+        "kind": "contract",
+        "display_name": "UniswapV2Router02",
+        "ens": null,
+        "contract_name": "UniswapV2Router02",
+        "labels": [],
+        "partial": false,
+        "syncing": false,
+        "synced": false,
+        "hot": false
+      }
+    ],
+    "flows": [
+      {
+        "seq": 0,
+        "from": "0xa11ce00000000000000000000000000000000001",
+        "to": "0xc0ffee0000000000000000000000000000000003",
+        "asset": null,
+        "amount": "2000000000000000000",
+        "token_id": null,
+        "kind": "native",
+        "trace_path": null,
+        "log_index": null,
+        "decimals": 18,
+        "symbol": null
+      },
+      {
+        "seq": 1,
+        "from": "0xc0ffee0000000000000000000000000000000003",
+        "to": "0xb0b0000000000000000000000000000000000002",
+        "asset": null,
+        "amount": "2000000000000000000",
+        "token_id": null,
+        "kind": "internal",
+        "trace_path": "0",
+        "log_index": null,
+        "decimals": 18,
+        "symbol": null
+      },
+      {
+        "seq": 2,
+        "from": "0xb0b0000000000000000000000000000000000002",
+        "to": "0xa11ce00000000000000000000000000000000001",
+        "asset": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+        "amount": "6400000000",
+        "token_id": null,
+        "kind": "erc20",
+        "trace_path": null,
+        "log_index": 12,
+        "decimals": 6,
+        "symbol": "USDT"
+      }
+    ],
+    "events": [],
+    "completeness": "fund_flow"
+  }
+}

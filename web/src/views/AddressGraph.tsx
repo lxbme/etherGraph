@@ -146,7 +146,7 @@ export function AddressGraph() {
   };
 
   return (
-    <div className="address-graph" ref={rootRef}>
+    <div className="address-graph" ref={rootRef} data-testid="address-graph">
       <CytoscapeView
         elements={elements}
         stylesheet={stylesheet}

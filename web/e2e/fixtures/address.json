@@ -1,0 +1,62 @@
+{
+  "node": {
+    "address": "0xa11ce00000000000000000000000000000000001",
+    "kind": "eoa",
+    "display_name": null,
+    "ens": null,
+    "contract_name": null,
+    "labels": [],
+    "partial": false,
+    "syncing": false,
+    "synced": true,
+    "hot": false
+  },
+  "is_proxy": false,
+  "implementation": null,
+  "creator": null,
+  "creation_tx": null,
+  "coverage": [
+    {
+      "kind": "native",
+      "from_block": 17000000,
+      "to_block": 19500000,
+      "truncated": false,
+      "state": "ok",
+      "last_synced_at": "2026-10-17T09:00:00Z"
+    },
+    {
+      "kind": "internal",
+      "from_block": 17000000,
+      "to_block": 19500000,
+      "truncated": false,
+      "state": "ok",
+      "last_synced_at": "2026-10-17T09:00:00Z"
+    },
+    {
+      "kind": "erc20",
+      "from_block": 17000000,
+      "to_block": 19500000,
+      "truncated": false,
+      "state": "ok",
+      "last_synced_at": "2026-10-17T09:00:00Z"
+    },
+    {
+      "kind": "erc721",
+      "from_block": 17000000,
+      "to_block": 19500000,
+      "truncated": false,
+      "state": "ok",
+      "last_synced_at": "2026-10-17T09:00:00Z"
+    },
+    {
+      "kind": "erc1155",
+      "from_block": 17000000,
+      "to_block": 19500000,
+      "truncated": false,
+      "state": "ok",
+      "last_synced_at": "2026-10-17T09:00:00Z"
+    }
+  ],
+  "first_seen": "2024-01-10T08:00:00Z",
+  "last_seen": "2024-03-02T12:30:00Z"
+}
