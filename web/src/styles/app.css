@@ -391,3 +391,24 @@ body,
 .dialog__calls { color: var(--fg-muted); font-size: 12px; }
 .dialog__summary { font-size: 12px; color: var(--fg-muted); }
 .dialog__actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.detail { padding: 12px; overflow: auto; height: 100%; font-size: 13px; }
+.detail__title { margin: 0 0 6px; }
+.detail__mono { font-family: var(--font-mono); font-size: 12px; word-break: break-all; }
+.detail__muted { color: var(--fg-muted); }
+.detail__error { color: var(--cat-scam); }
+.detail__tag { color: var(--asset-erc20); }
+.detail__props { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 8px 0; }
+.detail__props dt { color: var(--fg-muted); }
+.detail__props dd { margin: 0; }
+.detail__list { list-style: none; margin: 4px 0 8px; padding: 0; }
+.detail__list li { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; padding: 2px 0; }
+.detail__link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; }
+.detail__actions { display: flex; gap: 8px; margin-bottom: 8px; }
+.detail__note { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.detail__note textarea { min-height: 60px; }
+.label-editor { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.label-editor label { display: flex; flex-direction: column; gap: 2px; }
+.label-editor__count { align-self: flex-end; color: var(--fg-muted); font-size: 12px; }
+.label-editor__count--bad { color: var(--cat-scam); }
+.label-editor__actions { display: flex; gap: 8px; }

@@ -10,7 +10,8 @@ import { Toasts } from "./shell/Toasts";
 import { TopBar } from "./shell/TopBar";
 import { useHashRouting } from "./shell/hashRoute";
 import { TransferTable } from "./panels/TransferTable";
-import { DetailPanel, TxView } from "./shell/placeholders";
+import { DetailPanel } from "./panels/DetailPanel";
+import { TxView } from "./shell/placeholders";
 import { useTabs } from "./shell/tabs";
 import { AddressGraph } from "./views/AddressGraph";
 
