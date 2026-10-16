@@ -5,6 +5,10 @@ import { A, B, C, D, E, TX, expect, test, type MockApi } from "./mockApi";
 import type { Page } from "@playwright/test";
 
 const GRAPH = "POST /api/graph/edges";
+/** The app merges SSE data events over a 500ms window (src/api/useEvents.ts COALESCE_MS). */
+const COALESCE_MS = 500;
+/** Long enough that a second (wrongly un-merged) refetch would have fired: 3× the merge window. */
+const NO_MORE_REFETCH_MS = 3 * COALESCE_MS;
 
 async function searchAddress(page: Page, mock: MockApi, addr: string) {
   await page.goto("/?e2e=1");
@@ -104,9 +108,29 @@ test("AddressDataChanged over SSE refreshes the graph exactly once", async ({ pa
   // (Incremental placement keeps the viewport, so the new node may land outside it: only check it is there.)
   await expect.poll(async () => (await snapshot(page, "main"))?.nodes.map((n) => n.id).sort()).toEqual([A, B, C, D, E].sort());
   // No further refetch follows (and the SSE reconnect does not trigger a Lagged resync).
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(NO_MORE_REFETCH_MS);
   expect(mock.count(GRAPH)).toBe(2);
   expect(mock.count("GET /api/events")).toBeGreaterThanOrEqual(2);
 
   expect(mock.unhandled).toEqual([]);
 });
+
+for (const query of ["", "?e2e=0"]) {
+  test(`the cytoscape e2e hook is inert without ?e2e=1 (url "/${query}")`, async ({ page, mock }) => {
+    await page.goto(`/${query}`);
+    await page.getByRole("searchbox", { name: "搜索" }).fill(A);
+    await page.getByRole("searchbox", { name: "搜索" }).press("Enter");
+    await expect.poll(() => mock.count(GRAPH)).toBe(1);
+    await expect(page.getByTestId("address-graph").locator("canvas").first()).toBeVisible();
+    // Also mount a tx graph, the other registration point.
+    await page.getByRole("searchbox", { name: "搜索" }).fill(TX);
+    await page.getByRole("searchbox", { name: "搜索" }).press("Enter");
+    await expect(page.getByTestId("tx-view").locator("canvas").first()).toBeVisible();
+    const exposed = await page.evaluate(() => {
+      const w = window as unknown as Record<string, unknown>;
+      return { main: typeof w.__etherGraphCy, tx: typeof w.__etherGraphTxCy };
+    });
+    expect(exposed).toEqual({ main: "undefined", tx: "undefined" });
+    expect(mock.unhandled).toEqual([]);
+  });
+}

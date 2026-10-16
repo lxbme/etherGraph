@@ -9,7 +9,7 @@ let mainCy: cytoscape.Core | null = null;
  * runs the production build, hence a runtime flag instead of a build-mode check.
  */
 function e2eWindow(): { __etherGraphCy?: cytoscape.Core | null; __etherGraphTxCy?: Record<string, cytoscape.Core> } | null {
-  if (typeof window === "undefined" || !new URLSearchParams(window.location.search).has("e2e")) return null;
+  if (typeof window === "undefined" || new URLSearchParams(window.location.search).get("e2e") !== "1") return null;
   return window as never;
 }
 
