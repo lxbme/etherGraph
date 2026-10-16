@@ -1,0 +1,73 @@
+import { useCallback, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+
+const MIN_BOTTOM = 120;
+const KEY = "ethergraph.splitHeight";
+
+function load(): number | null {
+  try {
+    const v = Number(localStorage.getItem(KEY));
+    return Number.isFinite(v) && v >= MIN_BOTTOM ? v : null;
+  } catch {
+    return null;
+  }
+}
+function save(h: number) {
+  try {
+    localStorage.setItem(KEY, String(Math.round(h)));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function ResizableSplit({ top, bottom }: { top: ReactNode; bottom: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | null>(load);
+  const dragging = useRef(false);
+
+  const clamp = useCallback((h: number) => {
+    const total = ref.current?.getBoundingClientRect().height ?? 0;
+    const max = total > 0 ? Math.max(MIN_BOTTOM, total - MIN_BOTTOM) : Infinity;
+    return Math.min(Math.max(h, MIN_BOTTOM), max);
+  }, []);
+
+  const onPointerDown = (e: PointerEvent) => {
+    dragging.current = true;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e: PointerEvent) => {
+    if (!dragging.current || !ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    setHeight(clamp(rect.bottom - e.clientY));
+  };
+  const onPointerUp = () => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    if (height != null) save(height);
+  };
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const cur = height ?? (ref.current ? ref.current.getBoundingClientRect().height * 0.32 : 200);
+    const next = clamp(cur + (e.key === "ArrowUp" ? 24 : -24));
+    setHeight(next);
+    save(next);
+  };
+
+  return (
+    <div className="split" ref={ref}>
+      <div className="split__top">{top}</div>
+      <div
+        className="split__handle"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="调整明细表高度"
+        tabIndex={0}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onKeyDown={onKeyDown}
+      />
+      <div className="split__bottom" style={{ height: height != null ? `${height}px` : "32%" }}>{bottom}</div>
+    </div>
+  );
+}

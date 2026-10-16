@@ -1,15 +1,45 @@
+import { useState } from "react";
+import { Banners } from "./shell/Banners";
+import { ResizableSplit } from "./shell/ResizableSplit";
+import { StatusBar } from "./shell/StatusBar";
+import { TabBar } from "./shell/TabBar";
+import { Toasts } from "./shell/Toasts";
+import { TopBar } from "./shell/TopBar";
+import { useHashRouting } from "./shell/hashRoute";
+import { AddressGraph, DetailPanel, TransferTable, TxView } from "./shell/placeholders";
+import { useTabs } from "./shell/tabs";
+
+function initialDetailOpen(): boolean {
+  return typeof window.matchMedia !== "function" || !window.matchMedia("(max-width: 899px)").matches;
+}
+
 export function App() {
+  useHashRouting();
+  const { tabs, active } = useTabs();
+  const [detailOpen, setDetailOpen] = useState(initialDetailOpen);
+  const tx = tabs.find((t) => t.id === active && "kind" in t);
+
   return (
     <div className="app">
-      <header className="topbar">
-        <h1 className="topbar__title">etherGraph</h1>
-        <input
-          type="search"
-          className="topbar__search"
-          placeholder="搜索 地址 / 交易哈希 / ENS"
-          aria-label="搜索"
-        />
-      </header>
+      <TopBar onToggleDetail={() => setDetailOpen((v) => !v)} />
+      <TabBar />
+      <Banners />
+      <div className="main">
+        <div className="main__left">
+          {tx && "kind" in tx ? (
+            <TxView hash={tx.hash} />
+          ) : (
+            <ResizableSplit top={<AddressGraph />} bottom={<TransferTable />} />
+          )}
+        </div>
+        {detailOpen && (
+          <aside className="main__right">
+            <DetailPanel />
+          </aside>
+        )}
+      </div>
+      <StatusBar />
+      <Toasts />
     </div>
-  )
+  );
 }
