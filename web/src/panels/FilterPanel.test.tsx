@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
+import { useAssetRegistry } from "../graph/assetRegistry";
 import { useGraph } from "../graph/store";
 import { graphQueryKey } from "../graph/useGraphData";
 import { FilterPanel } from "./FilterPanel";
@@ -144,4 +145,56 @@ test("filter button shows an indicator only when a filter is active", () => {
   fireEvent.click(screen.getByLabelText("流出"));
   fireEvent.click(apply());
   expect(screen.getByTestId("filter-active")).toBeInTheDocument();
+});
+
+test("min_amount is normalized for the backend (.5 -> 0.5, 5. -> 5)", () => {
+  setup();
+  fireEvent.click(screen.getByLabelText("USDC"));
+  fireEvent.click(screen.getByLabelText("ETH"));
+  fireEvent.change(screen.getByLabelText("USDC 最小金额"), { target: { value: ".5" } });
+  fireEvent.change(screen.getByLabelText("ETH 最小金额"), { target: { value: "5." } });
+  fireEvent.click(apply());
+  expect(useGraph.getState().filter.assets).toEqual([
+    { asset: null, min_amount: "5" },
+    { asset: USDC, min_amount: "0.5" },
+  ]);
+});
+
+test("assets seen earlier stay offered after a narrowing filter is applied", () => {
+  const USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7";
+  useGraph.getState().setCenters([A]);
+  seed([edge({ asset: USDC, asset_kind: "erc20", decimals: 6, symbol: "USDC" }), edge({ asset: USDT, asset_kind: "erc20", decimals: 6, symbol: "USDT" })]);
+  useAssetRegistry.getState().merge([
+    edge({ asset: USDC, asset_kind: "erc20", decimals: 6, symbol: "USDC" }),
+    edge({ asset: USDT, asset_kind: "erc20", decimals: 6, symbol: "USDT" }),
+  ]);
+  useGraph.getState().applyFilter({ assets: [{ asset: USDC }] }, "count");
+  seed([edge({ asset: USDC, asset_kind: "erc20", decimals: 6, symbol: "USDC" })]);
+  render(
+    <QueryClientProvider client={qc}>
+      <FilterPanel />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: /过滤/ }));
+  expect(screen.getByLabelText("USDT")).toBeInTheDocument();
+  expect(screen.getByLabelText("ETH")).toBeInTheDocument();
+});
+
+test("apply is one undo step restoring both filter and sort", () => {
+  setup();
+  fireEvent.click(screen.getByLabelText("流出"));
+  fireEvent.click(screen.getByLabelText("最近"));
+  fireEvent.click(apply());
+  expect(useGraph.getState().sort).toBe("recent");
+  useGraph.getState().undo();
+  expect(useGraph.getState().filter).toEqual({});
+  expect(useGraph.getState().sort).toBe("count");
+});
+
+test("form sort falls back to count when amount sort becomes unavailable", () => {
+  setup();
+  fireEvent.click(screen.getByLabelText("USDC"));
+  fireEvent.click(screen.getByLabelText("按金额"));
+  fireEvent.click(screen.getByLabelText("USDC"));
+  expect(screen.getByLabelText("按笔数")).toBeChecked();
 });

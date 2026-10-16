@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "../api/endpoints";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import { qk } from "../api/queryClient";
+import { useAssetRegistry } from "./assetRegistry";
 import { useGraph, type GraphState } from "./store";
 
 /** The query key of the graph for the given store state (shared with the SSE invalidation logic). */
@@ -22,5 +24,9 @@ export function useGraphData(): { data?: GraphResponseDto; isFetching: boolean; 
     enabled,
     placeholderData: keepPreviousData,
   });
+  const merge = useAssetRegistry((r) => r.merge);
+  useEffect(() => {
+    if (q.data) merge(q.data.edges);
+  }, [q.data, merge]);
   return { data: enabled ? q.data : undefined, isFetching: q.isFetching, error: q.error };
 }

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
+import { useAssetRegistry } from "./assetRegistry";
 import { pairKey } from "./pairKey";
 import { pushCapped } from "./undo";
 
@@ -31,6 +32,8 @@ export interface GraphState {
   setCenters(a: string[]): void;
   setFilter(f: EdgeFilterDto): void;
   setSort(s: SortKey): void;
+  /** Sets filter and sort as ONE history step. */
+  applyFilter(f: EdgeFilterDto, sort: SortKey): void;
   togglePair(a: string, b: string): void;
   setPinned(addrs: string[], v: boolean): void;
   setHidden(addrs: string[], v: boolean): void;
@@ -166,6 +169,7 @@ export const useGraph = create<GraphState>()((set, get) => {
       tracked(() => ({ centers: [...new Set(list.map(lc))] })),
     setFilter: (f) => tracked(() => ({ filter: f })),
     setSort: (sort) => tracked(() => ({ sort })),
+    applyFilter: (f, sort) => tracked(() => ({ filter: f, sort })),
     togglePair: (a, b) =>
       tracked((s) => {
         const key = pairKey(a, b);
@@ -225,6 +229,9 @@ export const useGraph = create<GraphState>()((set, get) => {
     },
     canUndo: () => get()._past.length > 0,
     canRedo: () => get()._future.length > 0,
-    reset: () => set(initial()),
+    reset: () => {
+      useAssetRegistry.getState().clear();
+      set(initial());
+    },
   };
 });

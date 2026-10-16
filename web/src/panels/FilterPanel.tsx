@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AssetFilterDto } from "../api/generated/AssetFilterDto";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
+import { ETH_KEY as ETH, assetKey, useAssetRegistry } from "../graph/assetRegistry";
 import { useGraph, type SortKey } from "../graph/store";
 import { useGraphData } from "../graph/useGraphData";
 import { parseHumanAmount } from "../lib/amount";
@@ -26,14 +27,11 @@ const SORTS: { value: SortKey; label: string }[] = [
   { value: "recent", label: "最近" },
 ];
 
-const ETH = "eth";
-const assetKey = (a: string | null | undefined) => (a == null || a.toLowerCase() === ETH ? ETH : a.toLowerCase());
 
 interface AssetOption {
   key: string;
   label: string;
-  /** null = unknown; undefined = not in the current graph. */
-  decimals: number | null | undefined;
+  decimals: number | null;
 }
 
 function toLocal(iso: string | null | undefined): string {
@@ -44,7 +42,13 @@ function toLocal(iso: string | null | undefined): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 const toIso = (local: string) => new Date(local).toISOString();
-const normalize = (s: string) => s.trim().replace(/,/g, "");
+/** Backend-safe decimal: no commas, ".5" -> "0.5", "5." -> "5". */
+const normalize = (s: string) => {
+  let t = s.trim().replace(/,/g, "");
+  if (t.startsWith(".")) t = "0" + t;
+  if (t.endsWith(".")) t = t.slice(0, -1);
+  return t;
+};
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 function hasFilter(f: EdgeFilterDto): boolean {
@@ -98,25 +102,20 @@ function FilterForm({ onClose }: { onClose: () => void }) {
   );
   const [sort, setSort] = useState<SortKey>(initSort);
 
+  const registry = useAssetRegistry((r) => r.assets);
   const options = useMemo(() => {
     const m = new Map<string, AssetOption>();
-    for (const e of data?.edges ?? []) {
-      const key = assetKey(e.asset);
-      if (m.has(key)) continue;
-      m.set(key, {
-        key,
-        label: key === ETH ? "ETH" : (e.symbol ?? shortAddr(key)),
-        decimals: key === ETH ? 18 : e.decimals,
-      });
-    }
-    // Assets already in the filter may be missing from the (filtered) graph.
-    for (const key of assets.keys()) {
-      if (!m.has(key)) m.set(key, { key, label: key === ETH ? "ETH" : shortAddr(key), decimals: key === ETH ? 18 : undefined });
-    }
+    const add = (key: string, symbol: string | null, decimals: number | null) => {
+      if (!m.has(key)) m.set(key, { key, label: key === ETH ? "ETH" : (symbol ?? shortAddr(key)), decimals });
+    };
+    for (const e of data?.edges ?? []) add(assetKey(e.asset), e.symbol, assetKey(e.asset) === ETH ? 18 : e.decimals);
+    for (const [key, k] of Object.entries(registry)) add(key, k.symbol, k.decimals);
+    add(ETH, null, 18);
+    for (const key of init.assets?.map((a) => assetKey(a.asset)) ?? []) add(key, null, null);
     return [...m.values()].sort((a, b) =>
       a.key === ETH ? -1 : b.key === ETH ? 1 : a.label.localeCompare(b.label),
     );
-  }, [data, assets]);
+  }, [data, registry, init.assets]);
 
   const thresholdValid = (opt: AssetOption, text: string) =>
     text.trim() === "" || typeof opt.decimals !== "number" || parseHumanAmount(text, opt.decimals) !== null;
@@ -124,6 +123,10 @@ function FilterForm({ onClose }: { onClose: () => void }) {
   const timeInvalid = from !== "" && to !== "" && new Date(from) > new Date(to);
   const canAmountSort = assets.size === 1;
   const effectiveSort: SortKey = sort === "amount" && !canAmountSort ? "count" : sort;
+
+  useEffect(() => {
+    if (!canAmountSort) setSort((s) => (s === "amount" ? "count" : s));
+  }, [canAmountSort]);
 
   const toggle = <T,>(set: Set<T>, v: T) => {
     const next = new Set(set);
@@ -148,14 +151,12 @@ function FilterForm({ onClose }: { onClose: () => void }) {
       list.push(item);
     }
     if (list.length) f.assets = list;
-    store.setFilter(f);
-    store.setSort(effectiveSort);
+    store.applyFilter(f, effectiveSort);
     onClose();
   };
 
   const reset = () => {
-    store.setFilter({});
-    store.setSort("count");
+    store.applyFilter({}, "count");
     onClose();
   };
 
@@ -228,7 +229,7 @@ function FilterForm({ onClose }: { onClose: () => void }) {
                     value={text}
                     onChange={(e) => setAssets(new Map(assets).set(o.key, e.target.value))}
                   />
-                  {o.decimals === null && <span className="filter__hint">未知精度，无法设阈值</span>}
+                  {!known && <span className="filter__hint">未知精度，无法设阈值</span>}
                 </>
               )}
             </div>
