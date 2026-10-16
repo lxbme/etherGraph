@@ -126,29 +126,38 @@ impl Store {
     /// Returns `(id, true)` for a new job, or the existing active job's
     /// `(id, false)` when one with the same key is pending/running/paused.
     pub async fn enqueue(&self, j: &NewJob) -> Result<(i64, bool)> {
-        let inserted: Option<i64> = sqlx::query_scalar(
-            "INSERT INTO jobs (key, kind, params, priority, status) \
-             VALUES ($1, $2, $3, $4, 'pending') \
-             ON CONFLICT (key) WHERE status IN ('pending','running','paused_quota') \
-             DO NOTHING RETURNING id",
-        )
-        .bind(&j.key)
-        .bind(j.kind.as_str())
-        .bind(&j.params)
-        .bind(j.priority.as_i16())
-        .fetch_optional(&self.pool)
-        .await?;
-        if let Some(id) = inserted {
-            return Ok((id, true));
+        // The conflicting job may finish between the INSERT and the SELECT, so retry.
+        for _ in 0..5 {
+            let inserted: Option<i64> = sqlx::query_scalar(
+                "INSERT INTO jobs (key, kind, params, priority, status) \
+                 VALUES ($1, $2, $3, $4, 'pending') \
+                 ON CONFLICT (key) WHERE status IN ('pending','running','paused_quota') \
+                 DO NOTHING RETURNING id",
+            )
+            .bind(&j.key)
+            .bind(j.kind.as_str())
+            .bind(&j.params)
+            .bind(j.priority.as_i16())
+            .fetch_optional(&self.pool)
+            .await?;
+            if let Some(id) = inserted {
+                return Ok((id, true));
+            }
+            let existing: Option<i64> = sqlx::query_scalar(
+                "SELECT id FROM jobs WHERE key = $1 \
+                 AND status IN ('pending','running','paused_quota')",
+            )
+            .bind(&j.key)
+            .fetch_optional(&self.pool)
+            .await?;
+            if let Some(id) = existing {
+                return Ok((id, false));
+            }
         }
-        let id: i64 = sqlx::query_scalar(
-            "SELECT id FROM jobs WHERE key = $1 \
-             AND status IN ('pending','running','paused_quota')",
-        )
-        .bind(&j.key)
-        .fetch_one(&self.pool)
-        .await?;
-        Ok((id, false))
+        Err(StoreError::Invalid(format!(
+            "enqueue of key {} kept racing with job completion",
+            j.key
+        )))
     }
 
     /// Claims the highest-priority, oldest pending job and marks it running.
@@ -306,6 +315,31 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn enqueue_races_with_completion(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let enq = {
+            let s = s.clone();
+            tokio::spawn(async move {
+                for _ in 0..50 {
+                    let (id, _) = s.enqueue(&nj("race", Priority::Background)).await.unwrap();
+                    let _ = s.complete_job(id).await;
+                }
+            })
+        };
+        let done = {
+            let s = s.clone();
+            tokio::spawn(async move {
+                for _ in 0..50 {
+                    let (id, _) = s.enqueue(&nj("race", Priority::Background)).await.unwrap();
+                    let _ = s.complete_job(id).await;
+                }
+            })
+        };
+        enq.await.unwrap();
+        done.await.unwrap();
+    }
+
+    #[sqlx::test]
     async fn claim_respects_priority(pool: PgPool) {
         let s = Store::from_pool(pool);
         s.enqueue(&nj("low", Priority::Low)).await.unwrap();
@@ -357,19 +391,25 @@ mod tests {
     #[sqlx::test]
     async fn cancel_pending_vs_running(pool: PgPool) {
         let s = Store::from_pool(pool);
-        let (p, _) = s.enqueue(&nj("p", Priority::Interactive)).await.unwrap();
-        let (r, _) = s.enqueue(&nj("r", Priority::Background)).await.unwrap();
+        let (first, _) = s
+            .enqueue(&nj("first", Priority::Interactive))
+            .await
+            .unwrap();
+        let (second, _) = s
+            .enqueue(&nj("second", Priority::Background))
+            .await
+            .unwrap();
         let running = s.claim_next().await.unwrap().unwrap();
-        assert_eq!(running.id, p);
-        // swap roles: `p` is running, `r` is pending
-        assert!(s.cancel_job(r).await.unwrap());
-        assert!(!s.cancel_requested(r).await.unwrap());
+        assert_eq!(running.id, first);
+        // `first` (Interactive) is running, `second` is pending
+        assert!(s.cancel_job(second).await.unwrap());
+        assert!(!s.cancel_requested(second).await.unwrap());
         assert!(s.claim_next().await.unwrap().is_none());
-        assert!(s.cancel_job(p).await.unwrap());
-        assert!(s.cancel_requested(p).await.unwrap());
-        s.mark_cancelled(p).await.unwrap();
+        assert!(s.cancel_job(first).await.unwrap());
+        assert!(s.cancel_requested(first).await.unwrap());
+        s.mark_cancelled(first).await.unwrap();
         assert!(s.active_jobs().await.unwrap().is_empty());
-        assert!(!s.cancel_job(p).await.unwrap());
+        assert!(!s.cancel_job(first).await.unwrap());
         assert!(!s.cancel_job(9999).await.unwrap());
     }
 
