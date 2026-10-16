@@ -2,6 +2,7 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type TransfersParams } from "../api/endpoints";
 import { messageFor } from "../api/errors";
+import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
 import type { TransferDto } from "../api/generated/TransferDto";
 import { qk } from "../api/queryClient";
@@ -210,7 +211,7 @@ function PairGroups({ a, b }: { a: string; b: string }) {
 }
 
 /** Node scope with two or more filtered assets: one collapsible section per asset, each with its threshold. */
-function AssetSections({ address, filter }: { address: string; filter: EdgeFilterDto }) {
+function AssetSections({ address, filter, direction }: { address: string; filter: EdgeFilterDto; direction: Dir }) {
   const known = useAssetRegistry((r) => r.assets);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const assets = [...new Set((filter.assets ?? []).map((f) => normAsset(f.asset)))];
@@ -235,7 +236,7 @@ function AssetSections({ address, filter }: { address: string; filter: EdgeFilte
             {isOpen && (
               <TransferRows
                 selected={address}
-                params={{ ...nodeParams(filter, address), asset, minAmount: min }}
+                params={{ ...nodeParams(filter, address, direction), asset, minAmount: min }}
               />
             )}
           </section>
@@ -245,24 +246,54 @@ function AssetSections({ address, filter }: { address: string; filter: EdgeFilte
   );
 }
 
-/** Address-scope params: the shared carry-over plus the filter direction (the canvas shows only that side). */
-function nodeParams(filter: EdgeFilterDto, address: string): TransfersParams {
-  return { ...baseParams(filter), address, direction: filter.direction ?? undefined };
+type Dir = TransfersParams["direction"];
+
+/**
+ * The filter's direction is relative to the centers, the transfer query's to the selected node. A center
+ * keeps it; any other node sits on the far side of the canvas edges, so it flips. A center adjacent to
+ * another center shows edges on both sides of it (into it and into the other center), so no direction.
+ */
+export function nodeDirection(dir: EdgeFilterDto["direction"], address: string, centers: string[], edges: EdgeDto[]): Dir {
+  if (dir !== "in" && dir !== "out") return undefined;
+  const a = address.toLowerCase();
+  const cs = new Set(centers.map((c) => c.toLowerCase()));
+  if (!cs.has(a)) return dir === "in" ? "out" : "in";
+  const touchesCenter = edges.some((e) => {
+    const f = e.from.toLowerCase();
+    const t = e.to.toLowerCase();
+    return (f === a && t !== a && cs.has(t)) || (t === a && f !== a && cs.has(f));
+  });
+  return touchesCenter ? undefined : dir;
+}
+
+/** Address-scope params: the shared carry-over plus the canvas-matching direction. */
+function nodeParams(filter: EdgeFilterDto, address: string, direction: Dir): TransfersParams {
+  return { ...baseParams(filter), address, direction };
 }
 
 export function TransferTable() {
   const selection = useGraph((s) => s.selection);
   const filter = useGraph((s) => s.filter);
+  const centers = useGraph((s) => s.centers);
+  const { data } = useGraphData();
 
   let body;
   if (!selection) {
     body = <div className="transfers__msg">选择一个节点或一条边查看转账明细</div>;
   } else if (selection.kind === "node") {
     const n = filter.assets?.length ?? 0;
+    const direction = nodeDirection(filter.direction, selection.address, centers, data?.edges ?? []);
     if (n >= 2) {
-      body = <AssetSections key={`${selection.address}|${JSON.stringify(filter)}`} address={selection.address} filter={filter} />;
+      body = (
+        <AssetSections
+          key={`${selection.address}|${direction}|${JSON.stringify(filter)}`}
+          address={selection.address}
+          filter={filter}
+          direction={direction}
+        />
+      );
     } else {
-      const params = nodeParams(filter, selection.address);
+      const params = nodeParams(filter, selection.address, direction);
       if (n === 1) {
         const only = normAsset(filter.assets![0]!.asset);
         params.asset = only;

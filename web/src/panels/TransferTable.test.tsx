@@ -98,23 +98,44 @@ test("carries over kinds, time and the single asset threshold", async () => {
   );
 });
 
-test("node scope passes the filter direction", async () => {
-  const spy = vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null });
-  act(() => {
-    useGraph.getState().setFilter({ direction: "in" });
-    useGraph.getState().select({ kind: "node", address: A });
+describe("node scope direction (the filter's is relative to the centers)", () => {
+  const D = "0x" + "dd".repeat(20);
+  async function directionFor(selected: string, centers: string[], edges: EdgeDto[]) {
+    const spy = vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null });
+    act(() => {
+      useGraph.getState().setCenters(centers);
+      useGraph.getState().setFilter({ direction: "in" });
+      useGraph.getState().select({ kind: "node", address: selected });
+    });
+    seedGraph(edges);
+    renderTable();
+    await screen.findByText("没有符合条件的转账");
+    return spy.mock.calls[0]![0];
+  }
+
+  test("a non-center node under 流入 is the sender: direction=out", async () => {
+    expect(await directionFor(D, [A], [edge({ from: D, to: A })])).toMatchObject({ address: D, direction: "out" });
   });
-  renderTable();
-  await screen.findByText("没有符合条件的转账");
-  expect(spy).toHaveBeenCalledWith(expect.objectContaining({ address: A, direction: "in" }));
+
+  test("a center keeps the filter direction", async () => {
+    expect(await directionFor(A, [A], [edge({ from: D, to: A })])).toMatchObject({ address: A, direction: "in" });
+  });
+
+  test("a center adjacent to another center sends no direction", async () => {
+    const arg = await directionFor(A, [A, B], [edge({ from: D, to: A }), edge({ from: A, to: B })]);
+    expect(arg.address).toBe(A);
+    expect(arg.direction).toBeUndefined();
+  });
 });
 
 test("node scope with several filtered assets renders one section per asset", async () => {
   const spy = vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null });
   act(() => {
+    useGraph.getState().addCenter(A);
     useGraph.getState().setFilter({ direction: "out", assets: [{ asset: null, min_amount: "1" }, { asset: USDC.toUpperCase().replace("0X", "0x") }] });
     useGraph.getState().select({ kind: "node", address: A });
   });
+  seedGraph([edge({})]);
   renderTable();
   const sections = await screen.findAllByTestId("transfer-group");
   expect(sections).toHaveLength(2);

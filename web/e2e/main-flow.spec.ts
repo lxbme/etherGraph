@@ -1,6 +1,6 @@
 import graphFiltered from "./fixtures/graph-filtered.json" with { type: "json" };
 import graphRefreshed from "./fixtures/graph-refreshed.json" with { type: "json" };
-import { expectLaidOut, snapshot, tapEdge } from "./cy";
+import { expectLaidOut, snapshot, tapEdge, tapNode } from "./cy";
 import { A, B, C, D, E, TX, expect, test, type MockApi } from "./mockApi";
 import type { Page } from "@playwright/test";
 
@@ -154,6 +154,29 @@ test("a node dropped by a filter returns to its previous position on undo", asyn
   const after = await settledPos(page, C);
   expect(after!.x).toBeCloseTo(before!.x, 3);
   expect(after!.y).toBeCloseTo(before!.y, 3);
+  expect(mock.unhandled).toEqual([]);
+});
+
+test("under 流入 the node transfer table asks for the side the canvas shows", async ({ page, mock }) => {
+  await searchAddress(page, mock, A);
+  await expectLaidOut(page, "main", 4);
+  await page.getByRole("button", { name: /过滤/ }).click();
+  const dialog = page.getByRole("dialog", { name: "过滤" });
+  await dialog.getByLabel("流入", { exact: true }).check();
+  await dialog.getByRole("button", { name: "应用" }).click();
+  await expect.poll(() => mock.count(GRAPH)).toBe(2);
+
+  const asked = () =>
+    mock.requests("GET /api/transfers").map((r) => {
+      const p = new URL(r.url()).searchParams;
+      return `${p.get("address")}:${p.get("direction")}`;
+    });
+  // A (the selected center) keeps the filter's direction.
+  await expect.poll(asked).toContain(`${A}:in`);
+  // D is not a center: the canvas shows D→A, so D's table asks for its outgoing side.
+  await tapNode(page, "main", D);
+  await expect.poll(asked).toContain(`${D}:out`);
+  expect(asked()).not.toContain(`${D}:in`);
   expect(mock.unhandled).toEqual([]);
 });
 
