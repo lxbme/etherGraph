@@ -1180,9 +1180,17 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "async-trait",
+ "chrono",
  "eg-core",
+ "eg-store",
+ "hex",
  "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "thiserror",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
