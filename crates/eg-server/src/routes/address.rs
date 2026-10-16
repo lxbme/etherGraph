@@ -1,5 +1,10 @@
-//! `GET /api/address/{addr}`: address profile; triggers a sync when the
-//! address was never synced (Interactive) or its coverage is stale (Background).
+//! `GET /api/address/{addr}?sync=auto|none`: address profile.
+//!
+//! `none` (default) never starts a first sync: syncing a new address costs
+//! upstream calls the user has to confirm. Existing coverage that is stale is
+//! refreshed in the background (Latest, Background priority). `auto`, used
+//! when the user opened the address from search, additionally starts an
+//! Interactive Latest sync when not every kind is covered yet.
 
 use std::collections::HashMap;
 
@@ -9,19 +14,36 @@ use chrono::Utc;
 use eg_core::source::Priority;
 use eg_ingest::{SyncDirection, enqueue_sync};
 use eg_store::SyncRow;
+use serde::Deserialize;
 
 use crate::dto::{AddressProfileDto, SyncStatusDto, hex_addr, rfc3339};
-use crate::error::ApiError;
+use crate::error::{ApiError, invalid};
 use crate::nodes::{enqueue_missing_meta, load_nodes};
 use crate::parse::parse_address;
-use crate::routes::ApiPath;
+use crate::routes::{ApiPath, ApiQuery};
 use crate::state::AppState;
+
+#[derive(Deserialize)]
+pub struct ProfileQuery {
+    /// `auto` or `none` (default).
+    pub sync: Option<String>,
+}
 
 pub async fn profile(
     State(s): State<AppState>,
     ApiPath(raw): ApiPath<String>,
+    ApiQuery(q): ApiQuery<ProfileQuery>,
 ) -> Result<Json<AddressProfileDto>, ApiError> {
     let addr = parse_address(&raw)?;
+    let auto = match q.sync.as_deref() {
+        None | Some("none") => false,
+        Some("auto") => true,
+        Some(other) => {
+            return Err(invalid(format!(
+                "sync must be \"auto\" or \"none\", got {other:?}"
+            )));
+        }
+    };
     let mut loaded = load_nodes(
         &s.store,
         &[addr],
@@ -34,7 +56,7 @@ pub async fn profile(
     let rows = loaded.sync.remove(&addr).unwrap_or_default();
     let account = loaded.accounts.remove(&addr);
 
-    let refresh = if !node.synced {
+    let refresh = if auto && !node.synced {
         Some(Priority::Interactive)
     } else if is_stale(&s, &rows) {
         Some(Priority::Background)
@@ -67,11 +89,13 @@ pub async fn profile(
     }))
 }
 
-/// Any category synced longer ago than `stale_after` (or never).
+/// Some covered kind (`to_block` set) was synced longer ago than
+/// `stale_after`. Kinds without coverage (never synced, or failed for good)
+/// do not count, so they cannot trigger a refresh on every view.
 fn is_stale(s: &AppState, rows: &[SyncRow]) -> bool {
     let stale = chrono::Duration::from_std(s.ctx.cfg.stale_after).unwrap_or(chrono::Duration::MAX);
     let now = Utc::now();
-    rows.iter().any(|r| {
+    rows.iter().filter(|r| r.to_block.is_some()).any(|r| {
         r.last_synced_at
             .is_none_or(|t| now.signed_duration_since(t) > stale)
     })

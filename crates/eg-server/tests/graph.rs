@@ -769,7 +769,15 @@ async fn address_profile_never_synced_enqueues_interactive(pool: PgPool) {
         }])
         .await
         .unwrap();
+    // Viewing a profile never starts a first sync on its own.
     let (s, b) = get(&app, &format!("/api/address/{}", hex(C))).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert!(jobs_of(&state, JobKind::SyncAddress).await.is_empty());
+    let (s, _) = get(&app, &format!("/api/address/{}?sync=none", hex(C))).await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(jobs_of(&state, JobKind::SyncAddress).await.is_empty());
+
+    let (s, b) = get(&app, &format!("/api/address/{}?sync=auto", hex(C))).await;
     assert_eq!(s, StatusCode::OK, "{b}");
     assert_eq!(b["node"]["address"], hex(C));
     assert_eq!(b["node"]["kind"], "contract");
@@ -800,6 +808,35 @@ async fn address_profile_never_synced_enqueues_interactive(pool: PgPool) {
 
     let (s, b) = get(&app, "/api/address/0x1234").await;
     assert_invalid(s, &b);
+    let (s, b) = get(&app, &format!("/api/address/{}?sync=always", hex(C))).await;
+    assert_invalid(s, &b);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn address_profile_failed_kind_does_not_resync(pool: PgPool) {
+    let (app, state, _) = test_app(pool.clone());
+    mark_synced(&pool, A, 0, false).await;
+    // ERC-1155 failed permanently: never covered, never synced.
+    sqlx::query(
+        "UPDATE address_sync SET from_block = NULL, to_block = NULL, state = 'failed', \
+         last_synced_at = NULL WHERE address = $1 AND kind = $2",
+    )
+    .bind(A.as_slice().to_vec())
+    .bind(TransferKind::Erc1155.as_i16())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let (s, b) = get(&app, &format!("/api/address/{}", hex(A))).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["node"]["synced"], false);
+    assert!(jobs_of(&state, JobKind::SyncAddress).await.is_empty());
+
+    // From search the user asked for it: a full Interactive sync.
+    let (s, _) = get(&app, &format!("/api/address/{}?sync=auto", hex(A))).await;
+    assert_eq!(s, StatusCode::OK);
+    let jobs = jobs_of(&state, JobKind::SyncAddress).await;
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].priority, Priority::Interactive);
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
