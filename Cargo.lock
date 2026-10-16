@@ -1177,6 +1177,13 @@ dependencies = [
 [[package]]
 name = "eg-ingest"
 version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "async-trait",
+ "eg-core",
+ "serde",
+ "tokio",
+]
 
 [[package]]
 name = "eg-server"
