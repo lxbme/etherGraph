@@ -10,6 +10,15 @@ const g = () => useGraph.getState();
 beforeEach(() => g().reset());
 
 describe("graph store", () => {
+  test("any select clears the highlighted transfer", () => {
+    g().setHighlightTransfer({ from: A, to: B, asset: null });
+    g().select({ kind: "node", address: C });
+    expect(g().highlightTransfer).toBeNull();
+    g().setHighlightTransfer({ from: A, to: B, asset: null });
+    g().select(null);
+    expect(g().highlightTransfer).toBeNull();
+  });
+
   test("addCenter lowercases and dedupes", () => {
     g().addCenter(A.toUpperCase().replace("0X", "0x"));
     g().addCenter(A);

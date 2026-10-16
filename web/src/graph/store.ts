@@ -42,6 +42,7 @@ export interface GraphState {
   setPositions(p: Record<string, Pos>): void;
   /** Push a drag step; undo restores `prevPositions`. Call after the drag ended and positions were set. */
   commitMove(prevPositions: Record<string, Pos>): void;
+  /** Also clears `highlightTransfer`. */
   select(s: Selection): void;
   setHighlightTransfer(h: GraphState["highlightTransfer"]): void;
   /** Hides every known node (centers, ui keys, `allNodes`) except `a` and its neighbors (and unhides those). */
@@ -197,7 +198,8 @@ export const useGraph = create<GraphState>()((set, get) => {
         for (const [k, p] of Object.entries(prev)) positions[lc(k)] = p;
         return { _past: pushCapped(s._past, { positions }), _future: [] };
       }),
-    select: (selection) => set({ selection }),
+    // A selection change ends any transfer-row highlight.
+    select: (selection) => set({ selection, highlightTransfer: null }),
     setHighlightTransfer: (highlightTransfer) => set({ highlightTransfer }),
     focusNeighborhood: (a, neighbors, allNodes = []) =>
       tracked((s) => {
