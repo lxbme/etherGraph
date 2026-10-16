@@ -2,21 +2,19 @@
 
 use axum::Json;
 use axum::extract::State;
-use axum::extract::rejection::JsonRejection;
 use chrono::Utc;
 use eg_core::source::Priority;
 use eg_ingest::{SyncDirection, enqueue_sync, estimate};
 
 use crate::dto::{SyncRequestDto, SyncResponseDto};
 use crate::error::{ApiError, invalid};
-use crate::routes::{json_body, parse_addresses};
+use crate::routes::{ApiJson, parse_addresses};
 use crate::state::AppState;
 
 pub async fn sync(
     State(s): State<AppState>,
-    body: Result<Json<SyncRequestDto>, JsonRejection>,
+    ApiJson(req): ApiJson<SyncRequestDto>,
 ) -> Result<Json<SyncResponseDto>, ApiError> {
-    let req = json_body(body)?;
     let addrs = parse_addresses(&req.addresses)?;
     let dir = match req.direction.as_deref() {
         None | Some("latest") => SyncDirection::Latest,

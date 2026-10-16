@@ -1,7 +1,7 @@
 //! `GET /api/search?q=`: classify an address, transaction hash or ENS name.
 
 use axum::Json;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use eg_core::source::{Priority, SourceError};
 use eg_core::types::Address;
 use eg_decode::{decode_resolve_addr, encode_resolve_addr, normalize};
@@ -10,6 +10,7 @@ use serde::Deserialize;
 use crate::dto::{SearchResultDto, hex_addr};
 use crate::error::{ApiError, invalid};
 use crate::parse::{is_hex, parse_address, parse_tx_hash};
+use crate::routes::ApiQuery;
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -19,7 +20,7 @@ pub struct SearchQuery {
 
 pub async fn search(
     State(s): State<AppState>,
-    Query(q): Query<SearchQuery>,
+    ApiQuery(q): ApiQuery<SearchQuery>,
 ) -> Result<Json<SearchResultDto>, ApiError> {
     let q = q.q.unwrap_or_default();
     let q = q.trim();
@@ -45,7 +46,7 @@ pub async fn search(
 }
 
 /// Forward resolution through the UniversalResolver; a revert or the zero
-/// address is 404.
+/// address is 404, an undecodable response 502.
 async fn resolve(s: &AppState, name: &str) -> Result<Address, ApiError> {
     let data = encode_resolve_addr(name).map_err(|e| invalid(e.to_string()))?;
     let unresolved = || ApiError::not_found(format!("{name} does not resolve to an address"));
@@ -58,5 +59,9 @@ async fn resolve(s: &AppState, name: &str) -> Result<Address, ApiError> {
         Err(SourceError::Rpc { .. }) => return Err(unresolved()),
         Err(e) => return Err(e.into()),
     };
-    decode_resolve_addr(&ret).ok_or_else(unresolved)
+    match decode_resolve_addr(&ret) {
+        Ok(Some(addr)) => Ok(addr),
+        Ok(None) => Err(unresolved()),
+        Err(e) => Err(SourceError::Parse(format!("UniversalResolver.resolve: {e}")).into()),
+    }
 }

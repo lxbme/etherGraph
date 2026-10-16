@@ -2,7 +2,7 @@
 //! (`address=`) or one ordered pair (`from=&to=`).
 
 use axum::Json;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use eg_core::filter::{EdgeFilter, TimeRange};
 use eg_store::{TransferCursor, TransferQuery, TransferScope};
 use serde::Deserialize;
@@ -11,6 +11,7 @@ use crate::dto::{TransferDto, TransferPageDto};
 use crate::error::{ApiError, invalid};
 use crate::nodes::token_map;
 use crate::parse::{parse_address, parse_asset, parse_kind, parse_time};
+use crate::routes::ApiQuery;
 use crate::state::AppState;
 
 const DEFAULT_LIMIT: u32 = 50;
@@ -34,7 +35,7 @@ pub struct TransfersQuery {
 
 pub async fn list(
     State(s): State<AppState>,
-    Query(q): Query<TransfersQuery>,
+    ApiQuery(q): ApiQuery<TransfersQuery>,
 ) -> Result<Json<TransferPageDto>, ApiError> {
     let scope = match (&q.address, &q.from, &q.to) {
         (Some(a), None, None) => TransferScope::Address(parse_address(a)?),

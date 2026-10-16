@@ -1,7 +1,7 @@
 //! `GET /api/jobs?active=true`, `DELETE /api/jobs/{id}`.
 
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::State;
 use axum::http::StatusCode;
 use eg_ingest::Event;
 use eg_store::JobStatus;
@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 use crate::dto::JobDto;
 use crate::error::{ApiError, invalid};
+use crate::routes::{ApiPath, ApiQuery};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -20,7 +21,7 @@ pub struct JobsQuery {
 /// Only active jobs (pending, running, paused) are listed; `active` defaults to true.
 pub async fn list(
     State(s): State<AppState>,
-    Query(q): Query<JobsQuery>,
+    ApiQuery(q): ApiQuery<JobsQuery>,
 ) -> Result<Json<Vec<JobDto>>, ApiError> {
     match q.active.as_deref() {
         None | Some("true") => {}
@@ -39,7 +40,7 @@ pub async fn list(
 /// An immediate cancellation is announced here; the runner announces flagged ones.
 pub async fn cancel(
     State(s): State<AppState>,
-    Path(id): Path<String>,
+    ApiPath(id): ApiPath<String>,
 ) -> Result<StatusCode, ApiError> {
     let id: i64 = id
         .parse()

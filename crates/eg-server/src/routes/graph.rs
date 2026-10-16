@@ -5,7 +5,6 @@ use std::collections::{HashMap, HashSet};
 
 use axum::Json;
 use axum::extract::State;
-use axum::extract::rejection::JsonRejection;
 use eg_core::filter::{AssetFilter, Direction, EdgeFilter, EdgeQuery, SortBy, TimeRange};
 use eg_core::types::Address;
 use eg_store::Store;
@@ -16,7 +15,7 @@ use crate::dto::{
 use crate::error::{ApiError, invalid};
 use crate::nodes::{enqueue_missing_meta, load_nodes, token_map};
 use crate::parse::{parse_amount, parse_asset, parse_kind, parse_time};
-use crate::routes::{json_body, parse_addresses};
+use crate::routes::{ApiJson, parse_addresses};
 use crate::state::AppState;
 
 const DEFAULT_LIMIT: u32 = 200;
@@ -25,9 +24,8 @@ const ETH_DECIMALS: u8 = 18;
 
 pub async fn edges(
     State(s): State<AppState>,
-    body: Result<Json<GraphRequestDto>, JsonRejection>,
+    ApiJson(req): ApiJson<GraphRequestDto>,
 ) -> Result<Json<GraphResponseDto>, ApiError> {
-    let req = json_body(body)?;
     let centers = parse_addresses(&req.addresses)?;
     let filter = edge_filter(&s.store, req.filter.unwrap_or_default()).await?;
     let sort = match req.sort.as_deref() {

@@ -110,10 +110,13 @@ pub fn encode_resolve_addr(normalized: &str) -> Result<Bytes, DecodeError> {
     .into())
 }
 
-pub fn decode_resolve_addr(ret: &[u8]) -> Option<Address> {
-    let outer = IUniversalResolver::resolveCall::abi_decode_returns(ret).ok()?;
-    let addr = IAddrResolver::addrCall::abi_decode_returns(&outer._0).ok()?;
-    (!addr.is_zero()).then_some(addr)
+/// `Ok(None)` when the name resolves to the zero address; `Err` when `ret` is
+/// not a well-formed `resolve` + `addr` return value.
+pub fn decode_resolve_addr(ret: &[u8]) -> Result<Option<Address>, DecodeError> {
+    let abi = |e: alloy_sol_types::Error| DecodeError::Abi(e.to_string());
+    let outer = IUniversalResolver::resolveCall::abi_decode_returns(ret).map_err(abi)?;
+    let addr = IAddrResolver::addrCall::abi_decode_returns(&outer._0).map_err(abi)?;
+    Ok((!addr.is_zero()).then_some(addr))
 }
 
 #[cfg(test)]
@@ -252,10 +255,19 @@ mod tests {
         let a = address!("d8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
         let inner: Bytes = IAddrResolver::addrCall::abi_encode_returns(&a).into();
         let ret = (inner, Address::ZERO).abi_encode_params();
-        assert_eq!(decode_resolve_addr(&ret), Some(a));
+        assert_eq!(decode_resolve_addr(&ret).unwrap(), Some(a));
         let inner: Bytes = IAddrResolver::addrCall::abi_encode_returns(&Address::ZERO).into();
         let ret = (inner, Address::ZERO).abi_encode_params();
-        assert_eq!(decode_resolve_addr(&ret), None);
-        assert_eq!(decode_resolve_addr(&[1, 2]), None);
+        assert_eq!(decode_resolve_addr(&ret).unwrap(), None);
+        assert!(matches!(
+            decode_resolve_addr(&[1, 2]),
+            Err(DecodeError::Abi(_))
+        ));
+        // Well-formed outer tuple whose inner bytes are not an address return.
+        let ret = (Bytes::from(vec![7u8; 3]), Address::ZERO).abi_encode_params();
+        assert!(matches!(
+            decode_resolve_addr(&ret),
+            Err(DecodeError::Abi(_))
+        ));
     }
 }

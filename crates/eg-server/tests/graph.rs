@@ -4,7 +4,7 @@ use alloy_primitives::{Address, B256, Bytes, U256, address};
 use alloy_sol_types::SolValue;
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
-use common::{get, post_json, test_app};
+use common::{delete, get, post_json, test_app};
 use eg_core::source::{Priority, SourceError, TokenInfo};
 use eg_core::types::{AccountKind, Transfer, TransferKind, assign_sub_ids};
 use eg_server::state::AppState;
@@ -149,6 +149,8 @@ async fn search_classifies_inputs(pool: PgPool) {
 
     for bad in [
         "0x12",
+        // Half-length hash.
+        "0x0123456789abcdef0123456789abcdef",
         // Mixed case with a broken checksum.
         "0xd8Da6BF26964aF9D7eEd9e03E53415D37aA96045",
         "foo",
@@ -850,5 +852,86 @@ fn export_bindings_task19() {
         let text = std::fs::read_to_string(dir.join(format!("{f}.ts")))
             .unwrap_or_else(|e| panic!("{f}.ts: {e}"));
         assert!(!text.contains("bigint"), "{f}: {text}");
+    }
+}
+
+// ---------------------------------------------------------------- rejections
+
+const BAD_CHECKSUM: &str = "0xd8Da6BF26964aF9D7eEd9e03E53415D37aA96045";
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn extractor_rejections_are_json_invalid_input(pool: PgPool) {
+    let (app, _, _) = test_app(pool);
+    let a = hex(A);
+    for uri in [
+        "/api/search?q=a&q=b".to_owned(),
+        format!("/api/transfers?address={a}&limit=1&limit=2"),
+        format!("/api/transfers?address={a}&kinds=native&kinds=erc20"),
+        "/api/address/%FF".to_owned(),
+        "/api/jobs?active=true&active=true".to_owned(),
+    ] {
+        let (s, b) = get(&app, &uri).await;
+        assert_invalid(s, &b);
+    }
+    let (s, b) = delete(&app, "/api/jobs/%FF").await;
+    assert_invalid(s, &b);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn wrong_method_is_json_405(pool: PgPool) {
+    let (app, _, _) = test_app(pool);
+    let (s, b) = get(&app, "/api/graph/edges").await;
+    assert_eq!(s, StatusCode::METHOD_NOT_ALLOWED, "{b}");
+    assert_eq!(
+        b,
+        json!({"error": {"code": "invalid_input", "message": "method not allowed"}})
+    );
+    let (s, b) = post_json(&app, "/api/search?q=x", &json!({})).await;
+    assert_eq!(s, StatusCode::METHOD_NOT_ALLOWED, "{b}");
+    assert_eq!(b["error"]["code"], "invalid_input");
+    let (s, b) = delete(&app, "/api/sync").await;
+    assert_eq!(s, StatusCode::METHOD_NOT_ALLOWED, "{b}");
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn search_emoji_ens_revert_is_404(pool: PgPool) {
+    let (app, _, fake) = test_app(pool);
+    fake.on_eth_call(|_, _| {
+        Err(SourceError::Rpc {
+            code: 3,
+            message: "execution reverted".into(),
+        })
+    });
+    let (s, b) = get(&app, "/api/search?q=%F0%9F%A6%8A.eth").await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "{b}");
+    assert_eq!(b["error"]["code"], "not_found");
+    assert_eq!(fake.calls(), 1);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn search_ens_undecodable_response_is_502(pool: PgPool) {
+    let (app, _, fake) = test_app(pool);
+    fake.on_eth_call(|_, _| Ok(Bytes::from(vec![1, 2, 3])));
+    let (s, b) = get(&app, "/api/search?q=vitalik.eth").await;
+    assert_eq!(s, StatusCode::BAD_GATEWAY, "{b}");
+    assert_eq!(b["error"]["code"], "upstream_error");
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn bad_checksum_rejected_on_transfers_and_address(pool: PgPool) {
+    let (app, _, _) = test_app(pool);
+    let a = hex(A);
+    for uri in [
+        format!("/api/transfers?address={BAD_CHECKSUM}"),
+        format!("/api/transfers?from={BAD_CHECKSUM}&to={a}"),
+        format!("/api/transfers?from={a}&to={BAD_CHECKSUM}"),
+        format!("/api/address/{BAD_CHECKSUM}"),
+    ] {
+        let (s, b) = get(&app, &uri).await;
+        assert_invalid(s, &b);
+        assert!(
+            b["error"]["message"].as_str().unwrap().contains("checksum"),
+            "{uri}: {b}"
+        );
     }
 }

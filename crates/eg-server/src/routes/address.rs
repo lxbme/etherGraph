@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::State;
 use chrono::Utc;
 use eg_core::source::Priority;
 use eg_ingest::{SyncDirection, enqueue_sync};
@@ -14,11 +14,12 @@ use crate::dto::{AddressProfileDto, SyncStatusDto, hex_addr, rfc3339};
 use crate::error::ApiError;
 use crate::nodes::{enqueue_missing_meta, load_nodes};
 use crate::parse::parse_address;
+use crate::routes::ApiPath;
 use crate::state::AppState;
 
 pub async fn profile(
     State(s): State<AppState>,
-    Path(raw): Path<String>,
+    ApiPath(raw): ApiPath<String>,
 ) -> Result<Json<AddressProfileDto>, ApiError> {
     let addr = parse_address(&raw)?;
     let mut loaded = load_nodes(
