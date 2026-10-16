@@ -272,3 +272,15 @@ test("right-clicking an unselected node selects it, so 添加标签 opens the ed
   expect(screen.getByRole("button", { name: "取消" })).toBeInTheDocument(); // …with its label editor open
   expect(screen.queryByRole("button", { name: "添加标签" })).toBeNull();
 });
+
+test("'显示隐藏节点 (N)' appears while nodes are hidden and unhides them all in one undo step", async () => {
+  await mountWithData();
+  expect(screen.queryByRole("button", { name: /显示隐藏节点/ })).toBeNull();
+  act(() => useGraph.getState().setHidden([B], true));
+  act(() => useGraph.getState().setHidden(["0x" + "cc".repeat(20)], true)); // not on the canvas: not counted
+  act(() => screen.getByRole("button", { name: "显示隐藏节点 (1)" }).click());
+  expect(ids()).toEqual([A, B, `c:${A}>${B}`]);
+  expect(screen.queryByRole("button", { name: /显示隐藏节点/ })).toBeNull();
+  act(() => useGraph.getState().undo());
+  expect(ids()).toEqual([A]);
+});

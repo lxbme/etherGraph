@@ -28,6 +28,8 @@ export interface GraphState {
   selection: Selection;
   highlightTransfer: { from: string; to: string; asset: string | null } | null;
   addCenter(a: string): void;
+  /** Makes `a` a shown center (adds it and/or unhides it) in one history step; no-op if it already is. */
+  revealCenter(a: string): void;
   removeCenter(a: string): void;
   setCenters(a: string[]): void;
   setFilter(f: EdgeFilterDto): void;
@@ -36,6 +38,7 @@ export interface GraphState {
   applyFilter(f: EdgeFilterDto, sort: SortKey): void;
   togglePair(a: string, b: string): void;
   setPinned(addrs: string[], v: boolean): void;
+  /** Hiding a center also drops it from `centers` (same history step), so its neighbours do not linger alone. */
   setHidden(addrs: string[], v: boolean): void;
   setNote(a: string, note: string): void;
   /** Not history-tracked. */
@@ -163,6 +166,17 @@ export const useGraph = create<GraphState>()((set, get) => {
       if (get().centers.includes(addr)) return;
       tracked((s) => ({ centers: [...s.centers, addr] }));
     },
+    revealCenter: (a) => {
+      const addr = lc(a);
+      const s = get();
+      const isCenter = s.centers.includes(addr);
+      const hidden = !!s.ui[addr]?.hidden;
+      if (isCenter && !hidden) return;
+      tracked((cur) => ({
+        centers: isCenter ? cur.centers : [...cur.centers, addr],
+        ui: hidden ? applyUiPatch(cur.ui, [addr], { hidden: false }) : cur.ui,
+      }));
+    },
     removeCenter: (a) => {
       const addr = lc(a);
       if (!get().centers.includes(addr)) return;
@@ -181,7 +195,14 @@ export const useGraph = create<GraphState>()((set, get) => {
         return { expandedPairs: next };
       }),
     setPinned: (addrs, v) => tracked((s) => ({ ui: applyUiPatch(s.ui, addrs, { pinned: v }) })),
-    setHidden: (addrs, v) => tracked((s) => ({ ui: applyUiPatch(s.ui, addrs, { hidden: v }) })),
+    setHidden: (addrs, v) =>
+      tracked((s) => {
+        const ui = applyUiPatch(s.ui, addrs, { hidden: v });
+        if (!v) return { ui };
+        const gone = new Set(addrs.map(lc));
+        const centers = s.centers.filter((c) => !gone.has(c));
+        return centers.length === s.centers.length ? { ui } : { ui, centers };
+      }),
     setNote: (a, note) => tracked((s) => ({ ui: applyUiPatch(s.ui, [a], { note }) })),
     setPositions: (p) =>
       set((s) => {

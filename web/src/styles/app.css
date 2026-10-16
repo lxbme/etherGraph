@@ -234,6 +234,7 @@ body,
   pointer-events: none;
 }
 .address-graph__status--error { color: var(--cat-scam); }
+.address-graph__unhide { position: absolute; top: 8px; right: 28px; z-index: 5; font-size: 12px; padding: 3px 8px; }
 .address-graph__refreshing {
   position: absolute;
   top: 10px;

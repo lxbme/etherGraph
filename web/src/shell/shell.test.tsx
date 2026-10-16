@@ -181,6 +181,19 @@ describe('fix round 1', () => {
     expect(useGraph.getState().selection).toEqual({ kind: 'node', address: A2 })
   })
 
+  it('a #/address route to a hidden node shows it again', () => {
+    const A2 = '0x' + '56'.repeat(20)
+    useGraph.getState().setCenters([A2])
+    useGraph.getState().setHidden([A2], true)
+    render(<App />)
+    act(() => {
+      history.replaceState(null, '', '#/address/' + A2)
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    })
+    expect(useGraph.getState().ui[A2]?.hidden).toBe(false)
+    expect(useGraph.getState().centers).toEqual([A2])
+  })
+
   it('keyboard resize persists and changes the inline height', async () => {
     render(<App />)
     const sep = screen.getByRole('separator')

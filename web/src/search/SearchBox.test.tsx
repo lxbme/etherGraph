@@ -30,6 +30,17 @@ describe('SearchBox', () => {
     expect(box).toHaveValue('')
   })
 
+  it('searching a hidden address shows it again', async () => {
+    vi.spyOn(api, 'search').mockResolvedValue({ kind: 'address', value: A, resolved_address: null })
+    vi.spyOn(api, 'address').mockResolvedValue({} as never)
+    useGraph.getState().setCenters([A])
+    useGraph.getState().setHidden([A], true)
+    render(<SearchBox />)
+    await userEvent.type(screen.getByRole('searchbox'), `${A}{Enter}`)
+    await waitFor(() => expect(useGraph.getState().ui[A]?.hidden).toBe(false))
+    expect(useGraph.getState().centers).toEqual([A])
+  })
+
   it('tx opens a tx tab', async () => {
     vi.spyOn(api, 'search').mockResolvedValue({ kind: 'tx', value: H, resolved_address: null })
     render(<SearchBox />)

@@ -23,7 +23,7 @@ export function applyRoute(r: Route): void {
   applying = true;
   try {
     if (r.kind === "address") {
-      useGraph.getState().addCenter(r.addr);
+      useGraph.getState().revealCenter(r.addr);
       useGraph.getState().select({ kind: "node", address: r.addr });
       useTabs.getState().activate("graph");
     } else {

@@ -54,6 +54,11 @@ export function AddressGraph() {
     [ui],
   );
   const hidden = useMemo(() => new Set(hiddenKey ? hiddenKey.split(",") : []), [hiddenKey]);
+  /** Hidden nodes that the current result would otherwise show. */
+  const hiddenOnCanvas = useMemo(
+    () => (data ? data.nodes.filter((n) => hidden.has(lc(n.address))).length : 0),
+    [data, hidden],
+  );
   const visual = useMemo(
     () => (data ? deriveVisualEdges(data.edges, expandedPairs, hidden) : []),
     [data, expandedPairs, hidden],
@@ -172,6 +177,15 @@ export function AddressGraph() {
         onReady={onReady}
       />
       <BatchBar />
+      {hiddenOnCanvas > 0 && (
+        <button
+          type="button"
+          className="btn address-graph__unhide"
+          onClick={() => useGraph.getState().setHidden([...hidden], false)}
+        >
+          显示隐藏节点 ({hiddenOnCanvas})
+        </button>
+      )}
       {menu && data && (
         <ContextMenu
           x={menu.x}

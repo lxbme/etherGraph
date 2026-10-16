@@ -19,6 +19,31 @@ describe("graph store", () => {
     expect(g().highlightTransfer).toBeNull();
   });
 
+  test("hiding a center also removes it from centers, in one undo step", () => {
+    g().setCenters([A, B]);
+    g().setHidden([A, C], true);
+    expect(g().centers).toEqual([B]);
+    expect(g().ui[A]?.hidden).toBe(true);
+    g().undo();
+    expect(g().centers).toEqual([A, B]);
+    expect(g().ui[A]?.hidden).toBe(false);
+  });
+
+  test("revealCenter adds a center and unhides it in one step; no-op when already shown", () => {
+    g().setCenters([A]);
+    g().setHidden([A], true);
+    const steps = g()._past.length;
+    g().revealCenter(A.toUpperCase().replace("0X", "0x"));
+    expect(g().centers).toEqual([A]);
+    expect(g().ui[A]?.hidden).toBe(false);
+    expect(g()._past.length).toBe(steps + 1);
+    g().revealCenter(A);
+    expect(g()._past.length).toBe(steps + 1);
+    g().undo();
+    expect(g().centers).toEqual([]);
+    expect(g().ui[A]?.hidden).toBe(true);
+  });
+
   test("addCenter lowercases and dedupes", () => {
     g().addCenter(A.toUpperCase().replace("0X", "0x"));
     g().addCenter(A);

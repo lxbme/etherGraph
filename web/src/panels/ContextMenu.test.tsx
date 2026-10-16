@@ -34,6 +34,16 @@ test("'older' item only appears for partial nodes", () => {
   expect(screen.getByText("继续拉更早的记录")).toBeInTheDocument();
 });
 
+test("'移出中心' only shows for centers and removes the center", () => {
+  const { unmount } = render(menu(false));
+  expect(screen.queryByRole("menuitem", { name: "移出中心" })).toBeNull();
+  unmount();
+  act(() => useGraph.getState().addCenter(A));
+  render(menu(false));
+  fireEvent.click(screen.getByRole("menuitem", { name: "移出中心" }));
+  expect(useGraph.getState().centers).toEqual([]);
+});
+
 function Host() {
   useShortcuts(() => undefined);
   return <input aria-label="t" />;

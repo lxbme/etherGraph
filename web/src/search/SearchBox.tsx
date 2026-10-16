@@ -28,7 +28,7 @@ export function SearchBox() {
 
   const openAddress = (addr: string) => {
     const a = addr.toLowerCase();
-    useGraph.getState().addCenter(a);
+    useGraph.getState().revealCenter(a);
     useTabs.getState().activate("graph");
     useGraph.getState().select({ kind: "node", address: a });
     api.address(a, { sync: "auto" }).catch((e) => toast(messageFor(e), "error"));

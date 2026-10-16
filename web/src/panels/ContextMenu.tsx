@@ -25,6 +25,7 @@ export function ContextMenu(p: ContextMenuProps) {
   const { node, onClose } = p;
   const addr = node.address.toLowerCase();
   const pinned = useGraph((s) => !!s.ui[addr]?.pinned);
+  const isCenter = useGraph((s) => s.centers.includes(addr));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -76,6 +77,9 @@ export function ContextMenu(p: ContextMenuProps) {
       </button>
       <button role="menuitem" onClick={run(() => togglePin(addr))}>{pinned ? "取消固定" : "固定"}<kbd>P</kbd></button>
       <button role="menuitem" onClick={run(() => hideNode(addr))}>从画布隐藏<kbd>H</kbd></button>
+      {isCenter && (
+        <button role="menuitem" onClick={run(() => useGraph.getState().removeCenter(addr))}>移出中心</button>
+      )}
       <button role="menuitem" onClick={run(() => focusNode(addr, p.data))}>只看这个节点的邻域<kbd>F</kbd></button>
       <button role="menuitem" onClick={run(() => useUi.getState().openLabelEditor(addr))}>添加标签 / 备注<kbd>L</kbd></button>
       <button role="menuitem" onClick={run(() => void copy())}>复制地址</button>
