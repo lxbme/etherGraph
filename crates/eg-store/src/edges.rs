@@ -177,6 +177,10 @@ impl Store {
             )
             .push_bind(centers)
             .push(")");
+            if out {
+                // A self-transfer already appears in the out-branch; count it once.
+                qb.push(" AND from_addr <> to_addr");
+            }
         }
         let key = match q.sort {
             SortBy::Count => "k_count",
@@ -665,6 +669,34 @@ mod tests {
         let (v, _) = store.list_transfers(&q).await.unwrap();
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].amount, U256::from(200));
+    }
+
+    #[sqlx::test]
+    async fn self_transfer_counted_once_in_ranking(pool: PgPool) {
+        // S sorts below A, so a double-counted self pair (2) would tie A (2) and win.
+        let s = Address::repeat_byte(0x01);
+        let mut v = vec![
+            tr(1, s, s, None, 0, 100),
+            tr(2, s, A, None, 1, 200),
+            tr(3, A, s, None, 1, 300),
+        ];
+        assign_sub_ids(&mut v);
+        let store = Store::from_pool(pool);
+        store.upsert_transfers(&v).await.unwrap();
+        let mut q = query(EdgeFilter::default(), 1, SortBy::Count);
+        q.centers = vec![s];
+
+        let r = store.query_edges(&q).await.unwrap();
+        assert_eq!(r.edges.len(), 2);
+        assert!(r.edges.iter().all(|e| e.from != e.to));
+        assert_eq!(r.omitted.get(&s), Some(&1));
+
+        q.limit_per_center = 2;
+        let r = store.query_edges(&q).await.unwrap();
+        assert_eq!(r.edges.len(), 3);
+        let ss = find(&r.edges, s, s, None);
+        assert_eq!(ss.count, 1);
+        assert!(r.omitted.is_empty());
     }
 
     #[sqlx::test]
