@@ -34,6 +34,15 @@ enum Cmd {
         #[arg(long, value_enum)]
         source: Option<SourceMode>,
     },
+    /// Replace one imported label dataset from a CSV (address,text,category).
+    ImportLabels {
+        #[arg(long, default_value = "config.toml")]
+        config: PathBuf,
+        /// Dataset name; its previous labels are replaced.
+        #[arg(long)]
+        dataset: String,
+        csv: PathBuf,
+    },
 }
 
 #[tokio::main]
@@ -45,7 +54,28 @@ async fn main() -> anyhow::Result<()> {
         .init();
     match Cli::parse().cmd {
         Cmd::Serve { config, source } => serve(&config, source).await,
+        Cmd::ImportLabels {
+            config,
+            dataset,
+            csv,
+        } => import_labels_cmd(&config, &dataset, &csv).await,
     }
+}
+
+async fn import_labels_cmd(config: &Path, dataset: &str, csv: &Path) -> anyhow::Result<()> {
+    let cfg = Config::read(config)?;
+    anyhow::ensure!(
+        !cfg.server.database_url.trim().is_empty(),
+        "server.database_url (or DATABASE_URL) is required"
+    );
+    let file = std::fs::File::open(csv).with_context(|| format!("opening {}", csv.display()))?;
+    let store = Store::connect(&cfg.server.database_url)
+        .await
+        .context("connecting to the database")?;
+    let (imported, skipped) =
+        eg_server::import_labels::import_labels(&store, dataset, file).await?;
+    println!("imported {imported}, skipped {skipped}");
+    Ok(())
 }
 
 async fn serve(path: &Path, source: Option<SourceMode>) -> anyhow::Result<()> {

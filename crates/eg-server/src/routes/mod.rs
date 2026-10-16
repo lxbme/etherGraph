@@ -2,10 +2,13 @@ pub mod address;
 pub mod events;
 pub mod graph;
 pub mod jobs;
+pub mod labels;
 pub mod search;
 pub mod status;
 pub mod sync;
 pub mod transfers;
+pub mod tx;
+pub mod workspaces;
 
 use axum::Json;
 use axum::extract::{FromRequest, FromRequestParts, Path, Query, Request};

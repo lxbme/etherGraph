@@ -4,6 +4,7 @@ pub mod background;
 pub mod config;
 pub mod dto;
 pub mod error;
+pub mod import_labels;
 pub mod nodes;
 pub mod parse;
 pub mod routes;

@@ -8,7 +8,9 @@ use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
 use crate::error::ApiError;
-use crate::routes::{address, events, graph, jobs, search, status, sync, transfers};
+use crate::routes::{
+    address, events, graph, jobs, labels, search, status, sync, transfers, tx, workspaces,
+};
 use crate::state::AppState;
 
 /// All `/api` routes; when `server.static_dir` exists, other paths are served
@@ -24,6 +26,19 @@ pub fn router(state: AppState) -> Router {
         .route("/sync", post(sync::sync))
         .route("/graph/edges", post(graph::edges))
         .route("/transfers", get(transfers::list))
+        .route("/tx/{hash}", get(tx::tx))
+        .route("/labels", get(labels::list).post(labels::create))
+        .route("/labels/{id}", delete(labels::delete))
+        .route(
+            "/workspaces",
+            get(workspaces::list).post(workspaces::create),
+        )
+        .route(
+            "/workspaces/{id}",
+            get(workspaces::get)
+                .put(workspaces::update)
+                .delete(workspaces::delete),
+        )
         .fallback(api_not_found)
         // Applies to the routes registered above.
         .method_not_allowed_fallback(method_not_allowed);

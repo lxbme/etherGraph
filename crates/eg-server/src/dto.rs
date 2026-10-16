@@ -17,6 +17,12 @@ pub fn rfc3339(t: DateTime<Utc>) -> String {
     t.to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
+/// Microsecond precision, matching Postgres `timestamptz`, so a client can echo
+/// the value back as an optimistic-concurrency token.
+pub fn rfc3339_micros(t: DateTime<Utc>) -> String {
+    t.to_rfc3339_opts(SecondsFormat::Micros, true)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct StatusDto {
@@ -382,6 +388,227 @@ impl TransferDto {
             token_id: t.token_id.map(|v| v.to_string()),
             decimals,
             symbol,
+        }
+    }
+}
+
+// ------------------------------------------------------------------ tx
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TxResponseDto {
+    #[ts(type = r#""ready" | "pending""#)]
+    pub status: String,
+    pub flow: Option<TxFlowDto>,
+    /// Set when `pending`: the fetch job to watch over SSE.
+    #[ts(type = "number | null")]
+    pub job_id: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TxFlowDto {
+    pub tx: TxMetaDto,
+    pub call: Option<DecodedCallDto>,
+    pub nodes: Vec<NodeSummaryDto>,
+    pub flows: Vec<FlowDto>,
+    pub events: Vec<DecodedEventDto>,
+    #[ts(type = r#""fund_flow" | "full_trace""#)]
+    pub completeness: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TxMetaDto {
+    pub hash: String,
+    #[ts(type = "number")]
+    pub block_number: u64,
+    pub ts: String,
+    pub from: String,
+    pub to: Option<String>,
+    /// Wei, decimal string.
+    pub value: String,
+    pub success: bool,
+    pub gas_used: String,
+    /// Wei, decimal string.
+    pub fee: String,
+    /// Decoded function name; null when the call is undecodable.
+    pub method: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct FlowDto {
+    pub seq: u32,
+    pub from: String,
+    pub to: String,
+    /// Token address; null for ETH.
+    pub asset: Option<String>,
+    /// Raw amount, decimal string.
+    pub amount: String,
+    pub token_id: Option<String>,
+    #[ts(type = r#""native" | "internal" | "erc20" | "erc721" | "erc1155""#)]
+    pub kind: String,
+    pub trace_path: Option<String>,
+    #[ts(type = "number | null")]
+    pub log_index: Option<u64>,
+    pub decimals: Option<u8>,
+    pub symbol: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DecodedArgDto {
+    pub name: String,
+    pub ty: String,
+    pub value: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DecodedCallDto {
+    pub signature: String,
+    pub name: String,
+    pub args: Vec<DecodedArgDto>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DecodedEventDto {
+    pub address: String,
+    #[ts(type = "number")]
+    pub log_index: u64,
+    pub name: Option<String>,
+    pub args: Vec<DecodedArgDto>,
+    pub topics: Vec<String>,
+    /// Lowercase 0x hex.
+    pub data: String,
+}
+
+impl From<&eg_decode::DecodedArg> for DecodedArgDto {
+    fn from(a: &eg_decode::DecodedArg) -> Self {
+        Self {
+            name: a.name.clone(),
+            ty: a.ty.clone(),
+            value: a.value.clone(),
+        }
+    }
+}
+
+impl From<&eg_decode::DecodedCall> for DecodedCallDto {
+    fn from(c: &eg_decode::DecodedCall) -> Self {
+        Self {
+            signature: c.signature.clone(),
+            name: c.name.clone(),
+            args: c.args.iter().map(DecodedArgDto::from).collect(),
+        }
+    }
+}
+
+impl From<&eg_decode::DecodedEvent> for DecodedEventDto {
+    fn from(e: &eg_decode::DecodedEvent) -> Self {
+        Self {
+            address: hex_addr(e.address),
+            log_index: e.log_index,
+            name: e.name.clone(),
+            args: e.args.iter().map(DecodedArgDto::from).collect(),
+            topics: e.topics.iter().map(|t| format!("{t:#x}")).collect(),
+            data: format!("{:#x}", e.data),
+        }
+    }
+}
+
+impl FlowDto {
+    pub fn new(f: &eg_ingest::Flow, tokens: &HashMap<Address, TokenInfo>) -> Self {
+        let (decimals, symbol) = asset_meta(f.asset, tokens);
+        Self {
+            seq: f.seq,
+            from: hex_addr(f.from),
+            to: hex_addr(f.to),
+            asset: f.asset.map(hex_addr),
+            amount: f.amount.to_string(),
+            token_id: f.token_id.map(|v| v.to_string()),
+            kind: f.kind.as_str().to_owned(),
+            trace_path: f.trace_path.clone(),
+            log_index: f.log_index,
+            decimals,
+            symbol,
+        }
+    }
+}
+
+// ------------------------------------------------------------------ labels
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct NewLabelDto {
+    pub address: String,
+    pub text: String,
+    #[ts(type = r#""exchange" | "defi" | "bridge" | "mixer" | "scam" | "sanctioned" | "other""#)]
+    pub category: String,
+}
+
+// ------------------------------------------------------------------ workspaces
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct WorkspaceDto {
+    #[ts(type = "number")]
+    pub id: i64,
+    pub name: String,
+    pub schema_version: i32,
+    pub state: serde_json::Value,
+    pub created_at: String,
+    /// Microsecond precision; echo it back as `expected_updated_at`.
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct WorkspaceMetaDto {
+    #[ts(type = "number")]
+    pub id: i64,
+    pub name: String,
+    pub updated_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct NewWorkspaceDto {
+    pub name: String,
+    /// Must be a JSON object.
+    pub state: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct UpdateWorkspaceDto {
+    pub name: String,
+    /// Must be a JSON object.
+    pub state: serde_json::Value,
+    /// The `updated_at` last read; a mismatch is a 409 conflict.
+    pub expected_updated_at: String,
+}
+
+impl From<&eg_store::WorkspaceRow> for WorkspaceDto {
+    fn from(w: &eg_store::WorkspaceRow) -> Self {
+        Self {
+            id: w.id,
+            name: w.name.clone(),
+            schema_version: w.schema_version,
+            state: w.state.clone(),
+            created_at: rfc3339_micros(w.created_at),
+            updated_at: rfc3339_micros(w.updated_at),
+        }
+    }
+}
+
+impl From<&eg_store::WorkspaceMeta> for WorkspaceMetaDto {
+    fn from(w: &eg_store::WorkspaceMeta) -> Self {
+        Self {
+            id: w.id,
+            name: w.name.clone(),
+            updated_at: rfc3339_micros(w.updated_at),
         }
     }
 }
