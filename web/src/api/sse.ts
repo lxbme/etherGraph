@@ -19,19 +19,20 @@ export function subscribeEvents(
   let es: EventSource | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let delay = BASE_DELAY;
-  let hasOpened = false;
+  /** Connection attempts so far; any open after the first attempt may have missed events. */
+  let attempts = 0;
   let stopped = false;
 
   const connect = () => {
     timer = null;
+    attempts++;
     onState("connecting");
     const source = new Impl(url);
     es = source;
     source.onopen = () => {
       onState("open");
       delay = BASE_DELAY;
-      if (hasOpened) onEvent({ type: "Lagged" });
-      hasOpened = true;
+      if (attempts > 1) onEvent({ type: "Lagged" });
     };
     source.onerror = () => {
       source.close();

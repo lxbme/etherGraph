@@ -81,3 +81,12 @@ test("first open does not emit Lagged", () => {
   inst(0).onopen!();
   expect(events).toEqual([]);
 });
+
+test("the first successful open after failed attempts emits Lagged (events may have been missed)", () => {
+  const events: Event[] = [];
+  subscribeEvents((e) => events.push(e), () => {}, { EventSourceImpl: FakeES as unknown as typeof EventSource });
+  inst(0).onerror!();
+  vi.advanceTimersByTime(1000);
+  inst(1).onopen!();
+  expect(events).toEqual([{ type: "Lagged" }]);
+});
