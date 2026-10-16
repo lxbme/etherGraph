@@ -297,8 +297,8 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(bd_to_u256(&a), U256::MAX);
-        assert_eq!(bd_to_u256(&id.unwrap()), U256::MAX);
+        assert_eq!(bd_to_u256(&a).unwrap(), U256::MAX);
+        assert_eq!(bd_to_u256(&id.unwrap()).unwrap(), U256::MAX);
     }
 
     #[sqlx::test]
@@ -390,6 +390,28 @@ mod tests {
                 .unwrap();
         assert_eq!(d, Some(6));
         assert_eq!(s.as_deref(), Some("USDC"));
+    }
+
+    #[sqlx::test]
+    async fn token_batch_duplicates_merge_nonnull(pool: PgPool) {
+        let store = Store::from_pool(pool.clone());
+        let job = new_job(&pool).await;
+        let tok = |decimals| TokenInfo {
+            address: Address::repeat_byte(0xc),
+            kind: TransferKind::Erc20,
+            name: None,
+            symbol: None,
+            decimals,
+        };
+        store
+            .write_page(job, &[], &[tok(Some(6)), tok(None)], &json!({}), None)
+            .await
+            .unwrap();
+        let d: Option<i16> = sqlx::query_scalar("SELECT decimals FROM tokens")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(d, Some(6));
     }
 
     #[sqlx::test]

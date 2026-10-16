@@ -24,7 +24,7 @@ pub(crate) async fn upsert_transfers_conn(conn: &mut PgConnection, ts: &[Transfe
             rows.push(t);
         }
     }
-    rows.reverse();
+    rows.sort_by(|a, b| (a.tx_hash, &a.sub_id).cmp(&(b.tx_hash, &b.sub_id)));
 
     for chunk in rows.chunks(TRANSFER_CHUNK) {
         let mut vals = Vec::with_capacity(chunk.len());
@@ -68,11 +68,25 @@ pub(crate) async fn upsert_tokens_conn(
     conn: &mut PgConnection,
     tokens: &[TokenInfo],
 ) -> Result<()> {
-    let mut latest: HashMap<_, &TokenInfo> = HashMap::new();
+    // Merge duplicates field-by-field (later non-null wins, null never erases);
+    // then write in address order so concurrent writers lock rows consistently.
+    let mut merged: HashMap<_, TokenInfo> = HashMap::new();
     for t in tokens {
-        latest.insert(t.address, t);
+        match merged.get_mut(&t.address) {
+            Some(m) => {
+                m.kind = t.kind;
+                m.name = t.name.clone().or(m.name.take());
+                m.symbol = t.symbol.clone().or(m.symbol.take());
+                m.decimals = t.decimals.or(m.decimals);
+            }
+            None => {
+                merged.insert(t.address, t.clone());
+            }
+        }
     }
-    for t in latest.into_values() {
+    let mut merged: Vec<TokenInfo> = merged.into_values().collect();
+    merged.sort_by_key(|t| t.address);
+    for t in &merged {
         sqlx::query(
             "INSERT INTO tokens (address, kind, name, symbol, decimals) VALUES ($1, $2, $3, $4, $5) \
              ON CONFLICT (address) DO UPDATE SET kind = EXCLUDED.kind, \
