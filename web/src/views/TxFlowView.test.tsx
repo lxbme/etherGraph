@@ -208,6 +208,19 @@ test("a contract creation's summary bar points at the created contract", async (
   expect(bar().getByText("Router")).toHaveAttribute("title", B);
 });
 
+test("a failed contract creation's summary bar does not point at the undeployed address", async () => {
+  const r = ready({ call: null });
+  r.flow!.tx.to = null;
+  r.flow!.tx.method = null;
+  r.flow!.tx.success = false;
+  r.flow!.detail.contract_created = B;
+  vi.spyOn(api, "tx").mockResolvedValue(r);
+  renderView();
+  await screen.findByTestId("tx-summary-bar");
+  expect(bar().getAllByText("Contract creation")).toHaveLength(2);
+  expect(bar().queryByTitle(B)).toBeNull();
+});
+
 test("pending refetches every 5s and stops once ready", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {

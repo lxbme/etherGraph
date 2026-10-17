@@ -143,7 +143,7 @@ test("a legacy pre-London transaction shows a dash for base fee, burnt and savin
   }
 });
 
-test("blob fields, the revert reason and a created contract appear when present", () => {
+test("blob fields and the revert reason appear when present; a failed creation deployed nothing", () => {
   const f = creation();
   Object.assign(f.detail, { tx_type: 3, blob_gas_used: "131072", blob_gas_price: "7", blob_fee: "917504", revert_reason: "Too little received" });
   f.tx.success = false;
@@ -156,6 +156,13 @@ test("blob fields, the revert reason and a created contract appear when present"
   expect(within(valueOf("Blob fee")).getByText(/ETH/)).toHaveAttribute("title", "0.000000000000917504");
   expect(valueOf("Status")).toHaveTextContent("Failed");
   expect(valueOf("Status")).toHaveTextContent("Too little received");
+  expect(valueOf("To")).toHaveTextContent("Contract creation");
+  // The receipt names an address even when the creation reverted; nothing was deployed there.
+  expect(screen.queryByText("Contract created")).toBeNull();
+});
+
+test("a successful creation shows the created contract", () => {
+  renderTabs(creation());
   expect(valueOf("To")).toHaveTextContent("Contract creation");
   expect(within(valueOf("Contract created")).getByTitle(CREATED)).toBeInTheDocument();
 });

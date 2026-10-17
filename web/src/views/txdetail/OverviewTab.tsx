@@ -91,7 +91,8 @@ export function OverviewTab({ flow }: { flow: TxFlowDto }) {
     ["tx.col.from", <AddressCell address={tx.from} node={nodeOf(flow, tx.from)} />],
     ["tx.col.to", tx.to ? <AddressCell address={tx.to} node={nodeOf(flow, tx.to)} /> : t("tx.contractCreation")],
   ];
-  if (d.contract_created) {
+  // A reverted creation's receipt still names an address, but nothing was deployed there.
+  if (tx.success && d.contract_created) {
     parties.push(["tx.ov.contractCreated", <AddressCell address={d.contract_created} node={nodeOf(flow, d.contract_created)} />]);
   }
   parties.push(

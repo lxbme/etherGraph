@@ -14,8 +14,8 @@ export function TxSummaryBar({ flow }: { flow: TxFlowDto }) {
   const value = formatFixed(tx.value, 18, "eth");
   const fee = formatFixed(tx.fee, 18, "eth");
   const name = call?.name ?? tx.method;
-  // A creation points at the contract it deployed, when known.
-  const to = tx.to ?? flow.detail.contract_created;
+  // A creation points at the contract it deployed, when known (a reverted one deployed nothing).
+  const to = tx.to ?? (tx.success ? flow.detail.contract_created : null);
   return (
     <div className="txbar" data-testid="tx-summary-bar">
       <TxStatusTag success={tx.success} />
