@@ -138,7 +138,9 @@ export function useEvents(): void {
       switch (e.type) {
         case "AddressDataChanged": {
           const a = e.address.toLowerCase();
-          if (onCanvas(qc, a) || hasCounterparties(qc, a)) dataChanged.add([a]);
+          if (onCanvas(qc, a)) dataChanged.add([a]);
+          // Off the canvas but browsed: only its interactions list is stale.
+          else if (hasCounterparties(qc, a)) void qc.invalidateQueries({ queryKey: ["counterparties", a] });
           break;
         }
         case "NamesResolved":

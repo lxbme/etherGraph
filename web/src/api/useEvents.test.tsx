@@ -119,6 +119,18 @@ test("AddressDataChanged invalidates that contract's counterparties lists only",
   expect(qc.getQueryState(["counterparties", C, { sort: "count_desc" }])?.isInvalidated).toBe(false);
 });
 
+test("an off-canvas address with a cached counterparties list invalidates only that list", () => {
+  useGraph.getState().addCenter(A);
+  qc.setQueryData(graphQueryKey(useGraph.getState()), { nodes: [node(A)], edges: [], omitted: {}, coverage: {} });
+  mount();
+  qc.setQueryData(["counterparties", C, { sort: "count_desc" }], 1);
+  const spy = vi.spyOn(qc, "invalidateQueries");
+  send({ type: "AddressDataChanged", address: C });
+  advance(1000);
+  expect(spy).toHaveBeenCalledTimes(1);
+  expect(spy).toHaveBeenCalledWith({ queryKey: ["counterparties", C] });
+});
+
 test("events for addresses not on the canvas are ignored", () => {
   useGraph.getState().addCenter(A);
   const data: GraphResponseDto = { nodes: [node(A), node(B)], edges: [], omitted: {}, coverage: {} };

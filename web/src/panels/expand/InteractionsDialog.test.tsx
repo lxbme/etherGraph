@@ -6,7 +6,7 @@ import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import type { StatusDto } from "../../api/generated/StatusDto";
 import { useCanvasMetrics } from "../../graph/canvasMetrics";
 import { useGraph } from "../../graph/store";
-import { useQuota } from "../../shell/statusStore";
+import { useJobProgress, useQuota } from "../../shell/statusStore";
 import { InteractionsDialog } from "./InteractionsDialog";
 
 const addr = (n: number) => "0x" + n.toString(16).padStart(40, "0");
@@ -44,11 +44,34 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 test("an unsynced contract is shallow-synced on open and shows the syncing note", async () => {
-  const sync = vi.spyOn(api, "sync").mockResolvedValue({ jobs: [] } as never);
+  const sync = vi.spyOn(api, "sync").mockResolvedValue({ jobs: [3] } as never);
+  useJobProgress.setState({ byId: {} });
   vi.spyOn(api, "counterparties").mockResolvedValue({ items: [], total: 0 });
   mount(node(999, { kind: "contract", synced: false }));
   await waitFor(() => expect(sync).toHaveBeenCalledWith({ addresses: [addr(999)], depth: "shallow" }));
   expect(await screen.findByText(/Syncing this contract/)).toBeInTheDocument();
+});
+
+test("when the sync job finishes with no counterparties the syncing note gives way to the empty message", async () => {
+  vi.spyOn(api, "sync").mockResolvedValue({ jobs: [7] } as never);
+  vi.spyOn(api, "counterparties").mockResolvedValue({ items: [], total: 0 });
+  useJobProgress.setState({ byId: {} });
+  mount(node(999, { kind: "contract", synced: false }));
+  expect(await screen.findByText(/Syncing this contract/)).toBeInTheDocument();
+  expect(screen.queryByText("No stored interactions match.")).toBeNull();
+  act(() =>
+    useJobProgress.getState().upsert({ type: "JobProgress", job_id: 7, kind: "sync_address", fetched: 0, cursor_block: null, status: "done", error: null }),
+  );
+  expect(await screen.findByText("No stored interactions match.")).toBeInTheDocument();
+  expect(screen.queryByText(/Syncing this contract/)).toBeNull();
+});
+
+test("a failed sync request clears the syncing note", async () => {
+  vi.spyOn(api, "sync").mockRejectedValue(new Error("boom"));
+  vi.spyOn(api, "counterparties").mockResolvedValue({ items: [], total: 0 });
+  mount(node(999, { kind: "contract", synced: false }));
+  expect(await screen.findByText("No stored interactions match.")).toBeInTheDocument();
+  expect(screen.queryByText(/Syncing this contract/)).toBeNull();
 });
 
 test("a synced contract is not synced again", async () => {
@@ -94,6 +117,7 @@ test("Load more pages by offset and keeps checked rows", async () => {
   expect((screen.getByRole("checkbox", { name: addr(1) }) as HTMLInputElement).checked).toBe(true);
   expect(screen.getByRole("button", { name: "Expand selected (2)" })).toBeEnabled();
   expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  expect(screen.getAllByRole("checkbox", { name: addr(1) })).toHaveLength(1);
 });
 
 test("a data-changed invalidation of the contract's counterparties refetches", async () => {
@@ -104,11 +128,23 @@ test("a data-changed invalidation of the contract's counterparties refetches", a
   await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
 });
 
+test("rows repeated across pages show once", async () => {
+  vi.spyOn(api, "counterparties").mockImplementation(async (_a, p) =>
+    p?.offset ? { items: [cp(100), cp(101)], total: 101 } : { items: Array.from({ length: 100 }, (_, i) => cp(i + 1)), total: 101 },
+  );
+  mount();
+  await screen.findByRole("checkbox", { name: addr(1) });
+  fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+  await screen.findByRole("checkbox", { name: addr(101) });
+  expect(screen.getAllByRole("checkbox", { name: addr(100) })).toHaveLength(1);
+});
+
 test("confirming opens the expansion dialog with exactly the picked candidates, all checked", async () => {
   vi.spyOn(api, "counterparties").mockResolvedValue({ items: [cp(1), cp(2), cp(3)], total: 3 });
   mount();
   fireEvent.click(await screen.findByRole("checkbox", { name: addr(1) }));
   fireEvent.click(screen.getByRole("checkbox", { name: addr(3) }));
+  expect(screen.queryByRole("checkbox", { name: addr(999) })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Expand selected (2)" }));
   const dlg = await screen.findByRole("dialog", { name: /Expand neighbors of/ });
   await waitFor(() => expect(within(dlg).getAllByRole("checkbox")).toHaveLength(2));

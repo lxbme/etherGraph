@@ -6,7 +6,9 @@ import type { CounterpartyDto } from "../../api/generated/CounterpartyDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import { useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
+import { NATIVE_SYMBOL } from "../../lib/assets";
 import { formatCount, formatLocalTime, formatTime } from "../../lib/format";
+import { ACTIVE_JOB_STATUSES, useJobProgress } from "../../shell/statusStore";
 import { toast } from "../../shell/Toasts";
 import { ExpandDialog } from "./ExpandDialog";
 
@@ -63,7 +65,7 @@ function Segmented<T extends string>(p: {
 }
 
 function Assets({ item }: { item: CounterpartyDto }) {
-  const symbols = item.assets.map((a) => a.symbol ?? (a.asset ? shortAddr(a.asset) : "ETH"));
+  const symbols = item.assets.map((a) => a.symbol ?? (a.asset === null ? NATIVE_SYMBOL : shortAddr(a.asset)));
   const rest = symbols.length - MAX_SYMBOLS;
   return (
     <>
@@ -92,16 +94,18 @@ export function InteractionsDialog({ contract, onClose }: InteractionsDialogProp
   // Kept across pages and filter changes.
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [expanding, setExpanding] = useState<string[] | null>(null);
-  const [syncing, setSyncing] = useState(contract.syncing);
+  // Ids of the sync jobs started on open that have not finished; the note shows while any is pending.
+  const [pendingJobs, setPendingJobs] = useState<number[]>([]);
+  const syncing = pendingJobs.length > 0 || contract.syncing;
+  const seenJobs = useRef(new Set<number>());
   const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (contract.synced || contract.syncing) return;
-    setSyncing(true);
-    api.sync({ addresses: [addr], depth: "shallow" }).catch((err: unknown) => {
-      setSyncing(false);
-      toast(messageFor(err), "error");
-    });
+    api
+      .sync({ addresses: [addr], depth: "shallow" })
+      .then((r) => setPendingJobs(r.jobs ?? []))
+      .catch((err: unknown) => toast(messageFor(err), "error"));
     // Once, on open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -117,13 +121,36 @@ export function InteractionsDialog({ contract, onClose }: InteractionsDialogProp
       return last.items.length > 0 && loaded < last.total ? loaded : undefined;
     },
   });
-  const items = query.data?.pages.flatMap((p) => p.items) ?? [];
+  // Pages can overlap when rows shift between fetches: one row per address.
+  const items = [
+    ...new Map((query.data?.pages.flatMap((p) => p.items) ?? []).map((i) => [lc(i.node.address), i])).values(),
+  ];
   const total = query.data?.pages[0]?.total ?? 0;
 
-  // Once rows arrive the sync has produced data.
+  // A job is done when its progress is terminal, or when it vanished after having been seen (the status
+  // refresh drops finished jobs).
   useEffect(() => {
-    if (items.length > 0) setSyncing(false);
-  }, [items.length]);
+    if (pendingJobs.length === 0) return;
+    const check = () => {
+      const byId = useJobProgress.getState().byId;
+      const left = pendingJobs.filter((id) => {
+        const e = byId[id];
+        if (e) {
+          seenJobs.current.add(id);
+          return ACTIVE_JOB_STATUSES.has(e.status);
+        }
+        return !seenJobs.current.has(id);
+      });
+      if (left.length < pendingJobs.length) {
+        setPendingJobs(left);
+        // The job's rows are in: show them without waiting for the coalesced event.
+        void query.refetch();
+      }
+    };
+    check();
+    return useJobProgress.subscribe(check);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingJobs]);
 
   useEffect(() => {
     if (expanding) return;
@@ -140,7 +167,7 @@ export function InteractionsDialog({ contract, onClose }: InteractionsDialogProp
       return next;
     });
 
-  if (expanding) return <ExpandDialog node={contract} preset={expanding} onClose={onClose} />;
+  if (expanding) return <ExpandDialog node={contract} preset={expanding.filter((a) => a !== addr)} onClose={onClose} />;
 
   const title = t("interactions.title", { name: contract.display_name ?? contract.contract_name ?? shortAddr(addr) });
   return (

@@ -1,3 +1,6 @@
+/** Symbol shown for the native asset (null asset address). */
+export const NATIVE_SYMBOL = "ETH";
+
 export type AssetClass = "eth" | "stable" | "erc20" | "nft";
 
 export const STABLECOINS: ReadonlySet<string> = new Set([
