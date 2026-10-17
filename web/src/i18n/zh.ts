@@ -279,6 +279,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "tx.ov.fee": "交易手续费",
   "tx.ov.blobGasUsed": "Blob gas 用量",
   "tx.ov.blobGasPrice": "Blob gas 价格",
+  "tx.ov.blobFee": "Blob 费用",
   "tx.ov.accessList": "访问列表条目",
   "tx.type.0": "Legacy",
   "tx.type.1": "EIP-2930",

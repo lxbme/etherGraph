@@ -104,6 +104,7 @@ test("opens on Overview with the fee breakdown, gas usage and Gwei prices", () =
   expect(valueOf("Confirmations")).toHaveTextContent("—");
   // Not applicable to a type-2 transaction: no rows at all.
   expect(screen.queryByText("Blob gas used")).toBeNull();
+  expect(screen.queryByText("Blob fee")).toBeNull();
   expect(screen.queryByText("Contract created")).toBeNull();
   // Only the active tab renders.
   expect(screen.queryByText("Transfer")).toBeNull();
@@ -144,13 +145,15 @@ test("a legacy pre-London transaction shows a dash for base fee, burnt and savin
 
 test("blob fields, the revert reason and a created contract appear when present", () => {
   const f = creation();
-  Object.assign(f.detail, { tx_type: 3, blob_gas_used: "131072", blob_gas_price: "7", revert_reason: "Too little received" });
+  Object.assign(f.detail, { tx_type: 3, blob_gas_used: "131072", blob_gas_price: "7", blob_fee: "917504", revert_reason: "Too little received" });
   f.tx.success = false;
   renderTabs(f);
   expect(valueOf("Transaction type")).toHaveTextContent("EIP-4844");
   expect(valueOf("Blob gas used")).toHaveTextContent("131,072");
   // Under 1 Gwei a price reads in wei.
   expect(valueOf("Blob gas price")).toHaveTextContent(/^7 wei$/);
+  expect(valueOf("Blob fee")).toHaveTextContent("<0.000001 ETH");
+  expect(within(valueOf("Blob fee")).getByText(/ETH/)).toHaveAttribute("title", "0.000000000000917504");
   expect(valueOf("Status")).toHaveTextContent("Failed");
   expect(valueOf("Status")).toHaveTextContent("Too little received");
   expect(valueOf("To")).toHaveTextContent("Contract creation");

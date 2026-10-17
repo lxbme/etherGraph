@@ -28,6 +28,11 @@ pub fn tx_detail(row: &TxRow, block: Option<&BlockRow>, head: Option<u64>) -> Tx
     let base_fee = block.and_then(|b| b.base_fee);
     let burnt_fee = base_fee.map(|b| b.saturating_mul(row.gas_used));
     // Ruling R3: every type with a fee cap (2, 3, 4), not only type 2.
+    let blob_gas_used = quantity(receipt, "blobGasUsed");
+    let blob_gas_price = quantity(receipt, "blobGasPrice");
+    let blob_fee = blob_gas_used
+        .zip(blob_gas_price)
+        .map(|(used, price)| used.saturating_mul(price));
     let savings = max_fee
         .zip(effective_gas_price)
         .map(|(max, eff)| max.saturating_sub(eff).saturating_mul(row.gas_used));
@@ -48,8 +53,9 @@ pub fn tx_detail(row: &TxRow, block: Option<&BlockRow>, head: Option<u64>) -> Tx
         base_fee: dec(base_fee),
         burnt_fee: dec(burnt_fee),
         savings: dec(savings),
-        blob_gas_used: dec(quantity(receipt, "blobGasUsed")),
-        blob_gas_price: dec(quantity(receipt, "blobGasPrice")),
+        blob_gas_used: dec(blob_gas_used),
+        blob_gas_price: dec(blob_gas_price),
+        blob_fee: dec(blob_fee),
         access_list_len: tx
             .get("accessList")
             .and_then(Value::as_array)
@@ -136,6 +142,7 @@ mod tests {
         assert_eq!(d.access_list_len, None);
         assert_eq!(d.blob_gas_used, None);
         assert_eq!(d.blob_gas_price, None);
+        assert_eq!(d.blob_fee, None);
         assert_eq!(d.contract_created, None);
         assert_eq!(d.revert_reason, None);
         assert_eq!(d.input, "0x");
@@ -187,12 +194,24 @@ mod tests {
         assert_eq!(d.tx_type, 3);
         assert_eq!(d.blob_gas_used.as_deref(), Some("262144"));
         assert_eq!(d.blob_gas_price.as_deref(), Some("1"));
+        // blob_gas_used × blob_gas_price
+        assert_eq!(d.blob_fee.as_deref(), Some("262144"));
         // 9876543210 × 63204
         assert_eq!(d.burnt_fee.as_deref(), Some("624237037044840"));
         // Ruling R3: savings for every type with a max fee.
         // (20000000000 − 10876543210) × 63204 = 9123456790 × 63204
         assert_eq!(d.savings.as_deref(), Some("576638962955160"));
         assert_eq!(d.access_list_len, Some(0));
+    }
+
+    #[test]
+    fn blob_fee_saturates() {
+        let mut r = row(EIP4844);
+        let receipt = r.raw_receipt.as_object_mut().unwrap();
+        receipt.insert("blobGasUsed".into(), Value::from(format!("{:#x}", U256::MAX)));
+        receipt.insert("blobGasPrice".into(), Value::from("0x2"));
+        let d = tx_detail(&r, None, None);
+        assert_eq!(d.blob_fee, Some(U256::MAX.to_string()));
     }
 
     #[test]

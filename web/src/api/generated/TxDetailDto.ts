@@ -31,6 +31,10 @@ burnt_fee: string | null,
  */
 savings: string | null, blob_gas_used: string | null, blob_gas_price: string | null, 
 /**
+ * `blob_gas_used × blob_gas_price` (saturating).
+ */
+blob_fee: string | null, 
+/**
  * Entries in the access list; null when the tx type has none.
  */
 access_list_len: number | null, 

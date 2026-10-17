@@ -481,6 +481,8 @@ pub struct TxDetailDto {
     pub savings: Option<String>,
     pub blob_gas_used: Option<String>,
     pub blob_gas_price: Option<String>,
+    /// `blob_gas_used × blob_gas_price` (saturating).
+    pub blob_fee: Option<String>,
     /// Entries in the access list; null when the tx type has none.
     pub access_list_len: Option<u32>,
     /// Address of the contract a creation tx deployed.

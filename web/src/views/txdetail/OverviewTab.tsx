@@ -117,6 +117,7 @@ export function OverviewTab({ flow }: { flow: TxFlowDto }) {
   );
   if (d.blob_gas_used !== null) fees.push(["tx.ov.blobGasUsed", <span className="num">{count(d.blob_gas_used)}</span>]);
   if (d.blob_gas_price !== null) fees.push(["tx.ov.blobGasPrice", <Price wei={d.blob_gas_price} />]);
+  if (d.blob_fee !== null) fees.push(["tx.ov.blobFee", <Eth wei={d.blob_fee} />]);
   if (d.access_list_len !== null) fees.push(["tx.ov.accessList", <span className="num">{formatCount(d.access_list_len)}</span>]);
 
   return (

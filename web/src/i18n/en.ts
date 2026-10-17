@@ -277,6 +277,7 @@ export const en = {
   "tx.ov.fee": "Transaction fee",
   "tx.ov.blobGasUsed": "Blob gas used",
   "tx.ov.blobGasPrice": "Blob gas price",
+  "tx.ov.blobFee": "Blob fee",
   "tx.ov.accessList": "Access list entries",
   "tx.type.0": "Legacy",
   "tx.type.1": "EIP-2930",
