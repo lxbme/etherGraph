@@ -83,7 +83,7 @@ export function TxFlowView({ hash }: { hash: string }) {
   const tooltipLines = useMemo((): TooltipLine[] | null => {
     if (!hover || !flow) return null;
     if (hover.kind === "edge") {
-      if (hover.id === "call") return callTooltip();
+      if (hover.id === "call") return callTooltip(flow.call?.name);
       const m = /^flow-\d+-(\d+)$/.exec(hover.id);
       const f = m ? flow.flows[Number(m[1])] : undefined;
       if (!f) return null;

@@ -94,7 +94,11 @@ export function AddressGraph() {
     if (isMoreId(hover.id)) return null;
     if (hover.kind === "edge") {
       const v = visual.find((e) => e.id === hover.id);
-      return v ? edgeTooltip(v) : null;
+      if (!v) return null;
+      const names = new Map(
+        data.nodes.flatMap((n) => (n.display_name && (lc(n.address) === v.from || lc(n.address) === v.to) ? [[lc(n.address), n.display_name] as const] : [])),
+      );
+      return edgeTooltip(v, names);
     }
     const a = lc(hover.id);
     const n = data.nodes.find((x) => lc(x.address) === a);
@@ -104,8 +108,14 @@ export function AddressGraph() {
       if (v.from === a) neighbours.add(v.to);
       else if (v.to === a) neighbours.add(v.from);
     }
-    return nodeTooltip(n, { coverage: data.coverage[a] ?? data.coverage[n.address], omitted: data.omitted[a], degree: neighbours.size });
-  }, [hover, data, visual, locale]);
+    return nodeTooltip(n, {
+      coverage: data.coverage[a] ?? data.coverage[n.address],
+      omitted: data.omitted[a],
+      degree: neighbours.size,
+      center: centers.some((c) => lc(c) === a),
+      pinned: !!ui[a]?.pinned,
+    });
+  }, [hover, data, visual, centers, ui, locale]);
 
   const cyRef = useRef<cytoscape.Core | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);

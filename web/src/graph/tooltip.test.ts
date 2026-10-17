@@ -39,6 +39,32 @@ describe("nodeTooltip", () => {
     expect(text(two)).toContain("Category Exchange, DeFi");
     expect(text(nodeTooltip(node({ synced: true, partial: true }), {}))).toContain("Partial");
   });
+  test("partial says what is missing", () => {
+    expect(text(nodeTooltip(node({ partial: true }), {}))).toContain("Sync Partial: older records not fetched");
+  });
+  test("a State line names center, pinned and a user label when they apply", () => {
+    expect(text(nodeTooltip(node(), {}))).not.toContain("State");
+    const user = { id: 1, text: "mine", category: "other", source: "user" } as const;
+    expect(text(nodeTooltip(node({ labels: [user] }), { center: true, pinned: true }))).toContain("State Center, Pinned, Your label");
+    expect(text(nodeTooltip(node(), { pinned: true }))).toContain("State Pinned");
+    // An imported label is not "your" label.
+    expect(text(nodeTooltip(node({ labels: [{ ...user, source: "import" }] }), {}))).not.toContain("State");
+  });
+  test("coverage shows the block range, marked partial when a category was truncated", () => {
+    const cov = (from: number | null, to: number | null, truncated = false): SyncStatusDto => ({
+      kind: "native", from_block: from, to_block: to, truncated, state: "ok", last_synced_at: "2026-02-03T04:05:06Z",
+    });
+    const ls = nodeTooltip(node({ synced: true }), { coverage: [cov(18_000_000, 19_500_000), cov(17_250_000, 19_400_000), cov(null, null)] });
+    const line = ls.find((l) => l.label === "Coverage");
+    expect(line?.value).toBe("Blocks 17,250,000–19,500,000");
+    expect(line?.sub).toBeUndefined();
+    // The sync time stays on its own line.
+    expect(text(ls)).toContain("Synced to 2026-02-03 04:05:06");
+    const cut = nodeTooltip(node({ synced: true }), { coverage: [cov(18_000_000, 19_500_000, true)] });
+    expect(cut.find((l) => l.label === "Coverage")?.sub).toBe("partial");
+    expect(nodeTooltip(node(), { coverage: [cov(null, null)] }).find((l) => l.label === "Coverage")).toBeUndefined();
+    expect(nodeTooltip(node(), {}).find((l) => l.label === "Coverage")).toBeUndefined();
+  });
 });
 
 describe("edgeTooltip", () => {
@@ -57,10 +83,19 @@ describe("edgeTooltip", () => {
     expect(ls.at(-1)?.value).toBe("Line width = transfers (log)");
     expect(ls[0]?.value).toContain("→");
   });
+  test("the direction uses display names where known", () => {
+    const v: VisualEdge = {
+      id: "c", from: "0xaaaa", to: "0xbbbb", color: "eth", count: 1, badge: null, expanded: false, assets: [edge(null, 1, "ETH")],
+    };
+    const ls = edgeTooltip(v, new Map([["0xaaaa", "Binance 14"]]));
+    expect(ls[0]?.value).toBe("Binance 14 → 0xbbbb");
+  });
 });
 
 test("call and more tooltips", () => {
-  expect(callTooltip()[0]?.value).toBe("Call (no value moved)");
+  expect(callTooltip()[0]?.value).toBe("Call: sender → recipient. ETH value, if any, is its own flow edge");
+  expect(callTooltip()).toHaveLength(1);
+  expect(text(callTooltip("transfer"))).toContain("Method transfer");
   expect(text(moreTooltip(7))).toContain("7 more neighbours not shown");
 });
 
@@ -77,4 +112,12 @@ test("flowTooltip: names, symbol, fixed amount, order, kind", () => {
   expect(ls.find((l) => l.label === "Amount")?.sub).toBe("1.234567 USDT");
   expect(s).toContain("Order ②");
   expect(s).toContain("Kind ERC-20");
+});
+
+test("flowTooltip: seq 0 is a circled zero", () => {
+  const f: FlowDto = {
+    seq: 0, from: "0xaaaa", to: "0xbbbb", asset: null, amount: "1", token_id: null,
+    kind: "native", trace_path: null, log_index: null, decimals: 18, symbol: null,
+  };
+  expect(text(flowTooltip(f, new Map()))).toContain("Order ⓪");
 });

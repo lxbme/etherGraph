@@ -118,10 +118,20 @@ test("the tx canvas has a legend with call / flow edges and the asset colours pr
   const { container } = renderView();
   await screen.findByTestId("tx-summary-bar");
   const legend = within(container.querySelector(".txview__graph")!).getByTestId("legend");
-  expect(within(legend).getByText("Call (sender → contract)")).toBeInTheDocument();
+  expect(within(legend).getByText("Call (sender → recipient)")).toBeInTheDocument();
   expect(within(legend).getByText("①②③ = order of transfers")).toBeInTheDocument();
   expect(within(legend).getByText("Stablecoin")).toBeInTheDocument();
   expect(within(legend).queryByText("NFT")).toBeNull();
+});
+
+test("the call edge's tooltip explains it and names the decoded method", async () => {
+  vi.spyOn(api, "tx").mockResolvedValue(ready());
+  renderView();
+  await screen.findByTestId("tx-summary-bar");
+  act(() => h.props!.onHover?.({ kind: "edge", id: "call", pos: { x: 5, y: 5 } }));
+  const tip = screen.getByTestId("graph-tooltip");
+  expect(tip).toHaveTextContent("Call: sender → recipient. ETH value, if any, is its own flow edge");
+  expect(tip).toHaveTextContent("Methodswap");
 });
 
 test("undecoded call shows the raw selector and no banner for full traces", async () => {

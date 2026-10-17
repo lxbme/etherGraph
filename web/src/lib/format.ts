@@ -17,3 +17,10 @@ export function formatLocalTime(iso: string): string {
 export function formatCount(n: number): string {
   return n.toLocaleString("en-US");
 }
+
+const CIRCLED = "⓪①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳";
+
+/** ⓪…⑳ for 0–20 (tx-flow sequence numbers), "(n)" beyond. */
+export function circled(seq: number): string {
+  return Number.isInteger(seq) && seq >= 0 && seq <= 20 ? [...CIRCLED][seq]! : `(${seq})`;
+}

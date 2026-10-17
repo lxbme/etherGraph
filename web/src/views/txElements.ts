@@ -6,14 +6,10 @@ import { t } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { assetClass } from "../lib/assets";
 import { formatAmount } from "../lib/amount";
+import { circled } from "../lib/format";
 
 const lc = (s: string) => s.toLowerCase();
-const CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳";
-
-/** ①…⑳ for 1–20, "(n)" beyond. */
-export function circled(seq: number): string {
-  return seq >= 1 && seq <= 20 ? CIRCLED[seq - 1]! : `(${seq})`;
-}
+export { circled };
 
 export function flowSymbol(f: FlowDto): string {
   if (f.asset === null) return "ETH";

@@ -116,6 +116,18 @@ test("the legend sits in the canvas and lists only what is on it", async () => {
   expect(within(legend).queryByText("Pinned")).toBeNull();
 });
 
+test("hover tooltips: a pinned center says so; an edge names its ends by display name", async () => {
+  vi.mocked(api.graphEdges).mockResolvedValue({ ...data, nodes: [{ ...node(A, true), display_name: "alice.eth" }, node(B, false)] });
+  await mountWithData();
+  act(() => useGraph.getState().setPinned([A], true));
+  act(() => props().onHover?.({ kind: "node", id: A, pos: { x: 10, y: 10 } }));
+  expect(screen.getByTestId("graph-tooltip")).toHaveTextContent("StateCenter, Pinned");
+  act(() => props().onHover?.({ kind: "edge", id: `c:${A}>${B}`, pos: { x: 10, y: 10 } }));
+  expect(screen.getByTestId("graph-tooltip")).toHaveTextContent("alice.eth → 0xbbbb");
+  act(() => props().onHover?.(null));
+  expect(screen.queryByTestId("graph-tooltip")).toBeNull();
+});
+
 test("hidden nodes and their edges are left out", async () => {
   await mountWithData();
   act(() => useGraph.getState().setHidden([B], true));

@@ -50,6 +50,7 @@ test("call edge is skipped without a recipient and falls back to selector or gen
 });
 
 test("seq labels use circled digits up to 20", () => {
+  expect(circled(0)).toBe("⓪");
   expect(circled(1)).toBe("①");
   expect(circled(10)).toBe("⑩");
   expect(circled(20)).toBe("⑳");
