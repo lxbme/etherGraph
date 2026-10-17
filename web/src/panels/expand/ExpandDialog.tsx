@@ -8,6 +8,7 @@ import type { ProbeItemDto } from "../../api/generated/ProbeItemDto";
 import type { SyncStatusDto } from "../../api/generated/SyncStatusDto";
 import { statusQuery } from "../../api/statusQuery";
 import {
+  byLightness,
   callBudget,
   defaultSelection,
   heavySet,
@@ -103,12 +104,12 @@ function toRow(
       onCanvas,
       calls: syncCalls(synced, partial, coverage),
       weight: weight({ nonce, localTransfers: probe?.local_transfers ?? s.count ?? 0 }),
+      withCenter: s.count ?? 0,
     },
   };
 }
 
-const byWeight = (x: CandidateRow, y: CandidateRow) =>
-  x.cand.weight.value - y.cand.weight.value || (x.address < y.address ? -1 : x.address > y.address ? 1 : 0);
+const byWeight = (x: CandidateRow, y: CandidateRow) => byLightness(x.cand, y.cand);
 
 /**
  * Shows the expansion as one undoable step: "Expanded N · Undo" with no timer, until another history step

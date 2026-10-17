@@ -17,6 +17,8 @@ export type Candidate = {
   onCanvas: boolean;
   calls: number;
   weight: Weight;
+  /** Transfers with the expanded address (tie-break: more first); 0 when unknown. */
+  withCenter?: number;
 };
 
 /** Non-finite inputs (NaN, +-Infinity) count as 0 so budgets never become NaN. */
@@ -36,11 +38,23 @@ export function callBudget(o: { rate: number; queuedCalls: number; quotaRemainin
   return Math.max(0, Math.min(Math.floor(fin(o.rate) * HORIZON_SEC) - fin(o.queuedCalls), quota));
 }
 
+/**
+ * log10(max(nonce, local transfers) + 1): the stored transfer count is a free lower bound of activity (a wallet
+ * that only receives has nonce 0). Estimated while the nonce is unknown.
+ */
 export function weight(c: { nonce: number | null; localTransfers: number }): Weight {
   const nn = (n: number) => Math.max(0, fin(n));
-  return c.nonce != null
-    ? { value: Math.log10(nn(c.nonce) + 1), estimated: false }
-    : { value: Math.log10(nn(c.localTransfers) + 1), estimated: true };
+  const value = Math.log10(Math.max(nn(c.nonce ?? 0), nn(c.localTransfers)) + 1);
+  return { value, estimated: c.nonce == null };
+}
+
+/** Lightest first; equal weights: more transfers with the center first, then by address. */
+export function byLightness(x: Candidate, y: Candidate): number {
+  return (
+    x.weight.value - y.weight.value ||
+    fin(y.withCenter ?? 0) - fin(x.withCenter ?? 0) ||
+    (x.address < y.address ? -1 : x.address > y.address ? 1 : 0)
+  );
 }
 
 /** R type 7 quantile on a sorted array. */
@@ -72,7 +86,7 @@ export function defaultSelection(
   const heavy = heavySet(new Map(cands.map((c) => [c.address, c.weight.value])));
   const eligible = cands
     .filter((c) => c.kind !== "contract" && !c.hot && !heavy.has(c.address))
-    .sort((x, y) => x.weight.value - y.weight.value || (x.address < y.address ? -1 : x.address > y.address ? 1 : 0));
+    .sort(byLightness);
   const selected: string[] = [];
   let nodes = 0;
   let calls = 0;

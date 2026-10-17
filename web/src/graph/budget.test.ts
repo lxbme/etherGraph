@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  byLightness,
   callBudget,
   defaultSelection,
   heavySet,
@@ -33,9 +34,19 @@ describe("budget", () => {
     expect(callBudget({ rate: 2.5, queuedCalls: 300, quotaRemaining: 1000 })).toBe(0);
     expect(callBudget({ rate: 2.5, queuedCalls: 100, quotaRemaining: null })).toBe(125);
   });
-  it("weight", () => {
-    expect(weight({ nonce: 9, localTransfers: 99 })).toEqual({ value: 1, estimated: false });
+  it("weight: the larger of nonce and local transfers (a free lower bound)", () => {
+    expect(weight({ nonce: 9, localTransfers: 99 })).toEqual({ value: 2, estimated: false });
+    expect(weight({ nonce: 999, localTransfers: 9 })).toEqual({ value: 3, estimated: false });
+    expect(weight({ nonce: 0, localTransfers: 0 })).toEqual({ value: 0, estimated: false });
     expect(weight({ nonce: null, localTransfers: 99 })).toEqual({ value: 2, estimated: true });
+  });
+  it("equal weights: more transfers with the center first, then address", () => {
+    const w = { value: 1, estimated: false };
+    const cs = [cand(3, { weight: w, withCenter: 2 }), cand(2, { weight: w, withCenter: 9 }), cand(1, { weight: w, withCenter: 2 })];
+    // Room for one new center (1 + K_MIN nodes) at a time.
+    expect(defaultSelection(cs, { nodes: 6, calls: 100 }).selected).toEqual([cand(2).address]);
+    expect(defaultSelection(cs, { nodes: 18, calls: 100 }).selected).toEqual([2, 1, 3].map((i) => cand(i).address));
+    expect([...cs].sort(byLightness).map((c) => c.address)).toEqual([2, 1, 3].map((i) => cand(i).address));
   });
   it("heavySet", () => {
     const m = new Map([1, 2, 3, 4, 5, 6, 7, 5000].map((n) => [`a${n}`, n]));
@@ -78,6 +89,7 @@ describe("budget", () => {
   });
   it("negative nonce weighs 0", () => {
     expect(weight({ nonce: -5, localTransfers: 0 })).toEqual({ value: 0, estimated: false });
+    expect(weight({ nonce: NaN, localTransfers: NaN })).toEqual({ value: 0, estimated: false });
     expect(weight({ nonce: null, localTransfers: -5 })).toEqual({ value: 0, estimated: true });
   });
   it("empty candidates", () => {
