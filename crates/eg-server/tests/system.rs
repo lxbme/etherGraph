@@ -292,7 +292,7 @@ async fn background_publishes_quota_status(pool: PgPool) {
 #[test]
 fn config_example_parses() {
     let cfg = Config::load(Path::new("../../config.example.toml")).unwrap();
-    assert_eq!(cfg.etherscan.rate_per_sec, 2.8);
+    assert_eq!(cfg.etherscan.rate_per_sec, 2.5);
     assert_eq!(cfg.etherscan.daily_limit, 100_000);
     assert_eq!(cfg.etherscan.base_url, "https://api.etherscan.io/v2/api");
     assert_eq!(cfg.sync.workers, 4);
@@ -303,8 +303,8 @@ fn config_example_parses() {
     assert_eq!(ing.stale_after, Duration::from_secs(600));
     assert_eq!(ing.reorg_window_blocks, 64);
     assert_eq!(ing.hot_neighbor_threshold, 500);
-    assert_eq!(ing.multicall_batch_size, 50);
-    assert_eq!(ing.rate_per_sec, 2.8);
+    assert_eq!(ing.multicall_batch_size, 100);
+    assert_eq!(ing.rate_per_sec, 2.5);
     assert_eq!(
         ing.universal_resolver.to_string(),
         "0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe"
@@ -354,7 +354,7 @@ fn config_defaults_follow_spec() {
     )
     .unwrap();
     assert_eq!(cfg.etherscan.base_url, "https://api.etherscan.io/v2/api");
-    assert_eq!(cfg.etherscan.rate_per_sec, 2.8);
+    assert_eq!(cfg.etherscan.rate_per_sec, 2.5);
     assert_eq!(cfg.etherscan.daily_limit, 100_000);
     assert_eq!(cfg.sync.workers, 4);
     assert_eq!(cfg.server.listen.to_string(), "127.0.0.1:8080");

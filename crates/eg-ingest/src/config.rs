@@ -30,10 +30,10 @@ impl Default for IngestConfig {
             stale_after: Duration::from_secs(600),
             meta_ttl: WEEK,
             ens_ttl: WEEK,
-            multicall_batch_size: 50,
+            multicall_batch_size: 100,
             multicall3: address!("0xcA11bde05977b3631167028862bE2a173976CA11"),
             universal_resolver: address!("0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe"),
-            rate_per_sec: 2.8,
+            rate_per_sec: 2.5,
             hot_neighbor_threshold: 500,
             max_attempts: 3,
         }
@@ -53,7 +53,7 @@ mod tests {
         assert_eq!(c.stale_after, Duration::from_secs(600));
         assert_eq!(c.meta_ttl, Duration::from_secs(7 * 24 * 3600));
         assert_eq!(c.ens_ttl, Duration::from_secs(7 * 24 * 3600));
-        assert_eq!(c.multicall_batch_size, 50);
+        assert_eq!(c.multicall_batch_size, 100);
         assert_eq!(
             c.multicall3,
             address!("0xcA11bde05977b3631167028862bE2a173976CA11")
@@ -62,7 +62,7 @@ mod tests {
             c.universal_resolver,
             address!("0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe")
         );
-        assert_eq!(c.rate_per_sec, 2.8);
+        assert_eq!(c.rate_per_sec, 2.5);
         assert_eq!(c.hot_neighbor_threshold, 500);
         assert_eq!(c.max_attempts, 3);
     }

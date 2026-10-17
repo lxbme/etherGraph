@@ -1,6 +1,7 @@
 [etherscan]
 api_key = "..."            # 也可以用环境变量 ETHERSCAN_API_KEY
-rate_per_sec = 2.8
+# measured free tier: 3.0/s ≈20% rate-limited, 2.8/s ≈8%, 2.5/s ≈0–3%
+rate_per_sec = 2.5
 daily_limit = 100000
 
 [sync]
@@ -13,7 +14,8 @@ hot_neighbor_threshold = 500
 [ens]
 universal_resolver = "0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe"   # 可覆盖
 multicall3 = "0xcA11bde05977b3631167028862bE2a173976CA11"
-multicall_batch_size = 50
+# eth_call is sent as POST; 200 calls per batch verified
+multicall_batch_size = 100
 
 [source]
 mode = "etherscan"

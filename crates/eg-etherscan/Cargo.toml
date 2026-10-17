@@ -6,7 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 eg-core = { path = "../eg-core" }
-reqwest = { workspace = true, features = ["query"] }
+reqwest = { workspace = true, features = ["query", "form"] }
 sha2 = { workspace = true }
 hex = { workspace = true }
 async-trait = { workspace = true }

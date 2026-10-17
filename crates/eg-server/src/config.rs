@@ -46,7 +46,7 @@ impl Default for EtherscanCfg {
         Self {
             api_key: None,
             base_url: "https://api.etherscan.io/v2/api".into(),
-            rate_per_sec: 2.8,
+            rate_per_sec: 2.5,
             daily_limit: 100_000,
         }
     }

@@ -34,10 +34,14 @@ impl HttpTransport {
 #[async_trait]
 impl Transport for HttpTransport {
     async fn get(&self, params: &[(String, String)]) -> Result<String, SourceError> {
-        let resp = self
-            .client
-            .get(&self.base_url)
-            .query(params)
+        // eth_call batches exceed URL length limits (~8 KB), so it goes as a form POST.
+        let is_post = params.iter().any(|(k, v)| k == "action" && v == "eth_call");
+        let req = if is_post {
+            self.client.post(&self.base_url).form(params)
+        } else {
+            self.client.get(&self.base_url).query(params)
+        };
+        let resp = req
             .send()
             .await
             .map_err(|e| SourceError::Network(e.without_url().to_string()))?;
@@ -202,6 +206,54 @@ mod tests {
 
         let r = HttpTransport::new("http://127.0.0.1:1").get(&[]).await;
         assert!(matches!(r, Err(SourceError::Network(_))), "{r:?}");
+    }
+
+    #[tokio::test]
+    async fn eth_call_is_posted_as_form_without_query() {
+        use wiremock::matchers::{body_string_contains, method};
+        use wiremock::{Mock, MockServer, Request, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(body_string_contains("action=eth_call"))
+            .and(body_string_contains("data=0xabcdef"))
+            .and(body_string_contains("apikey=K"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("posted"))
+            .mount(&server)
+            .await;
+        let t = HttpTransport::new(&server.uri());
+        let out = t
+            .get(&[
+                p("chainid", "1"),
+                p("module", "proxy"),
+                p("action", "eth_call"),
+                p("data", "0xabcdef"),
+                p("apikey", "K"),
+            ])
+            .await
+            .unwrap();
+        assert_eq!(out, "posted");
+        let reqs: Vec<Request> = server.received_requests().await.unwrap();
+        assert_eq!(reqs.len(), 1);
+        assert!(reqs[0].url.query().is_none(), "{}", reqs[0].url);
+    }
+
+    #[tokio::test]
+    async fn non_eth_call_stays_get_with_query() {
+        use wiremock::matchers::{method, query_param};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(query_param("action", "txlist"))
+            .and(query_param("apikey", "K"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("got"))
+            .mount(&server)
+            .await;
+        let t = HttpTransport::new(&server.uri());
+        let out = t
+            .get(&[p("action", "txlist"), p("apikey", "K")])
+            .await
+            .unwrap();
+        assert_eq!(out, "got");
     }
 
     #[tokio::test]
