@@ -110,3 +110,13 @@ test("styles are recomputed once the web fonts have loaded (label widths)", asyn
     delete (document as unknown as Record<string, unknown>).fonts;
   }
 });
+
+test("a refit on resize is clamped to the maximum fit zoom", () => {
+  size = { w: 800, h: 600 };
+  let cy!: cytoscape.Core;
+  mount((c) => { cy = c; });
+  vi.spyOn(cy, "fit").mockImplementation(() => cy.zoom(3));
+  size = { w: 500, h: 600 };
+  h.cb!();
+  expect(cy.zoom()).toBeLessThanOrEqual(1.2);
+});

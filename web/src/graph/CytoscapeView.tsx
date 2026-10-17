@@ -1,6 +1,6 @@
 import cytoscape from "cytoscape";
 import { useEffect, useRef, type JSX } from "react";
-import { createRefitGuard } from "./refit";
+import { createRefitGuard, fitClamped } from "./refit";
 import { runDagreLayout, runIncrementalLayout } from "./layout";
 
 type Pos = { x: number; y: number };
@@ -183,7 +183,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       {
         size: () => ({ width: container.clientWidth, height: container.clientHeight }),
         resize: () => cy.resize(),
-        fit: () => cy.fit(undefined, 30),
+        fit: () => fitClamped(cy, 30),
       },
       // The tx flow is one whole-graph layout: keep it fitted to its container until the user moves it.
       { fitOnResize: propsRef.current.layout === "dagre-lr" },
@@ -271,7 +271,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       // A full layout fits by itself; a canvas restored from stored positions needs an explicit fit.
       const fullLayout = r.newNodeIds.length === cy.nodes().length;
       if (wasEmpty && cy.nodes().nonempty() && !fullLayout) {
-        cy.fit(undefined, 40);
+        fitClamped(cy, 40);
         refitRef.current?.noteLayout();
       }
     }

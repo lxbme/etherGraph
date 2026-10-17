@@ -286,6 +286,18 @@ export function txFlowStylesheet(theme: Theme): cytoscape.StylesheetJson {
         "text-rotation": "autorotate",
       },
     },
-    { selector: "edge.call", style: { "line-style": "dashed", ...edgeColor(assetColors(theme).other) } },
+    {
+      // The method is already in the summary bar: a smaller label near the sender keeps mid-edge flow labels clear.
+      selector: "edge.call",
+      style: {
+        "line-style": "dashed",
+        ...edgeColor(assetColors(theme).other),
+        label: "",
+        "source-label": "data(label)",
+        "source-text-offset": 56,
+        "source-text-rotation": "autorotate",
+        "font-size": 10,
+      },
+    },
   ]);
 }

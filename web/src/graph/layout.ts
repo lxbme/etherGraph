@@ -1,6 +1,7 @@
 import cytoscape from "cytoscape";
 import dagre from "cytoscape-dagre";
 import fcose, { type FcoseLayoutOptions } from "cytoscape-fcose";
+import { fitClamped } from "./refit";
 
 // Register layout extensions once (cytoscape(type, name) returns the registered extension).
 if (!cytoscape("layout", "fcose")) cytoscape.use(fcose);
@@ -250,7 +251,7 @@ export function runIncrementalLayout(cy: cytoscape.Core, newIds: string[], opts:
       nodeRepulsion: 6000,
       idealEdgeLength: NEIGHBOR_RADIUS,
     } as FcoseLayoutOptions).run();
-    cy.fit(undefined, 40);
+    fitClamped(cy, 40);
     if (!big && shouldAnimate(cy, total, opts)) glide(cy, fresh, from);
     return;
   }
@@ -295,8 +296,8 @@ export function runDagreLayout(cy: cytoscape.Core): void {
     nodeSep: 40,
     rankSep: 140,
     edgeSep: 12,
-    fit: true,
-    padding: 30,
+    fit: false,
     animate: false,
   } as cytoscape.LayoutOptions).run();
+  fitClamped(cy, 30);
 }

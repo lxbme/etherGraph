@@ -177,4 +177,14 @@ describe("runDagreLayout", () => {
     expect(x("a")).toBeLessThan(x("b"));
     expect(x("b")).toBeLessThan(x("c"));
   });
+
+  test("fits the result without zooming in past 1.2 (labels stay readable)", () => {
+    const cy = cytoscape({ headless: true });
+    cy.add([{ data: { id: "a" } }, { data: { id: "b" } }, { data: { id: "ab", source: "a", target: "b" } }]);
+    // Headless cores have no viewport size; stand in a fit that zooms a tiny graph way in.
+    const fit = vi.spyOn(cy, "fit").mockImplementation(() => cy.zoom(3));
+    runDagreLayout(cy);
+    expect(fit).toHaveBeenCalled();
+    expect(cy.zoom()).toBeLessThanOrEqual(1.2);
+  });
 });

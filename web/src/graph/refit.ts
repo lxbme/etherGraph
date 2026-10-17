@@ -1,3 +1,17 @@
+import type cytoscape from "cytoscape";
+
+/** A fit never zooms in past this: a two-node graph would otherwise blow its labels up until they overlap. */
+export const MAX_FIT_ZOOM = 1.2;
+
+/** Fits the whole graph with `padding`, then zooms back out to MAX_FIT_ZOOM (centred) if the fit went past it. */
+export function fitClamped(cy: cytoscape.Core, padding: number): void {
+  cy.fit(undefined, padding);
+  if (cy.zoom() > MAX_FIT_ZOOM) {
+    cy.zoom(MAX_FIT_ZOOM);
+    cy.center();
+  }
+}
+
 export interface RefitDeps {
   /** Current container size in CSS pixels. */
   size(): { width: number; height: number };

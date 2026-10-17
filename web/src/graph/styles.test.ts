@@ -236,6 +236,10 @@ describe("txFlowStylesheet", () => {
     const call = styleOf(s, "edge.call");
     expect(call["line-style"]).toBe("dashed");
     expect(call["line-color"]).toBe(assetColors(theme).other);
+    // The method sits near the sender, in a smaller type, so it never covers the flow labels at mid-edge.
+    expect(call["source-label"]).toBe("data(label)");
+    expect(call.label).toBe("");
+    expect(call["font-size"]).toBeLessThan(11);
   });
 
   test("cytoscape accepts the tx stylesheet without warnings", () => {
@@ -246,7 +250,12 @@ describe("txFlowStylesheet", () => {
         { group: "nodes", data: { id: "b", text: "b" }, classes: "kind-contract" },
         { group: "edges", data: { id: "ab", source: "a", target: "b", width: 2, label: "1 ETH" }, classes: "asset-eth call" },
       ],
-      (cy) => expect(cy.getElementById("ab").style("line-style")).toBe("dashed"),
+      (cy) => {
+        const e = cy.getElementById("ab");
+        expect(e.style("line-style")).toBe("dashed");
+        expect(e.style("source-label")).toBe("1 ETH");
+        expect(e.style("label")).toBe("");
+      },
     );
   });
 });
