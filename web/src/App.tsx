@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./api/queryClient";
 import { useEvents } from "./api/useEvents";
@@ -17,6 +18,7 @@ import { useTabs, type Tab } from "./shell/tabs";
 import { WorkspaceMenu } from "./shell/WorkspaceMenu";
 import { useLocale } from "./i18n";
 import { saveStatusLabel, useUnsavedChangesPrompt, useWorkspace } from "./workspace/useWorkspace";
+import { registerExpansionEffects } from "./panels/expand/expansion";
 import { AddressGraph } from "./views/AddressGraph";
 
 export function App() {
@@ -28,6 +30,7 @@ export function App() {
 }
 
 function Shell() {
+  useEffect(() => registerExpansionEffects(), []);
   useHashRouting();
   useEvents();
   useUnsavedChangesPrompt();

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/endpoints";
 import { ApiError, messageFor } from "../api/errors";
+import { useGraph } from "../graph/store";
 import { qk } from "../api/queryClient";
 import type { JobDto } from "../api/generated/JobDto";
 import { useT } from "../i18n";
@@ -68,6 +69,25 @@ function Table({
   );
 }
 
+const shortId = (id: string) => id.slice(0, 8);
+
+/** Active jobs by their first batch, in first-seen order; batch-less jobs go last under `null`. */
+function groupByBatch(jobs: JobDto[]): { batch: string | null; jobs: JobDto[] }[] {
+  const map = new Map<string | null, JobDto[]>();
+  for (const j of jobs) {
+    const k = j.batches[0] ?? null;
+    map.set(k, [...(map.get(k) ?? []), j]);
+  }
+  const groups = [...map].map(([batch, js]) => ({ batch, jobs: js }));
+  return [...groups.filter((g) => g.batch !== null), ...groups.filter((g) => g.batch === null)];
+}
+
+/** Addresses count of an expansion batch, if its history step is still around. */
+function batchAddresses(batch: string): number | undefined {
+  const { _past, _future } = useGraph.getState();
+  return [..._past, ..._future].find((e) => e.effect?.batch === batch)?.effect?.addresses.length;
+}
+
 export function JobsPopover({ activeCount }: { activeCount: number }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -87,6 +107,17 @@ export function JobsPopover({ activeCount }: { activeCount: number }) {
       e instanceof ApiError && e.code === "not_found"
         ? toast(t("jobs.alreadyDone"), "info")
         : toast(messageFor(e), "error"),
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.jobs() }),
+  });
+
+  const cancelBatch = useMutation({
+    mutationFn: (id: string) => api.cancelBatch(id),
+    onError: (e) => toast(messageFor(e), "error"),
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.jobs() }),
+  });
+  const cancelBackground = useMutation({
+    mutationFn: () => api.cancelBackground(),
+    onError: (e) => toast(messageFor(e), "error"),
     onSettled: () => qc.invalidateQueries({ queryKey: qk.jobs() }),
   });
 
@@ -113,12 +144,38 @@ export function JobsPopover({ activeCount }: { activeCount: number }) {
         <div className="popover jobs__popover" role="dialog" aria-label={t("jobs.title")}>
           <h2 className="popover__title">{t("jobs.title")}</h2>
           <h3 className="popover__section">{t("jobs.active")}</h3>
-          <Table
-            jobs={active.data ?? []}
-            empty={t("jobs.emptyActive")}
-            cancel={(id) => cancel.mutate(id)}
-            cancellingId={cancel.isPending ? cancel.variables : undefined}
-          />
+          <button className="btn btn--compact" disabled={cancelBackground.isPending} onClick={() => cancelBackground.mutate()}>
+            {t("jobs.cancelBackground")}
+          </button>
+          {(active.data ?? []).length === 0 && <p className="jobs__empty">{t("jobs.emptyActive")}</p>}
+          {groupByBatch(active.data ?? []).map((g) => {
+            const addrs = g.batch ? batchAddresses(g.batch) : undefined;
+            const title = g.batch === null
+              ? t("jobs.other")
+              : addrs === undefined
+                ? t("jobs.batch", { id: shortId(g.batch) })
+                : t("jobs.batchAddrs", { id: shortId(g.batch), count: addrs });
+            const batch = g.batch;
+            return (
+              <section key={batch ?? "other"} className="jobs__group" aria-label={title}>
+                <div className="jobs__group-head">
+                  <strong>{title}</strong>
+                  <span className="num">{t("jobs.groupJobs", { count: g.jobs.length })}</span>
+                  {batch !== null && (
+                    <button className="btn btn--compact" disabled={cancelBatch.isPending} onClick={() => cancelBatch.mutate(batch)}>
+                      {t("jobs.cancelBatch")}
+                    </button>
+                  )}
+                </div>
+                <Table
+                  jobs={g.jobs}
+                  empty=""
+                  cancel={(id) => cancel.mutate(id)}
+                  cancellingId={cancel.isPending ? cancel.variables : undefined}
+                />
+              </section>
+            );
+          })}
           <h3 className="popover__section">{t("jobs.recent")}</h3>
           <Table jobs={recent.data ?? []} empty={t("jobs.emptyRecent")} />
         </div>

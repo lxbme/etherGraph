@@ -14,7 +14,7 @@ import { TopBar } from "./TopBar";
 import { useJobProgress, useQuota, type JobProgressEvent } from "./statusStore";
 
 vi.mock("../api/endpoints", () => ({
-  api: { status: vi.fn(), jobs: vi.fn(), recentJobs: vi.fn(), cancelJob: vi.fn() },
+  api: { status: vi.fn(), jobs: vi.fn(), recentJobs: vi.fn(), cancelJob: vi.fn(), cancelBatch: vi.fn(), cancelBackground: vi.fn() },
 }));
 const m = vi.mocked(api);
 const ADDR = "0x3f2a" + "0".repeat(32) + "91c0";
@@ -44,6 +44,8 @@ beforeEach(() => {
   m.jobs.mockResolvedValue([]);
   m.recentJobs.mockResolvedValue([]);
   m.cancelJob.mockResolvedValue(undefined);
+  m.cancelBatch.mockResolvedValue({ cancelled: [] });
+  m.cancelBackground.mockResolvedValue({ cancelled: [] });
 });
 
 describe("quota pill", () => {
@@ -167,5 +169,28 @@ describe("status loading", () => {
     expect(await screen.findByText("Sync · 3,000 fetched")).toBeInTheDocument();
     await qc.invalidateQueries({ queryKey: qk.jobs() });
     expect(await screen.findByText("Sync 0x3f2a…91c0 (older) · 3,000 fetched")).toBeInTheDocument();
+  });
+});
+
+describe("jobs popover batches", () => {
+  test("groups by first batch, cancels one batch, and cancels all background", async () => {
+    const b1 = "11111111-aaaa", b2 = "22222222-bbbb";
+    m.jobs.mockResolvedValue([
+      job({ id: 1, batches: [b1] }),
+      job({ id: 2, batches: [b2] }),
+      job({ id: 3, batches: [b1] }),
+      job({ id: 4, batches: [] }),
+    ]);
+    wrap(<StatusBar />);
+    await userEvent.click(await screen.findByRole("button", { name: /^Jobs/ }));
+    const dlg = await screen.findByRole("dialog", { name: "Jobs" });
+    const g1 = await within(dlg).findByRole("region", { name: "Batch 11111111" });
+    expect(within(g1).getByText("2 jobs")).toBeInTheDocument();
+    expect(within(dlg).getByRole("region", { name: "Batch 22222222" })).toBeInTheDocument();
+    expect(within(dlg).getByRole("region", { name: "Other" })).toBeInTheDocument();
+    await userEvent.click(within(g1).getByRole("button", { name: "Cancel batch" }));
+    expect(m.cancelBatch).toHaveBeenCalledWith(b1);
+    await userEvent.click(within(dlg).getByRole("button", { name: "Cancel all background" }));
+    expect(m.cancelBackground).toHaveBeenCalledTimes(1);
   });
 });

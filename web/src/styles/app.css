@@ -597,6 +597,8 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 }
 .jobs__err { max-width: 200px; overflow: hidden; text-overflow: ellipsis; color: var(--neg); }
 .jobs__empty { margin: 0; color: var(--fg-muted); font-size: var(--fs-12); }
+.jobs__group-head { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-1); }
+.jobs__group-head .btn { margin-left: auto; }
 
 .toasts {
   position: fixed;
