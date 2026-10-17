@@ -78,7 +78,7 @@ test("candidates come from counterparties (centers excluded); the first probe as
   await waitFor(() => expect(api.probe).toHaveBeenCalled());
   expect(counterparties).toHaveBeenCalledWith(ME, { sort: "count_asc", limit: 1000, kind: "all" });
   expect(vi.mocked(api.probe).mock.calls[0]![0]).toEqual({ addresses: range(1, 20).map(addr), priority: "interactive" });
-  expect(await screen.findByText("Probed 20 / 30 · probe cost 2 calls")).toBeInTheDocument();
+  expect(await screen.findByText("Probed 20 / 30")).toBeInTheDocument();
   expect(screen.queryByRole("checkbox", { name: addr(31) })).toBeNull();
   // The 10 lightest fill the node budget long before the 20 probed run out: no second chunk.
   await new Promise((r) => setTimeout(r, 20));
@@ -89,7 +89,7 @@ test("the lightest non-heavy wallets are checked by default; checking a Heavy on
   nonces[addr(5)] = 100_000; // a Tukey outlier among nonces 1…30
   mockCounterparties(range(1, 30).map((n) => cp(n)));
   mount();
-  await screen.findByText("Probed 20 / 30 · probe cost 2 calls");
+  await screen.findByText("Probed 20 / 30");
   const heavyRow = box(5).closest("tr")!;
   expect(within(heavyRow).getByText("Heavy")).toBeInTheDocument();
   await waitFor(() => expect(checkedAddrs()).toEqual([1, 2, 3, 4, 6, 7, 8, 9, 10, 11].map(addr)));
@@ -112,7 +112,7 @@ test("the lightest non-heavy wallets are checked by default; checking a Heavy on
 test("unprobed wallets show an estimated weight", async () => {
   mockCounterparties(range(1, 25).map((n) => cp(n)));
   mount();
-  await screen.findByText("Probed 20 / 25 · probe cost 2 calls");
+  await screen.findByText("Probed 20 / 25");
   expect(within(box(25).closest("tr")!).getByText("est.")).toBeInTheDocument();
   expect(within(box(1).closest("tr")!).queryByText("est.")).toBeNull();
 });
@@ -120,7 +120,7 @@ test("unprobed wallets show an estimated weight", async () => {
 test("contracts are grouped, collapsed, never probed and never checked", async () => {
   mockCounterparties([cp(1), cp(2), cp(3, { kind: "contract" }), cp(4, { kind: "contract" }), cp(5)]);
   mount();
-  await screen.findByText("Probed 3 / 3 · probe cost 2 calls");
+  await screen.findByText("Probed 3 / 3");
   expect(vi.mocked(api.probe).mock.calls[0]![0].addresses).toEqual([addr(1), addr(2), addr(5)]);
   const toggle = screen.getByRole("button", { name: /Contracts \(2\)/ });
   expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -166,7 +166,7 @@ test("with room left after the first chunk, the next chunk is probed in the back
   useCanvasMetrics.setState({ width: 4000, height: 4000 });
   mockCounterparties(range(1, 30).map((n) => cp(n)));
   mount();
-  await screen.findByText("Probed 30 / 30 · probe cost 4 calls");
+  await screen.findByText("Probed 30 / 30");
   expect(vi.mocked(api.probe).mock.calls[1]![0]).toEqual({ addresses: range(21, 30).map(addr), priority: "background" });
 });
 
@@ -255,14 +255,40 @@ test("a busy queue zeroes the call budget and says so", async () => {
   expect(screen.getByRole("meter", { name: "Calls" })).toHaveAttribute("aria-valuemax", "0");
 });
 
-test("probe cost plus checked calls over today's remaining quota warns", async () => {
+test("the probe cost is its own line; only checked calls are compared with the remaining quota", async () => {
   probeCalls = 5;
   vi.mocked(api.status).mockResolvedValue(status({ quota_used: 4990 }));
   mockCounterparties(range(1, 3).map((n) => cp(n)));
   mount();
-  // Call budget = remaining quota 10: one wallet (6 calls) fits; 6 + 5 probe calls > 10.
-  expect(await screen.findByText("Probe and checked calls exceed today's remaining quota")).toBeInTheDocument();
+  expect(await screen.findByText("Probe: 5 calls (already spent, not part of the work budget)")).toBeInTheDocument();
+  // Call budget = remaining quota 10: one wallet (6 calls) is checked; 6 <= 10, the probe spend is not added again.
+  await waitFor(() => expect(checkedAddrs()).toEqual([addr(1)]));
+  expect(screen.queryByText("Checked calls exceed today's remaining quota")).toBeNull();
+  fireEvent.click(box(2)); // 12 > 10
+  expect(screen.getByText("Checked calls exceed today's remaining quota")).toBeInTheDocument();
   expect(expandBtn()).toBeEnabled();
+});
+
+test("synced candidates cost no calls unless their cached coverage failed or never finished", async () => {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  useGraph.getState().addCenter(ME);
+  const cov = (state: "ok" | "failed", last: string | null) =>
+    [{ kind: "native" as const, from_block: 1, to_block: 2, truncated: false, state, last_synced_at: last }];
+  qc.setQueryData(graphQueryKey(useGraph.getState()), {
+    nodes: [node(999), node(1, { synced: true }), node(2, { synced: true }), node(3, { synced: true })],
+    edges: [], omitted: {},
+    coverage: { [addr(1)]: cov("ok", "2026-10-18T00:00:00Z"), [addr(2)]: cov("failed", "2026-10-18T00:00:00Z"), [addr(3)]: cov("ok", null) },
+  });
+  vi.mocked(api.probe).mockImplementation(async (r) => ({
+    calls: 0,
+    items: r.addresses.map((a) => ({ ...probeAnswer([a]).items[0]!, synced: true })),
+  }));
+  mockCounterparties([cp(1, { synced: true }), cp(2, { synced: true }), cp(3, { synced: true })]);
+  mount({ qc });
+  await screen.findByText("Probed 3 / 3");
+  await waitFor(() => expect(checkedAddrs()).toHaveLength(3));
+  // 0 (fresh) + 6 (failed category) + 6 (never finished)
+  expect(screen.getByRole("meter", { name: "Calls" })).toHaveAttribute("aria-valuenow", "12");
 });
 
 test("Escape and the backdrop close; shortcuts are suppressed while open", async () => {

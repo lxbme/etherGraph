@@ -33,18 +33,18 @@ test("'older' item only appears for partial nodes", () => {
   expect(screen.getByText("Fetch older records")).toBeInTheDocument();
 });
 
-test("wallets and unknown nodes get one 'Expand neighbours…' item; contracts get none", () => {
+test("wallets and unknown nodes get one 'Expand neighbors…' item; contracts get none", () => {
   for (const kind of ["eoa", "unknown"] as const) {
     const onExpand = vi.fn();
     const { unmount } = render(menu(false, kind, onExpand));
     expect(screen.queryByText("Select…")).toBeNull();
     expect(screen.queryByText(/^Top /)).toBeNull();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Expand neighbours…" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Expand neighbors…" }));
     expect(onExpand).toHaveBeenCalledTimes(1);
     unmount();
   }
   render(menu(false, "contract"));
-  expect(screen.queryByRole("menuitem", { name: "Expand neighbours…" })).toBeNull();
+  expect(screen.queryByRole("menuitem", { name: "Expand neighbors…" })).toBeNull();
 });
 
 test("'Remove as center' only shows for centers and removes the center", () => {

@@ -223,14 +223,14 @@ test("'older' menu item syncs with direction older", async () => {
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
-test("'Expand neighbours…' opens the expansion dialog for that node", async () => {
+test("'Expand neighbors…' opens the expansion dialog for that node", async () => {
   const counterparties = vi.spyOn(api, "counterparties").mockResolvedValue({ items: [], total: 0 });
   vi.spyOn(api, "status").mockReturnValue(new Promise(() => {}));
   await mountWithData();
   act(() => props().onCxtNode(A, { x: 1, y: 1 }));
-  act(() => screen.getByRole("menuitem", { name: "Expand neighbours…" }).click());
+  act(() => screen.getByRole("menuitem", { name: "Expand neighbors…" }).click());
   expect(screen.queryByRole("menu")).toBeNull();
-  expect(screen.getByRole("dialog", { name: "Expand neighbours of " + A.slice(0, 6) + "…" + A.slice(-4) })).toBeInTheDocument();
+  expect(screen.getByRole("dialog", { name: "Expand neighbors of " + A.slice(0, 6) + "…" + A.slice(-4) })).toBeInTheDocument();
   expect(counterparties).toHaveBeenCalledWith(A, { sort: "count_asc", limit: 1000, kind: "all" });
   expect(await screen.findByText("No stored counterparties yet. Sync this address first.")).toBeInTheDocument();
 });

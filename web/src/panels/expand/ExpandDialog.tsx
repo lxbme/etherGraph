@@ -5,6 +5,7 @@ import { messageFor } from "../../api/errors";
 import type { GraphResponseDto } from "../../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import type { ProbeItemDto } from "../../api/generated/ProbeItemDto";
+import type { SyncStatusDto } from "../../api/generated/SyncStatusDto";
 import { statusQuery } from "../../api/statusQuery";
 import {
   callBudget,
@@ -64,10 +65,22 @@ function shownGraph(qc: QueryClient): GraphResponseDto | undefined {
 }
 
 /**
- * Probe facts override the summary. Calls: a shallow sync unless the address is fully synced (approximation:
- * a synced address whose rows went stale still costs a shallow sync, which this counts as 0).
+ * Calls of the candidate's shallow sync: none when every category is synced and not truncated, and (when the
+ * cached graph has its coverage) no category failed or never finished. Age-based staleness (the server's
+ * stale_after_secs) is not exposed to the frontend, so a synced address whose rows merely aged still counts as 0.
  */
-function toRow(s: Source, probe: ProbeItemDto | undefined, onCanvas: boolean): Omit<CandidateRow, "heavy"> {
+function syncCalls(synced: boolean, partial: boolean, coverage: SyncStatusDto[] | undefined): number {
+  const fresh = synced && !partial && (coverage ?? []).every((c) => c.state !== "failed" && c.last_synced_at != null);
+  return fresh ? 0 : SHALLOW_CALLS;
+}
+
+/** Probe facts override the summary; `coverage` comes from the cached graph when the candidate is on it. */
+function toRow(
+  s: Source,
+  probe: ProbeItemDto | undefined,
+  onCanvas: boolean,
+  coverage: SyncStatusDto[] | undefined,
+): Omit<CandidateRow, "heavy"> {
   const nonce = probe ? probe.nonce : s.summary.nonce;
   const synced = probe?.synced ?? s.summary.synced;
   const partial = probe?.partial ?? s.summary.partial;
@@ -82,7 +95,7 @@ function toRow(s: Source, probe: ProbeItemDto | undefined, onCanvas: boolean): O
       kind: probe?.kind ?? s.summary.kind,
       hot: s.summary.hot,
       onCanvas,
-      calls: synced && !partial ? 0 : SHALLOW_CALLS,
+      calls: syncCalls(synced, partial, coverage),
       weight: weight({ nonce, localTransfers: probe?.local_transfers ?? s.count }),
     },
   };
@@ -159,7 +172,8 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
     const ui = useGraph.getState().ui;
     const summaries = new Map((g?.nodes ?? []).map((n) => [lc(n.address), n]));
     const onCanvas = new Set([...summaries.keys()].filter((a) => !ui[a]?.hidden));
-    return { summaries, onCanvas };
+    const coverage = new Map(Object.entries(g?.coverage ?? {}).map(([a, c]) => [lc(a), c]));
+    return { summaries, onCanvas, coverage };
   });
 
   const [sources, setSources] = useState<Source[] | null>(() =>
@@ -231,7 +245,9 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
   );
 
   const rows = useMemo(() => {
-    const base = (sources ?? []).map((s) => toRow(s, probe.items.get(s.address), shown.onCanvas.has(s.address)));
+    const base = (sources ?? []).map((s) =>
+      toRow(s, probe.items.get(s.address), shown.onCanvas.has(s.address), shown.coverage.get(s.address)),
+    );
     const heavy = heavySet(new Map(base.map((r) => [r.address, r.cand.weight.value])));
     return base.map((r): CandidateRow => ({ ...r, heavy: heavy.has(r.address) }));
   }, [sources, probe.items, shown]);
@@ -321,20 +337,22 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
         )}
         {sources != null && sources.length > 0 && (
           <div className="expand__footer">
-            <span>{t("expand.probed", { probed: probe.probed, total: order.length, count: probe.calls })}</span>
+            <span>{t("expand.probed", { probed: probe.probed, total: order.length })}</span>
             <button type="button" className="btn btn--compact" disabled={probe.busy || probe.remaining === 0} onClick={more}>
               {t("expand.probeMore")}
             </button>
             {probe.error != null && <span className="dialog__error" role="alert">{messageFor(probe.error)}</span>}
           </div>
         )}
+        {probe.calls > 0 && <div className="dialog__summary">{t("expand.probeCost", { count: probe.calls })}</div>}
         <div className="expand__warnings" aria-live="polite">
           {used.overNodes && <div className="dialog__warn">{t("expand.overNodes", { count: used.nodes - budget.nodes })}</div>}
           {used.overCalls && (
             <div className="dialog__warn">{t("expand.overCalls", { count: used.calls - budget.calls, seconds })}</div>
           )}
           {budget.calls === 0 && queued > 0 && <div className="dialog__warn">{t("expand.queueBusy", { count: queued })}</div>}
-          {quotaLeft != null && probe.calls + used.calls > quotaLeft && <div className="dialog__warn">{t("expand.overQuota")}</div>}
+          {/* The latest status's quota already includes the probe spend: compare the checked calls only. */}
+          {quotaLeft != null && used.calls > quotaLeft && <div className="dialog__warn">{t("expand.overQuota")}</div>}
           {noDefaults && <div className="dialog__warn">{t("expand.none")}</div>}
         </div>
         <div className="dialog__actions">
