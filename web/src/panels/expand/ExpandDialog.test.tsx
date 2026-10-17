@@ -9,7 +9,7 @@ import type { StatusDto } from "../../api/generated/StatusDto";
 import { useCanvasMetrics } from "../../graph/canvasMetrics";
 import { useGraph } from "../../graph/store";
 import { graphQueryKey } from "../../graph/useGraphData";
-import { useQuota } from "../../shell/statusStore";
+import { useJobProgress, useQuota } from "../../shell/statusStore";
 import { clearToasts, Toasts } from "../../shell/Toasts";
 import { ExpandDialog } from "./ExpandDialog";
 
@@ -43,12 +43,12 @@ function mockCounterparties(items: CounterpartyDto[]) {
   return vi.spyOn(api, "counterparties").mockResolvedValue({ items, total: items.length });
 }
 
-function mount(props: { preset?: string[]; onClose?: () => void; qc?: QueryClient } = {}) {
+function mount(props: { preset?: string[]; onClose?: () => void; qc?: QueryClient; node?: Partial<NodeSummaryDto> } = {}) {
   const qc = props.qc ?? new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onClose = props.onClose ?? vi.fn();
   const r = render(
     <QueryClientProvider client={qc}>
-      <ExpandDialog node={node(999, { kind: "eoa" })} preset={props.preset} onClose={onClose} />
+      <ExpandDialog node={node(999, { kind: "eoa", synced: true, ...props.node })} preset={props.preset} onClose={onClose} />
       <Toasts />
     </QueryClientProvider>,
   );
@@ -419,4 +419,47 @@ test("Escape and the backdrop close; shortcuts are suppressed while open", async
   expect(onClose).toHaveBeenCalledTimes(1);
   fireEvent.click(document.querySelector(".dialog-backdrop")!);
   expect(onClose).toHaveBeenCalledTimes(2);
+});
+
+test("an unsynced node is shallow-synced on open; its candidates load once the sync job ends", async () => {
+  const sync = vi.spyOn(api, "sync").mockResolvedValue({ estimated_calls: null, estimated_seconds: null, per_address: null, jobs: [5] });
+  useJobProgress.setState({ byId: {} });
+  const counterparties = vi
+    .spyOn(api, "counterparties")
+    .mockResolvedValueOnce({ items: [], total: 0 })
+    .mockResolvedValue({ items: [cp(1), cp(2)], total: 2 });
+  mount({ node: { synced: false } });
+  await waitFor(() => expect(sync).toHaveBeenCalledWith({ addresses: [ME], depth: "shallow" }));
+  expect(await screen.findByText(/Syncing this address/)).toBeInTheDocument();
+  expect(screen.queryByText(/No stored counterparties/)).toBeNull();
+  act(() =>
+    useJobProgress.getState().upsert({ type: "JobProgress", job_id: 5, kind: "sync_address", fetched: 0, cursor_block: null, status: "done", error: null }),
+  );
+  expect(await screen.findByRole("checkbox", { name: addr(1) })).toBeInTheDocument();
+  expect(screen.queryByText(/Syncing this address/)).toBeNull();
+  expect(counterparties).toHaveBeenCalledTimes(2);
+});
+
+test("a synced or syncing node is not synced again; a data-changed invalidation reloads its candidates", async () => {
+  const sync = vi.spyOn(api, "sync");
+  const counterparties = mockCounterparties([cp(1)]);
+  const { qc } = mount({ node: { synced: false, syncing: true } });
+  await screen.findByRole("checkbox", { name: addr(1) });
+  expect(sync).not.toHaveBeenCalled();
+  counterparties.mockResolvedValue({ items: [cp(1), cp(2)], total: 2 });
+  await act(() => qc.invalidateQueries({ queryKey: ["counterparties", ME] }));
+  expect(await screen.findByRole("checkbox", { name: addr(2) })).toBeInTheDocument();
+});
+
+test("preset candidates leave out current centers (Undo must not cancel their syncs)", async () => {
+  useGraph.getState().addCenter(addr(2));
+  mount({ preset: [addr(1), addr(2)] });
+  await waitFor(() => expect(checkedAddrs()).toEqual([addr(1)]));
+  expect(screen.queryByRole("checkbox", { name: addr(2) })).toBeNull();
+});
+
+test("the probe counter names the stored total when more counterparties exist than were loaded", async () => {
+  vi.spyOn(api, "counterparties").mockResolvedValue({ items: range(1, 3).map((n) => cp(n)), total: 1500 });
+  mount();
+  expect(await screen.findByText("Probed 3 / 3 of 1,500")).toBeInTheDocument();
 });

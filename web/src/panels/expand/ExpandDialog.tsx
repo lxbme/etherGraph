@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import { messageFor } from "../../api/errors";
 import type { GraphResponseDto } from "../../api/generated/GraphResponseDto";
@@ -28,9 +28,12 @@ import { useQuota } from "../../shell/statusStore";
 import { dismissToast, toast } from "../../shell/Toasts";
 import { CandidateList, type CandidateRow } from "./CandidateList";
 import { useProbe } from "./useProbe";
+import { useSyncOnOpen } from "./useSyncOnOpen";
 
 /** Permits per second assumed until /api/status answers. */
 const FALLBACK_RATE = 2.8;
+/** The candidate list: the node's stored counterparties, fewest transfers first. */
+const CANDIDATE_QUERY = { sort: "count_asc", limit: 1000, kind: "all" } as const;
 /** Most addresses one POST /api/sync accepts. */
 const SYNC_MAX = 50;
 
@@ -41,7 +44,10 @@ export interface ExpandDialogProps {
   node: NodeSummaryDto;
   /** Candidates picked elsewhere (e.g. a contract's interactions): no counterparties request, all start checked. */
   preset?: string[];
+  /** Cancel (or Escape / backdrop). */
   onClose(): void;
+  /** After a confirmed expansion; defaults to `onClose`. */
+  onDone?(): void;
 }
 
 /** A candidate before probing: its summary and its transfer count with the expanded address. */
@@ -160,7 +166,7 @@ function BudgetBar({ label, used, budget }: { label: string; used: number; budge
  * Budgets are soft: going over warns, never blocks. Confirming syncs shallow under a new batch and expands
  * as one undoable step.
  */
-export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
+export function ExpandDialog({ node, preset, onClose, onDone = onClose }: ExpandDialogProps) {
   const t = useT();
   const qc = useQueryClient();
   const self = lc(node.address);
@@ -176,15 +182,39 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
     return { summaries, onCanvas, coverage };
   });
 
-  const [sources, setSources] = useState<Source[] | null>(() =>
-    preset
-      ? [...new Set(preset.map(lc))].map((a) => ({ address: a, summary: shown.summaries.get(a) ?? placeholder(a), count: null }))
-      : null,
-  );
-  // The raw error, translated at render time so a language switch re-renders it.
-  const [loadError, setLoadError] = useState<{ cause: unknown } | null>(null);
+  // Preset picks, minus the node itself and current centers: an expansion's Undo cancels its batch, which must
+  // not stop a sync an existing center started.
+  const [presetSources] = useState<Source[] | null>(() => {
+    if (!preset) return null;
+    const centers = new Set(useGraph.getState().centers.map(lc));
+    return [...new Set(preset.map(lc))]
+      .filter((a) => a !== self && !centers.has(a))
+      .map((a) => ({ address: a, summary: shown.summaries.get(a) ?? placeholder(a), count: null }));
+  });
+  // Prefix ["counterparties", self]: refetched on AddressDataChanged for the node (see useEvents).
+  const counterparties = useQuery({
+    queryKey: ["counterparties", self, CANDIDATE_QUERY],
+    queryFn: () => api.counterparties(self, CANDIDATE_QUERY),
+    enabled: !preset,
+  });
+  // An unsynced node has no stored counterparties yet: sync it (shallow) and reload when its job ends.
+  const syncing = useSyncOnOpen(node, () => void counterparties.refetch(), !preset);
+  const page = counterparties.data;
+  const sources = useMemo((): Source[] | null => {
+    if (presetSources) return presetSources;
+    if (!page) return null;
+    const centers = new Set(useGraph.getState().centers.map(lc));
+    const out: Source[] = [];
+    for (const c of page.items) {
+      const a = lc(c.node.address);
+      if (a !== self && !centers.has(a)) out.push({ address: a, summary: c.node, count: c.count });
+    }
+    return out;
+  }, [presetSources, page, self]);
   const [submitting, setSubmitting] = useState(false);
-  const [manual, setManual] = useState<Set<string> | null>(() => (preset ? new Set(preset.map(lc)) : null));
+  const [manual, setManual] = useState<Set<string> | null>(() =>
+    presetSources ? new Set(presetSources.map((s) => s.address)) : null,
+  );
   // Collapsed by default; open for a preset, whose contracts were picked by hand and start checked.
   const [contractsOpen, setContractsOpen] = useState(!!preset);
   const alive = useRef(true);
@@ -192,28 +222,8 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
   const submittingRef = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  const load = useCallback(() => {
-    setLoadError(null);
-    api
-      .counterparties(self, { sort: "count_asc", limit: 1000, kind: "all" })
-      .then((page) => {
-        if (!alive.current) return;
-        const centers = new Set(useGraph.getState().centers);
-        const out: Source[] = [];
-        for (const c of page.items) {
-          const a = lc(c.node.address);
-          if (a !== self && !centers.has(a)) out.push({ address: a, summary: c.node, count: c.count });
-        }
-        setSources(out);
-      })
-      .catch((err: unknown) => {
-        if (alive.current) setLoadError({ cause: err });
-      });
-  }, [self]);
-
   useEffect(() => {
     alive.current = true;
-    if (!preset) load();
     dialogRef.current?.focus();
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && !submittingRef.current && onClose();
     window.addEventListener("keydown", onKey);
@@ -317,7 +327,7 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
     const newSelf = selected.filter((r) => !r.cand.onCanvas).length;
     useGraph.getState().expand(addresses, batch, perCenterBatch(budget.nodes, addresses.length, newSelf));
     offerUndo(addresses.length);
-    onClose();
+    onDone();
   };
 
   return (
@@ -328,17 +338,22 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
           <BudgetBar label={t("expand.budget.nodes")} used={used.nodes} budget={budget.nodes} />
           <BudgetBar label={t("expand.budget.calls")} used={used.calls} budget={budget.calls} />
         </div>
+        {syncing && (sources == null || sources.length === 0) && (
+          <div className="dialog__summary">{t("expand.syncing")}</div>
+        )}
         {sources == null ? (
-          loadError != null ? (
+          counterparties.isError ? (
             <div className="dialog__error" role="alert">
-              {messageFor(loadError.cause)}{" "}
-              <button type="button" className="btn btn--compact" onClick={load}>{t("common.retry")}</button>
+              {messageFor(counterparties.error)}{" "}
+              <button type="button" className="btn btn--compact" onClick={() => void counterparties.refetch()}>
+                {t("common.retry")}
+              </button>
             </div>
           ) : (
-            <div className="dialog__summary">{t("expand.loading")}</div>
+            !syncing && <div className="dialog__summary">{t("expand.loading")}</div>
           )
         ) : sources.length === 0 ? (
-          <div className="dialog__summary">{t("expand.empty")}</div>
+          !syncing && <div className="dialog__summary">{t("expand.empty")}</div>
         ) : (
           <CandidateList
             wallets={wallets}
@@ -351,7 +366,11 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
         )}
         {sources != null && sources.length > 0 && (
           <div className="expand__footer">
-            <span>{t("expand.probed", { probed: probe.probed, total: order.length })}</span>
+            <span>
+              {page && page.total > page.items.length
+                ? t("expand.probedOf", { probed: probe.probed, total: order.length, all: formatCount(page.total) })
+                : t("expand.probed", { probed: probe.probed, total: order.length })}
+            </span>
             <button type="button" className="btn btn--compact" disabled={probe.busy || probe.remaining === 0} onClick={more}>
               {t("expand.probeMore")}
             </button>

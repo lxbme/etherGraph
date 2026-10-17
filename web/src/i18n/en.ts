@@ -222,6 +222,8 @@ export const en = {
   "expand.loading": "Loading counterparties…",
   "expand.empty": "No stored counterparties yet. Sync this address first.",
   "expand.probed": "Probed {probed} / {total}",
+  "expand.probedOf": "Probed {probed} / {total} of {all}",
+  "expand.syncing": "Syncing this address… candidates fill in when its records arrive.",
   "expand.probeCost": { one: "Probe: {count} call (already spent, not part of the work budget)", other: "Probe: {count} calls (already spent, not part of the work budget)" },
   "expand.probeMore": "Probe more",
   "expand.overNodes": { one: "{count} node over the canvas budget", other: "{count} nodes over the canvas budget" },

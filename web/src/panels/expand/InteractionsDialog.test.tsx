@@ -179,3 +179,24 @@ test("confirming opens the expansion dialog with exactly the picked candidates, 
   expect(boxes.every((b) => b.checked)).toBe(true);
   expect(within(dlg).getByRole("meter", { name: "Nodes" })).toBeInTheDocument();
 });
+
+test("cancelling the expansion dialog returns to the list with the picks intact; confirming closes both", async () => {
+  vi.spyOn(api, "counterparties").mockResolvedValue({ items: [cp(1), cp(2), cp(3)], total: 3 });
+  vi.spyOn(api, "sync").mockResolvedValue({ estimated_calls: null, estimated_seconds: null, per_address: null, jobs: [1] });
+  const { onClose } = mount();
+  fireEvent.click(await screen.findByRole("checkbox", { name: addr(1) }));
+  fireEvent.click(screen.getByRole("checkbox", { name: addr(3) }));
+  fireEvent.click(screen.getByRole("button", { name: "Expand selected (2)" }));
+  let dlg = await screen.findByRole("dialog", { name: /Expand neighbors of/ });
+  fireEvent.click(within(dlg).getByRole("button", { name: "Cancel" }));
+  expect(onClose).not.toHaveBeenCalled();
+  expect(await screen.findByRole("button", { name: "Expand selected (2)" })).toBeEnabled();
+  expect((screen.getByRole("checkbox", { name: addr(1) }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("checkbox", { name: addr(3) }) as HTMLInputElement).checked).toBe(true);
+
+  fireEvent.click(screen.getByRole("button", { name: "Expand selected (2)" }));
+  dlg = await screen.findByRole("dialog", { name: /Expand neighbors of/ });
+  await waitFor(() => expect(within(dlg).getAllByRole("checkbox")).toHaveLength(2));
+  await act(async () => fireEvent.click(within(dlg).getByRole("button", { name: "Expand" })));
+  expect(onClose).toHaveBeenCalled();
+});

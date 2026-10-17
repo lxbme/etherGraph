@@ -224,6 +224,8 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "expand.loading": "正在加载交易对手…",
   "expand.empty": "库中还没有交易对手。请先同步这个地址。",
   "expand.probed": "已探测 {probed} / {total}",
+  "expand.probedOf": "已探测 {probed} / {total}（共 {all}）",
+  "expand.syncing": "正在同步这个地址…记录到达后候选会自动补全。",
   "expand.probeCost": { one: "探测：{count} 次调用（已消耗，不占工作预算）", other: "探测：{count} 次调用（已消耗，不占工作预算）" },
   "expand.probeMore": "继续探测",
   "expand.overNodes": { one: "超出画布预算 {count} 个节点", other: "超出画布预算 {count} 个节点" },

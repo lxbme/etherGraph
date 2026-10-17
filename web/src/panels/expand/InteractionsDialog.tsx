@@ -8,16 +8,13 @@ import { useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
 import { NATIVE_SYMBOL } from "../../lib/assets";
 import { formatCount, formatLocalTime, formatTime } from "../../lib/format";
-import { ACTIVE_JOB_STATUSES, useJobProgress } from "../../shell/statusStore";
-import { toast } from "../../shell/Toasts";
 import { ExpandDialog } from "./ExpandDialog";
+import { useSyncOnOpen } from "./useSyncOnOpen";
 
 /** Rows per "Load more" page. */
 const PAGE = 100;
 /** Most asset symbols shown per row; the rest collapse into "+N". */
 const MAX_SYMBOLS = 3;
-/** How often the active jobs list is checked while the contract syncs. */
-const JOBS_POLL_MS = 5000;
 const DAY_MS = 86_400_000;
 
 type Sort = "count_desc" | "recent";
@@ -96,24 +93,7 @@ export function InteractionsDialog({ contract, onClose }: InteractionsDialogProp
   // Kept across pages and filter changes.
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [expanding, setExpanding] = useState<string[] | null>(null);
-  // Ids of the sync jobs started on open that have not finished; the note shows while any is pending.
-  const [pendingJobs, setPendingJobs] = useState<number[]>([]);
-  // True while the sync request itself is in flight (the note shows at once).
-  const [requesting, setRequesting] = useState(!contract.synced && !contract.syncing);
-  const syncing = requesting || pendingJobs.length > 0 || contract.syncing;
-  const seenJobs = useRef(new Set<number>());
   const dialogRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (contract.synced || contract.syncing) return;
-    api
-      .sync({ addresses: [addr], depth: "shallow" })
-      .then((r) => setPendingJobs(r.jobs ?? []))
-      .catch((err: unknown) => toast(messageFor(err), "error"))
-      .finally(() => setRequesting(false));
-    // Once, on open.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const query = useInfiniteQuery({
     // Prefix ["counterparties", addr]: invalidated on AddressDataChanged for the contract.
@@ -131,50 +111,8 @@ export function InteractionsDialog({ contract, onClose }: InteractionsDialogProp
     ...new Map((query.data?.pages.flatMap((p) => p.items) ?? []).map((i) => [lc(i.node.address), i])).values(),
   ];
   const total = query.data?.pages[0]?.total ?? 0;
-
-  // A job is done when its progress is terminal, or when it vanished after having been seen (the status
-  // refresh drops finished jobs).
-  useEffect(() => {
-    if (pendingJobs.length === 0) return;
-    const check = () => {
-      const byId = useJobProgress.getState().byId;
-      const left = pendingJobs.filter((id) => {
-        const e = byId[id];
-        if (e) {
-          seenJobs.current.add(id);
-          return ACTIVE_JOB_STATUSES.has(e.status);
-        }
-        return !seenJobs.current.has(id);
-      });
-      if (left.length < pendingJobs.length) {
-        setPendingJobs(left);
-        // The job's rows are in: show them without waiting for the coalesced event.
-        void query.refetch();
-      }
-    };
-    check();
-    const unsubscribe = useJobProgress.subscribe(check);
-    // Fallback when a terminal event never arrives (dropped stream): ids absent from the active list are done.
-    const timer = setInterval(() => {
-      api
-        .jobs()
-        .then((active) => {
-          const live = new Set(active.map((j) => j.id));
-          setPendingJobs((cur) => {
-            const left = cur.filter((id) => live.has(id));
-            if (left.length === cur.length) return cur;
-            void query.refetch();
-            return left;
-          });
-        })
-        .catch(() => {});
-    }, JOBS_POLL_MS);
-    return () => {
-      unsubscribe();
-      clearInterval(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingJobs]);
+  // The job's rows are in: show them without waiting for the coalesced event.
+  const syncing = useSyncOnOpen(contract, () => void query.refetch());
 
   useEffect(() => {
     if (expanding) return;
@@ -191,7 +129,17 @@ export function InteractionsDialog({ contract, onClose }: InteractionsDialogProp
       return next;
     });
 
-  if (expanding) return <ExpandDialog node={contract} preset={expanding.filter((a) => a !== addr)} onClose={onClose} />;
+  // Cancelling the expansion comes back to this list, picks intact; a confirmed one closes both.
+  if (expanding) {
+    return (
+      <ExpandDialog
+        node={contract}
+        preset={expanding.filter((a) => a !== addr)}
+        onClose={() => setExpanding(null)}
+        onDone={onClose}
+      />
+    );
+  }
 
   const title = t("interactions.title", { name: contract.display_name ?? contract.contract_name ?? shortAddr(addr) });
   return (
