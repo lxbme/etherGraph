@@ -266,12 +266,6 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
     () => new Set(defaultSelection(measured.map((r) => r.cand), budget).selected),
     [measured, budget],
   );
-  // Would an estimated wallet make the selection if its estimate held? Then it must be probed first.
-  const estimateRanksIn = useMemo(() => {
-    const estimated = new Set(rows.filter((r) => r.cand.weight.estimated).map((r) => r.address));
-    if (estimated.size === 0) return false;
-    return defaultSelection(rows.map((r) => r.cand), budget).selected.some((a) => estimated.has(a));
-  }, [rows, budget]);
   // Until the user changes a box, the checks follow the default selection as probe results arrive.
   const checked = manual ?? defaults;
   const toggle = (a: string) => {
@@ -280,16 +274,20 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
     setManual(next);
   };
 
-  // Probe on while the defaults are starved (they take every eligible measured wallet, so the budget is not
-  // filled yet) or an estimated wallet would rank within the selection. A failed chunk waits for "Probe more".
+  // Spec §5.3 (ruling R14): probe on while the defaults are starved (they take every eligible probed wallet: not
+  // limited by the budget yet); once they are budget-limited, probe exactly one more chunk, then stop. Further
+  // chunks only via "Probe more"; a failed chunk also waits for it.
   const eligible = (r: CandidateRow) => r.cand.kind !== "contract" && !r.cand.hot && !r.heavy;
   const starved = measured.filter(eligible).every((r) => defaults.has(r.address));
-  const needMore = !preset && probe.remaining > 0 && probe.error == null && (starved || estimateRanksIn);
+  const autoProbe = !preset && probe.remaining > 0 && probe.error == null;
+  const extraChunkSent = useRef(false);
   const { busy: probing, more, items: probedItems } = probe;
   // `probedItems`: a whole chunk can land within one render, leaving the other inputs unchanged.
   useEffect(() => {
-    if (needMore && !probing) more();
-  }, [needMore, probing, probedItems, more]);
+    if (!autoProbe || probing) return;
+    if (starved) more();
+    else if (!extraChunkSent.current && more()) extraChunkSent.current = true;
+  }, [autoProbe, starved, probing, probedItems, more]);
 
   const selected = useMemo(
     () => [...wallets, ...contracts].filter((r) => checked.has(r.address)),

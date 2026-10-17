@@ -12,8 +12,11 @@ export interface ProbeState {
   remaining: number;
   /** Upstream calls the probes made (cache hits cost none). */
   calls: number;
-  /** Probes the next chunk (background priority; after a failure, the failed one again); a no-op while one is in flight or nothing is left. */
-  more(): void;
+  /**
+   * Probes the next chunk (background priority; after a failure, the failed one again). Returns whether a request
+   * was sent: false while one is in flight, after unmount, or when nothing is left.
+   */
+  more(): boolean;
   busy: boolean;
   /** The last failed chunk's error, cleared by the next success. A failed chunk is not retried by itself. */
   error: unknown;
@@ -51,9 +54,9 @@ export function useProbe(addresses: string[]): ProbeState {
     list.current = addresses;
   }, [addresses]);
 
-  const probeNext = useCallback((priority: "interactive" | "background") => {
+  const probeNext = useCallback((priority: "interactive" | "background"): boolean => {
     const all = list.current;
-    if (!alive.current || inFlight.current || sentRef.current >= all.length) return;
+    if (!alive.current || inFlight.current || sentRef.current >= all.length) return false;
     const chunk = all.slice(sentRef.current, sentRef.current + PROBE_CHUNK);
     sentRef.current += chunk.length;
     inFlight.current = true;
@@ -82,6 +85,7 @@ export function useProbe(addresses: string[]): ProbeState {
         inFlight.current = false;
         if (alive.current) setBusy(false);
       });
+    return true;
   }, []);
 
   // The first chunk, as soon as there is something to probe.

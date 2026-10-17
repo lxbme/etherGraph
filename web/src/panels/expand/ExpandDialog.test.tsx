@@ -72,25 +72,30 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-test("candidates come from counterparties (centers excluded); the first probe asks for 20 addresses interactively", async () => {
-  useGraph.getState().addCenter(addr(31));
-  const counterparties = mockCounterparties([...range(1, 30).map((n) => cp(n)), cp(31)]);
+test("candidates come from counterparties (centers excluded); chunk 1 is interactive, then exactly one extra chunk once the budget binds", async () => {
+  useGraph.getState().addCenter(addr(61));
+  const counterparties = mockCounterparties([...range(1, 60).map((n) => cp(n)), cp(61)]);
   mount();
   await waitFor(() => expect(api.probe).toHaveBeenCalled());
   expect(counterparties).toHaveBeenCalledWith(ME, { sort: "count_asc", limit: 1000, kind: "all" });
   expect(vi.mocked(api.probe).mock.calls[0]![0]).toEqual({ addresses: range(1, 20).map(addr), priority: "interactive" });
-  expect(await screen.findByText("Probed 20 / 30")).toBeInTheDocument();
-  expect(screen.queryByRole("checkbox", { name: addr(31) })).toBeNull();
-  // The 10 lightest fill the node budget long before the 20 probed run out: no second chunk.
+  expect(screen.queryByRole("checkbox", { name: addr(61) })).toBeNull();
+  // Chunk 1 already fills the node budget (10 picks): one more chunk, then probing stops.
+  expect(await screen.findByText("Probed 40 / 60")).toBeInTheDocument();
+  expect(vi.mocked(api.probe).mock.calls[1]![0]).toEqual({ addresses: range(21, 40).map(addr), priority: "background" });
   await new Promise((r) => setTimeout(r, 20));
-  expect(api.probe).toHaveBeenCalledTimes(1);
+  expect(api.probe).toHaveBeenCalledTimes(2);
+  // Further chunks only on demand.
+  fireEvent.click(screen.getByRole("button", { name: "Probe more" }));
+  expect(await screen.findByText("Probed 60 / 60")).toBeInTheDocument();
+  expect(vi.mocked(api.probe).mock.calls[2]![0]).toEqual({ addresses: range(41, 60).map(addr), priority: "background" });
 });
 
 test("the lightest non-heavy wallets are checked by default; checking a Heavy one warns but does not block", async () => {
   nonces[addr(5)] = 100_000; // a Tukey outlier among nonces 1…30
   mockCounterparties(range(1, 30).map((n) => cp(n)));
   mount();
-  await screen.findByText("Probed 20 / 30");
+  await screen.findByText("Probed 30 / 30");
   const heavyRow = box(5).closest("tr")!;
   expect(within(heavyRow).getByText("Heavy")).toBeInTheDocument();
   await waitFor(() => expect(checkedAddrs()).toEqual([1, 2, 3, 4, 6, 7, 8, 9, 10, 11].map(addr)));
@@ -116,10 +121,11 @@ test("the lightest non-heavy wallets are checked by default; checking a Heavy on
 });
 
 test("unprobed wallets show an estimated weight", async () => {
-  mockCounterparties(range(1, 25).map((n) => cp(n)));
+  mockCounterparties(range(1, 50).map((n) => cp(n)));
   mount();
-  await screen.findByText("Probed 20 / 25");
-  expect(within(box(25).closest("tr")!).getByText("est.")).toBeInTheDocument();
+  await screen.findByText("Probed 40 / 50");
+  expect(within(box(45).closest("tr")!).getByText("est.")).toBeInTheDocument();
+  expect(box(45).checked).toBe(false);
   expect(within(box(1).closest("tr")!).queryByText("est.")).toBeNull();
 });
 
@@ -176,23 +182,25 @@ test("with room left after the first chunk, the next chunk is probed in the back
   expect(vi.mocked(api.probe).mock.calls[1]![0]).toEqual({ addresses: range(21, 30).map(addr), priority: "background" });
 });
 
-test("estimated wallets are never defaults while unprobed ones remain; probing goes on until the defaults rest on probed weights", async () => {
-  for (const n of range(1, 30)) nonces[addr(n)] = 1000 * n; // real weights far above the count-based estimates
+test("estimated wallets are never defaults; with real weights far above the estimates, probing still stops one chunk after the budget binds", async () => {
+  for (const n of range(1, 60)) nonces[addr(n)] = 1000 * n; // real weights far above the count-based estimates
   let releaseSecond: () => void = () => {};
   vi.mocked(api.probe)
     .mockImplementationOnce(async (r) => probeAnswer(r.addresses))
     .mockImplementationOnce((r) => new Promise((res) => { releaseSecond = () => res(probeAnswer(r.addresses)); }));
-  mockCounterparties(range(1, 30).map((n) => cp(n)));
+  mockCounterparties(range(1, 60).map((n) => cp(n)));
   mount();
   await waitFor(() => expect(api.probe).toHaveBeenCalledTimes(2));
-  expect(vi.mocked(api.probe).mock.calls[1]![0]).toEqual({ addresses: range(21, 30).map(addr), priority: "background" });
-  // While chunk 2 is out: only probed wallets are checked (the 10 lightest probed ones).
+  expect(vi.mocked(api.probe).mock.calls[1]![0]).toEqual({ addresses: range(21, 40).map(addr), priority: "background" });
+  // While chunk 2 is out: only probed wallets are checked (the 10 lightest probed ones), none estimated.
   expect(checkedAddrs()).toEqual(range(1, 10).map(addr));
   await act(async () => releaseSecond());
-  await screen.findByText("Probed 30 / 30");
+  await screen.findByText("Probed 40 / 60");
+  await new Promise((r) => setTimeout(r, 20));
+  expect(api.probe).toHaveBeenCalledTimes(2);
   expect(checkedAddrs()).toEqual(range(1, 10).map(addr));
   for (const n of range(1, 10)) expect(within(box(n).closest("tr")!).queryByText("est.")).toBeNull();
-  expect(api.probe).toHaveBeenCalledTimes(2);
+  expect(within(box(41).closest("tr")!).getByText("est.")).toBeInTheDocument();
 });
 
 test("a failed probe chunk shows the error, is not retried by itself, and 'Probe more' re-sends the same addresses", async () => {
@@ -204,7 +212,7 @@ test("a failed probe chunk shows the error, is not retried by itself, and 'Probe
   expect(api.probe).toHaveBeenCalledTimes(1);
   expect(checkedAddrs()).toEqual([]); // nothing probed: no estimated defaults
   fireEvent.click(screen.getByRole("button", { name: "Probe more" }));
-  await screen.findByText("Probed 20 / 30");
+  await waitFor(() => expect(api.probe).toHaveBeenCalledTimes(2));
   expect(vi.mocked(api.probe).mock.calls[1]![0].addresses).toEqual(range(1, 20).map(addr));
 });
 
