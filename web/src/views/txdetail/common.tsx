@@ -2,23 +2,16 @@ import { Fragment, useMemo, useState, type MouseEvent, type ReactNode } from "re
 import type { DecodedArgDto } from "../../api/generated/DecodedArgDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import type { TxFlowDto } from "../../api/generated/TxFlowDto";
-import { useGraph } from "../../graph/store";
-import { t, useT } from "../../i18n";
-import { CopyButton } from "../../shell/CopyButton";
+import { useT } from "../../i18n";
 import { useUi } from "../../panels/uiStore";
+import { AddressCell } from "../../shell/AddressCell";
+import { CopyButton } from "../../shell/CopyButton";
 import { useTabs } from "../../shell/tabs";
-import { toast } from "../../shell/Toasts";
 
 /** Values longer than this are folded until expanded. */
 export const LONG_VALUE = 120;
 /** Hex data larger than this many bytes is folded until expanded. */
 export const FOLD_BYTES = 4096;
-
-/** The transaction tab's "Add to graph": the address becomes a center of the (hidden) address graph. */
-export function addToGraph(address: string) {
-  useGraph.getState().addCenter(address.toLowerCase());
-  toast(t("tx.added"));
-}
 
 /**
  * Links a detail table to the tx graph: `select` picks an address as the tab's selected node (the right panel
@@ -68,24 +61,13 @@ export function hexLines(hex: string, selector: boolean): string[] {
 
 const ADDRESS = /(0x[0-9a-fA-F]{40})(?![0-9a-fA-F])/;
 
-/** An address as a button that adds it to the graph, with its name (if known) and a copy button. */
-export function AddressButton({ address, node }: { address: string; node?: NodeSummaryDto }) {
-  const t = useT();
-  const name = node?.display_name ?? node?.contract_name ?? null;
-  return (
-    <span className="txdetail__addr">
-      <button type="button" className="detail__link detail__mono" title={t("tx.addToGraph")} onClick={() => addToGraph(address)}>
-        {address}
-      </button>
-      {name && <span className="detail__muted">{name}</span>}
-      <CopyButton value={address} />
-    </span>
-  );
-}
-
-/** A decoded argument value: addresses are clickable (also inside arrays / tuples); long values fold. */
+/**
+ * A decoded argument value; long values fold. Addresses (also inside arrays / tuples) are address cells: the text
+ * selects the node in the tx graph, "+" adds it to the address graph.
+ */
 export function ArgValue({ arg, flow }: { arg: DecodedArgDto; flow: TxFlowDto }) {
   const t = useT();
+  const { select } = useFlowLink(flow.tx.hash);
   const long = arg.value.length > LONG_VALUE;
   const [open, setOpen] = useState(false);
   let body: ReactNode;
@@ -95,7 +77,11 @@ export function ArgValue({ arg, flow }: { arg: DecodedArgDto; flow: TxFlowDto })
     body = (
       <span className="detail__mono">
         {arg.value.split(ADDRESS).map((part, i) =>
-          i % 2 === 1 ? <AddressButton key={i} address={part} node={nodeOf(flow, part)} /> : <Fragment key={i}>{part}</Fragment>,
+          i % 2 === 1 ? (
+            <AddressCell key={i} address={part} node={nodeOf(flow, part)} onSelect={select} />
+          ) : (
+            <Fragment key={i}>{part}</Fragment>
+          ),
         )}
       </span>
     );

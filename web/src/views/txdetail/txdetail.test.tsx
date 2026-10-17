@@ -6,6 +6,7 @@ import type { DecodedEventDto } from "../../api/generated/DecodedEventDto";
 import type { TxFlowDto } from "../../api/generated/TxFlowDto";
 import { useGraph } from "../../graph/store";
 import { useLocale } from "../../i18n";
+import { useUi } from "../../panels/uiStore";
 import { useTabs } from "../../shell/tabs";
 import { TxDetailTabs } from "./TxDetailTabs";
 
@@ -156,16 +157,27 @@ test("blob fields, the revert reason and a created contract appear when present"
   expect(within(valueOf("Contract created")).getByTitle(CREATED)).toBeInTheDocument();
 });
 
-test("Input lists the decoded arguments; address arguments are buttons that add to the graph", () => {
+/** The address cell (name button, copy, add) of `address` within `scope`. */
+const cellOf = (address: string, scope: HTMLElement = document.body) =>
+  within(within(scope).getByTitle(address).closest(".addr-cell") as HTMLElement);
+
+test("Input lists the decoded arguments; address arguments select the tx-graph node or add it to the graph", () => {
   renderTabs(base());
   fireEvent.click(tab("Input"));
   expect(screen.getByText("swapExactETHForTokens(uint256,address[],address,uint256)")).toBeInTheDocument();
   expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["Name", "Type", "Value"]);
-  fireEvent.click(screen.getByRole("button", { name: ALICE }));
+  const table = screen.getByRole("table");
+  // The address text selects the node in the tx graph (the right panel follows); "+" adds it to the main graph.
+  fireEvent.click(cellOf(ALICE, table).getByRole("button", { name: /^0xa11c/ }));
+  expect(useUi.getState().txSelection[fixture.flow.tx.hash.toLowerCase()]).toBe(ALICE);
+  expect(useGraph.getState().centers).not.toContain(ALICE);
+  fireEvent.click(cellOf(ALICE, table).getByRole("button", { name: "Add to graph" }));
   expect(useGraph.getState().centers).toContain(ALICE);
-  // Addresses inside an address[] are clickable too.
-  fireEvent.click(screen.getByRole("button", { name: WETH }));
+  // Addresses inside an address[] get the same cell; "+" also reveals a hidden node.
+  useGraph.getState().setHidden([WETH], true);
+  fireEvent.click(cellOf(WETH, table).getByRole("button", { name: "Add to graph" }));
   expect(useGraph.getState().centers).toContain(WETH);
+  expect(useGraph.getState().ui[WETH]?.hidden).toBe(false);
   // Raw hex is behind a toggle, in 64-character lines after the selector.
   expect(screen.queryByText(/^0x7ff36ab5$/m)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Raw hex" }));
@@ -240,10 +252,10 @@ test("Logs show decoded cards that switch to raw topics and data, capped at 200 
   expect(cards()).toHaveLength(200);
   const first = cards()[0]!;
   expect(within(first).getByText("Transfer")).toBeInTheDocument();
-  expect(within(first).getByRole("button", { name: BOB })).toBeInTheDocument();
+  expect(within(first).getByTitle(BOB)).toBeInTheDocument();
   fireEvent.click(within(first).getByRole("button", { name: "Raw" }));
   expect(within(first).getByText(ev.topics[0]!)).toBeInTheDocument();
-  expect(within(first).queryByRole("button", { name: BOB })).toBeNull();
+  expect(within(first).queryByTitle(BOB)).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "Show all (251)" }));
   expect(cards()).toHaveLength(251);

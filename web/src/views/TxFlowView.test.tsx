@@ -150,8 +150,11 @@ test("add to graph adds the address as a center without leaving the tab", async 
   expect(screen.getByTestId("aside")).toHaveTextContent(`detail:${B}`);
   expect(screen.getByTestId("tx-view")).not.toHaveTextContent(`detail:${B}`);
   expect(screen.getByTestId("tx-view").querySelector("aside")).toBeNull();
+  // A node hidden on the main graph is shown again.
+  act(() => useGraph.getState().setHidden([B], true));
   fireEvent.click(within(screen.getByTestId("aside")).getByRole("button", { name: "Add to graph" }));
   expect(useGraph.getState().centers).toContain(B);
+  expect(useGraph.getState().ui[B]?.hidden).toBe(false);
   expect(useGraph.getState().selection).toBeNull();
   expect(useTabs.getState().active).toBe(HASH);
 });

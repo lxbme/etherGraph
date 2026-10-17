@@ -18,6 +18,12 @@ export function syncNode(addr: string, direction?: "older"): void {
     .catch((err) => toast(messageFor(err), "error"));
 }
 
+/** "Add to graph" everywhere: `addr` becomes a shown center of the address graph (unhidden if it was hidden). */
+export function addToGraph(addr: string): void {
+  useGraph.getState().revealCenter(addr);
+  toast(t("tx.added"));
+}
+
 export function togglePin(addr: string): void {
   const a = lc(addr);
   const { ui, setPinned } = useGraph.getState();

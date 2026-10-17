@@ -6,6 +6,7 @@ import { useLocale, useT } from "../i18n";
 import { qk } from "../api/queryClient";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { exposeTxCy } from "../graph/cyRegistry";
+import { addToGraph } from "../graph/nodeActions";
 import { txFlowStylesheet } from "../graph/styles";
 import { NodeDetail } from "../panels/NodeDetail";
 import { useUi } from "../panels/uiStore";
@@ -13,7 +14,6 @@ import { useJobProgress } from "../shell/statusStore";
 import { useTabs } from "../shell/tabs";
 import { useTheme } from "../shell/theme";
 import { txElements } from "./txElements";
-import { addToGraph } from "./txdetail/common";
 import { TxDetailTabs } from "./txdetail/TxDetailTabs";
 import { TxSummaryBar } from "./txdetail/TxSummaryBar";
 

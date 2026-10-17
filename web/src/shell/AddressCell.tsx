@@ -1,6 +1,6 @@
 import { Plus } from "lucide-react";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
-import { useGraph } from "../graph/store";
+import { addToGraph } from "../graph/nodeActions";
 import { useT } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { CopyButton } from "./CopyButton";
@@ -30,7 +30,7 @@ export function AddressCell({ address, node, onSelect }: { address: string; node
         className="btn btn--ghost btn--icon btn--compact"
         aria-label={t("tx.addToGraph")}
         title={t("tx.addToGraph")}
-        onClick={() => useGraph.getState().revealCenter(address)}
+        onClick={() => addToGraph(address)}
       >
         <Plus size={14} />
       </button>

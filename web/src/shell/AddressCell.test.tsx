@@ -1,6 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { useGraph } from "../graph/store";
 import { AddressCell } from "./AddressCell";
+import { toast } from "./Toasts";
+
+vi.mock("./Toasts", async (orig) => ({ ...(await orig<typeof import("./Toasts")>()), toast: vi.fn() }));
 
 const A = "0x" + "aa".repeat(20);
 
@@ -36,4 +39,14 @@ test("without onSelect the name is plain text", () => {
   render(<AddressCell address={A} />);
   expect(screen.queryByRole("button", { name: "0xaaaa…aaaa" })).toBeNull();
   expect(screen.getAllByRole("button")).toHaveLength(2); // copy, add to graph
+});
+
+test("Add to graph reveals a hidden center and confirms with a toast", () => {
+  useGraph.getState().addCenter(A);
+  useGraph.getState().setHidden([A], true);
+  render(<AddressCell address={A} />);
+  fireEvent.click(screen.getByRole("button", { name: "Add to graph" }));
+  expect(useGraph.getState().centers).toContain(A);
+  expect(useGraph.getState().ui[A]?.hidden).toBe(false);
+  expect(toast).toHaveBeenCalledWith("Added to graph");
 });
