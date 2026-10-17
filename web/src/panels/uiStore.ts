@@ -15,24 +15,29 @@ interface UiState {
   detailOpen: boolean;
   /** Each tx tab's selected node, by tx hash. */
   txSelection: Record<string, string | null>;
+  /** Whether the help drawer is open. */
+  helpOpen: boolean;
   openLabelEditor(addr: string): void;
   closeLabelEditor(): void;
   setDetailOpen(v: boolean): void;
   toggleDetail(): void;
+  toggleHelp(): void;
   selectTx(hash: string, addr: string | null): void;
   /** Drops a closed tx tab's selection. */
   forgetTx(hash: string): void;
 }
 
-/** Cross-panel UI state: label editor requests, the detail panel, tx-tab selections. */
+/** Cross-panel UI state: label editor requests, the detail panel, tx-tab selections, the help drawer. */
 export const useUi = create<UiState>((set, get) => ({
   labelEditorFor: null,
   detailOpen: !isNarrow(),
   txSelection: {},
+  helpOpen: false,
   openLabelEditor: (addr) => set({ labelEditorFor: addr.toLowerCase(), detailOpen: true }),
   closeLabelEditor: () => set({ labelEditorFor: null }),
   setDetailOpen: (detailOpen) => set({ detailOpen }),
   toggleDetail: () => set((s) => ({ detailOpen: !s.detailOpen })),
+  toggleHelp: () => set((s) => ({ helpOpen: !s.helpOpen })),
   selectTx: (hash, addr) => {
     const h = hash.toLowerCase();
     const a = addr?.toLowerCase() ?? null;

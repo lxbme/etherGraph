@@ -3,6 +3,7 @@ import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import { useUi } from "../panels/uiStore";
 import { useTabs } from "../shell/tabs";
 import { focusNode, hideNode, syncNode, togglePin } from "./nodeActions";
+import { shortcutFor, type ShortcutId } from "./shortcuts";
 import { graphSelection, useGraph } from "./store";
 
 function isTyping(t: EventTarget | null): boolean {
@@ -11,9 +12,26 @@ function isTyping(t: EventTarget | null): boolean {
   return /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable;
 }
 
+interface Ctx {
+  /** The selected node ("" for global shortcuts, which never read it). */
+  address: string;
+  getData: () => GraphResponseDto | undefined;
+}
+
+/** What each SHORTCUTS entry does ("search" belongs to the search box). */
+const HANDLERS: Record<Exclude<ShortcutId, "search">, (c: Ctx) => void> = {
+  undo: () => useGraph.getState().undo(),
+  redo: () => useGraph.getState().redo(),
+  sync: (c) => syncNode(c.address),
+  pin: (c) => togglePin(c.address),
+  hide: (c) => hideNode(c.address),
+  focus: (c) => focusNode(c.address, c.getData()),
+  label: (c) => useUi.getState().openLabelEditor(c.address),
+};
+
 /**
- * Global keyboard shortcuts: undo/redo, and S/P/H/F/L on the selected node. Inactive while typing,
- * and while a tx tab is shown (the address graph they act on is hidden then).
+ * Keyboard shortcuts from the SHORTCUTS table: undo/redo, and node keys on the selected node.
+ * Inactive while typing, and while a tx tab is shown (the address graph they act on is hidden then).
  */
 export function useShortcuts(getData: () => GraphResponseDto | undefined): void {
   useEffect(() => {
@@ -23,28 +41,15 @@ export function useShortcuts(getData: () => GraphResponseDto | undefined): void 
       // A dialog or context menu owns the keyboard while open.
       const t = e.target as Element | null;
       if (document.querySelector('[role="dialog"],[role="menu"]') || t?.closest?.('[role="dialog"],[role="menu"]')) return;
-      const key = e.key.toLowerCase();
-      const mod = e.ctrlKey || e.metaKey;
-      const g = useGraph.getState();
-      if (mod) {
-        if (key === "z" && !e.shiftKey) g.undo();
-        else if ((key === "z" && e.shiftKey) || (key === "y" && e.ctrlKey)) g.redo();
-        else return;
-        e.preventDefault();
-        return;
+      const hit = shortcutFor(e);
+      if (!hit || hit.id === "search") return;
+      let address = "";
+      if (hit.scope === "node") {
+        const sel = graphSelection(useGraph.getState().selection);
+        if (sel?.kind !== "node") return;
+        address = sel.address;
       }
-      if (e.altKey || e.shiftKey) return;
-      const sel = graphSelection(g.selection);
-      if (sel?.kind !== "node") return;
-      const a = sel.address;
-      switch (key) {
-        case "s": syncNode(a); break;
-        case "p": togglePin(a); break;
-        case "h": hideNode(a); break;
-        case "f": focusNode(a, getData()); break;
-        case "l": useUi.getState().openLabelEditor(a); break;
-        default: return;
-      }
+      HANDLERS[hit.id]({ address, getData });
       e.preventDefault();
     };
     window.addEventListener("keydown", onKey);

@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
-import { ChevronDown, PanelRight } from "lucide-react";
+import { ChevronDown, CircleHelp, PanelRight } from "lucide-react";
 import { FilterPanel } from "../panels/FilterPanel";
 import { SearchBox } from "../search/SearchBox";
 import { useT } from "../i18n";
 import { formatCount, formatLocalTime, formatTime } from "../lib/format";
+import { useUi } from "../panels/uiStore";
+import { HELP_BUTTON_ID, HELP_DRAWER_ID } from "./HelpDrawer";
 import { SettingsMenu } from "./SettingsMenu";
 import { useQuota } from "./statusStore";
 
@@ -19,6 +21,8 @@ export interface TopBarProps {
 export function TopBar({ search, filter, workspaceMenu, onToggleDetail, detailOpen }: TopBarProps) {
   const t = useT();
   const quota = useQuota((s) => s.quota);
+  const helpOpen = useUi((s) => s.helpOpen);
+  const toggleHelp = useUi((s) => s.toggleHelp);
   const quotaClass = quota?.paused
     ? " chip--error"
     : quota && quota.limit > 0 && quota.used * 5 >= quota.limit * 4
@@ -45,6 +49,18 @@ export function TopBar({ search, filter, workspaceMenu, onToggleDetail, detailOp
           <ChevronDown size={14} />
         </button>
       )}
+      <button
+        id={HELP_BUTTON_ID}
+        className="btn btn--icon"
+        aria-label={t("help.open")}
+        title={t("help.open")}
+        aria-haspopup="dialog"
+        aria-expanded={helpOpen}
+        aria-controls={helpOpen ? HELP_DRAWER_ID : undefined}
+        onClick={toggleHelp}
+      >
+        <CircleHelp size={16} />
+      </button>
       <SettingsMenu />
       <button
         className="btn btn--icon"

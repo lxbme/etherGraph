@@ -3,6 +3,7 @@ import { api } from "../api/endpoints";
 import { ApiError, messageFor } from "../api/errors";
 import { useT, type MsgKey } from "../i18n";
 import { qk, queryClient } from "../api/queryClient";
+import { isShortcut } from "../graph/shortcuts";
 import { useGraph } from "../graph/store";
 import { toast } from "../shell/Toasts";
 import { useTabs } from "../shell/tabs";
@@ -19,7 +20,7 @@ export function SearchBox() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if (isShortcut(e, "search")) {
         e.preventDefault();
         inputRef.current?.focus();
         inputRef.current?.select();

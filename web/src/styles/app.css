@@ -999,3 +999,69 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .dialog.interactions { width: min(760px, 92vw); }
 .interactions__filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .interactions__more { margin-left: var(--sp-1); }
+
+/* ---------- Help drawer: a modal sheet on the right, over the detail panel ---------- */
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+  background: color-mix(in srgb, var(--fg) 20%, transparent);
+}
+.drawer {
+  display: flex;
+  flex-direction: column;
+  width: 420px;
+  max-width: 100%;
+  height: 100%;
+  color: var(--fg);
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow-pop);
+}
+.drawer:focus { outline: none; }
+.drawer__head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+.drawer__title { margin: 0; font-size: var(--fs-16); font-weight: 600; }
+.drawer__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--sp-4);
+  font-size: var(--fs-13);
+}
+.drawer__body:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.drawer__foot {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+.help__section + .help__section { margin-top: var(--sp-6); }
+.help__title { margin: 0 0 var(--sp-2); font-size: var(--fs-13); font-weight: 600; }
+.help__section p { margin: 0 0 var(--sp-3); }
+.help__list { display: grid; gap: var(--sp-2); margin: var(--sp-3) 0 0; padding-left: var(--sp-5); }
+.help__section .legend { background: var(--bg-subtle); }
+.help__keys td.help__action { white-space: normal; }
+.help__or { color: var(--fg-muted); }
+.kbd {
+  display: inline-block;
+  padding: 0 var(--sp-1);
+  color: var(--fg);
+  background: var(--bg-subtle);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  white-space: nowrap;
+}
