@@ -1,3 +1,4 @@
+import { Settings } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTheme, type ThemePref } from "./theme";
 import { LOCALES, LOCALE_NAMES, useLocale, useT, type MsgKey } from "../i18n";
@@ -34,29 +35,41 @@ export function SettingsMenu() {
   }, [open]);
 
   return (
-    <div className="wsmenu" ref={rootRef}>
-      <button className="btn" aria-label={t("settings.title")} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        {t("settings.title")}
+    <div className="dropdown" ref={rootRef}>
+      <button
+        className="btn btn--icon"
+        aria-label={t("settings.title")}
+        title={t("settings.title")}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Settings size={16} />
       </button>
       {open && (
-        <div className="wsmenu__list" role="dialog" aria-label={t("settings.title")}>
-          <div role="radiogroup" aria-label={t("settings.language")}>
-            <div>{t("settings.language")}</div>
-            {LOCALES.map((l) => (
-              <label key={l}>
-                <input type="radio" name="eg-locale" checked={locale === l} onChange={() => setLocale(l)} />
-                {LOCALE_NAMES[l]}
-              </label>
-            ))}
+        <div className="popover dropdown__panel settings" role="dialog" aria-label={t("settings.title")}>
+          <h2 className="popover__title">{t("settings.title")}</h2>
+          <div className="settings__group">
+            <div className="popover__section" id="eg-settings-language">{t("settings.language")}</div>
+            <div className="seg" role="radiogroup" aria-labelledby="eg-settings-language">
+              {LOCALES.map((l) => (
+                <label key={l} className="seg__item">
+                  <input type="radio" name="eg-locale" checked={locale === l} onChange={() => setLocale(l)} />
+                  {LOCALE_NAMES[l]}
+                </label>
+              ))}
+            </div>
           </div>
-          <div role="radiogroup" aria-label={t("settings.theme")}>
-            <div>{t("settings.theme")}</div>
-            {THEMES.map((o) => (
-              <label key={o.value}>
-                <input type="radio" name="eg-theme" checked={pref === o.value} onChange={() => setPref(o.value)} />
-                {t(o.label)}
-              </label>
-            ))}
+          <div className="settings__group">
+            <div className="popover__section" id="eg-settings-theme">{t("settings.theme")}</div>
+            <div className="seg" role="radiogroup" aria-labelledby="eg-settings-theme">
+              {THEMES.map((o) => (
+                <label key={o.value} className="seg__item">
+                  <input type="radio" name="eg-theme" checked={pref === o.value} onChange={() => setPref(o.value)} />
+                  {t(o.label)}
+                </label>
+              ))}
+            </div>
           </div>
         </div>
       )}

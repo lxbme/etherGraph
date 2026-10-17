@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ChevronDown, PanelRight } from "lucide-react";
 import { FilterPanel } from "../panels/FilterPanel";
 import { SearchBox } from "../search/SearchBox";
 import { useT } from "../i18n";
@@ -11,27 +12,49 @@ export interface TopBarProps {
   filter?: ReactNode;
   workspaceMenu?: ReactNode;
   onToggleDetail?: () => void;
+  /** Whether the detail panel is open (drives the toggle's pressed state). */
+  detailOpen?: boolean;
 }
 
-export function TopBar({ search, filter, workspaceMenu, onToggleDetail }: TopBarProps) {
+export function TopBar({ search, filter, workspaceMenu, onToggleDetail, detailOpen }: TopBarProps) {
   const t = useT();
   const quota = useQuota((s) => s.quota);
-  const pillClass = quota?.paused
-    ? " pill--error"
+  const quotaClass = quota?.paused
+    ? " chip--error"
     : quota && quota.limit > 0 && quota.used * 5 >= quota.limit * 4
-      ? " pill--warn"
+      ? " chip--warn"
       : "";
   return (
     <header className="topbar">
-      <h1 className="topbar__title">etherGraph</h1>
+      <h1 className="topbar__logo">
+        <span className="topbar__mark" aria-hidden="true" />
+        etherGraph
+      </h1>
       {search ?? <SearchBox />}
       {filter ?? <FilterPanel />}
-      <span className={`pill${pillClass}`} title={quota ? t("topbar.quotaReset", { time: formatTime(quota.reset_at) }) : undefined}>
+      <span className="topbar__spacer" />
+      <span
+        className={`chip num topbar__quota${quotaClass}`}
+        title={quota ? t("topbar.quotaReset", { time: formatTime(quota.reset_at) }) : undefined}
+      >
         {t("topbar.quota", { value: quota ? `${formatCount(quota.used)}/${formatCount(quota.limit)}` : "—" })}
       </span>
-      {workspaceMenu ?? <button className="btn" disabled>{t("topbar.workspace")} ▾</button>}
+      {workspaceMenu ?? (
+        <button className="btn" disabled>
+          {t("topbar.workspace")}
+          <ChevronDown size={14} />
+        </button>
+      )}
       <SettingsMenu />
-      <button className="btn topbar__detail-toggle" aria-label={t("topbar.details")} onClick={onToggleDetail}>▤</button>
+      <button
+        className="btn btn--icon"
+        aria-label={t("topbar.details")}
+        aria-pressed={detailOpen}
+        title={t("topbar.details")}
+        onClick={onToggleDetail}
+      >
+        <PanelRight size={16} />
+      </button>
     </header>
   );
 }

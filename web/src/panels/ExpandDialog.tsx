@@ -131,7 +131,7 @@ export function ExpandDialog({ neighbors, preChecked, onClose }: ExpandDialogPro
           {error != null ? (
             <>
               <span role="alert">{messageFor(error.cause)}</span>{" "}
-              <button type="button" onClick={runDry}>{t("common.retry")}</button>
+              <button type="button" className="btn btn--compact" onClick={runDry}>{t("common.retry")}</button>
             </>
           ) : perAddress == null
             ? t("expand.estimating")
@@ -143,8 +143,8 @@ export function ExpandDialog({ neighbors, preChecked, onClose }: ExpandDialogPro
           <div className="dialog__warn" role="alert">{t("expand.overQuota")}</div>
         )}
         <div className="dialog__actions">
-          <button type="button" onClick={onClose}>{t("common.cancel")}</button>
-          <button type="button" disabled={perAddress == null || error != null || checked.size === 0 || busy} onClick={confirm}>{t("expand.start")}</button>
+          <button type="button" className="btn" onClick={onClose}>{t("common.cancel")}</button>
+          <button type="button" className="btn btn--primary" disabled={perAddress == null || error != null || checked.size === 0 || busy} onClick={confirm}>{t("expand.start")}</button>
         </div>
       </div>
     </div>

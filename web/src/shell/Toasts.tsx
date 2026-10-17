@@ -1,3 +1,4 @@
+import { AlertTriangle, Info } from "lucide-react";
 import { create } from "zustand";
 
 type Kind = "error" | "info";
@@ -22,7 +23,10 @@ export function Toasts() {
   return (
     <div className="toasts" role="status" aria-live="polite">
       {items.map((t) => (
-        <div key={t.id} className={`toast toast--${t.kind}`}>{t.msg}</div>
+        <div key={t.id} className={`toast toast--${t.kind}`}>
+          {t.kind === "error" ? <AlertTriangle className="toast__icon" size={16} /> : <Info className="toast__icon" size={16} />}
+          <span className="toast__msg">{t.msg}</span>
+        </div>
       ))}
     </div>
   );

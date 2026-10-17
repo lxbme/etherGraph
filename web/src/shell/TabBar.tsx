@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import { useT } from "../i18n";
 import { useTabs } from "./tabs";
 
@@ -14,7 +15,9 @@ export function TabBar() {
               {label}
             </button>
             {"kind" in tab && (
-              <button className="tab__close" aria-label={t("tab.close", { label })} onClick={() => close(tab.id)}>×</button>
+              <button className="tab__close" aria-label={t("tab.close", { label })} onClick={() => close(tab.id)}>
+                <X size={14} />
+              </button>
             )}
           </div>
         );

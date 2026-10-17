@@ -3,6 +3,7 @@ import { queryClient } from "./api/queryClient";
 import { useEvents } from "./api/useEvents";
 import { Banners } from "./shell/Banners";
 import { ResizableSplit } from "./shell/ResizableSplit";
+import { RightPanel } from "./shell/RightPanel";
 import { StatusBar } from "./shell/StatusBar";
 import { TabBar } from "./shell/TabBar";
 import { Toasts } from "./shell/Toasts";
@@ -41,7 +42,7 @@ function Shell() {
 
   return (
     <div className="app">
-      <TopBar workspaceMenu={<WorkspaceMenu />} onToggleDetail={toggleDetail} />
+      <TopBar workspaceMenu={<WorkspaceMenu />} onToggleDetail={toggleDetail} detailOpen={detailOpen} />
       <TabBar />
       <Banners />
       <div className="main">
@@ -60,7 +61,7 @@ function Shell() {
         </div>
         {/* One panel for the active tab: the graph's selection, or the active tx tab's own selection. */}
         {detailOpen && (
-          <aside className="main__right">{tx ? <TxNodeDetail key={tx.hash} hash={tx.hash} /> : <DetailPanel />}</aside>
+          <RightPanel>{tx ? <TxNodeDetail key={tx.hash} hash={tx.hash} /> : <DetailPanel />}</RightPanel>
         )}
       </div>
       <StatusBar saveStatus={wsStatus} />

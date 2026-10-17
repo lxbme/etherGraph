@@ -84,7 +84,8 @@ test("pending shows loading and ready renders header with fee and banner", async
   expect(screen.queryByTestId("cy")).toBeNull();
   vi.mocked(api.tx).mockResolvedValue(ready());
   await act(() => qc.invalidateQueries({ queryKey: ["tx", HASH] }));
-  expect(await screen.findByText("✓ Success")).toBeInTheDocument();
+  expect(await screen.findByText("Success")).toBeInTheDocument();
+  expect(screen.getByText("Success").querySelector("svg.lucide-circle-check")).not.toBeNull();
   expect(screen.getByText(/swap\(uint256,address\)/)).toBeInTheDocument();
   expect(screen.getByText(/Router/)).toBeInTheDocument();
   expect(screen.getByText("19000000")).toBeInTheDocument();
@@ -103,7 +104,7 @@ test("undecoded call shows the raw selector and no banner for full traces", asyn
   renderView();
   expect(await screen.findByText("0x12345678")).toBeInTheDocument();
   expect(screen.getAllByText("Undecoded").length).toBeGreaterThan(0);
-  expect(screen.getByText("✗ Failed")).toBeInTheDocument();
+  expect(screen.getByText("Failed").querySelector("svg.lucide-circle-x")).not.toBeNull();
   expect(screen.queryByText(/This is a fund-flow graph/)).toBeNull();
 });
 
@@ -147,7 +148,7 @@ test("failed job shows the error and retry refetches", async () => {
   spy.mockResolvedValue(ready());
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
-  expect(await screen.findByText("✓ Success")).toBeInTheDocument();
+  expect(await screen.findByText("Success")).toBeInTheDocument();
 });
 
 test("NodeDetail address links select locally and leave the main graph untouched", async () => {
@@ -182,7 +183,7 @@ test("pending refetches every 5s and stops once ready", async () => {
     expect(spy).toHaveBeenCalledTimes(1);
     spy.mockResolvedValue(ready());
     await act(() => vi.advanceTimersByTimeAsync(5100));
-    await screen.findByText("✓ Success");
+    await screen.findByText("Success");
     expect(spy).toHaveBeenCalledTimes(2);
     await act(() => vi.advanceTimersByTimeAsync(15000));
     expect(spy).toHaveBeenCalledTimes(2);

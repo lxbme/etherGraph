@@ -55,14 +55,15 @@ describe("quota pill", () => {
     const { rerender } = render(<TopBar search={<i />} filter={<i />} />);
     const pill = () => screen.getByText(/Quota/);
     expect(pill()).toHaveTextContent("Quota 79/100");
-    expect(pill()).not.toHaveClass("pill--warn");
+    expect(pill()).toHaveClass("chip", "num");
+    expect(pill()).not.toHaveClass("chip--warn");
     setQ(80);
     rerender(<TopBar search={<i />} filter={<i />} />);
-    expect(pill()).toHaveClass("pill--warn");
+    expect(pill()).toHaveClass("chip--warn");
     setQ(100, true);
     rerender(<TopBar search={<i />} filter={<i />} />);
-    expect(pill()).toHaveClass("pill--error");
-    expect(pill()).not.toHaveClass("pill--warn");
+    expect(pill()).toHaveClass("chip--error");
+    expect(pill()).not.toHaveClass("chip--warn");
     expect(pill()).toHaveAttribute("title", expect.stringContaining("2026-10-1"));
   });
 });
@@ -111,7 +112,7 @@ describe("jobs popover", () => {
     const dlg = await screen.findByRole("dialog", { name: "Jobs" });
     await userEvent.click(await within(dlg).findByRole("button", { name: "Cancel" }));
     const t = await screen.findByText("The job has already finished, nothing to cancel");
-    expect(t).toHaveClass("toast--info");
+    expect(t.closest(".toast")).toHaveClass("toast--info");
     expect(screen.queryByText("Not found")).toBeNull();
     await waitFor(() => expect(within(dlg).queryByRole("button", { name: "Cancel" })).toBeNull());
   });

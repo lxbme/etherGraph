@@ -1,6 +1,17 @@
+import { AlertTriangle } from "lucide-react";
+import type { ReactNode } from "react";
 import { useT } from "../i18n";
 import { formatTime } from "../lib/format";
 import { useQuota, useSseState } from "./statusStore";
+
+function Banner({ kind, children }: { kind: "warn" | "fatal"; children: ReactNode }) {
+  return (
+    <div className={`banner banner--${kind}`} role="alert">
+      <AlertTriangle className="banner__icon" size={16} />
+      <span>{children}</span>
+    </div>
+  );
+}
 
 export function Banners() {
   const t = useT();
@@ -9,15 +20,9 @@ export function Banners() {
   const { quota, degraded } = useQuota();
   return (
     <div className="banners">
-      {degraded === "invalid_key" && (
-        <div className="banner banner--fatal" role="alert">{t("banner.invalidKey")}</div>
-      )}
-      {sseDown && <div className="banner banner--warn" role="alert">{t("banner.sseDown")}</div>}
-      {quota?.paused && (
-        <div className="banner banner--warn" role="alert">
-          {t("banner.quotaPaused", { time: formatTime(quota.reset_at) })}
-        </div>
-      )}
+      {degraded === "invalid_key" && <Banner kind="fatal">{t("banner.invalidKey")}</Banner>}
+      {sseDown && <Banner kind="warn">{t("banner.sseDown")}</Banner>}
+      {quota?.paused && <Banner kind="warn">{t("banner.quotaPaused", { time: formatTime(quota.reset_at) })}</Banner>}
     </div>
   );
 }

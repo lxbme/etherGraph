@@ -162,10 +162,36 @@ describe('status stores', () => {
 describe('split + layout', () => {
   it('right panel toggle button exists and split persists height', async () => {
     render(<App />)
-    expect(screen.getByRole('button', { name: 'Details' })).toBeInTheDocument()
-    expect(screen.getByRole('separator')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Toggle details' })).toBeInTheDocument()
+    expect(screen.getByRole('separator', { name: 'Resize the details table' })).toBeInTheDocument()
     const u = userEvent.setup()
-    await u.click(screen.getByRole('button', { name: 'Details' }))
+    await u.click(screen.getByRole('button', { name: 'Toggle details' }))
+  })
+})
+
+describe('institutional-light shell', () => {
+  it('renders Lucide icons instead of glyph icons', () => {
+    useTabs.getState().openTx(H1)
+    useSseState.setState({ state: 'closed', firstConnectDone: true })
+    render(<App />)
+    expect(document.body.textContent).not.toMatch(/[⚙▾▤×⚠✓✗]/)
+    expect(document.querySelectorAll('.topbar svg.lucide').length).toBeGreaterThanOrEqual(4)
+    expect(screen.getByRole('button', { name: 'Close Tx 0xabab…abab' }).querySelector('svg.lucide')).not.toBeNull()
+    expect(document.querySelector('.banner svg.lucide')).not.toBeNull()
+  })
+
+  it('status bar shows the SSE state as a coloured dot', () => {
+    render(<App />)
+    expect(screen.getByText('Live').querySelector('.dot--pos')).not.toBeNull()
+    act(() => useSseState.getState().set('closed'))
+    expect(screen.getByText('Disconnected').querySelector('.dot--neg')).not.toBeNull()
+  })
+
+  it('the right panel is 320px wide by default and resizable from its left edge', () => {
+    render(<App />)
+    const handle = screen.getByRole('separator', { name: 'Resize the details panel' })
+    expect((document.querySelector('.main__right') as HTMLElement).style.width).toBe('320px')
+    expect(handle.closest('.main__right')).not.toBeNull()
   })
 })
 
@@ -196,7 +222,7 @@ describe('fix round 1', () => {
 
   it('keyboard resize persists and changes the inline height', async () => {
     render(<App />)
-    const sep = screen.getByRole('separator')
+    const sep = screen.getByRole('separator', { name: 'Resize the details table' })
     const bottom = sep.nextElementSibling as HTMLElement
     expect(bottom.style.height).toBe('32%')
     sep.focus()
@@ -209,7 +235,7 @@ describe('fix round 1', () => {
     localStorage.setItem('ethergraph.splitHeight', '900')
     const spy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 500 } as DOMRect)
     render(<App />)
-    const bottom = screen.getByRole('separator').nextElementSibling as HTMLElement
+    const bottom = screen.getByRole('separator', { name: 'Resize the details table' }).nextElementSibling as HTMLElement
     expect(bottom.style.height).toBe('380px')
     spy.mockRestore()
   })
@@ -253,7 +279,7 @@ describe('final review fixes', () => {
     vi.spyOn(api, 'address').mockImplementation(async (a) => profile(a))
     render(<App />)
     const u = userEvent.setup()
-    await u.click(screen.getByRole('button', { name: 'Details' }))
+    await u.click(screen.getByRole('button', { name: 'Toggle details' }))
     expect(document.querySelector('.main__right')).toBeNull()
     act(() => {
       useGraph.getState().select({ kind: 'node', address: A1 })

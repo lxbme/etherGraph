@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
@@ -75,7 +76,7 @@ function NameDialog({ initial, onSubmit, onCancel }: { initial: string; onSubmit
     <Modal label={t("ws.nameLabel")}>
       <h3 className="dialog__title">{t("ws.nameLabel")}</h3>
       <input
-        className="wsmenu__input"
+        className="input"
         aria-label={t("ws.nameLabel")}
         autoFocus
         value={value}
@@ -85,10 +86,10 @@ function NameDialog({ initial, onSubmit, onCancel }: { initial: string; onSubmit
           if (e.key === "Escape") onCancel();
         }}
       />
-      {error && <div className="wsmenu__error" role="alert">{error}</div>}
+      {error && <div className="dialog__error" role="alert">{error}</div>}
       <div className="dialog__actions">
         <button className="btn" onClick={onCancel}>{t("ws.cancel")}</button>
-        <button className="btn" onClick={submit}>{t("ws.ok")}</button>
+        <button className="btn btn--primary" onClick={submit}>{t("ws.ok")}</button>
       </div>
     </Modal>
   );
@@ -125,15 +126,15 @@ function OpenDialog({ onPick, onCancel }: { onPick(id: number): void; onCancel()
   return (
     <Modal label={t("ws.openTitle")}>
       <h3 className="dialog__title">{t("ws.openTitle")}</h3>
-      {error && <div className="wsmenu__error" role="alert">{error}</div>}
+      {error && <div className="dialog__error" role="alert">{error}</div>}
       {!items && !error && <div className="dialog__summary">{t("ws.loading")}</div>}
       {items && items.length === 0 && <div className="dialog__summary">{t("ws.none")}</div>}
       <ul className="dialog__list">
         {items?.map((w) => (
           <li key={w.id} className="dialog__row">
-            <button className="btn dialog__name" onClick={() => onPick(w.id)}>{w.name}</button>
-            <span className="dialog__calls">{new Date(w.updated_at).toLocaleString()}</span>
-            <button className="btn" aria-label={t("ws.deleteNamed", { name: w.name })} disabled={busy === w.id} onClick={() => setPendingDelete(w)}>{t("ws.delete")}</button>
+            <button className="btn btn--ghost dialog__name" title={w.name} onClick={() => onPick(w.id)}>{w.name}</button>
+            <span className="dialog__calls num">{new Date(w.updated_at).toLocaleString()}</span>
+            <button className="btn btn--compact" aria-label={t("ws.deleteNamed", { name: w.name })} disabled={busy === w.id} onClick={() => setPendingDelete(w)}>{t("ws.delete")}</button>
           </li>
         ))}
       </ul>
@@ -146,7 +147,7 @@ function OpenDialog({ onPick, onCancel }: { onPick(id: number): void; onCancel()
           <div className="dialog__actions">
             <button className="btn" onClick={() => setPendingDelete(null)}>{t("ws.cancel")}</button>
             <button
-              className="btn"
+              className="btn btn--primary"
               onClick={() => {
                 const w = pendingDelete;
                 setPendingDelete(null);
@@ -245,7 +246,7 @@ export function WorkspaceMenu() {
 
   const item = (label: string, fn: () => void, disabled = false) => (
     <button
-      className="btn"
+      className="menu__item"
       role="menuitem"
       disabled={disabled || busy}
       onClick={() => {
@@ -258,12 +259,13 @@ export function WorkspaceMenu() {
   );
 
   return (
-    <div className="wsmenu" ref={rootRef}>
-      <button className="btn" aria-label={t("ws.menu")} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        {name ?? t("topbar.workspace")}{dirty ? " *" : ""} ▾
+    <div className="dropdown" ref={rootRef}>
+      <button className="btn wsmenu__trigger" aria-label={t("ws.menu")} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span className="wsmenu__name" title={name ?? undefined}>{name ?? t("topbar.workspace")}{dirty ? " *" : ""}</span>
+        <ChevronDown size={14} />
       </button>
       {open && (
-        <div className="wsmenu__list" role="menu">
+        <div className="menu dropdown__panel" role="menu">
           {item(t("ws.new"), () => confirmDiscard(t("ws.discardNew"), newWorkspace))}
           {item(t("ws.save"), doSave)}
           {item(t("ws.saveAs"), () => setDialog({ kind: "name", purpose: "saveAs" }))}
@@ -287,7 +289,7 @@ export function WorkspaceMenu() {
           <div className="dialog__actions">
             <button className="btn" onClick={() => setDialog(null)}>{t("ws.cancel")}</button>
             <button
-              className="btn"
+              className="btn btn--primary"
               onClick={() => {
                 const f = dialog.onConfirm;
                 setDialog(null);
@@ -316,7 +318,7 @@ export function WorkspaceMenu() {
               {t("ws.reload")}
             </button>
             <button
-              className="btn"
+              className="btn btn--primary"
               onClick={() => {
                 setDialog(null);
                 void run(async () => {

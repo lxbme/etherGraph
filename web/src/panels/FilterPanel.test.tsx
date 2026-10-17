@@ -198,3 +198,24 @@ test("form sort falls back to count when amount sort becomes unavailable", () =>
   fireEvent.click(screen.getByLabelText("USDC"));
   expect(screen.getByLabelText("By count")).toBeChecked();
 });
+
+test("the top-bar chips show the active filter count and the asset selection", () => {
+  setup();
+  const chip = () => screen.getByRole("button", { name: /Filter/ });
+  expect(chip()).toHaveTextContent(/^Filters$/);
+  expect(chip()).not.toHaveClass("chip--active");
+  expect(screen.getByRole("button", { name: "All assets" })).toHaveClass("chip");
+  fireEvent.click(screen.getByLabelText("Outbound"));
+  fireEvent.click(screen.getByLabelText("USDC"));
+  fireEvent.click(apply());
+  expect(chip()).toHaveTextContent("Filters · 2");
+  expect(chip()).toHaveClass("chip", "chip--active");
+  expect(chip().querySelector("svg.lucide")).not.toBeNull();
+  expect(screen.getByRole("button", { name: "USDC" })).toHaveClass("chip--active");
+  // The asset chip opens the same popover.
+  fireEvent.click(screen.getByRole("button", { name: "USDC" }));
+  expect(screen.getByRole("dialog", { name: "Filter" })).toBeInTheDocument();
+  fireEvent.click(screen.getByLabelText("ETH"));
+  fireEvent.click(apply());
+  expect(screen.getByRole("button", { name: "2 assets" })).toBeInTheDocument();
+});

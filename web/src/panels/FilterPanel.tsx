@@ -1,3 +1,4 @@
+import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AssetFilterDto } from "../api/generated/AssetFilterDto";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
@@ -52,8 +53,9 @@ const normalize = (s: string) => {
 };
 const shortAddr = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
-function hasFilter(f: EdgeFilterDto): boolean {
-  return !!(f.time?.from || f.time?.to || f.kinds?.length || (f.direction && f.direction !== "both") || f.assets?.length);
+/** How many filter dimensions (time, type, direction, assets) are narrowed. */
+function activeCount(f: EdgeFilterDto): number {
+  return [f.time?.from || f.time?.to, f.kinds?.length, f.direction && f.direction !== "both", f.assets?.length].filter(Boolean).length;
 }
 
 export function FilterPanel() {
@@ -61,6 +63,19 @@ export function FilterPanel() {
   const filter = useGraph((s) => s.filter);
   const rootRef = useRef<HTMLDivElement>(null);
   const t = useT();
+  const registry = useAssetRegistry((r) => r.assets);
+  const count = activeCount(filter);
+  const assets = filter.assets ?? [];
+  const assetLabel = (a: AssetFilterDto) => {
+    const key = assetKey(a.asset);
+    return key === ETH ? "ETH" : (registry[key]?.symbol ?? shortAddr(key));
+  };
+  const assetText =
+    assets.length === 0
+      ? t("filter.allAssets")
+      : assets.length === 1
+        ? assetLabel(assets[0]!)
+        : t("filter.assetCount", { count: assets.length });
 
   useEffect(() => {
     if (!open) return;
@@ -80,9 +95,17 @@ export function FilterPanel() {
 
   return (
     <div className="filter" ref={rootRef}>
-      <button className="btn" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        ⚙ {t("filter.button")} ▾
-        {hasFilter(filter) && <span className="filter__dot" data-testid="filter-active" aria-label={t("filter.active")} />}
+      <button className={`chip${count ? " chip--active" : ""}`} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <SlidersHorizontal size={14} />
+        {count ? (
+          <span data-testid="filter-active">{t("filter.chipCount", { count })}</span>
+        ) : (
+          t("filter.chip")
+        )}
+      </button>
+      <button className={`chip${assets.length ? " chip--active" : ""}`} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <span className="chip__text" title={assetText}>{assetText}</span>
+        <ChevronDown size={14} />
       </button>
       {open && <FilterForm onClose={() => setOpen(false)} />}
     </div>

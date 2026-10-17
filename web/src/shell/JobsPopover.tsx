@@ -19,13 +19,13 @@ function Row({ job, onCancel, cancelling }: { job: JobDto; onCancel?: () => void
       <td>{kindName(job.kind)}</td>
       <td>{targetText(job)}</td>
       <td>{statusName(job.status)}</td>
-      <td>{job.attempts}</td>
+      <td className="num">{job.attempts}</td>
       <td className="jobs__err" title={err ?? undefined}>
         {err ? (err.length > ERR_MAX ? `${err.slice(0, ERR_MAX)}…` : err) : ""}
       </td>
       {onCancel && (
         <td>
-          <button className="btn" disabled={cancelling} onClick={onCancel}>
+          <button className="btn btn--compact" disabled={cancelling} onClick={onCancel}>
             {t("jobs.cancel")}
           </button>
         </td>
@@ -106,19 +106,20 @@ export function JobsPopover({ activeCount }: { activeCount: number }) {
 
   return (
     <div className="jobs" ref={root}>
-      <button className="btn" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+      <button className="btn btn--ghost statusbar__jobs" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         {t("jobs.button", { count: activeCount })}
       </button>
       {open && (
-        <div className="jobs__popover" role="dialog" aria-label={t("jobs.title")}>
-          <h3>{t("jobs.active")}</h3>
+        <div className="popover jobs__popover" role="dialog" aria-label={t("jobs.title")}>
+          <h2 className="popover__title">{t("jobs.title")}</h2>
+          <h3 className="popover__section">{t("jobs.active")}</h3>
           <Table
             jobs={active.data ?? []}
             empty={t("jobs.emptyActive")}
             cancel={(id) => cancel.mutate(id)}
             cancellingId={cancel.isPending ? cancel.variables : undefined}
           />
-          <h3>{t("jobs.recent")}</h3>
+          <h3 className="popover__section">{t("jobs.recent")}</h3>
           <Table jobs={recent.data ?? []} empty={t("jobs.emptyRecent")} />
         </div>
       )}

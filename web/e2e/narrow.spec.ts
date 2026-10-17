@@ -19,7 +19,7 @@ test.use({ viewport: { width: 380, height: 800 } });
 test("at 380px the top bar fits and selecting a node opens the detail overlay", async ({ page, mock }) => {
   await page.goto("/?e2e=1");
   for (const name of ["Search"]) await expectFits(page, name, await page.getByRole("searchbox", { name }).boundingBox());
-  for (const name of [/Filter/, "Workspace menu", "Details"]) {
+  for (const name of [/Filter/, "Workspace menu", "Toggle details"]) {
     await expectFits(page, String(name), await page.getByRole("button", { name }).boundingBox());
   }
   // The detail panel starts closed on narrow screens.
@@ -29,7 +29,7 @@ test("at 380px the top bar fits and selecting a node opens the detail overlay", 
   await page.getByRole("searchbox", { name: "Search" }).press("Enter");
   // Searching selects the address: the overlay opens with its detail.
   await expect(page.locator(".main__right")).toBeVisible();
-  await page.getByRole("button", { name: "Details" }).click();
+  await page.getByRole("button", { name: "Toggle details" }).click();
   await expect(page.locator(".main__right")).toHaveCount(0);
   await expectLaidOut(page, "main", 4);
 

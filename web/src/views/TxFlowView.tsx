@@ -1,3 +1,4 @@
+import { CheckCircle2, XCircle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/endpoints";
@@ -72,7 +73,10 @@ function Header({ flow }: { flow: TxFlowDto }) {
         )}
       </div>
       <div className="txview__meta">
-        <span className={tx.success ? "txview__ok" : "txview__fail"}>{tx.success ? t("tx.success") : t("tx.failed")}</span>
+        <span className={tx.success ? "txview__ok" : "txview__fail"}>
+          {tx.success ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+          {tx.success ? t("tx.success") : t("tx.failed")}
+        </span>
         <span>{t("tx.block")} <b>{tx.block_number}</b></span>
         <span>{formatTime(tx.ts)}</span>
         <span>{t("tx.fee")} <b>{formatAmount(tx.fee, 18).text} ETH</b></span>

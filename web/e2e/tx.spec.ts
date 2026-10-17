@@ -31,7 +31,7 @@ test("a tx tab whose data arrives while the graph tab is shown lays out when ope
 test("tx search → add a node to the graph → the graph built while hidden fits when shown", async ({ page, mock }) => {
   await page.goto("/?e2e=1");
   // Start with the right panel closed, so the flow is first laid out at the full width.
-  await page.getByRole("button", { name: "Details" }).click();
+  await page.getByRole("button", { name: "Toggle details" }).click();
   await page.getByRole("searchbox", { name: "Search" }).fill(TX);
   await page.getByRole("searchbox", { name: "Search" }).press("Enter");
 
@@ -46,7 +46,7 @@ test("tx search → add a node to the graph → the graph built while hidden fit
 
   // Pick the router, then open the right panel: the canvas narrows and is refit with every node in view.
   await tapNode(page, { tx: TX }, C);
-  await page.getByRole("button", { name: "Details" }).click();
+  await page.getByRole("button", { name: "Toggle details" }).click();
   const add = page.getByRole("button", { name: "Add to graph" });
   await expect(add).toBeVisible();
   await expect(txView.getByRole("button", { name: "Add to graph" })).toHaveCount(0);

@@ -67,26 +67,27 @@ export function ContextMenu(p: ContextMenuProps) {
   };
 
   return (
-    <div className="ctx-menu" role="menu" ref={ref} style={{ left: p.x, top: p.y }}>
-      <button role="menuitem" onClick={run(() => syncNode(addr))}>{t("ctx.sync")}</button>
+    <div className="menu ctx-menu" role="menu" ref={ref} style={{ left: p.x, top: p.y }}>
+      <button role="menuitem" className="menu__item" onClick={run(() => syncNode(addr))}>{t("ctx.sync")}</button>
       {node.partial && (
-        <button role="menuitem" onClick={run(() => syncNode(addr, "older"))}>{t("ctx.older")}</button>
+        <button role="menuitem" className="menu__item" onClick={run(() => syncNode(addr, "older"))}>{t("ctx.older")}</button>
       )}
-      <div className="ctx-menu__group">{t("ctx.expandGroup")}</div>
-      <button role="menuitem" className="ctx-menu__sub" onClick={run(p.onExpandSelect)}>{t("ctx.select")}</button>
-      <button role="menuitem" className="ctx-menu__sub" onClick={run(p.onExpandTop)}>
+      <div className="menu__group">{t("ctx.expandGroup")}</div>
+      <button role="menuitem" className="menu__item menu__item--sub" onClick={run(p.onExpandSelect)}>{t("ctx.select")}</button>
+      <button role="menuitem" className="menu__item menu__item--sub" onClick={run(p.onExpandTop)}>
         {t(p.byAmount ? "ctx.topAmount" : "ctx.topCount", { k: TOP_K })}
       </button>
-      <button role="menuitem" onClick={run(() => togglePin(addr))}>{pinned ? t("ctx.unpin") : t("ctx.pin")}</button>
-      <button role="menuitem" onClick={run(() => hideNode(addr))}>{t("ctx.hide")}</button>
+      <button role="menuitem" className="menu__item" onClick={run(() => togglePin(addr))}>{pinned ? t("ctx.unpin") : t("ctx.pin")}</button>
+      <button role="menuitem" className="menu__item" onClick={run(() => hideNode(addr))}>{t("ctx.hide")}</button>
       {isCenter && (
-        <button role="menuitem" onClick={run(() => useGraph.getState().removeCenter(addr))}>{t("ctx.removeCenter")}</button>
+        <button role="menuitem" className="menu__item" onClick={run(() => useGraph.getState().removeCenter(addr))}>{t("ctx.removeCenter")}</button>
       )}
-      <button role="menuitem" onClick={run(() => focusNode(addr, p.data))}>{t("ctx.focus")}</button>
-      <button role="menuitem" onClick={run(() => useUi.getState().openLabelEditor(addr))}>{t("ctx.addLabel")}</button>
-      <button role="menuitem" onClick={run(() => void copy())}>{t("ctx.copyAddress")}</button>
+      <button role="menuitem" className="menu__item" onClick={run(() => focusNode(addr, p.data))}>{t("ctx.focus")}</button>
+      <button role="menuitem" className="menu__item" onClick={run(() => useUi.getState().openLabelEditor(addr))}>{t("ctx.addLabel")}</button>
+      <button role="menuitem" className="menu__item" onClick={run(() => void copy())}>{t("ctx.copyAddress")}</button>
       <button
         role="menuitem"
+        className="menu__item"
         onClick={run(() => window.open(`https://etherscan.io/address/${addr}`, "_blank", "noopener"))}
       >
         {t("ctx.openEtherscan")}
