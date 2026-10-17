@@ -9,7 +9,7 @@ import type { TransferDto } from "../api/generated/TransferDto";
 import { qk } from "../api/queryClient";
 import { useT } from "../i18n";
 import { useAssetRegistry } from "../graph/assetRegistry";
-import { useGraph } from "../graph/store";
+import { graphSelection, useGraph } from "../graph/store";
 import { useGraphData } from "../graph/useGraphData";
 import { shortAddr } from "../lib/address";
 import { formatFixed } from "../lib/amount";
@@ -96,6 +96,9 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
     const to = row.to.toLowerCase();
     const asset = row.asset === null ? null : row.asset.toLowerCase();
     const same = highlight && highlight.from === from && highlight.to === to && highlight.asset === asset;
+    // select() clears the highlight, so it goes first; the tx keeps the origin node/pair as its context.
+    const g = useGraph.getState();
+    g.select({ kind: "tx", hash: row.tx_hash.toLowerCase(), context: graphSelection(g.selection) });
     setHighlight(same ? null : { from, to, asset });
   };
 
@@ -294,7 +297,7 @@ function nodeParams(filter: EdgeFilterDto, address: string, direction: Dir): Tra
 }
 
 export function TransferTable() {
-  const selection = useGraph((s) => s.selection);
+  const selection = useGraph((s) => graphSelection(s.selection));
   const filter = useGraph((s) => s.filter);
   const centers = useGraph((s) => s.centers);
   const { data } = useGraphData();

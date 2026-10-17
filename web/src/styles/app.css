@@ -101,6 +101,7 @@ button.chip:hover { color: var(--fg); }
 
 .tag--neutral { color: var(--fg-muted); background: var(--bg-subtle); box-shadow: inset 0 0 0 1px var(--line); }
 .tag--warn { --tag-hue: var(--warn); color: var(--fg); background: color-mix(in srgb, var(--warn) 18%, var(--bg)); }
+.tag--ok { --tag-hue: var(--pos); color: var(--fg); background: color-mix(in srgb, var(--pos) 18%, var(--bg)); }
 /* Label categories (see LabelEditor CATEGORIES); "other" and unknown ids use .tag--neutral. */
 .tag--exchange { --tag-hue: var(--cat-exchange); }
 .tag--defi { --tag-hue: var(--cat-defi); }
@@ -829,3 +830,7 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .txview__arg { margin-right: var(--sp-3); }
 .main__tx { flex: 1; min-height: 0; display: flex; }
 .main__tx[hidden] { display: none; }
+
+/* An address with its inline copy / add-to-graph buttons (shell/AddressCell). */
+.addr-cell { display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--sp-1); max-width: 100%; }
+.addr-cell__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

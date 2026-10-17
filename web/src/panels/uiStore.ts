@@ -54,7 +54,7 @@ function selectionChanged(node: boolean): void {
 }
 
 const selKey = (s: Selection) =>
-  s === null ? "" : s.kind === "node" ? `n:${s.address.toLowerCase()}` : `p:${s.a.toLowerCase()}|${s.b.toLowerCase()}`;
+  s === null ? "" : s.kind === "tx" ? `t:${s.hash.toLowerCase()}` : s.kind === "node" ? `n:${s.address.toLowerCase()}` : `p:${s.a.toLowerCase()}|${s.b.toLowerCase()}`;
 
 useGraph.subscribe((s, prev) => {
   if (s.selection !== prev.selection && selKey(s.selection) !== selKey(prev.selection)) {

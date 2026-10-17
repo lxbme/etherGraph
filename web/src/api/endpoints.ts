@@ -11,6 +11,7 @@ import type { StatusDto } from "./generated/StatusDto";
 import type { SyncRequestDto } from "./generated/SyncRequestDto";
 import type { SyncResponseDto } from "./generated/SyncResponseDto";
 import type { TransferPageDto } from "./generated/TransferPageDto";
+import type { TxRawDto } from "./generated/TxRawDto";
 import type { TxResponseDto } from "./generated/TxResponseDto";
 import type { UpdateWorkspaceDto } from "./generated/UpdateWorkspaceDto";
 import type { WorkspaceDto } from "./generated/WorkspaceDto";
@@ -59,6 +60,7 @@ export const api = {
   recentJobs: () => request<JobDto[]>("GET", "/api/jobs", { query: { active: "false" } }),
   sync: (req: SyncRequestDto) => request<SyncResponseDto>("POST", "/api/sync", { body: req }),
   tx: (hash: string) => request<TxResponseDto>("GET", `/api/tx/${encodeURIComponent(hash)}`),
+  txRaw: (hash: string) => request<TxRawDto>("GET", `/api/tx/${encodeURIComponent(hash)}/raw`),
   labels: (addr: string) => request<LabelDto[]>("GET", "/api/labels", { query: { addr } }),
   addLabel: (l: NewLabelDto) => request<LabelDto>("POST", "/api/labels", { body: l }),
   deleteLabel: (id: number) => request<void>("DELETE", `/api/labels/${id}`),

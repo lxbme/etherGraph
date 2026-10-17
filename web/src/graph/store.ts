@@ -13,10 +13,16 @@ export interface NodeUi {
   pos?: { x: number; y: number };
 }
 export type Pos = { x: number; y: number };
-export type Selection =
+export type GraphSelection =
   | { kind: "node"; address: string }
-  | { kind: "pair"; a: string; b: string }
-  | null;
+  | { kind: "pair"; a: string; b: string };
+/** A tx selection remembers the node/pair it was picked from (`context`), which keeps driving the canvas and table. */
+export type Selection = GraphSelection | { kind: "tx"; hash: string; context: GraphSelection | null } | null;
+
+/** The node/pair selection behind `s`: itself, or a tx selection's origin. */
+export function graphSelection(s: Selection): GraphSelection | null {
+  return s?.kind === "tx" ? s.context : s;
+}
 export type SortKey = "count" | "amount" | "recent";
 
 export interface GraphState {

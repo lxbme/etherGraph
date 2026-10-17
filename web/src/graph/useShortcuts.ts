@@ -3,7 +3,7 @@ import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import { useUi } from "../panels/uiStore";
 import { useTabs } from "../shell/tabs";
 import { focusNode, hideNode, syncNode, togglePin } from "./nodeActions";
-import { useGraph } from "./store";
+import { graphSelection, useGraph } from "./store";
 
 function isTyping(t: EventTarget | null): boolean {
   const el = t as HTMLElement | null;
@@ -34,7 +34,7 @@ export function useShortcuts(getData: () => GraphResponseDto | undefined): void 
         return;
       }
       if (e.altKey || e.shiftKey) return;
-      const sel = g.selection;
+      const sel = graphSelection(g.selection);
       if (sel?.kind !== "node") return;
       const a = sel.address;
       switch (key) {

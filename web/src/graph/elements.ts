@@ -1,7 +1,7 @@
 import type cytoscape from "cytoscape";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { shortAddr } from "../lib/address";
-import type { GraphState, NodeUi } from "./store";
+import { graphSelection, type GraphSelection, type GraphState, type NodeUi } from "./store";
 import { edgeWidth, type VisualEdge } from "./visualEdges";
 
 const lc = (s: string) => s.toLowerCase();
@@ -67,7 +67,7 @@ function isHighlighted(v: VisualEdge, h: ViewState["highlightTransfer"]): boolea
   return v.assets.some((a) => (a.asset ? lc(a.asset) : null) === want);
 }
 
-function inSelectedPair(v: VisualEdge, sel: ViewState["selection"]): boolean {
+function inSelectedPair(v: VisualEdge, sel: GraphSelection | null): boolean {
   if (sel?.kind !== "pair") return false;
   const [f, t, a, b] = [lc(v.from), lc(v.to), lc(sel.a), lc(sel.b)];
   return (f === a && t === b) || (f === b && t === a);
@@ -83,7 +83,7 @@ export function toElements(
   const out: cytoscape.ElementDefinition[] = [];
   const present = new Set<string>();
   const centers = new Set(state.centers.map(lc));
-  const sel = state.selection;
+  const sel = graphSelection(state.selection);
   for (const n of nodes) {
     const id = lc(n.address);
     const ui = state.ui[id];

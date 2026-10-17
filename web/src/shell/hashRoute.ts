@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useGraph } from "../graph/store";
+import { graphSelection, useGraph } from "../graph/store";
 import { useTabs } from "./tabs";
 
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
@@ -37,7 +37,7 @@ export function applyRoute(r: Route): void {
 function currentHash(): string {
   const { active } = useTabs.getState();
   if (active !== "graph") return `#/tx/${active}`;
-  const sel = useGraph.getState().selection;
+  const sel = graphSelection(useGraph.getState().selection);
   return sel?.kind === "node" ? `#/address/${sel.address.toLowerCase()}` : "#/";
 }
 
