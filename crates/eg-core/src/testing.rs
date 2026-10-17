@@ -25,6 +25,9 @@ pub struct FakeSource {
     statuses: Mutex<HashMap<TxHash, Option<String>>>,
     contracts: Mutex<HashMap<Address, (ContractSource, ContractCreation)>>,
     latest: Mutex<u64>,
+    nonces: Mutex<HashMap<Address, u64>>,
+    codes: Mutex<HashMap<Address, Bytes>>,
+    balances: Mutex<HashMap<Address, U256>>,
     eth_call: Mutex<Option<EthCallFn>>,
     fail: Mutex<Option<SourceError>>,
     status_fail: Mutex<Option<SourceError>>,
@@ -52,6 +55,18 @@ impl FakeSource {
 
     pub fn set_latest_block(&self, b: u64) {
         *self.latest.lock().unwrap() = b;
+    }
+
+    pub fn set_nonce(&self, addr: Address, n: u64) {
+        self.nonces.lock().unwrap().insert(addr, n);
+    }
+
+    pub fn set_code(&self, addr: Address, code: Bytes) {
+        self.codes.lock().unwrap().insert(addr, code);
+    }
+
+    pub fn set_balance(&self, addr: Address, v: U256) {
+        self.balances.lock().unwrap().insert(addr, v);
     }
 
     pub fn add_tx(
@@ -255,6 +270,41 @@ impl ChainSource for FakeSource {
                 message: "no eth_call handler".into(),
             }),
         }
+    }
+
+    async fn tx_count(&self, _p: Priority, addr: Address) -> Result<u64, SourceError> {
+        self.enter()?;
+        Ok(self.nonces.lock().unwrap().get(&addr).copied().unwrap_or(0))
+    }
+
+    async fn code(&self, _p: Priority, addr: Address) -> Result<Bytes, SourceError> {
+        self.enter()?;
+        Ok(self
+            .codes
+            .lock()
+            .unwrap()
+            .get(&addr)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    async fn balances(
+        &self,
+        _p: Priority,
+        addrs: &[Address],
+    ) -> Result<Vec<(Address, U256)>, SourceError> {
+        self.enter()?;
+        if addrs.len() > 20 {
+            return Err(SourceError::Parse(format!(
+                "balancemulti: at most 20 addresses, got {}",
+                addrs.len()
+            )));
+        }
+        let m = self.balances.lock().unwrap();
+        Ok(addrs
+            .iter()
+            .map(|a| (*a, m.get(a).copied().unwrap_or(U256::ZERO)))
+            .collect())
     }
 }
 

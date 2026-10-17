@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use alloy_primitives::{Address, B256, Bytes, address};
+use alloy_primitives::{Address, B256, Bytes, U256, address};
 use alloy_sol_types::{SolCall, SolValue, sol};
 use eg_core::source::{ContractCreation, ContractSource, Priority, SourceError};
 use eg_core::testing::FakeSource;
@@ -389,6 +389,19 @@ impl eg_core::source::ChainSource for FlakySource {
     }
     async fn eth_call(&self, p: Priority, to: Address, d: Bytes) -> Result<Bytes, SourceError> {
         self.inner.eth_call(p, to, d).await
+    }
+    async fn tx_count(&self, p: Priority, a: Address) -> Result<u64, SourceError> {
+        self.inner.tx_count(p, a).await
+    }
+    async fn code(&self, p: Priority, a: Address) -> Result<Bytes, SourceError> {
+        self.inner.code(p, a).await
+    }
+    async fn balances(
+        &self,
+        p: Priority,
+        a: &[Address],
+    ) -> Result<Vec<(Address, U256)>, SourceError> {
+        self.inner.balances(p, a).await
     }
 }
 

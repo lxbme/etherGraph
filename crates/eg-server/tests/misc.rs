@@ -294,6 +294,19 @@ impl ChainSource for HeldHead {
     async fn eth_call(&self, p: Priority, to: Address, d: Bytes) -> Result<Bytes, SourceError> {
         self.fake.eth_call(p, to, d).await
     }
+    async fn tx_count(&self, p: Priority, a: Address) -> Result<u64, SourceError> {
+        self.fake.tx_count(p, a).await
+    }
+    async fn code(&self, p: Priority, a: Address) -> Result<Bytes, SourceError> {
+        self.fake.code(p, a).await
+    }
+    async fn balances(
+        &self,
+        p: Priority,
+        a: &[Address],
+    ) -> Result<Vec<(Address, U256)>, SourceError> {
+        self.fake.balances(p, a).await
+    }
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]

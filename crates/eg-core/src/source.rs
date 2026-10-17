@@ -184,6 +184,17 @@ pub trait ChainSource: Send + Sync {
         addrs: &[Address],
     ) -> Result<Vec<ContractCreation>, SourceError>;
     async fn eth_call(&self, p: Priority, to: Address, data: Bytes) -> Result<Bytes, SourceError>;
+    /// The account nonce (`eth_getTransactionCount`) at `latest`.
+    async fn tx_count(&self, p: Priority, addr: Address) -> Result<u64, SourceError>;
+    /// The deployed bytecode (`eth_getCode`) at `latest`; empty for an EOA.
+    async fn code(&self, p: Priority, addr: Address) -> Result<Bytes, SourceError>;
+    /// Native balances at `latest`, in the requested order. `addrs.len() <= 20`,
+    /// otherwise `SourceError::Parse`.
+    async fn balances(
+        &self,
+        p: Priority,
+        addrs: &[Address],
+    ) -> Result<Vec<(Address, U256)>, SourceError>;
 }
 
 #[cfg(test)]

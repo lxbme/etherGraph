@@ -118,6 +118,19 @@ impl ChainSource for Spy {
     async fn eth_call(&self, p: Priority, to: Address, d: Bytes) -> Result<Bytes, SourceError> {
         self.inner.eth_call(p, to, d).await
     }
+    async fn tx_count(&self, p: Priority, a: Address) -> Result<u64, SourceError> {
+        self.inner.tx_count(p, a).await
+    }
+    async fn code(&self, p: Priority, a: Address) -> Result<Bytes, SourceError> {
+        self.inner.code(p, a).await
+    }
+    async fn balances(
+        &self,
+        p: Priority,
+        a: &[Address],
+    ) -> Result<Vec<(Address, U256)>, SourceError> {
+        self.inner.balances(p, a).await
+    }
 }
 
 const ADDR: Address = Address::repeat_byte(0xaa);

@@ -86,3 +86,9 @@ pub struct CreationRow {
     pub contract_creator: String,
     pub tx_hash: String,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct BalanceRow {
+    pub account: String,
+    pub balance: String,
+}

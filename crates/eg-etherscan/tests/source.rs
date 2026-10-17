@@ -506,3 +506,100 @@ async fn tx_status_ok_is_none() {
     .await;
     assert_eq!(source(&server).tx_status(P, hash(1)).await.unwrap(), None);
 }
+
+#[tokio::test]
+async fn tx_count_parses_hex() {
+    let server = MockServer::start().await;
+    serve(
+        &server,
+        "proxy",
+        "eth_getTransactionCount",
+        r#"{"jsonrpc":"2.0","id":1,"result":"0x1a"}"#.into(),
+    )
+    .await;
+    assert_eq!(source(&server).tx_count(P, addr(1)).await.unwrap(), 26);
+}
+
+#[tokio::test]
+async fn code_empty_is_eoa() {
+    let server = MockServer::start().await;
+    serve(
+        &server,
+        "proxy",
+        "eth_getCode",
+        r#"{"jsonrpc":"2.0","id":1,"result":"0x"}"#.into(),
+    )
+    .await;
+    assert!(source(&server).code(P, addr(1)).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn code_returns_bytes() {
+    let server = MockServer::start().await;
+    serve(
+        &server,
+        "proxy",
+        "eth_getCode",
+        r#"{"jsonrpc":"2.0","id":1,"result":"0x6080"}"#.into(),
+    )
+    .await;
+    assert_eq!(
+        source(&server).code(P, addr(1)).await.unwrap().to_vec(),
+        vec![0x60, 0x80]
+    );
+}
+
+#[tokio::test]
+async fn balancemulti_parses_all() {
+    let server = MockServer::start().await;
+    serve(
+        &server,
+        "account",
+        "balancemulti",
+        fixture("balancemulti.json"),
+    )
+    .await;
+    let got = source(&server)
+        .balances(P, &[addr(0xa3), addr(0xa1), addr(0xa2)])
+        .await
+        .unwrap();
+    // returned in the requested order
+    assert_eq!(
+        got,
+        vec![
+            (addr(0xa3), U256::from(1u8) << 128),
+            (addr(0xa1), U256::from(1_000_000_000_000_000_000u64)),
+            (addr(0xa2), U256::ZERO),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn balancemulti_missing_account_is_an_error() {
+    let server = MockServer::start().await;
+    serve(
+        &server,
+        "account",
+        "balancemulti",
+        fixture("balancemulti.json"),
+    )
+    .await;
+    let err = source(&server)
+        .balances(P, &[addr(0xa1), addr(0xb9)])
+        .await
+        .unwrap_err();
+    assert!(matches!(err, SourceError::Parse(_)), "{err:?}");
+}
+
+#[tokio::test]
+async fn balances_rejects_more_than_20() {
+    // No mock mounted: the guard must fire before any request.
+    let server = MockServer::start().await;
+    let s = source(&server);
+    let many: Vec<Address> = (0..21).map(addr).collect();
+    assert!(matches!(
+        s.balances(P, &many).await.unwrap_err(),
+        SourceError::Parse(_)
+    ));
+    assert!(s.balances(P, &many[..20]).await.is_err()); // 20 passes the guard, then no mock => error
+}

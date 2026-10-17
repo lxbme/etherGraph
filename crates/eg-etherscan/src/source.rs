@@ -13,7 +13,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::client::EtherscanClient;
-use crate::dto::{CreationRow, InternalRow, SourceCodeRow, TokenRow, TxRow};
+use crate::dto::{BalanceRow, CreationRow, InternalRow, SourceCodeRow, TokenRow, TxRow};
 
 const NOT_VERIFIED: &str = "Contract source code not verified";
 
@@ -473,5 +473,75 @@ impl ChainSource for EtherscanSource {
             .await?;
         let s = v.as_str().ok_or_else(|| perr("result", "not a string"))?;
         Bytes::from_str(s).map_err(|e| perr("result", e))
+    }
+
+    async fn tx_count(&self, p: Priority, a: Address) -> Result<u64, SourceError> {
+        let v = self
+            .rpc(
+                p,
+                "eth_getTransactionCount",
+                &[("address", format!("{a:#x}")), ("tag", "latest".to_owned())],
+            )
+            .await?;
+        hex_u64("result", &v)
+    }
+
+    async fn code(&self, p: Priority, a: Address) -> Result<Bytes, SourceError> {
+        let v = self
+            .rpc(
+                p,
+                "eth_getCode",
+                &[("address", format!("{a:#x}")), ("tag", "latest".to_owned())],
+            )
+            .await?;
+        let s = v.as_str().ok_or_else(|| perr("result", "not a string"))?;
+        Bytes::from_str(s).map_err(|e| perr("result", e))
+    }
+
+    async fn balances(
+        &self,
+        p: Priority,
+        addrs: &[Address],
+    ) -> Result<Vec<(Address, U256)>, SourceError> {
+        if addrs.len() > 20 {
+            return Err(perr(
+                "balancemulti",
+                format!("at most 20 addresses, got {}", addrs.len()),
+            ));
+        }
+        let list = addrs
+            .iter()
+            .map(|a| format!("{a:#x}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let result = self
+            .client
+            .call(
+                p,
+                &[
+                    ("module", "account".to_owned()),
+                    ("action", "balancemulti".to_owned()),
+                    ("address", list),
+                    ("tag", "latest".to_owned()),
+                ],
+            )
+            .await?;
+        let rs: Vec<BalanceRow> = rows(result)?;
+        let mut by_addr = std::collections::HashMap::new();
+        for r in &rs {
+            by_addr.insert(
+                addr("account", &r.account)?,
+                dec_u256("balance", &r.balance)?,
+            );
+        }
+        addrs
+            .iter()
+            .map(|a| {
+                by_addr
+                    .get(a)
+                    .map(|b| (*a, *b))
+                    .ok_or_else(|| perr("balancemulti", format!("missing account {a:#x}")))
+            })
+            .collect()
     }
 }
