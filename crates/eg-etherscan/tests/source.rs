@@ -266,6 +266,41 @@ async fn malformed_token_decimal_is_unknown_not_an_error() {
     );
 }
 
+/// Seen live on spam "USDT" tokens: a 203-digit `value` from a non-standard
+/// Transfer event. It must not abort the page.
+#[tokio::test]
+async fn token_amount_beyond_u256_saturates() {
+    let big = "1674467808622083851005874141247495825085955984784598729482956530738547176491611334373494723345047135";
+    let body = format!(
+        r#"{{"status":"1","message":"OK","result":[{{"blockNumber":"200","timeStamp":"1700000200","hash":"0x{:064x}","from":"0x{:040x}","to":"0x{:040x}","contractAddress":"0x{:040x}","tokenName":"T","tokenSymbol":"T","tokenDecimal":"6","value":"{big}","logIndex":"1"}},{{"blockNumber":"200","timeStamp":"1700000200","hash":"0x{:064x}","from":"0x{:040x}","to":"0x{:040x}","contractAddress":"0x{:040x}","tokenName":"T","tokenSymbol":"T","tokenDecimal":"6","value":"7","logIndex":"2"}}]}}"#,
+        1, 0xa1, 0xb2, 0xc1, 2, 0xa1, 0xb2, 0xc1
+    );
+    let server = MockServer::start().await;
+    serve(&server, "account", "tokentx", body).await;
+    let page = source(&server)
+        .history_page(P, &query(TransferKind::Erc20))
+        .await
+        .unwrap();
+    let amounts: Vec<U256> = page.transfers.iter().map(|t| t.amount).collect();
+    assert_eq!(amounts, vec![U256::MAX, U256::from(7u8)]);
+}
+
+#[tokio::test]
+async fn non_numeric_token_amount_is_still_an_error() {
+    let body = format!(
+        r#"{{"status":"1","message":"OK","result":[{{"blockNumber":"200","timeStamp":"1700000200","hash":"0x{:064x}","from":"0x{:040x}","to":"0x{:040x}","contractAddress":"0x{:040x}","tokenName":"T","tokenSymbol":"T","tokenDecimal":"6","value":"12x","logIndex":"1"}}]}}"#,
+        1, 0xa1, 0xb2, 0xc1
+    );
+    let server = MockServer::start().await;
+    serve(&server, "account", "tokentx", body).await;
+    assert!(
+        source(&server)
+            .history_page(P, &query(TransferKind::Erc20))
+            .await
+            .is_err()
+    );
+}
+
 #[tokio::test]
 async fn unverified_contract_has_no_abi() {
     let server = MockServer::start().await;

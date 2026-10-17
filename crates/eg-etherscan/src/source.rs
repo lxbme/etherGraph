@@ -33,6 +33,17 @@ fn dec_u256(field: &str, s: &str) -> Result<U256, SourceError> {
     U256::from_str_radix(s, 10).map_err(|e| perr(field, e))
 }
 
+/// Token amounts and ids from event logs: Etherscan reports non-standard
+/// Transfer events (seen on spam tokens) with more than 78 digits. Those
+/// saturate at `U256::MAX` instead of failing the whole page; anything that is
+/// not a decimal number is still an error.
+fn dec_u256_sat(field: &str, s: &str) -> Result<U256, SourceError> {
+    match U256::from_str_radix(s, 10) {
+        Err(_) if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) => Ok(U256::MAX),
+        r => r.map_err(|e| perr(field, e)),
+    }
+}
+
 fn addr(field: &str, s: &str) -> Result<Address, SourceError> {
     Address::from_str(s).map_err(|e| perr(field, e))
 }
@@ -118,11 +129,11 @@ fn map_internal(
 
 fn map_token(kind: TransferKind, r: &TokenRow) -> Result<Transfer, SourceError> {
     let (amount, token_id) = match kind {
-        TransferKind::Erc20 => (dec_u256("value", &r.value)?, None),
-        TransferKind::Erc721 => (U256::from(1u8), Some(dec_u256("tokenID", &r.token_id)?)),
+        TransferKind::Erc20 => (dec_u256_sat("value", &r.value)?, None),
+        TransferKind::Erc721 => (U256::from(1u8), Some(dec_u256_sat("tokenID", &r.token_id)?)),
         _ => (
-            dec_u256("tokenValue", &r.token_value)?,
-            Some(dec_u256("tokenID", &r.token_id)?),
+            dec_u256_sat("tokenValue", &r.token_value)?,
+            Some(dec_u256_sat("tokenID", &r.token_id)?),
         ),
     };
     Ok(Transfer {
