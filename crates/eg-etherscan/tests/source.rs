@@ -333,13 +333,14 @@ async fn latest_block_and_eth_call() {
         r#"{"jsonrpc":"2.0","id":1,"result":"0x10"}"#.into(),
     )
     .await;
-    serve(
-        &server,
-        "proxy",
-        "eth_call",
-        r#"{"jsonrpc":"2.0","id":1,"result":"0xdeadbeef"}"#.into(),
-    )
-    .await;
+    Mock::given(method("POST"))
+        .and(wiremock::matchers::body_string_contains("action=eth_call"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(r#"{"jsonrpc":"2.0","id":1,"result":"0xdeadbeef"}"#),
+        )
+        .mount(&server)
+        .await;
     let s = source(&server);
     assert_eq!(s.latest_block(P).await.unwrap(), 16);
     let out = s
