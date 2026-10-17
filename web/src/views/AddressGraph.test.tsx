@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import type cytoscape from "cytoscape";
 import { api } from "../api/endpoints";
 import { ApiError } from "../api/errors";
@@ -104,6 +104,16 @@ test("graph data flows into elements; elements and stylesheet are memoized", asy
   expect(h.renders).toBeGreaterThan(before);
   expect(props().elements).toBe(elements);
   expect(props().stylesheet).toBe(stylesheet);
+});
+
+test("the legend sits in the canvas and lists only what is on it", async () => {
+  const { container } = mount();
+  expect(screen.queryByTestId("legend")).toBeNull();
+  act(() => useGraph.getState().addCenter(A));
+  await waitFor(() => expect(ids()).toContain(A));
+  const legend = within(container.querySelector(".address-graph")!).getByTestId("legend");
+  expect(within(legend).getByText("Center (address being explored)")).toBeInTheDocument();
+  expect(within(legend).queryByText("Pinned")).toBeNull();
 });
 
 test("hidden nodes and their edges are left out", async () => {

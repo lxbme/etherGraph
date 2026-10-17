@@ -685,6 +685,37 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 @keyframes address-graph-pulse { from { opacity: 0.25; } to { opacity: 0.8; } }
 @media (prefers-reduced-motion: reduce) { .address-graph__refreshing { animation: none; } }
 
+/* Canvas legend: bottom-left over the canvas; only its own box takes pointer events. */
+.legend {
+  padding: var(--sp-3);
+  border-radius: var(--radius-pop);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  color: var(--fg);
+  font-size: var(--fs-11);
+}
+.legend--floating {
+  position: absolute;
+  left: var(--sp-3);
+  bottom: var(--sp-3);
+  z-index: 5;
+  max-width: 260px;
+  max-height: calc(100% - var(--sp-6));
+  overflow-y: auto;
+}
+.legend__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.legend__title { font-size: var(--fs-12); font-weight: 600; }
+/* Keeps the 28px toggle from making the header taller than its title. */
+.legend__toggle { margin: calc(0px - var(--sp-2)) calc(0px - var(--sp-2)) calc(0px - var(--sp-2)) 0; }
+.legend__chevron--up { transform: rotate(180deg); }
+.legend__head + .legend__group, .legend__group + .legend__group { margin-top: var(--sp-2); }
+.legend__group-title { margin-bottom: var(--sp-1); color: var(--fg-muted); }
+.legend__list { display: grid; gap: var(--sp-1); margin: 0; padding: 0; list-style: none; }
+.legend__item { display: flex; align-items: center; gap: var(--sp-2); }
+.legend__swatch { flex: none; }
+/* Edge badges and sequence numbers: a canvas-coloured halo, as on the canvas. */
+.legend__badge { fill: var(--fg); stroke: var(--canvas); stroke-width: 3px; paint-order: stroke; font-size: var(--fs-11); font-weight: 600; }
+
 .transfers { font-size: var(--fs-12); }
 .transfers__msg { padding: var(--sp-3); color: var(--fg-muted); }
 .transfers__msg--error { color: var(--neg); }

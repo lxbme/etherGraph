@@ -8,6 +8,7 @@ import { useBoxSelection } from "../graph/boxSelection";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { isMoreId, MORE_PREFIX, toElements } from "../graph/elements";
 import { useCanvasMetrics } from "../graph/canvasMetrics";
+import { legendFor } from "../graph/legend";
 import { useShortcuts } from "../graph/useShortcuts";
 import { BatchBar } from "../panels/BatchBar";
 import { ContextMenu } from "../panels/ContextMenu";
@@ -22,6 +23,7 @@ import { deriveVisualEdges } from "../graph/visualEdges";
 import { shortAddr } from "../lib/address";
 import { toast } from "../shell/Toasts";
 import { useTheme } from "../shell/theme";
+import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
 
 /** A second tap on the same "+N more" node within this window is part of a double-click. */
 const REVEAL_DEBOUNCE_MS = 300;
@@ -80,6 +82,7 @@ export function AddressGraph() {
     () => (data ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer, limits }, data.omitted) : []),
     [data, visual, ui, centers, selection, highlightTransfer, limits],
   );
+  const legend = useMemo(() => legendFor(elements, theme), [elements, theme]);
 
   const cyRef = useRef<cytoscape.Core | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -204,6 +207,7 @@ export function AddressGraph() {
         onDragEnd={onDragEnd}
         onReady={onReady}
       />
+      <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} />
       <BatchBar />
       {hiddenOnCanvas > 0 && (
         <button

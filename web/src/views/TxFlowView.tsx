@@ -6,6 +6,7 @@ import { useLocale, useT } from "../i18n";
 import { qk } from "../api/queryClient";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { exposeTxCy } from "../graph/cyRegistry";
+import { txLegendFor } from "../graph/legend";
 import { addToGraph } from "../graph/nodeActions";
 import { txFlowStylesheet } from "../graph/styles";
 import { NodeDetail } from "../panels/NodeDetail";
@@ -13,6 +14,7 @@ import { useUi } from "../panels/uiStore";
 import { useJobProgress } from "../shell/statusStore";
 import { useTabs } from "../shell/tabs";
 import { useTheme } from "../shell/theme";
+import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
 import { txElements } from "./txElements";
 import { TxDetailTabs } from "./txdetail/TxDetailTabs";
 import { TxSummaryBar } from "./txdetail/TxSummaryBar";
@@ -74,6 +76,7 @@ export function TxFlowView({ hash }: { hash: string }) {
     () => (flow ? txElements(flow, selected, highlightedSeq) : []),
     [flow, selected, highlightedSeq, locale], // labels are translated when built
   );
+  const legend = useMemo(() => txLegendFor(elements, theme), [elements, theme]);
   useEffect(
     () => () => {
       exposeTxCy(hash, null);
@@ -131,6 +134,7 @@ export function TxFlowView({ hash }: { hash: string }) {
             onDragEnd={NOOP}
             onReady={(cy) => exposeTxCy(hash, cy)}
           />
+          <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} />
         </div>
         <TxDetailTabs flow={flow} />
       </div>

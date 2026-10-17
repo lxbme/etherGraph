@@ -113,6 +113,17 @@ test("pending shows loading and ready renders the summary bar, overview and bann
   expect(h.props!.layout).toBe("dagre-lr");
 });
 
+test("the tx canvas has a legend with call / flow edges and the asset colours present", async () => {
+  vi.spyOn(api, "tx").mockResolvedValue(ready());
+  const { container } = renderView();
+  await screen.findByTestId("tx-summary-bar");
+  const legend = within(container.querySelector(".txview__graph")!).getByTestId("legend");
+  expect(within(legend).getByText("Call (sender → contract)")).toBeInTheDocument();
+  expect(within(legend).getByText("①②③ = order of transfers")).toBeInTheDocument();
+  expect(within(legend).getByText("Stablecoin")).toBeInTheDocument();
+  expect(within(legend).queryByText("NFT")).toBeNull();
+});
+
 test("undecoded call shows the raw selector and no banner for full traces", async () => {
   const r = ready({ call: null, completeness: "full_trace" });
   r.flow!.tx.success = false;

@@ -2,12 +2,10 @@ import cytoscape from "cytoscape";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   NODE_SHAPE,
-  PARTIAL_ICON_SVG,
-  PIN_ICON_SVG,
-  SYNCING_ICON_SVG,
-  TAG_ICON_SVG,
-  assetColors,   categoryColors,
+  assetColors,
+  categoryColors,
   graphStylesheet,
+  iconSvgs,
   txFlowStylesheet,
 } from "./styles";
 
@@ -18,6 +16,8 @@ const styleOf = (s: Block[], selector: string) => {
   if (!b) throw new Error(`missing selector ${selector}`);
   return b.style;
 };
+
+const { tag: TAG_ICON_SVG, pin: PIN_ICON_SVG, syncing: SYNCING_ICON_SVG, partial: PARTIAL_ICON_SVG } = iconSvgs("light");
 
 afterEach(() => {
   document.documentElement.style.removeProperty("--cat-exchange");
@@ -147,8 +147,7 @@ describe("graphStylesheet", () => {
   });
 
   test("corner icons are lucide data URIs", () => {
-    const icons = { TAG_ICON_SVG, PIN_ICON_SVG, SYNCING_ICON_SVG, PARTIAL_ICON_SVG };
-    for (const uri of Object.values(icons)) {
+    for (const uri of Object.values(iconSvgs("light"))) {
       expect(uri).toMatch(/^data:image\/svg\+xml,/);
       expect(uri).not.toMatch(/\s/); // Cytoscape splits multi-image lists on whitespace
     }
@@ -157,6 +156,18 @@ describe("graphStylesheet", () => {
     expect(decodeURIComponent(SYNCING_ICON_SVG)).toContain("M12 6v6l4 2"); // lucide `clock`
     expect(decodeURIComponent(PARTIAL_ICON_SVG)).toContain("m21.73 18-8-14"); // lucide `triangle-alert`
     expect(decodeURIComponent(PARTIAL_ICON_SVG)).toContain("#e8a317"); // --warn
+  });
+
+  test("corner icons follow the theme's accent and warn tokens", () => {
+    const dark = iconSvgs("dark");
+    expect(decodeURIComponent(dark.tag)).toContain("#5b8cff");
+    expect(decodeURIComponent(dark.syncing)).toContain("#5b8cff");
+    expect(decodeURIComponent(dark.partial)).toContain("#f0b64a");
+    expect(dark.tag).not.toBe(iconSvgs("light").tag);
+    for (const uri of Object.values(dark)) expect(uri).not.toMatch(/\s/);
+    withCy(graphStylesheet("dark"), [{ group: "nodes", data: { id: "p", text: "x" }, classes: "kind-eoa pinned" }], (cy) => {
+      expect(ps(cy.getElementById("p"), "background-image").value).toEqual([dark.pin]);
+    });
   });
 
   test("state icons sit outside the node corners: tag top-right, pin top-left, syncing bottom-right, partial bottom-left", () => {

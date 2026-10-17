@@ -15,8 +15,8 @@ export const NODE_SHAPE: Record<NodeKind, string> = {
 
 /** Fallbacks for the tokens in styles/tokens.css (used when CSS variables are unavailable, e.g. jsdom). */
 const THEME_HEX = {
-  light: { fg: "#111827", fgMuted: "#6b7280", line: "#e3e6eb", bg: "#ffffff", canvas: "#fbfcfd", accent: "#1f5eff" },
-  dark: { fg: "#e6e9ed", fgMuted: "#98a3b0", line: "#323a44", bg: "#14181d", canvas: "#10141a", accent: "#5b8cff" },
+  light: { fg: "#111827", fgMuted: "#6b7280", line: "#e3e6eb", bg: "#ffffff", canvas: "#fbfcfd", accent: "#1f5eff", warn: "#e8a317" },
+  dark: { fg: "#e6e9ed", fgMuted: "#98a3b0", line: "#323a44", bg: "#14181d", canvas: "#10141a", accent: "#5b8cff", warn: "#f0b64a" },
 } as const;
 
 /** Category hues; "sanctioned" shares the scam hue. */
@@ -42,44 +42,56 @@ const MORE_PAD_PX = 18;
 const CENTER_RING = "#ffffff";
 
 /**
- * Corner icons (lucide paths on a 24px grid) as data URIs, for node states. Each is a filled glyph with a
- * white outline so it reads on either canvas and over edges; plan 4's legend reuses them.
+ * Corner icons (lucide paths on a 24px grid) as data URIs, for node states. Each is a filled glyph with an
+ * outline in the canvas colour so it reads over nodes and edges; the legend reuses them. encodeURIComponent
+ * also keeps whitespace out of the URI: Cytoscape splits multi-image lists on it.
  */
 const svgUri = (body: string) =>
   `data:image/svg+xml,${encodeURIComponent(
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" ' +
       `stroke-linecap="round" stroke-linejoin="round">${body}</svg>`,
   )}`;
-const OUTLINE = '#ffffff';
 
-/** User label: lucide `tag` in the accent. */
-export const TAG_ICON_SVG = svgUri(
-  `<path fill="#1f5eff" stroke="${OUTLINE}" stroke-width="2" d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/>` +
-    `<circle cx="7.5" cy="7.5" r="1.5" fill="${OUTLINE}"/>`,
-);
-/** Pinned: lucide `pin` in a dark neutral. */
-export const PIN_ICON_SVG = svgUri(
-  `<path stroke="${OUTLINE}" stroke-width="5" d="M12 17v5"/>` +
-    `<path fill="#374151" stroke="${OUTLINE}" stroke-width="2" d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>` +
-    `<path stroke="#374151" stroke-width="2.5" d="M12 17v5"/>`,
-);
-/** Syncing: lucide `clock` in the accent. */
-export const SYNCING_ICON_SVG = svgUri(
-  `<circle cx="12" cy="12" r="10" fill="#1f5eff" stroke="${OUTLINE}" stroke-width="2"/>` +
-    `<path stroke="${OUTLINE}" stroke-width="2" d="M12 6v6l4 2"/>`,
-);
-/** Partial (a category hit the record cap): lucide `triangle-alert` in --warn. */
-export const PARTIAL_ICON_SVG = svgUri(
-  `<path fill="#e8a317" stroke="${OUTLINE}" stroke-width="2" d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>` +
-    `<path stroke="#111827" stroke-width="2" d="M12 9v4"/><path stroke="#111827" stroke-width="2" d="M12 17h.01"/>`,
-);
+export type IconId = "tag" | "pin" | "syncing" | "partial";
+
+/**
+ * The state icons for `theme`, built from its tokens: tag (user label) and clock (syncing) in --accent,
+ * pin (pinned) in --fg, triangle-alert (partial: a category hit the record cap) in --warn.
+ */
+export function iconSvgs(theme: Theme): Record<IconId, string> {
+  const t = THEME_HEX[theme];
+  const accent = cssVar("--accent", t.accent);
+  const outline = cssVar("--canvas", t.canvas);
+  const pin = cssVar("--fg", t.fg);
+  const warn = cssVar("--warn", t.warn);
+  return {
+    tag: svgUri(
+      `<path fill="${accent}" stroke="${outline}" stroke-width="2" d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/>` +
+        `<circle cx="7.5" cy="7.5" r="1.5" fill="${outline}"/>`,
+    ),
+    pin: svgUri(
+      `<path stroke="${outline}" stroke-width="5" d="M12 17v5"/>` +
+        `<path fill="${pin}" stroke="${outline}" stroke-width="2" d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>` +
+        `<path stroke="${pin}" stroke-width="2.5" d="M12 17v5"/>`,
+    ),
+    syncing: svgUri(
+      `<circle cx="12" cy="12" r="10" fill="${accent}" stroke="${outline}" stroke-width="2"/>` +
+        `<path stroke="${outline}" stroke-width="2" d="M12 6v6l4 2"/>`,
+    ),
+    // The exclamation mark is dark ink in both themes: --warn is a light amber in each.
+    partial: svgUri(
+      `<path fill="${warn}" stroke="${outline}" stroke-width="2" d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>` +
+        `<path stroke="${THEME_HEX.light.fg}" stroke-width="2" d="M12 9v4"/><path stroke="${THEME_HEX.light.fg}" stroke-width="2" d="M12 17h.01"/>`,
+    ),
+  };
+}
 
 /** Corner icon per state class, in drawing order; x/y pick the corner the icon hangs off. */
 const BADGES = [
-  { cls: "user-label", svg: TAG_ICON_SVG, x: "100%", y: "0%" },
-  { cls: "pinned", svg: PIN_ICON_SVG, x: "0%", y: "0%" },
-  { cls: "syncing", svg: SYNCING_ICON_SVG, x: "100%", y: "100%" },
-  { cls: "partial", svg: PARTIAL_ICON_SVG, x: "0%", y: "100%" },
+  { cls: "user-label", icon: "tag", x: "100%", y: "0%" },
+  { cls: "pinned", icon: "pin", x: "0%", y: "0%" },
+  { cls: "syncing", icon: "syncing", x: "100%", y: "100%" },
+  { cls: "partial", icon: "partial", x: "0%", y: "100%" },
 ] as const;
 type Badge = (typeof BADGES)[number];
 /** Icon size and how far it sticks out past the node's corner, in px. */
@@ -136,6 +148,17 @@ export function assetColors(theme: Theme): Record<AssetClass | "other", string> 
   return { eth: asset("eth"), stable: asset("stable"), erc20: asset("erc20"), nft: asset("nft"), other: OTHER_EDGE[theme] };
 }
 
+/** Fills and strokes of the state encodings that are not a category or an icon. */
+export function stateColors(theme: Theme): { center: CategoryColor; selectedRing: string; more: CategoryColor } {
+  const t = THEME_HEX[theme];
+  const accent = cssVar("--accent", t.accent);
+  return {
+    center: { fill: accent, stroke: CENTER_RING },
+    selectedRing: accent,
+    more: { fill: cssVar("--canvas", t.canvas), stroke: cssVar("--line", t.line) },
+  };
+}
+
 /** Plain `{selector, style}` blocks; property names/values follow the Cytoscape 3.34 docs. */
 type StyleFn = (ele: cytoscape.NodeSingular) => unknown;
 type Block = { selector: string; style: Record<string, string | number | StyleFn> };
@@ -149,8 +172,8 @@ const away = (pos: "0%" | "100%") => (pos === "0%" ? -BADGE_OVERHANG : BADGE_OVE
  * The state icons, composed from the node's classes. Every list property is given in full, since
  * Cytoscape falls back to its own defaults (e.g. a clipped, centered image) for missing entries.
  */
-const BADGE_STYLE: Block["style"] = {
-  "background-image": perBadge((b) => b.svg),
+const badgeStyle = (icons: Record<IconId, string>): Block["style"] => ({
+  "background-image": perBadge((b) => icons[b.icon]),
   "background-width": perBadge(() => BADGE_SIZE),
   "background-height": perBadge(() => BADGE_SIZE),
   "background-position-x": perBadge((b) => b.x),
@@ -161,7 +184,7 @@ const BADGE_STYLE: Block["style"] = {
   "background-image-containment": perBadge(() => "over"),
   "bounds-expansion": BADGE_OVERHANG,
   "text-margin-y": (ele) => (badgesOf(ele).some((b) => b.y === "100%") ? LABEL_GAP_BELOW_BADGE : LABEL_GAP),
-};
+});
 
 const edgeColor = (c: string) => ({ "line-color": c, "target-arrow-color": c });
 const catStyle = (c: CategoryColor) => ({ "background-color": c.fill, "border-color": c.stroke });
@@ -176,6 +199,8 @@ function graphBlocks(theme: Theme): Block[] {
   const font = cssVar("--font-sans", "Inter, system-ui, sans-serif");
   const cat = categoryColors(theme);
   const asset = assetColors(theme);
+  const state = stateColors(theme);
+  const badge = badgeStyle(iconSvgs(theme));
 
   return [
     {
@@ -215,8 +240,8 @@ function graphBlocks(theme: Theme): Block[] {
       style: {
         width: 38,
         height: 38,
-        "background-color": accent,
-        "border-color": CENTER_RING,
+        "background-color": state.center.fill,
+        "border-color": state.center.stroke,
         "border-width": 3,
         "font-weight": 600,
       },
@@ -224,7 +249,7 @@ function graphBlocks(theme: Theme): Block[] {
     { selector: "node.synced", style: { "border-style": "solid" } },
     { selector: "node.unsynced", style: { "border-style": "dashed" } },
     // Corner icons for user label, pinned, syncing and partial; each block composes all of them.
-    ...BADGES.map((b) => ({ selector: `node.${b.cls}`, style: BADGE_STYLE })),
+    ...BADGES.map((b) => ({ selector: `node.${b.cls}`, style: badge })),
     // The "+N more" pill: canvas fill, dashed outline, the label inside; after the categories and states.
     {
       selector: "node.more",
@@ -233,8 +258,8 @@ function graphBlocks(theme: Theme): Block[] {
         // `width: "label"` is deprecated; an estimate from the text length (11px font) is close enough.
         width: (ele) => String(ele.data("label") ?? "").length * MORE_CHAR_PX + MORE_PAD_PX,
         height: 22,
-        "background-color": canvas,
-        "border-color": line,
+        "background-color": state.more.fill,
+        "border-color": state.more.stroke,
         "border-width": 1,
         "border-style": "dashed",
         label: "data(label)",
@@ -248,7 +273,7 @@ function graphBlocks(theme: Theme): Block[] {
     {
       // A ring outside the border, so the selected node keeps its own fill and stroke (the center's white ring too).
       selector: "node.selected, node:selected",
-      style: { "outline-color": accent, "outline-width": 2, "outline-offset": 2, "outline-opacity": 1 },
+      style: { "outline-color": state.selectedRing, "outline-width": 2, "outline-offset": 2, "outline-opacity": 1 },
     },
 
     {
