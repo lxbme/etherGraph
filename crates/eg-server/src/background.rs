@@ -25,8 +25,10 @@ pub fn next_utc_midnight(now: DateTime<Utc>) -> DateTime<Utc> {
 }
 
 /// Spawns the quota loop (persist every 5s, reset at UTC midnight) and the
-/// `QuotaStatus` publisher (on snapshot change, at most once per second).
+/// `QuotaStatus` publisher (on snapshot change, at most once per second), and
+/// starts the first chain head fetch.
 pub fn spawn_background(state: &AppState) {
+    state.head.prime(state);
     // Subscribe before spawning so no change after this call is missed.
     let quota_rx = state.gate.subscribe_quota();
     tokio::spawn(publish_quota_status(state.clone(), quota_rx));

@@ -51,6 +51,12 @@ impl HeadCache {
         self.get_from(&s.source)
     }
 
+    /// Starts the first head fetch in the background (server start), so the
+    /// first transaction viewed usually has its confirmations already.
+    pub fn prime(&self, s: &AppState) {
+        self.get_from(&s.source);
+    }
+
     fn get_from(&self, source: &Arc<dyn ChainSource>) -> Option<u64> {
         let cached = *self.last.lock().unwrap_or_else(|e| e.into_inner());
         let fresh = cached.is_some_and(|(_, at)| at.elapsed() < self.ttl);

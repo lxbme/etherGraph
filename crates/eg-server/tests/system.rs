@@ -289,6 +289,26 @@ async fn background_publishes_quota_status(pool: PgPool) {
     assert_eq!(ev.3, next_utc_midnight(Utc::now()));
 }
 
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn background_primes_the_chain_head(pool: PgPool) {
+    let (_, state, fake) = test_app(pool);
+    fake.set_latest_block(500);
+    spawn_background(&state);
+    // Nothing has viewed a transaction yet: the head is fetched on start.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while fake.calls() == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        while state.head.get(&state).is_none() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("chain head was not primed");
+    assert_eq!(state.head.get(&state), Some(500));
+    assert_eq!(fake.calls(), 1);
+}
+
 #[test]
 fn config_example_parses() {
     let cfg = Config::load(Path::new("../../config.example.toml")).unwrap();
