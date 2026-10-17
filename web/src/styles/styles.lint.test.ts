@@ -104,4 +104,7 @@ describe("app.css layout rules", () => {
     expect(body).toMatch(/(^|[\s;])width:\s*max-content/);
     expect(body).toMatch(/max-width:\s*280px/);
   });
+  it("the legend is opaque: canvas content never shows through it", () => {
+    expect(ruleBody(css, ".legend")).toMatch(/background:\s*var\(--bg\)\s*;/);
+  });
 });

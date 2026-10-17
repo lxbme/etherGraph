@@ -44,15 +44,6 @@ test("reports the canvas width it covers from the left edge while expanded, 0 wh
   expect(onCover).toHaveBeenLastCalledWith(212);
 });
 
-test("the floating legend is opaque: canvas content never shows through it", () => {
-  // @ts-expect-error node builtins are untyped here (no @types/node); the module exists at runtime.
-  return import("node:fs").then(({ readFileSync }: { readFileSync(p: string, e: string): string }) => {
-    const css = readFileSync("src/styles/app.css", "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-    const body = /(?:^|\})\s*\.legend\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
-    expect(body).toMatch(/background:\s*var\(--bg\)\s*;/);
-  });
-});
-
 test("lists each entry with a 16px swatch and its label", () => {
   render(<Legend groups={groups} collapsedKey={KEY} />);
   expect(screen.getByText("Legend")).toBeInTheDocument();
