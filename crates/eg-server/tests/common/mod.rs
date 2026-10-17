@@ -5,6 +5,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use eg_core::source::ChainSource;
 use eg_core::testing::FakeSource;
 use eg_etherscan::ClientStats;
 use eg_ingest::gate::{GateConfig, PriorityGate};
@@ -18,8 +19,14 @@ use tower::ServiceExt;
 
 /// App wired to a `FakeSource` and a fast gate. No runner workers are spawned.
 pub fn test_app(pool: PgPool) -> (Router, AppState, Arc<FakeSource>) {
-    let cfg = Arc::new(Config::default());
     let fake = Arc::new(FakeSource::new());
+    let (app, state) = test_app_with(pool, fake.clone());
+    (app, state, fake)
+}
+
+/// Like [`test_app`] with any source.
+pub fn test_app_with(pool: PgPool, source: Arc<dyn ChainSource>) -> (Router, AppState) {
+    let cfg = Arc::new(Config::default());
     let gate = PriorityGate::spawn(GateConfig {
         rate_per_sec: 1000.0,
         daily_limit: cfg.etherscan.daily_limit,
@@ -28,11 +35,11 @@ pub fn test_app(pool: PgPool) -> (Router, AppState, Arc<FakeSource>) {
     let state = AppState::new(
         cfg,
         Store::from_pool(pool),
-        fake.clone(),
+        source,
         gate,
         Arc::new(ClientStats::default()),
     );
-    (router(state.clone()), state, fake)
+    (router(state.clone()), state)
 }
 
 /// Sends `req` and returns the status and the body parsed as JSON (`Null` when empty).

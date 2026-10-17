@@ -1,18 +1,27 @@
 mod common;
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use alloy_primitives::{Address, B256, Bytes, U256};
+use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::{DateTime, TimeZone, Utc};
-use common::{delete, get, post_json, send, test_app};
-use eg_core::source::{Priority, RawLog, RawReceipt, RawTx};
-use eg_core::types::{Transfer, TransferKind};
+use common::{delete, get, post_json, send, test_app, test_app_with};
+use eg_core::source::{
+    ChainSource, ContractCreation, ContractSource, HistoryPage, HistoryQuery, Priority, RawBlock,
+    RawLog, RawReceipt, RawTx, SourceError,
+};
+use eg_core::testing::FakeSource;
+use eg_core::types::{Transfer, TransferKind, TxHash};
 use eg_ingest::handlers::FetchTxHandler;
 use eg_ingest::{JobHandler, enqueue_fetch_tx};
 use eg_server::import_labels::import_labels;
 use eg_store::{Store, TxRow};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use tokio::sync::Notify;
 
 const HASH: B256 = B256::repeat_byte(0x11);
 const FROM: Address = Address::repeat_byte(0xaa);
@@ -204,7 +213,8 @@ async fn tx_without_block_header_is_ready_and_backfills_once(pool: PgPool) {
     assert_eq!(d["nonce"], 42);
     assert_eq!(d["tx_type"], 2);
     assert_eq!(d["position"], 4);
-    assert_eq!(d["confirmations"], 10);
+    // The chain head is fetched in the background; the first view has none.
+    assert!(d["confirmations"].is_null());
     assert_eq!(d["gas_limit"], "30000");
     assert_eq!(d["gas_used"], "21000");
     assert!(d["base_fee"].is_null());
@@ -214,10 +224,102 @@ async fn tx_without_block_header_is_ready_and_backfills_once(pool: PgPool) {
     assert_eq!(d["revert_reason"], "out of gas");
     assert_eq!(fetch_block_jobs(&app).await, 1);
 
-    let (st, _) = get(&app, &uri).await;
-    assert_eq!(st, StatusCode::OK);
+    assert_eq!(confirmations_eventually(&app, &uri).await, 10);
     assert_eq!(fetch_block_jobs(&app).await, 1);
-    // The chain head is cached: one `latest_block` call for both requests.
+    // The chain head is cached: one `latest_block` call for all requests.
+    assert_eq!(fake.calls(), 1);
+}
+
+/// Repeats `GET uri` until `detail.confirmations` is set.
+async fn confirmations_eventually(app: &axum::Router, uri: &str) -> u64 {
+    for _ in 0..200 {
+        let (st, v) = get(app, uri).await;
+        assert_eq!(st, StatusCode::OK);
+        if let Some(c) = v["flow"]["detail"]["confirmations"].as_u64() {
+            return c;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("confirmations never became available");
+}
+
+/// A `FakeSource` whose `latest_block` waits until `release` is notified.
+struct HeldHead {
+    fake: Arc<FakeSource>,
+    release: Arc<Notify>,
+}
+
+#[async_trait]
+impl ChainSource for HeldHead {
+    async fn history_page(
+        &self,
+        p: Priority,
+        q: &HistoryQuery,
+    ) -> Result<HistoryPage, SourceError> {
+        self.fake.history_page(p, q).await
+    }
+    async fn tx(&self, p: Priority, h: TxHash) -> Result<Option<RawTx>, SourceError> {
+        self.fake.tx(p, h).await
+    }
+    async fn receipt(&self, p: Priority, h: TxHash) -> Result<Option<RawReceipt>, SourceError> {
+        self.fake.receipt(p, h).await
+    }
+    async fn internal_txs(&self, p: Priority, h: TxHash) -> Result<Vec<Transfer>, SourceError> {
+        self.fake.internal_txs(p, h).await
+    }
+    async fn block(&self, p: Priority, n: u64) -> Result<RawBlock, SourceError> {
+        self.fake.block(p, n).await
+    }
+    async fn tx_status(&self, p: Priority, h: TxHash) -> Result<Option<String>, SourceError> {
+        self.fake.tx_status(p, h).await
+    }
+    async fn latest_block(&self, p: Priority) -> Result<u64, SourceError> {
+        self.release.notified().await;
+        self.fake.latest_block(p).await
+    }
+    async fn contract_source(
+        &self,
+        p: Priority,
+        a: Address,
+    ) -> Result<ContractSource, SourceError> {
+        self.fake.contract_source(p, a).await
+    }
+    async fn contract_creation(
+        &self,
+        p: Priority,
+        a: &[Address],
+    ) -> Result<Vec<ContractCreation>, SourceError> {
+        self.fake.contract_creation(p, a).await
+    }
+    async fn eth_call(&self, p: Priority, to: Address, d: Bytes) -> Result<Bytes, SourceError> {
+        self.fake.eth_call(p, to, d).await
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn tx_view_never_waits_for_the_chain_head(pool: PgPool) {
+    let fake = Arc::new(FakeSource::new());
+    fake.set_latest_block(109);
+    let release = Arc::new(Notify::new());
+    let source = Arc::new(HeldHead {
+        fake: fake.clone(),
+        release: release.clone(),
+    });
+    let (app, state) = test_app_with(pool, source);
+    state.store.upsert_transaction(&stored_row()).await.unwrap();
+    let uri = format!("/api/tx/{HASH:#x}");
+
+    // `latest_block` is stuck, yet both views answer at once without a head.
+    for _ in 0..2 {
+        let (st, v) = tokio::time::timeout(Duration::from_secs(5), get(&app, &uri))
+            .await
+            .expect("tx view waited for latest_block");
+        assert_eq!(st, StatusCode::OK);
+        assert!(v["flow"]["detail"]["confirmations"].is_null());
+    }
+    release.notify_one();
+    assert_eq!(confirmations_eventually(&app, &uri).await, 10);
+    // Concurrent stale views share one refresh.
     assert_eq!(fake.calls(), 1);
 }
 

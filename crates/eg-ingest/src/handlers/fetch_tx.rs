@@ -30,9 +30,10 @@ fn gas_price_of(json: &serde_json::Value) -> U256 {
         .unwrap_or(U256::ZERO)
 }
 
-/// The revert reason is optional detail: a failed lookup leaves it unset
-/// instead of failing the fetch. Quota exhaustion and a rejected API key still
-/// propagate so the runner pauses the job or surfaces the bad key.
+/// The revert reason is optional detail: a lookup that failed for this tx
+/// (parse error, upstream NOTOK…) leaves it unset instead of failing the fetch.
+/// Retryable errors propagate so the runner retries the job; quota exhaustion
+/// and a rejected API key propagate so it pauses the job or surfaces the bad key.
 async fn revert_reason(
     ctx: &JobCtx,
     p: Priority,
@@ -40,7 +41,12 @@ async fn revert_reason(
 ) -> Result<Option<String>, SourceError> {
     match ctx.source.tx_status(p, hash).await {
         Ok(reason) => Ok(reason),
-        Err(e @ (SourceError::QuotaExhausted | SourceError::InvalidKey)) => Err(e),
+        Err(e)
+            if e.is_retryable()
+                || matches!(e, SourceError::QuotaExhausted | SourceError::InvalidKey) =>
+        {
+            Err(e)
+        }
         Err(e) => {
             tracing::warn!(tx = %hash, error = %e, "revert reason lookup failed");
             Ok(None)

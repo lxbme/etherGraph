@@ -343,6 +343,11 @@ async fn tx_status_quota_exhausted_propagates(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
+async fn tx_status_retryable_error_propagates(pool: PgPool) {
+    tx_status_error_propagates(pool, SourceError::Timeout).await;
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
 async fn tx_status_invalid_key_propagates(pool: PgPool) {
     tx_status_error_propagates(pool, SourceError::InvalidKey).await;
 }

@@ -58,7 +58,7 @@ pub async fn tx(
             tracing::warn!(error = %e, "enqueueing block backfill failed");
         }
     }
-    let head = s.head.get(&s).await;
+    let head = s.head.get(&s);
 
     let completeness = serde_json::to_value(f.completeness)
         .ok()
