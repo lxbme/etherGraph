@@ -630,6 +630,8 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .toast--error .toast__icon { color: var(--neg); }
 .toast__msg { min-width: 0; overflow-wrap: anywhere; }
 .toast__action { flex: none; margin-left: auto; color: var(--accent); }
+.toast__close { flex: none; }
+.toast__msg + .toast__close { margin-left: auto; }
 
 /* ---------- Node context menu ---------- */
 

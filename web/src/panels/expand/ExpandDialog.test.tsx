@@ -10,7 +10,7 @@ import { useCanvasMetrics } from "../../graph/canvasMetrics";
 import { useGraph } from "../../graph/store";
 import { graphQueryKey } from "../../graph/useGraphData";
 import { useQuota } from "../../shell/statusStore";
-import { Toasts } from "../../shell/Toasts";
+import { clearToasts, Toasts } from "../../shell/Toasts";
 import { ExpandDialog } from "./ExpandDialog";
 
 const addr = (n: number) => "0x" + n.toString(16).padStart(40, "0");
@@ -61,6 +61,7 @@ const checkedAddrs = () =>
 const expandBtn = () => screen.getByRole("button", { name: "Expand" });
 
 beforeEach(() => {
+  clearToasts();
   useGraph.getState().reset();
   nonces = {};
   probeCalls = 2;
@@ -235,6 +236,25 @@ test("confirming syncs shallow under a new batch, expands, and offers Undo until
   expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
   act(() => useGraph.getState().setPinned([addr(1)], true));
   expect(screen.queryByText("Expanded 3 addresses")).toBeNull();
+});
+
+test("the Undo toast has no timer: it stays until another history step or its close button", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    vi.spyOn(api, "sync").mockResolvedValue({ estimated_calls: null, estimated_seconds: null, per_address: null, jobs: [1] });
+    mockCounterparties([cp(1)]);
+    mount();
+    await waitFor(() => expect(checkedAddrs()).toHaveLength(1));
+    await act(async () => fireEvent.click(expandBtn()));
+    expect(await screen.findByText("Expanded 1 address")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(10 * 60_000));
+    expect(screen.getByText("Expanded 1 address")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByText("Expanded 1 address")).toBeNull();
+    expect(useGraph.getState().centers).toEqual([addr(1)]);
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 test("the toast's Undo undoes the expansion", async () => {

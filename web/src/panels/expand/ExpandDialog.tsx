@@ -33,8 +33,6 @@ import { useProbe } from "./useProbe";
 const FALLBACK_RATE = 2.8;
 /** Most addresses one POST /api/sync accepts. */
 const SYNC_MAX = 50;
-/** How long the "Expanded N · Undo" toast stays (it also goes as soon as another history step is taken). */
-const UNDO_TTL_MS = 10_000;
 
 const lc = (s: string) => s.toLowerCase();
 
@@ -105,15 +103,22 @@ function toRow(
 const byWeight = (x: CandidateRow, y: CandidateRow) =>
   x.cand.weight.value - y.cand.weight.value || (x.address < y.address ? -1 : x.address > y.address ? 1 : 0);
 
-/** Shows the expansion as one undoable step: "Expanded N · Undo" until another history step replaces it. */
+/**
+ * Shows the expansion as one undoable step: "Expanded N · Undo" with no timer, until another history step
+ * replaces it or the user closes it.
+ */
 function offerUndo(count: number): void {
   const past = useGraph.getState()._past;
   const entry = past[past.length - 1];
   if (!entry) return;
   const isTop = (p: typeof past) => p[p.length - 1] === entry;
-  let unsubscribe = () => {};
-  const id = toast(tr("expand.done", { count }), "info", {
-    ttlMs: UNDO_TTL_MS,
+  let id = 0;
+  const unsubscribe = useGraph.subscribe((s) => {
+    if (!isTop(s._past)) dismissToast(id);
+  });
+  id = toast(tr("expand.done", { count }), "info", {
+    ttlMs: null,
+    onDismiss: unsubscribe,
     action: {
       label: tr("common.undo"),
       onClick: () => {
@@ -121,12 +126,6 @@ function offerUndo(count: number): void {
       },
     },
   });
-  unsubscribe = useGraph.subscribe((s) => {
-    if (isTop(s._past)) return;
-    unsubscribe();
-    dismissToast(id);
-  });
-  setTimeout(() => unsubscribe(), UNDO_TTL_MS);
 }
 
 function BudgetBar({ label, used, budget }: { label: string; used: number; budget: number }) {

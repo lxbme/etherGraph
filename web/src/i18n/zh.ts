@@ -114,6 +114,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "common.cancel": "取消",
   "common.retry": "重试",
   "common.undo": "撤销",
+  "common.dismiss": "关闭",
   "common.loading": "加载中…",
   "common.copy": "复制",
   "common.copied": "已复制",

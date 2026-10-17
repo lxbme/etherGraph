@@ -112,6 +112,7 @@ export const en = {
   "common.cancel": "Cancel",
   "common.retry": "Retry",
   "common.undo": "Undo",
+  "common.dismiss": "Dismiss",
   "common.loading": "Loading…",
   "common.copy": "Copy",
   "common.copied": "Copied",
