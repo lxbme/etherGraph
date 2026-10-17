@@ -1,3 +1,5 @@
+import { t } from "../i18n";
+
 export type ApiErrorCode =
   | "invalid_input"
   | "not_found"
@@ -19,23 +21,23 @@ export class ApiError extends Error {
 }
 
 export function messageFor(err: unknown): string {
-  if (!(err instanceof ApiError)) return "发生未知错误";
+  if (!(err instanceof ApiError)) return t("error.unknown");
   switch (err.code) {
     case "network":
-      return "无法连接到服务器";
+      return t("error.network");
     case "quota_exhausted":
-      return "今日 Etherscan 调用额度已用完";
+      return t("error.quota");
     case "not_found":
-      return "未找到";
+      return t("error.notFound");
     case "conflict":
-      return "数据已被修改";
+      return t("error.conflict");
     case "upstream_error":
-      return "上游数据源出错";
+      return t("error.upstream");
     case "internal":
-      return "服务器内部错误";
+      return t("error.internal");
     case "invalid_input":
-      return "输入有误：" + err.message;
+      return t("error.invalidInput", { message: err.message });
     default:
-      return "发生未知错误";
+      return t("error.unknown");
   }
 }

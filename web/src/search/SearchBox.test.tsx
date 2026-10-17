@@ -72,7 +72,7 @@ describe('SearchBox', () => {
     vi.spyOn(api, 'search').mockRejectedValue(new ApiError('not_found', 404, 'nope'))
     render(<SearchBox />)
     await userEvent.type(screen.getByRole('searchbox'), 'zzz.eth{Enter}')
-    expect(await screen.findByText('未找到该名称或地址')).toBeInTheDocument()
+    expect(await screen.findByText('No address or name found')).toBeInTheDocument()
     expect(useGraph.getState().centers).toEqual([])
   })
 
@@ -80,7 +80,7 @@ describe('SearchBox', () => {
     const s = vi.spyOn(api, 'search')
     render(<SearchBox />)
     await userEvent.type(screen.getByRole('searchbox'), 'hello{Enter}')
-    expect(screen.getByText('请输入地址（0x+40位）、交易哈希（0x+64位）或 ENS 名称')).toBeInTheDocument()
+    expect(screen.getByText('Enter an address (0x + 40 hex), a transaction hash (0x + 64 hex) or an ENS name')).toBeInTheDocument()
     expect(s).not.toHaveBeenCalled()
   })
 
@@ -90,11 +90,11 @@ describe('SearchBox', () => {
     render(<SearchBox />)
     const box = screen.getByRole('searchbox')
     await userEvent.type(box, `${H}{Enter}`)
-    expect(screen.getByText('搜索中…')).toBeInTheDocument()
+    expect(screen.getByText('Searching…')).toBeInTheDocument()
     await userEvent.type(box, '{Enter}')
     expect(s).toHaveBeenCalledTimes(1)
     resolve({ kind: 'tx', value: H, resolved_address: null } as never)
-    await waitFor(() => expect(screen.queryByText('搜索中…')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('Searching…')).toBeNull())
   })
 
   it('ctrl+K / meta+K focuses, Escape blurs and clears error', async () => {

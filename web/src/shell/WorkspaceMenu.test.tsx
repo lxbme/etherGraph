@@ -28,7 +28,7 @@ beforeEach(() => {
 });
 
 async function pick(label: string) {
-  await userEvent.click(screen.getByRole("button", { name: "画布菜单" }));
+  await userEvent.click(screen.getByRole("button", { name: "Workspace menu" }));
   await userEvent.click(screen.getByRole("menuitem", { name: label }));
 }
 
@@ -40,16 +40,16 @@ describe("WorkspaceMenu", () => {
         <button>outside</button>
       </>,
     );
-    await userEvent.click(screen.getByRole("button", { name: "画布菜单" }));
+    await userEvent.click(screen.getByRole("button", { name: "Workspace menu" }));
     expect(screen.getByRole("menu")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "outside" }));
     expect(screen.queryByRole("menu")).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "画布菜单" }));
+    await userEvent.click(screen.getByRole("button", { name: "Workspace menu" }));
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("menu")).toBeNull();
     // A click inside the menu does not count as outside.
-    await userEvent.click(screen.getByRole("button", { name: "画布菜单" }));
-    await userEvent.pointer({ keys: "[MouseLeft>]", target: screen.getByRole("menuitem", { name: "保存" }) });
+    await userEvent.click(screen.getByRole("button", { name: "Workspace menu" }));
+    await userEvent.pointer({ keys: "[MouseLeft>]", target: screen.getByRole("menuitem", { name: "Save" }) });
     expect(screen.getByRole("menu")).toBeInTheDocument();
   });
 
@@ -57,12 +57,12 @@ describe("WorkspaceMenu", () => {
     useWorkspace.getState().setCurrent(dto());
     m.updateWorkspace.mockRejectedValueOnce(new ApiError("conflict", 409, "x"));
     render(<WorkspaceMenu />);
-    await pick("保存");
-    expect(await screen.findByRole("dialog", { name: "画布已在别处修改" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "重新加载" })).toBeInTheDocument();
+    await pick("Save");
+    expect(await screen.findByRole("dialog", { name: "Workspace changed elsewhere" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
     m.workspace.mockResolvedValue(dto({ updated_at: "T9" }));
     m.updateWorkspace.mockResolvedValueOnce(dto({ updated_at: "T10" }));
-    await userEvent.click(screen.getByRole("button", { name: "覆盖保存" }));
+    await userEvent.click(screen.getByRole("button", { name: "Overwrite" }));
     await waitFor(() => expect(useWorkspace.getState().updatedAt).toBe("T10"));
     expect(m.updateWorkspace).toHaveBeenLastCalledWith(7, expect.objectContaining({ expected_updated_at: "T9" }));
   });
@@ -70,22 +70,22 @@ describe("WorkspaceMenu", () => {
   test("save without id asks for a trimmed 1-100 char name, then creates", async () => {
     m.createWorkspace.mockResolvedValue(dto());
     render(<WorkspaceMenu />);
-    await pick("保存");
-    const input = screen.getByRole("textbox", { name: "画布名称" });
-    await userEvent.click(screen.getByRole("button", { name: "确定" }));
+    await pick("Save");
+    const input = screen.getByRole("textbox", { name: "Workspace name" });
+    await userEvent.click(screen.getByRole("button", { name: "OK" }));
     expect(screen.getByRole("alert")).toBeInTheDocument();
     await userEvent.type(input, "  my ws  ");
-    await userEvent.click(screen.getByRole("button", { name: "确定" }));
+    await userEvent.click(screen.getByRole("button", { name: "OK" }));
     await waitFor(() => expect(m.createWorkspace).toHaveBeenCalledWith(expect.objectContaining({ name: "my ws" })));
   });
 
   test("new with unsaved changes confirms first", async () => {
     useGraph.getState().addCenter(A);
     render(<WorkspaceMenu />);
-    await pick("新建");
-    expect(screen.getByText("当前画布有未保存的修改，确定新建？")).toBeInTheDocument();
+    await pick("New");
+    expect(screen.getByText("This workspace has unsaved changes. Discard them and start a new one?")).toBeInTheDocument();
     expect(useGraph.getState().centers).toEqual([A]);
-    await userEvent.click(screen.getByRole("button", { name: "确定" }));
+    await userEvent.click(screen.getByRole("button", { name: "OK" }));
     expect(useGraph.getState().centers).toEqual([]);
     expect(useWorkspace.getState().dirty).toBe(false);
   });
@@ -94,14 +94,14 @@ describe("WorkspaceMenu", () => {
     useWorkspace.getState().setCurrent(dto({ name: "foo" }));
     m.deleteWorkspace.mockResolvedValue(undefined);
     render(<WorkspaceMenu />);
-    await pick("删除");
-    expect(screen.getByText("确定删除画布「foo」？")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "删除" }));
+    await pick("Delete");
+    expect(screen.getByText("Delete workspace “foo”?")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(m.deleteWorkspace).toHaveBeenCalledWith(7));
     await waitFor(() => expect(useWorkspace.getState().id).toBeNull());
   });
 
-  test("conflict dialog: 重新加载 loads the server version", async () => {
+  test("conflict dialog: Reload loads the server version", async () => {
     useWorkspace.getState().setCurrent(dto());
     m.updateWorkspace.mockRejectedValueOnce(new ApiError("conflict", 409, "x"));
     const server = serialize(
@@ -110,8 +110,8 @@ describe("WorkspaceMenu", () => {
     );
     m.workspace.mockResolvedValue(dto({ updated_at: "T7", state: JSON.parse(JSON.stringify(server)) }));
     render(<WorkspaceMenu />);
-    await pick("保存");
-    await userEvent.click(await screen.findByRole("button", { name: "重新加载" }));
+    await pick("Save");
+    await userEvent.click(await screen.findByRole("button", { name: "Reload" }));
     await waitFor(() => expect(useWorkspace.getState().updatedAt).toBe("T7"));
     expect(useGraph.getState().centers).toEqual([A]);
     expect(useWorkspace.getState().dirty).toBe(false);
@@ -139,7 +139,7 @@ describe("WorkspaceMenu", () => {
       cyHolder.cy = { png, getElementById: () => ({ nonempty: () => false }), viewport: () => {} };
       useWorkspace.getState().setCurrent(dto({ name: "a/../b" }));
       render(<WorkspaceMenu />);
-      await pick("导出 PNG");
+      await pick("Export PNG");
       expect(png).toHaveBeenCalledWith(expect.objectContaining({ full: true, scale: 2, output: "blob" }));
       expect(names).toEqual(["ethergraph-a_.._b.png"]);
       expect(created[0]).toBe(blob);
@@ -157,8 +157,8 @@ describe("WorkspaceMenu", () => {
       useGraph.getState().addCenter(A);
       useWorkspace.getState().setCurrent(dto({ name: ".." }));
       render(<WorkspaceMenu />);
-      await pick("导出 JSON");
-      expect(names).toEqual(["ethergraph-未命名.json"]);
+      await pick("Export JSON");
+      expect(names).toEqual(["ethergraph-untitled.json"]);
       expect(created[0]!.type).toBe("application/json");
       const body = JSON.parse(await created[0]!.text());
       expect(body.state.centers).toEqual([A]);
@@ -169,8 +169,8 @@ describe("WorkspaceMenu", () => {
 
   test("safeFileName sanitizes", () => {
     expect(safeFileName("a/../b")).toBe("a_.._b");
-    expect(safeFileName("..")).toBe("未命名");
-    expect(safeFileName(null)).toBe("未命名");
+    expect(safeFileName("..")).toBe("untitled");
+    expect(safeFileName(null)).toBe("untitled");
     expect(safeFileName('x:y*z?')).toBe("x_y_z_");
   });
 
@@ -178,11 +178,11 @@ describe("WorkspaceMenu", () => {
     m.workspaces.mockResolvedValue([{ id: 3, name: "old", updated_at: "2026-01-01T00:00:00Z" }]);
     m.deleteWorkspace.mockResolvedValue(undefined);
     render(<WorkspaceMenu />);
-    await pick("打开…");
-    await userEvent.click(await screen.findByRole("button", { name: "删除 old" }));
+    await pick("Open…");
+    await userEvent.click(await screen.findByRole("button", { name: "Delete old" }));
     expect(m.deleteWorkspace).not.toHaveBeenCalled();
-    expect(screen.getByText("确定删除画布「old」？")).toBeInTheDocument();
-    await userEvent.click(within(screen.getByRole("dialog", { name: "确认删除" })).getByRole("button", { name: "删除" }));
+    expect(screen.getByText("Delete workspace “old”?")).toBeInTheDocument();
+    await userEvent.click(within(screen.getByRole("dialog", { name: "Confirm delete" })).getByRole("button", { name: "Delete" }));
     await waitFor(() => expect(m.deleteWorkspace).toHaveBeenCalledWith(3));
   });
 });

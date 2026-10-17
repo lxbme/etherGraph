@@ -1,24 +1,20 @@
 import type { JobDto } from "../api/generated/JobDto";
+import { t } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { formatCount } from "../lib/format";
 import type { JobProgressEvent } from "./statusStore";
 
-export const KIND_NAMES: Record<JobDto["kind"], string> = {
-  sync_address: "同步地址",
-  fetch_tx: "抓取交易",
-  contract_meta: "合约信息",
-  resolve_names: "ENS 解析",
-  token_meta: "代币信息",
-};
+const KINDS: ReadonlySet<string> = new Set(["sync_address", "fetch_tx", "contract_meta", "resolve_names", "token_meta"]);
+const STATUSES: ReadonlySet<string> = new Set(["pending", "running", "paused_quota", "done", "failed", "cancelled"]);
 
-export const STATUS_NAMES: Record<JobDto["status"], string> = {
-  pending: "排队中",
-  running: "进行中",
-  paused_quota: "额度暂停",
-  done: "完成",
-  failed: "失败",
-  cancelled: "已取消",
-};
+/** Localised job kind; an unknown kind from a newer server is shown as-is. */
+export function kindName(kind: JobDto["kind"]): string {
+  return KINDS.has(kind) ? t(`job.kind.${kind}`) : kind;
+}
+
+export function statusName(status: JobDto["status"]): string {
+  return STATUSES.has(status) ? t(`job.status.${status}`) : status;
+}
 
 /** Human-readable target of a job; params are read defensively (unknown shape gives "—"). */
 export function targetText(job: Pick<JobDto, "kind" | "params">): string {
@@ -26,19 +22,19 @@ export function targetText(job: Pick<JobDto, "kind" | "params">): string {
   const obj = p && typeof p === "object" && !Array.isArray(p) ? (p as Record<string, unknown>) : null;
   if (job.kind === "sync_address") {
     if (typeof obj?.address !== "string") return "—";
-    return shortAddr(obj.address) + (obj.direction === "older" ? "（更早）" : "");
+    return shortAddr(obj.address) + (obj.direction === "older" ? t("job.older") : "");
   }
   if (job.kind === "fetch_tx") return typeof obj?.hash === "string" ? shortAddr(obj.hash) : "—";
   const list = Array.isArray(p) ? p : obj ? Object.values(obj).find(Array.isArray) : undefined;
-  return list ? `${list.length} 个地址/代币` : "—";
+  return list ? t("job.targetList", { count: list.length }) : "—";
 }
 
 /** Status bar text for the most recent progress event; `job` (if known) supplies the target. */
 export function progressText(e: JobProgressEvent, job?: Pick<JobDto, "kind" | "params">): string {
-  const kind = KIND_NAMES[e.kind] ?? e.kind;
+  const kind = kindName(e.kind);
   if (e.kind === "sync_address") {
     const target = job ? ` ${targetText(job)}` : "";
-    return `${kind}${target} · 已取 ${formatCount(e.fetched)} 条`;
+    return `${kind}${target} · ${t("job.fetched", { count: formatCount(e.fetched) })}`;
   }
-  return `${kind} · ${STATUS_NAMES[e.status] ?? e.status}`;
+  return `${kind} · ${statusName(e.status)}`;
 }

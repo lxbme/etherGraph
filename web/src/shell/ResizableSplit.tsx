@@ -1,5 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 
+import { useT } from "../i18n";
+
 const MIN_BOTTOM = 120;
 const KEY = "ethergraph.splitHeight";
 
@@ -20,6 +22,7 @@ function save(h: number) {
 }
 
 export function ResizableSplit({ top, bottom }: { top: ReactNode; bottom: ReactNode }) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const [height, setHeight] = useState<number | null>(load);
   const dragging = useRef(false);
@@ -71,7 +74,7 @@ export function ResizableSplit({ top, bottom }: { top: ReactNode; bottom: ReactN
         className="split__handle"
         role="separator"
         aria-orientation="horizontal"
-        aria-label="调整明细表高度"
+        aria-label={t("split.resize")}
         tabIndex={0}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

@@ -6,6 +6,7 @@ import { getMainCy } from "../graph/cyRegistry";
 import { useGraph } from "../graph/store";
 import { useTabs } from "../shell/tabs";
 import { deserialize, serialize } from "./serialize";
+import { saveStatusLabel } from "./useWorkspace";
 import {
   deleteWorkspace,
   loadWorkspace,
@@ -285,5 +286,17 @@ describe("dirty edge cases", () => {
     useWorkspace.getState().setCurrent(dto());
     await deleteWorkspace(7);
     expect(useWorkspace.getState()).toMatchObject({ id: null, dirty: true });
+  });
+});
+
+describe("workspace copy", () => {
+  test("saveStatusLabel reads in English by default", () => {
+    expect(saveStatusLabel({ id: null, dirty: false })).toBe("Not saved");
+    expect(saveStatusLabel({ id: 1, dirty: true })).toBe("Unsaved changes");
+    expect(saveStatusLabel({ id: 1, dirty: false })).toBe("Saved");
+  });
+  test("deserialize failure reasons are English", () => {
+    expect(deserialize(null, 1)).toEqual({ ok: false, reason: "Invalid workspace data" });
+    expect(deserialize({}, 2)).toEqual({ ok: false, reason: "Unsupported workspace version" });
   });
 });

@@ -139,7 +139,7 @@ test("a failed sync shows the mapped error", async () => {
   vi.spyOn(api, "sync").mockRejectedValue(new ApiError("quota_exhausted", 429, "q"));
   await mountWithData();
   act(() => props().onDblTapNode(B));
-  expect(await screen.findByText("今日 Etherscan 调用额度已用完")).toBeInTheDocument();
+  expect(await screen.findByText("Today's Etherscan quota is used up")).toBeInTheDocument();
 });
 
 test("double-clicking an edge toggles the pair", async () => {

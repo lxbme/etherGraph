@@ -159,10 +159,10 @@ test("Lagged invalidates all queries", () => {
 
 test("QuotaStatus paused shows the quota banner", () => {
   mount();
-  expect(screen.queryByText(/今日 Etherscan 额度已用完/)).toBeNull();
+  expect(screen.queryByText(/Etherscan quota used up for today/)).toBeNull();
   send({ type: "QuotaStatus", used: 100, limit: 100, paused: true, reset_at: "2026-10-18T00:00:00Z" });
   expect(useQuota.getState().quota).toEqual({ used: 100, limit: 100, paused: true, reset_at: "2026-10-18T00:00:00Z" });
-  expect(screen.getByText(/今日 Etherscan 额度已用完，将于 .+ 恢复/)).toBeInTheDocument();
+  expect(screen.getByText(/Etherscan quota used up for today; resets at .+/)).toBeInTheDocument();
 });
 
 test("JobProgress updates the job store; a failed fetch_tx job shows a toast", () => {
@@ -171,12 +171,12 @@ test("JobProgress updates the job store; a failed fetch_tx job shows a toast", (
   send({ ...base, kind: "sync_address", status: "running" });
   expect(useJobProgress.getState().byId[7]?.status).toBe("running");
   send({ ...base, kind: "sync_address", status: "failed", error: "x" });
-  expect(screen.queryByText(/交易抓取失败/)).toBeNull();
+  expect(screen.queryByText(/Transaction fetch failed/)).toBeNull();
   send({ ...base, job_id: 8, kind: "fetch_tx", status: "failed", error: "timeout" });
   expect(useJobProgress.getState().byId[8]?.status).toBe("failed");
-  expect(screen.getByText("交易抓取失败：timeout")).toBeInTheDocument();
+  expect(screen.getByText("Transaction fetch failed: timeout")).toBeInTheDocument();
   send({ ...base, job_id: 9, kind: "fetch_tx", status: "failed", error: null });
-  expect(screen.getByText("交易抓取失败：未知原因")).toBeInTheDocument();
+  expect(screen.getByText("Transaction fetch failed: unknown reason")).toBeInTheDocument();
 });
 
 test("writes SSE state, loads status on mount and unsubscribes on unmount", async () => {

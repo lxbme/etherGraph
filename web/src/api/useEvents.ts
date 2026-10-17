@@ -1,6 +1,7 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useGraph } from "../graph/store";
+import { t } from "../i18n";
 import { ACTIVE_JOB_STATUSES, useJobProgress, useQuota, useSseState } from "../shell/statusStore";
 import { toast } from "../shell/Toasts";
 import { api } from "./endpoints";
@@ -151,7 +152,7 @@ export function useEvents(): void {
             qc.setQueryData<JobDto[]>(qk.jobs(), (jobs) => jobs?.filter((j) => j.id !== e.job_id));
           }
           if (e.status === "failed" && e.kind === "fetch_tx") {
-            toast(`交易抓取失败：${e.error ?? "未知原因"}`, "error");
+            toast(t("events.txFetchFailed", { reason: e.error ?? t("events.unknownReason") }), "error");
           }
           break;
         case "QuotaStatus":

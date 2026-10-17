@@ -4,6 +4,7 @@ import { api } from "../api/endpoints";
 import { ApiError, messageFor } from "../api/errors";
 import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
 import type { JsonValue } from "../api/generated/serde_json/JsonValue";
+import { t } from "../i18n";
 import { getMainCy } from "../graph/cyRegistry";
 import { pairKey, useGraph, type NodeUi, type Pos } from "../graph/store";
 import { useTabs } from "../shell/tabs";
@@ -64,8 +65,8 @@ export function useUnsavedChangesPrompt(): void {
 }
 
 export function saveStatusLabel(w: Pick<WorkspaceStore, "id" | "dirty">): string {
-  if (w.id == null) return "未保存";
-  return w.dirty ? "有未保存的修改" : "已保存";
+  if (w.id == null) return t("ws.status.unsaved");
+  return w.dirty ? t("ws.status.dirty") : t("ws.status.saved");
 }
 
 /** Reads positions and viewport from the live Cytoscape instance (falls back to the store). */

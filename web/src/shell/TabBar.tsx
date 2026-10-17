@@ -1,18 +1,20 @@
+import { useT } from "../i18n";
 import { useTabs } from "./tabs";
 
 export function TabBar() {
+  const t = useT();
   const { tabs, active, activate, close } = useTabs();
   return (
     <div className="tabbar" role="tablist">
-      {tabs.map((t) => {
-        const label = "kind" in t ? `交易 ${t.hash.slice(0, 6)}…${t.hash.slice(-4)}` : "关系图";
+      {tabs.map((tab) => {
+        const label = "kind" in tab ? t("tab.tx", { hash: `${tab.hash.slice(0, 6)}…${tab.hash.slice(-4)}` }) : t("tab.graph");
         return (
-          <div key={t.id} className={`tab${t.id === active ? " tab--active" : ""}`}>
-            <button role="tab" aria-selected={t.id === active} className="tab__label" onClick={() => activate(t.id)}>
+          <div key={tab.id} className={`tab${tab.id === active ? " tab--active" : ""}`}>
+            <button role="tab" aria-selected={tab.id === active} className="tab__label" onClick={() => activate(tab.id)}>
               {label}
             </button>
-            {"kind" in t && (
-              <button className="tab__close" aria-label={`关闭 ${label}`} onClick={() => close(t.id)}>×</button>
+            {"kind" in tab && (
+              <button className="tab__close" aria-label={t("tab.close", { label })} onClick={() => close(tab.id)}>×</button>
             )}
           </div>
         );

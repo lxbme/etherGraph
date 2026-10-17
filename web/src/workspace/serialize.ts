@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
 import type { GraphState, Pos, SortKey } from "../graph/store";
 
@@ -69,25 +70,25 @@ export function deserialize(
   schemaVersion: number,
 ): { ok: true; state: WorkspaceStateV1 } | { ok: false; reason: string } {
   const bad = (reason: string) => ({ ok: false as const, reason });
-  if (schemaVersion !== SCHEMA_VERSION) return bad("不支持的画布版本");
-  if (!isObj(v)) return bad("画布数据格式错误");
+  if (schemaVersion !== SCHEMA_VERSION) return bad(t("ws.err.version"));
+  if (!isObj(v)) return bad(t("ws.err.data"));
   const { nodes, centers, expanded_pairs, filter, viewport } = v;
-  if (!Array.isArray(nodes)) return bad("nodes 格式错误");
+  if (!Array.isArray(nodes)) return bad(t("ws.err.field", { field: "nodes" }));
   for (const n of nodes) {
-    if (!isObj(n) || !isStr(n.address)) return bad("节点地址格式错误");
+    if (!isObj(n) || !isStr(n.address)) return bad(t("ws.err.nodeAddress"));
     if (typeof n.pinned !== "boolean" || typeof n.hidden !== "boolean" || !isStr(n.note)) {
-      return bad("节点属性格式错误");
+      return bad(t("ws.err.nodeProps"));
     }
-    if ((n.x !== undefined && !isNum(n.x)) || (n.y !== undefined && !isNum(n.y))) return bad("节点坐标格式错误");
+    if ((n.x !== undefined && !isNum(n.x)) || (n.y !== undefined && !isNum(n.y))) return bad(t("ws.err.nodeCoords"));
   }
-  if (!isStrArr(centers)) return bad("centers 格式错误");
+  if (!isStrArr(centers)) return bad(t("ws.err.field", { field: "centers" }));
   if (!Array.isArray(expanded_pairs) || !expanded_pairs.every((p) => isStrArr(p) && p.length === 2)) {
-    return bad("expanded_pairs 格式错误");
+    return bad(t("ws.err.field", { field: "expanded_pairs" }));
   }
-  if (!isObj(filter)) return bad("filter 格式错误");
-  if (v.sort !== undefined && !(isStr(v.sort) && SORTS.includes(v.sort))) return bad("sort 格式错误");
+  if (!isObj(filter)) return bad(t("ws.err.field", { field: "filter" }));
+  if (v.sort !== undefined && !(isStr(v.sort) && SORTS.includes(v.sort))) return bad(t("ws.err.field", { field: "sort" }));
   if (!isObj(viewport) || !isNum(viewport.zoom) || !isObj(viewport.pan) || !isNum(viewport.pan.x) || !isNum(viewport.pan.y)) {
-    return bad("viewport 格式错误");
+    return bad(t("ws.err.field", { field: "viewport" }));
   }
   return { ok: true, state: v as unknown as WorkspaceStateV1 };
 }

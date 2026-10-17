@@ -4,19 +4,21 @@ import { api } from "../api/endpoints";
 import { ApiError, messageFor } from "../api/errors";
 import { qk } from "../api/queryClient";
 import type { JobDto } from "../api/generated/JobDto";
-import { KIND_NAMES, STATUS_NAMES, targetText } from "./jobText";
+import { useT } from "../i18n";
+import { kindName, statusName, targetText } from "./jobText";
 import { toast } from "./Toasts";
 
 const REFRESH_MS = 5000;
 const ERR_MAX = 40;
 
 function Row({ job, onCancel, cancelling }: { job: JobDto; onCancel?: () => void; cancelling?: boolean }) {
+  const t = useT();
   const err = job.error;
   return (
     <tr>
-      <td>{KIND_NAMES[job.kind] ?? job.kind}</td>
+      <td>{kindName(job.kind)}</td>
       <td>{targetText(job)}</td>
-      <td>{STATUS_NAMES[job.status] ?? job.status}</td>
+      <td>{statusName(job.status)}</td>
       <td>{job.attempts}</td>
       <td className="jobs__err" title={err ?? undefined}>
         {err ? (err.length > ERR_MAX ? `${err.slice(0, ERR_MAX)}…` : err) : ""}
@@ -24,7 +26,7 @@ function Row({ job, onCancel, cancelling }: { job: JobDto; onCancel?: () => void
       {onCancel && (
         <td>
           <button className="btn" disabled={cancelling} onClick={onCancel}>
-            取消
+            {t("jobs.cancel")}
           </button>
         </td>
       )}
@@ -43,16 +45,17 @@ function Table({
   cancel?: (id: number) => void;
   cancellingId?: number;
 }) {
+  const t = useT();
   if (jobs.length === 0) return <p className="jobs__empty">{empty}</p>;
   return (
     <table className="jobs__table">
       <thead>
         <tr>
-          <th>类型</th>
-          <th>目标</th>
-          <th>状态</th>
-          <th>尝试</th>
-          <th>错误</th>
+          <th>{t("jobs.col.kind")}</th>
+          <th>{t("jobs.col.target")}</th>
+          <th>{t("jobs.col.status")}</th>
+          <th>{t("jobs.col.attempts")}</th>
+          <th>{t("jobs.col.error")}</th>
           {cancel && <th />}
         </tr>
       </thead>
@@ -66,6 +69,7 @@ function Table({
 }
 
 export function JobsPopover({ activeCount }: { activeCount: number }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const qc = useQueryClient();
@@ -81,7 +85,7 @@ export function JobsPopover({ activeCount }: { activeCount: number }) {
     // 404: the job finished (or was cancelled) before the click reached the server.
     onError: (e) =>
       e instanceof ApiError && e.code === "not_found"
-        ? toast("任务已结束，无需取消", "info")
+        ? toast(t("jobs.alreadyDone"), "info")
         : toast(messageFor(e), "error"),
     onSettled: () => qc.invalidateQueries({ queryKey: qk.jobs() }),
   });
@@ -103,19 +107,19 @@ export function JobsPopover({ activeCount }: { activeCount: number }) {
   return (
     <div className="jobs" ref={root}>
       <button className="btn" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        任务 {activeCount}
+        {t("jobs.button", { count: activeCount })}
       </button>
       {open && (
-        <div className="jobs__popover" role="dialog" aria-label="任务">
-          <h3>进行中</h3>
+        <div className="jobs__popover" role="dialog" aria-label={t("jobs.title")}>
+          <h3>{t("jobs.active")}</h3>
           <Table
             jobs={active.data ?? []}
-            empty="暂无进行中的任务"
+            empty={t("jobs.emptyActive")}
             cancel={(id) => cancel.mutate(id)}
             cancellingId={cancel.isPending ? cancel.variables : undefined}
           />
-          <h3>最近</h3>
-          <Table jobs={recent.data ?? []} empty="暂无最近任务" />
+          <h3>{t("jobs.recent")}</h3>
+          <Table jobs={recent.data ?? []} empty={t("jobs.emptyRecent")} />
         </div>
       )}
     </div>

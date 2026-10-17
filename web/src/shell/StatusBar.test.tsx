@@ -53,8 +53,8 @@ describe("quota pill", () => {
   test("turns warning at 80% and error when paused", () => {
     setQ(79);
     const { rerender } = render(<TopBar search={<i />} filter={<i />} />);
-    const pill = () => screen.getByText(/额度/);
-    expect(pill()).toHaveTextContent("额度 79/100");
+    const pill = () => screen.getByText(/Quota/);
+    expect(pill()).toHaveTextContent("Quota 79/100");
     expect(pill()).not.toHaveClass("pill--warn");
     setQ(80);
     rerender(<TopBar search={<i />} filter={<i />} />);
@@ -72,16 +72,16 @@ describe("status bar", () => {
     m.jobs.mockResolvedValue([job()]);
     useJobProgress.getState().upsert(prog());
     wrap(<StatusBar />);
-    expect(await screen.findByText("队列 7")).toBeInTheDocument();
-    expect(await screen.findByText("同步地址 0x3f2a…91c0（更早） · 已取 3,000 条")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "任务 1" })).toBeInTheDocument();
+    expect(await screen.findByText("Queue 7")).toBeInTheDocument();
+    expect(await screen.findByText("Sync 0x3f2a…91c0 (older) · 3,000 fetched")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Jobs 1" })).toBeInTheDocument();
   });
 
   test("non-sync progress shows kind and status; latest upsert wins", async () => {
     useJobProgress.getState().upsert(prog());
     useJobProgress.getState().upsert(prog({ job_id: 2, kind: "token_meta", status: "pending" }));
     wrap(<StatusBar />);
-    expect(await screen.findByText("代币信息 · 排队中")).toBeInTheDocument();
+    expect(await screen.findByText("Token info · Pending")).toBeInTheDocument();
   });
 });
 
@@ -89,13 +89,13 @@ describe("jobs popover", () => {
   test("cancel button calls api and refreshes the list", async () => {
     m.jobs.mockResolvedValueOnce([job()]).mockResolvedValue([]);
     wrap(<StatusBar />);
-    await userEvent.click(screen.getByRole("button", { name: /^任务/ }));
-    const dlg = await screen.findByRole("dialog", { name: "任务" });
-    const row = await within(dlg).findByText("同步地址");
+    await userEvent.click(screen.getByRole("button", { name: /^Jobs/ }));
+    const dlg = await screen.findByRole("dialog", { name: "Jobs" });
+    const row = await within(dlg).findByText("Sync");
     expect(row).toBeInTheDocument();
-    await userEvent.click(within(dlg).getByRole("button", { name: "取消" }));
+    await userEvent.click(within(dlg).getByRole("button", { name: "Cancel" }));
     expect(m.cancelJob).toHaveBeenCalledWith(1);
-    await waitFor(() => expect(within(dlg).queryByRole("button", { name: "取消" })).toBeNull());
+    await waitFor(() => expect(within(dlg).queryByRole("button", { name: "Cancel" })).toBeNull());
   });
 
   test("cancelling a job that already finished says so instead of showing an error", async () => {
@@ -107,13 +107,13 @@ describe("jobs popover", () => {
         <Toasts />
       </>,
     );
-    await userEvent.click(screen.getByRole("button", { name: /^任务/ }));
-    const dlg = await screen.findByRole("dialog", { name: "任务" });
-    await userEvent.click(await within(dlg).findByRole("button", { name: "取消" }));
-    const t = await screen.findByText("任务已结束，无需取消");
+    await userEvent.click(screen.getByRole("button", { name: /^Jobs/ }));
+    const dlg = await screen.findByRole("dialog", { name: "Jobs" });
+    await userEvent.click(await within(dlg).findByRole("button", { name: "Cancel" }));
+    const t = await screen.findByText("The job has already finished, nothing to cancel");
     expect(t).toHaveClass("toast--info");
-    expect(screen.queryByText("未找到")).toBeNull();
-    await waitFor(() => expect(within(dlg).queryByRole("button", { name: "取消" })).toBeNull());
+    expect(screen.queryByText("Not found")).toBeNull();
+    await waitFor(() => expect(within(dlg).queryByRole("button", { name: "Cancel" })).toBeNull());
   });
 
   test("recent failed jobs show error with full text in title; Escape closes", async () => {
@@ -123,13 +123,13 @@ describe("jobs popover", () => {
       job({ id: 6, status: "done" }),
     ]);
     wrap(<StatusBar />);
-    await userEvent.click(screen.getByRole("button", { name: /^任务/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^Jobs/ }));
     const err = await screen.findByTitle(long);
     expect(err.textContent!.length).toBeLessThan(long.length);
-    expect(screen.getByText("失败")).toBeInTheDocument();
+    expect(screen.getByText("Failed")).toBeInTheDocument();
     expect(screen.getByText("0xabab…abab")).toBeInTheDocument();
     await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("dialog", { name: "任务" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Jobs" })).toBeNull();
   });
 });
 
@@ -145,13 +145,13 @@ describe("status loading", () => {
   test("remounting does not reapply cached status over a newer quota", async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const first = wrap(<StatusBar />, qc);
-    await screen.findByText("队列 7");
+    await screen.findByText("Queue 7");
     first.unmount();
     const newer = { used: 99, limit: 100, paused: false, reset_at: "2026-10-18T00:00:00Z" };
     useQuota.setState({ quota: newer });
     m.status.mockReturnValue(new Promise(() => {}));
     wrap(<StatusBar />, qc);
-    expect(await screen.findByText("队列 7")).toBeInTheDocument();
+    expect(await screen.findByText("Queue 7")).toBeInTheDocument();
     expect(useQuota.getState().quota).toEqual(newer);
   });
 
@@ -161,8 +161,8 @@ describe("status loading", () => {
     await waitFor(() => expect(m.jobs).toHaveBeenCalledTimes(1));
     m.jobs.mockResolvedValue([job({ id: 9 })]);
     useJobProgress.getState().upsert(prog({ job_id: 9 }));
-    expect(await screen.findByText("同步地址 · 已取 3,000 条")).toBeInTheDocument();
+    expect(await screen.findByText("Sync · 3,000 fetched")).toBeInTheDocument();
     await qc.invalidateQueries({ queryKey: qk.jobs() });
-    expect(await screen.findByText("同步地址 0x3f2a…91c0（更早） · 已取 3,000 条")).toBeInTheDocument();
+    expect(await screen.findByText("Sync 0x3f2a…91c0 (older) · 3,000 fetched")).toBeInTheDocument();
   });
 });

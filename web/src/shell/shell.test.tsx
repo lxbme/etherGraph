@@ -35,7 +35,7 @@ describe('tabs', () => {
     useTabs.getState().close('graph')
     expect(useTabs.getState().tabs[0]).toEqual({ id: 'graph' })
     render(<App />)
-    expect(screen.queryByRole('button', { name: '关闭 关系图' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Close Graph' })).toBeNull()
   })
 
   it('openTx adds and activates a tab; reopening the same hash just activates', () => {
@@ -62,7 +62,7 @@ describe('hash routing', () => {
     history.replaceState(null, '', '#/tx/' + H1)
     render(<App />)
     expect(useTabs.getState().active).toBe(H1)
-    expect(screen.getAllByText(/交易 0xabab/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Tx 0xabab/).length).toBeGreaterThan(0)
     expect(screen.getByText(/正在获取交易/)).toBeInTheDocument()
   })
 
@@ -97,13 +97,13 @@ describe('banners', () => {
   it('SSE closed state shows the reconnect banner', () => {
     useSseState.setState({ state: 'closed' })
     render(<App />)
-    expect(screen.getByText('实时更新已断开，正在重连…')).toBeInTheDocument()
+    expect(screen.getByText('Live updates disconnected, reconnecting…')).toBeInTheDocument()
   })
 
   it('SSE banner: none during the first connect, kept through reconnect attempts', () => {
     useSseState.setState({ state: 'connecting', firstConnectDone: false })
     render(<App />)
-    const banner = () => screen.queryByText('实时更新已断开，正在重连…')
+    const banner = () => screen.queryByText('Live updates disconnected, reconnecting…')
     expect(banner()).toBeNull()
     act(() => useSseState.getState().set('open'))
     expect(banner()).toBeNull()
@@ -119,21 +119,21 @@ describe('banners', () => {
     useSseState.setState({ state: 'connecting', firstConnectDone: false })
     render(<App />)
     act(() => useSseState.getState().set('closed'))
-    expect(screen.getByText('实时更新已断开，正在重连…')).toBeInTheDocument()
+    expect(screen.getByText('Live updates disconnected, reconnecting…')).toBeInTheDocument()
     act(() => useSseState.getState().set('connecting'))
-    expect(screen.getByText('实时更新已断开，正在重连…')).toBeInTheDocument()
+    expect(screen.getByText('Live updates disconnected, reconnecting…')).toBeInTheDocument()
   })
 
   it('quota paused shows the reset time banner', () => {
     useQuota.setState({ quota: { used: 100, limit: 100, paused: true, reset_at: '2026-10-18T00:00:00Z' } })
     render(<App />)
-    expect(screen.getByText(/今日 Etherscan 额度已用完，将于 .+ 恢复/)).toBeInTheDocument()
+    expect(screen.getByText(/Etherscan quota used up for today; resets at .+/)).toBeInTheDocument()
   })
 
   it('invalid_key degraded shows the fatal banner', () => {
     useQuota.setState({ degraded: 'invalid_key' })
     render(<App />)
-    expect(screen.getByText('Etherscan API key 无效，所有抓取已暂停')).toBeInTheDocument()
+    expect(screen.getByText('Etherscan API key is invalid; all fetching is paused')).toBeInTheDocument()
   })
 })
 
@@ -162,10 +162,10 @@ describe('status stores', () => {
 describe('split + layout', () => {
   it('right panel toggle button exists and split persists height', async () => {
     render(<App />)
-    expect(screen.getByRole('button', { name: '详情栏' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Details' })).toBeInTheDocument()
     expect(screen.getByRole('separator')).toBeInTheDocument()
     const u = userEvent.setup()
-    await u.click(screen.getByRole('button', { name: '详情栏' }))
+    await u.click(screen.getByRole('button', { name: 'Details' }))
   })
 })
 
@@ -253,7 +253,7 @@ describe('final review fixes', () => {
     vi.spyOn(api, 'address').mockImplementation(async (a) => profile(a))
     render(<App />)
     const u = userEvent.setup()
-    await u.click(screen.getByRole('button', { name: '详情栏' }))
+    await u.click(screen.getByRole('button', { name: 'Details' }))
     expect(document.querySelector('.main__right')).toBeNull()
     act(() => {
       useGraph.getState().select({ kind: 'node', address: A1 })

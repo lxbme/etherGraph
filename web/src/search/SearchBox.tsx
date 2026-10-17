@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/endpoints";
 import { ApiError, messageFor } from "../api/errors";
+import { useT } from "../i18n";
 import { qk, queryClient } from "../api/queryClient";
 import { useGraph } from "../graph/store";
 import { toast } from "../shell/Toasts";
 import { useTabs } from "../shell/tabs";
 import { classifyInput } from "./classify";
 
-const INVALID_HINT = "请输入地址（0x+40位）、交易哈希（0x+64位）或 ENS 名称";
-
 export function SearchBox() {
+  const t = useT();
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -43,7 +43,7 @@ export function SearchBox() {
     if (busy) return;
     const q = value.trim();
     if (classifyInput(q) === "invalid") {
-      setError(INVALID_HINT);
+      setError(t("search.invalid"));
       return;
     }
     setError(null);
@@ -54,12 +54,12 @@ export function SearchBox() {
       else if (r.resolved_address ?? (r.kind === "address" ? r.value : null)) {
         openAddress((r.resolved_address ?? r.value) as string);
       } else {
-        setError("未找到该名称或地址");
+        setError(t("search.notFound"));
         return;
       }
       setValue("");
     } catch (e) {
-      setError(e instanceof ApiError && e.code === "not_found" ? "未找到该名称或地址" : messageFor(e));
+      setError(e instanceof ApiError && e.code === "not_found" ? t("search.notFound") : messageFor(e));
     } finally {
       setBusy(false);
     }
@@ -71,8 +71,8 @@ export function SearchBox() {
         ref={inputRef}
         type="search"
         className="topbar__search"
-        placeholder="搜索 地址 / 交易哈希 / ENS（⌘K）"
-        aria-label="搜索"
+        placeholder={t("search.placeholder")}
+        aria-label={t("search.label")}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
@@ -85,7 +85,7 @@ export function SearchBox() {
           }
         }}
       />
-      {busy && <span className="search__busy">搜索中…</span>}
+      {busy && <span className="search__busy">{t("search.busy")}</span>}
       {error && (
         <div className="search__error" role="alert">
           {error}

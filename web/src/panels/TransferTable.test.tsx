@@ -214,7 +214,7 @@ test("errors render inline with retry", async () => {
     .mockResolvedValue({ items: [], next_cursor: null });
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderTable();
-  await screen.findByText(/服务器内部错误/);
+  await screen.findByText(/Internal server error/);
   fireEvent.click(screen.getByRole("button", { name: "重试" }));
   await screen.findByText("没有符合条件的转账");
   expect(spy).toHaveBeenCalledTimes(2);

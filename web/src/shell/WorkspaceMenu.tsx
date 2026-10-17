@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import type { WorkspaceMetaDto } from "../api/generated/WorkspaceMetaDto";
+import { t, useT } from "../i18n";
 import { getMainCy } from "../graph/cyRegistry";
 import { SCHEMA_VERSION } from "../workspace/serialize";
 import {
@@ -40,7 +41,7 @@ function download(blob: Blob, filename: string): void {
 /** Safe download base name: no path separators/control chars, no leading dots. */
 export function safeFileName(name: string | null): string {
   const cleaned = (name ?? "").replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").replace(/^\.+/, "");
-  return cleaned.trim() === "" ? "未命名" : cleaned;
+  return cleaned.trim() === "" ? t("ws.untitled") : cleaned;
 }
 
 function themeBg(): string {
@@ -59,22 +60,23 @@ function Modal({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function NameDialog({ initial, onSubmit, onCancel }: { initial: string; onSubmit(name: string): void; onCancel(): void }) {
+  const t = useT();
   const [value, setValue] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const submit = () => {
     const name = value.trim();
     if (name.length < 1 || name.length > MAX_NAME) {
-      setError(`名称需为 1–${MAX_NAME} 个字符`);
+      setError(t("ws.nameInvalid", { max: MAX_NAME }));
       return;
     }
     onSubmit(name);
   };
   return (
-    <Modal label="画布名称">
-      <h3 className="dialog__title">画布名称</h3>
+    <Modal label={t("ws.nameLabel")}>
+      <h3 className="dialog__title">{t("ws.nameLabel")}</h3>
       <input
         className="wsmenu__input"
-        aria-label="画布名称"
+        aria-label={t("ws.nameLabel")}
         autoFocus
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -85,14 +87,15 @@ function NameDialog({ initial, onSubmit, onCancel }: { initial: string; onSubmit
       />
       {error && <div className="wsmenu__error" role="alert">{error}</div>}
       <div className="dialog__actions">
-        <button className="btn" onClick={onCancel}>取消</button>
-        <button className="btn" onClick={submit}>确定</button>
+        <button className="btn" onClick={onCancel}>{t("ws.cancel")}</button>
+        <button className="btn" onClick={submit}>{t("ws.ok")}</button>
       </div>
     </Modal>
   );
 }
 
 function OpenDialog({ onPick, onCancel }: { onPick(id: number): void; onCancel(): void }) {
+  const t = useT();
   const [items, setItems] = useState<WorkspaceMetaDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
@@ -120,28 +123,28 @@ function OpenDialog({ onPick, onCancel }: { onPick(id: number): void; onCancel()
     }
   };
   return (
-    <Modal label="打开画布">
-      <h3 className="dialog__title">打开画布</h3>
+    <Modal label={t("ws.openTitle")}>
+      <h3 className="dialog__title">{t("ws.openTitle")}</h3>
       {error && <div className="wsmenu__error" role="alert">{error}</div>}
-      {!items && !error && <div className="dialog__summary">加载中…</div>}
-      {items && items.length === 0 && <div className="dialog__summary">还没有保存的画布</div>}
+      {!items && !error && <div className="dialog__summary">{t("ws.loading")}</div>}
+      {items && items.length === 0 && <div className="dialog__summary">{t("ws.none")}</div>}
       <ul className="dialog__list">
         {items?.map((w) => (
           <li key={w.id} className="dialog__row">
             <button className="btn dialog__name" onClick={() => onPick(w.id)}>{w.name}</button>
             <span className="dialog__calls">{new Date(w.updated_at).toLocaleString()}</span>
-            <button className="btn" aria-label={`删除 ${w.name}`} disabled={busy === w.id} onClick={() => setPendingDelete(w)}>删除</button>
+            <button className="btn" aria-label={t("ws.deleteNamed", { name: w.name })} disabled={busy === w.id} onClick={() => setPendingDelete(w)}>{t("ws.delete")}</button>
           </li>
         ))}
       </ul>
       <div className="dialog__actions">
-        <button className="btn" onClick={onCancel}>关闭</button>
+        <button className="btn" onClick={onCancel}>{t("ws.close")}</button>
       </div>
       {pendingDelete && (
-        <Modal label="确认删除">
-          <p>确定删除画布「{pendingDelete.name}」？</p>
+        <Modal label={t("ws.confirmDelete")}>
+          <p>{t("ws.confirmDeleteText", { name: pendingDelete.name })}</p>
           <div className="dialog__actions">
-            <button className="btn" onClick={() => setPendingDelete(null)}>取消</button>
+            <button className="btn" onClick={() => setPendingDelete(null)}>{t("ws.cancel")}</button>
             <button
               className="btn"
               onClick={() => {
@@ -150,7 +153,7 @@ function OpenDialog({ onPick, onCancel }: { onPick(id: number): void; onCancel()
                 void remove(w);
               }}
             >
-              删除
+              {t("ws.delete")}
             </button>
           </div>
         </Modal>
@@ -160,6 +163,7 @@ function OpenDialog({ onPick, onCancel }: { onPick(id: number): void; onCancel()
 }
 
 export function WorkspaceMenu() {
+  const t = useT();
   const { id, name, dirty } = useWorkspace();
   const [open, setOpen] = useState(false);
   const [dialog, setDialog] = useState<Dialog | null>(null);
@@ -193,12 +197,12 @@ export function WorkspaceMenu() {
       setBusy(false);
     }
   };
-  const confirmDiscard = (verb: string, action: () => void) => {
+  const confirmDiscard = (text: string, action: () => void) => {
     if (!useWorkspace.getState().dirty) return action();
     setDialog({
       kind: "confirm",
-      text: `当前画布有未保存的修改，确定${verb}？`,
-      confirmLabel: "确定",
+      text,
+      confirmLabel: t("ws.ok"),
       onConfirm: action,
     });
   };
@@ -206,36 +210,36 @@ export function WorkspaceMenu() {
     run(async () => {
       if (useWorkspace.getState().id == null) return setDialog({ kind: "name", purpose: "save" });
       if ((await saveCurrent()) === "conflict") setDialog({ kind: "conflict" });
-      else toast("已保存");
+      else toast(t("ws.saved"));
     });
   const submitName = (purpose: "save" | "saveAs" | "rename", n: string) => {
     setDialog(null);
     return run(async () => {
       if (purpose === "rename") {
-        if ((await renameCurrent(n)) === "conflict") toast("画布已在别处修改，请重新加载后再重命名", "error");
+        if ((await renameCurrent(n)) === "conflict") toast(t("ws.renameConflict"), "error");
         return;
       }
       await (purpose === "save" ? saveNew : saveAs)(n);
-      toast("已保存");
+      toast(t("ws.saved"));
     });
   };
   const onDelete = () => {
     if (id == null) return;
     setDialog({
       kind: "confirm",
-      text: `确定删除画布「${name}」？`,
-      confirmLabel: "删除",
+      text: t("ws.confirmDeleteText", { name: name ?? "" }),
+      confirmLabel: t("ws.delete"),
       onConfirm: () => run(() => deleteWorkspace(id)),
     });
   };
   const exportPng = () => {
     const cy = getMainCy();
-    if (!cy) return toast("没有可导出的画布", "error");
+    if (!cy) return toast(t("ws.nothingToExport"), "error");
     const blob = cy.png({ full: true, scale: 2, bg: themeBg(), output: "blob" });
     download(blob, `ethergraph-${safeFileName(name)}.png`);
   };
   const exportJson = () => {
-    const body = JSON.stringify({ name: name ?? "未命名", schema_version: SCHEMA_VERSION, state: captureState() }, null, 2);
+    const body = JSON.stringify({ name: name ?? t("ws.untitled"), schema_version: SCHEMA_VERSION, state: captureState() }, null, 2);
     download(new Blob([body], { type: "application/json" }), `ethergraph-${safeFileName(name)}.json`);
   };
 
@@ -255,19 +259,19 @@ export function WorkspaceMenu() {
 
   return (
     <div className="wsmenu" ref={rootRef}>
-      <button className="btn" aria-label="画布菜单" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        {name ?? "画布"}{dirty ? " *" : ""} ▾
+      <button className="btn" aria-label={t("ws.menu")} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        {name ?? t("topbar.workspace")}{dirty ? " *" : ""} ▾
       </button>
       {open && (
         <div className="wsmenu__list" role="menu">
-          {item("新建", () => confirmDiscard("新建", newWorkspace))}
-          {item("保存", doSave)}
-          {item("另存为", () => setDialog({ kind: "name", purpose: "saveAs" }))}
-          {item("打开…", () => setDialog({ kind: "open" }))}
-          {item("重命名", () => setDialog({ kind: "name", purpose: "rename" }), id == null)}
-          {item("删除", onDelete, id == null)}
-          {item("导出 PNG", exportPng)}
-          {item("导出 JSON", exportJson)}
+          {item(t("ws.new"), () => confirmDiscard(t("ws.discardNew"), newWorkspace))}
+          {item(t("ws.save"), doSave)}
+          {item(t("ws.saveAs"), () => setDialog({ kind: "name", purpose: "saveAs" }))}
+          {item(t("ws.open"), () => setDialog({ kind: "open" }))}
+          {item(t("ws.rename"), () => setDialog({ kind: "name", purpose: "rename" }), id == null)}
+          {item(t("ws.delete"), onDelete, id == null)}
+          {item(t("ws.exportPng"), exportPng)}
+          {item(t("ws.exportJson"), exportJson)}
         </div>
       )}
       {dialog?.kind === "name" && (
@@ -278,10 +282,10 @@ export function WorkspaceMenu() {
         />
       )}
       {dialog?.kind === "confirm" && (
-        <Modal label="确认">
+        <Modal label={t("ws.confirm")}>
           <p>{dialog.text}</p>
           <div className="dialog__actions">
-            <button className="btn" onClick={() => setDialog(null)}>取消</button>
+            <button className="btn" onClick={() => setDialog(null)}>{t("ws.cancel")}</button>
             <button
               className="btn"
               onClick={() => {
@@ -296,11 +300,11 @@ export function WorkspaceMenu() {
         </Modal>
       )}
       {dialog?.kind === "conflict" && (
-        <Modal label="画布已在别处修改">
-          <h3 className="dialog__title">画布已在别处修改</h3>
-          <p>服务器上的版本比本地更新。重新加载会丢弃本地修改；覆盖保存会替换服务器上的版本。</p>
+        <Modal label={t("ws.conflictTitle")}>
+          <h3 className="dialog__title">{t("ws.conflictTitle")}</h3>
+          <p>{t("ws.conflictBody")}</p>
           <div className="dialog__actions">
-            <button className="btn" onClick={() => setDialog(null)}>取消</button>
+            <button className="btn" onClick={() => setDialog(null)}>{t("ws.cancel")}</button>
             <button
               className="btn"
               onClick={() => {
@@ -309,7 +313,7 @@ export function WorkspaceMenu() {
                 if (cur != null) void run(async () => void (await loadWorkspace(cur)));
               }}
             >
-              重新加载
+              {t("ws.reload")}
             </button>
             <button
               className="btn"
@@ -317,11 +321,11 @@ export function WorkspaceMenu() {
                 setDialog(null);
                 void run(async () => {
                   await overwriteCurrent();
-                  toast("已保存");
+                  toast(t("ws.saved"));
                 });
               }}
             >
-              覆盖保存
+              {t("ws.overwrite")}
             </button>
           </div>
         </Modal>
@@ -331,7 +335,7 @@ export function WorkspaceMenu() {
           onCancel={() => setDialog(null)}
           onPick={(pick) => {
             setDialog(null);
-            confirmDiscard("打开", () => void run(async () => void (await loadWorkspace(pick))));
+            confirmDiscard(t("ws.discardOpen"), () => void run(async () => void (await loadWorkspace(pick))));
           }}
         />
       )}
