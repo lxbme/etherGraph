@@ -10,7 +10,7 @@ const SIZES = [
 ] as const;
 
 /** Elements that must not overflow: topbar / statusbar / right panel (and its scrolling bodies) / transfers / jobs popover / kv keys. */
-const CONTAINERS = [".topbar", ".statusbar", ".main__right", ".main__right-body", ".detail", ".transfers", ".jobs__popover", ".kv > dt", ".txbar", ".txdetail__tabs", ".txdetail__tabs .seg", ".txdetail__body", ".txdetail__kv"];
+const CONTAINERS = [".topbar", ".statusbar", ".main__right", ".main__right-body", ".detail", ".transfers", ".jobs__popover", ".kv > dt", ".txbar", ".txdetail__tabs", ".txdetail__tabs .seg", ".txdetail__body", ".txdetail__overview", ".txdetail__kv"];
 /** Checked too, but an intentional ellipsis (overflow hidden + title) is allowed: buttons, key/value values, job cells. */
 const ELLIPSIS_OK = [".btn", ".kv > dd", ".jobs__popover td"];
 
@@ -143,7 +143,11 @@ for (const theme of THEMES) {
         await expectLaidOut(page, { tx: TX }, 3);
         const tabGroup = txView.locator(".txdetail__tabs .seg");
         await expect(tabGroup.getByRole("button").first()).toHaveAttribute("aria-pressed", "true");
-        await expect(txView.locator(".txdetail__kv")).toBeVisible();
+        await expect(txView.getByTestId("tx-overview")).toBeVisible();
+        // The 66-character hash has a full-width row and is never cut off.
+        const hash = txView.getByTestId("tx-overview").getByTitle(TX);
+        expect(await hash.evaluate((el) => el.scrollWidth <= el.clientWidth), "tx hash truncated").toBe(true);
+        await expect(hash).toHaveText(TX);
         await expectNoOverflow(page, "tx tab");
         await expectAligned(page, "tx tab");
         await page.screenshot({ path: `test-results/visual/tx-${theme}-${locale}-${size.width}.png` });

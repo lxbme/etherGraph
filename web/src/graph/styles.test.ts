@@ -240,6 +240,7 @@ describe("txFlowStylesheet", () => {
     expect(call["source-label"]).toBe("data(label)");
     expect(call.label).toBe("");
     expect(call["font-size"]).toBeLessThan(11);
+    expect(call["source-text-margin-y"]).toBeLessThan(0); // above its line
   });
 
   test("cytoscape accepts the tx stylesheet without warnings", () => {

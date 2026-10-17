@@ -296,6 +296,7 @@ export function txFlowStylesheet(theme: Theme): cytoscape.StylesheetJson {
         "source-label": "data(label)",
         "source-text-offset": 56,
         "source-text-rotation": "autorotate",
+        "source-text-margin-y": -8,
         "font-size": 10,
       },
     },
