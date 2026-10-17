@@ -109,3 +109,19 @@ test("a contract creation shows the created contract; a reverted one does not", 
   await waitFor(() => expect(within(card).queryByText("Contract created")).toBeNull());
   expect(within(card).queryByTitle(C)).toBeNull();
 });
+
+test("clicking the highlighted row again clears the highlight and the card, back to the node", async () => {
+  vi.spyOn(api, "tx").mockResolvedValue({ status: "ready", flow: flow(), job_id: null });
+  renderAll();
+  const row = await screen.findByTestId("transfer-row");
+  fireEvent.click(row);
+  await screen.findByTestId("tx-summary");
+  fireEvent.click(row);
+  expect(useGraph.getState().highlightTransfer).toBeNull();
+  expect(useGraph.getState().selection).toEqual({ kind: "node", address: A });
+  expect(screen.queryByTestId("tx-summary")).toBeNull();
+  // A third click starts over.
+  fireEvent.click(screen.getByTestId("transfer-row"));
+  expect(useGraph.getState().selection).toMatchObject({ kind: "tx", hash: H });
+  expect(useGraph.getState().highlightTransfer).toMatchObject({ from: A, to: B });
+});

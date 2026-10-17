@@ -95,11 +95,20 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
     const from = row.from.toLowerCase();
     const to = row.to.toLowerCase();
     const asset = row.asset === null ? null : row.asset.toLowerCase();
-    const same = highlight && highlight.from === from && highlight.to === to && highlight.asset === asset;
-    // select() clears the highlight, so it goes first; the tx keeps the origin node/pair as its context.
+    const hash = row.tx_hash.toLowerCase();
     const g = useGraph.getState();
-    g.select({ kind: "tx", hash: row.tx_hash.toLowerCase(), context: graphSelection(g.selection) });
-    setHighlight(same ? null : { from, to, asset });
+    const context = graphSelection(g.selection);
+    const same =
+      g.selection?.kind === "tx" && g.selection.hash === hash &&
+      !!highlight && highlight.from === from && highlight.to === to && highlight.asset === asset;
+    // A second click on the highlighted row returns to the origin node/pair (select() also clears the highlight).
+    if (same) {
+      g.select(context);
+      return;
+    }
+    // select() clears the highlight, so it goes first; the tx keeps the origin node/pair as its context.
+    g.select({ kind: "tx", hash, context });
+    setHighlight({ from, to, asset });
   };
 
   return (
