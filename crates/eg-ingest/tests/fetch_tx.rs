@@ -88,6 +88,7 @@ fn internal() -> Transfer {
         trace_id: Some("0_1".into()),
         token_id: None,
         log_index: None,
+        call_index: None,
     }
 }
 

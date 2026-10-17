@@ -136,7 +136,7 @@ pub fn build_tx_flow(
         .iter()
         .filter(|t| t.kind == TransferKind::Internal)
         .collect();
-    internal.sort_by_key(|t| trace_key(t));
+    internal.sort_by_key(|t| (t.call_index.is_none(), t.call_index, trace_key(t)));
 
     let flows: Vec<Flow> = top
         .chain(tokens)
@@ -260,6 +260,7 @@ mod tests {
             token_id: None,
             trace_id: trace.map(String::from),
             log_index: log,
+            call_index: None,
         }
     }
 
@@ -348,6 +349,21 @@ mod tests {
         ]);
         let amounts: Vec<u64> = f.flows.iter().map(|x| x.amount.to::<u64>()).collect();
         assert_eq!(amounts, vec![3, 2, 1]);
+    }
+
+    #[test]
+    fn internal_call_index_beats_trace_id() {
+        let mut a = tr(TransferKind::Internal, B, C, 1, Some("0_1"), None);
+        a.call_index = Some(2);
+        let mut b = tr(TransferKind::Internal, B, C, 2, Some("0_3"), None);
+        b.call_index = Some(0);
+        let mut c = tr(TransferKind::Internal, B, C, 3, Some("0_2"), None);
+        c.call_index = Some(1);
+        // No call_index: sorts after the indexed rows, by trace id.
+        let d = tr(TransferKind::Internal, B, C, 4, Some("0_0"), None);
+        let f = build(&[d, a, b, c]);
+        let amounts: Vec<u64> = f.flows.iter().map(|x| x.amount.to::<u64>()).collect();
+        assert_eq!(amounts, vec![2, 3, 1, 4]);
     }
 
     #[test]

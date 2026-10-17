@@ -49,6 +49,7 @@ pub fn decode_transfer_logs(
             token_id,
             trace_id: None,
             log_index: Some(log.log_index),
+            call_index: None,
         };
         if *topic0 == TransferEv::SIGNATURE_HASH {
             match log.topics.len() {

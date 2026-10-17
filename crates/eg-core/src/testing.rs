@@ -240,6 +240,7 @@ mod tests {
             token_id: None,
             trace_id: None,
             log_index: None,
+            call_index: None,
         }
     }
 

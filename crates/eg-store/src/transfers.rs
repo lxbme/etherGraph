@@ -8,7 +8,7 @@ use sqlx::{PgConnection, Postgres, QueryBuilder};
 use crate::convert::{addr_to_bytes, u256_to_bd};
 use crate::{Result, StoreError};
 
-// 12 bind params per transfer row; stay well under Postgres' 65535 limit.
+// 13 bind params per transfer row; stay well under Postgres' 65535 limit.
 const TRANSFER_CHUNK: usize = 2000;
 
 pub(crate) fn to_i64(v: u64, what: &str) -> Result<i64> {
@@ -32,32 +32,41 @@ pub(crate) async fn upsert_transfers_conn(conn: &mut PgConnection, ts: &[Transfe
             vals.push((
                 to_i64(t.block_number, "block_number")?,
                 t.log_index.map(|l| to_i64(l, "log_index")).transpose()?,
+                t.call_index.map(i32::try_from).transpose().map_err(|_| {
+                    StoreError::Invalid(format!("call_index {:?} out of range", t.call_index))
+                })?,
             ));
         }
         let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
             "INSERT INTO transfers (tx_hash, sub_id, kind, block_number, ts, from_addr, to_addr, \
-             asset, amount, token_id, trace_id, log_index) ",
+             asset, amount, token_id, trace_id, log_index, call_index) ",
         );
-        qb.push_values(chunk.iter().zip(vals), |mut b, (t, (block, log_index))| {
-            b.push_bind(t.tx_hash.as_slice().to_vec())
-                .push_bind(&t.sub_id)
-                .push_bind(t.kind.as_i16())
-                .push_bind(block)
-                .push_bind(t.ts)
-                .push_bind(addr_to_bytes(t.from))
-                .push_bind(addr_to_bytes(t.to))
-                .push_bind(t.asset.map(addr_to_bytes))
-                .push_bind(u256_to_bd(t.amount))
-                .push_bind(t.token_id.map(u256_to_bd))
-                .push_bind(&t.trace_id)
-                .push_bind(log_index);
-        });
+        qb.push_values(
+            chunk.iter().zip(vals),
+            |mut b, (t, (block, log_index, call_index))| {
+                b.push_bind(t.tx_hash.as_slice().to_vec())
+                    .push_bind(&t.sub_id)
+                    .push_bind(t.kind.as_i16())
+                    .push_bind(block)
+                    .push_bind(t.ts)
+                    .push_bind(addr_to_bytes(t.from))
+                    .push_bind(addr_to_bytes(t.to))
+                    .push_bind(t.asset.map(addr_to_bytes))
+                    .push_bind(u256_to_bd(t.amount))
+                    .push_bind(t.token_id.map(u256_to_bd))
+                    .push_bind(&t.trace_id)
+                    .push_bind(log_index)
+                    .push_bind(call_index);
+            },
+        );
         qb.push(
             " ON CONFLICT (tx_hash, sub_id) DO UPDATE SET kind = EXCLUDED.kind, \
              block_number = EXCLUDED.block_number, ts = EXCLUDED.ts, \
              from_addr = EXCLUDED.from_addr, to_addr = EXCLUDED.to_addr, \
              asset = EXCLUDED.asset, amount = EXCLUDED.amount, token_id = EXCLUDED.token_id, \
-             trace_id = EXCLUDED.trace_id, log_index = EXCLUDED.log_index",
+             trace_id = COALESCE(EXCLUDED.trace_id, transfers.trace_id), \
+             log_index = EXCLUDED.log_index, \
+             call_index = COALESCE(EXCLUDED.call_index, transfers.call_index)",
         );
         qb.build().execute(&mut *conn).await?;
     }

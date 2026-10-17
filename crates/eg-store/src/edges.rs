@@ -53,7 +53,7 @@ const U256_MAX_DEC: &str =
     "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
 const TRANSFER_COLS: &str = "tx_hash, sub_id, kind, block_number, ts, from_addr, to_addr, asset, \
-                             amount, token_id, trace_id, log_index";
+                             amount, token_id, trace_id, log_index, call_index";
 
 /// Appends ` AND ...` conditions for the time range, kinds and per-asset thresholds.
 fn push_filter(qb: &mut QueryBuilder<Postgres>, f: &EdgeFilter) {
@@ -115,6 +115,10 @@ pub(crate) fn transfer_from_row(r: &PgRow) -> Result<Transfer> {
         log_index: r
             .try_get::<Option<i64>, _>("log_index")?
             .map(|v| to_u64(v, "log_index"))
+            .transpose()?,
+        call_index: r
+            .try_get::<Option<i32>, _>("call_index")?
+            .map(|v| u32::try_from(v).map_err(|_| StoreError::Invalid(format!("call_index {v}"))))
             .transpose()?,
     })
 }
@@ -383,6 +387,7 @@ mod tests {
             token_id: None,
             trace_id: None,
             log_index: None,
+            call_index: None,
         }
     }
 

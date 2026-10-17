@@ -85,10 +85,15 @@ fn map_tx(r: &TxRow) -> Result<Transfer, SourceError> {
         token_id: None,
         trace_id: None,
         log_index: None,
+        call_index: None,
     })
 }
 
-fn map_internal(r: &InternalRow, fallback_hash: Option<TxHash>) -> Result<Transfer, SourceError> {
+fn map_internal(
+    r: &InternalRow,
+    fallback_hash: Option<TxHash>,
+    call_index: Option<u32>,
+) -> Result<Transfer, SourceError> {
     let tx_hash = if r.hash.is_empty() {
         fallback_hash.ok_or_else(|| perr("hash", "missing"))?
     } else {
@@ -107,6 +112,7 @@ fn map_internal(r: &InternalRow, fallback_hash: Option<TxHash>) -> Result<Transf
         token_id: None,
         trace_id: non_empty(&r.trace_id),
         log_index: None,
+        call_index,
     })
 }
 
@@ -134,6 +140,7 @@ fn map_token(kind: TransferKind, r: &TokenRow) -> Result<Transfer, SourceError> 
         log_index: non_empty(&r.log_index)
             .map(|s| dec_u64("logIndex", &s))
             .transpose()?,
+        call_index: None,
     })
 }
 
@@ -216,7 +223,7 @@ impl ChainSource for EtherscanSource {
                 for r in &rs {
                     note_block(&r.block_number)?;
                     if r.is_error != "1" {
-                        transfers.push(map_internal(r, None)?);
+                        transfers.push(map_internal(r, None, None)?);
                     }
                 }
             }
@@ -295,8 +302,11 @@ impl ChainSource for EtherscanSource {
             .await?;
         let rs: Vec<InternalRow> = rows(result)?;
         let mut out = Vec::new();
-        for r in rs.iter().filter(|r| r.is_error != "1") {
-            out.push(map_internal(r, Some(hash))?);
+        // The position is taken in the full response (failed calls included) so
+        // it stays the call's index in Etherscan's execution-order list.
+        for (i, r) in rs.iter().enumerate().filter(|(_, r)| r.is_error != "1") {
+            let idx = u32::try_from(i).map_err(|_| perr("callIndex", "too many rows"))?;
+            out.push(map_internal(r, Some(hash), Some(idx))?);
         }
         assign_sub_ids(&mut out);
         Ok(out)

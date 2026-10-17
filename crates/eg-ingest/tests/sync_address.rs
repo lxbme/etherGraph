@@ -168,6 +168,7 @@ fn tr(kind: TransferKind, i: u64, block: u64) -> Transfer {
         token_id: None,
         trace_id: None,
         log_index: None,
+        call_index: None,
     }
 }
 

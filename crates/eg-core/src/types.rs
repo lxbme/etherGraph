@@ -69,6 +69,9 @@ pub struct Transfer {
     pub token_id: Option<U256>,
     pub trace_id: Option<String>,
     pub log_index: Option<u64>,
+    /// Position in Etherscan's per-transaction internal-call list (execution
+    /// order); set only from the txhash endpoint.
+    pub call_index: Option<u32>,
 }
 
 /// Assigns content-based sub ids: `top` for top-level native transfers, otherwise
@@ -144,6 +147,7 @@ mod tests {
             token_id: None,
             trace_id: None,
             log_index: None,
+            call_index: None,
         }
     }
 

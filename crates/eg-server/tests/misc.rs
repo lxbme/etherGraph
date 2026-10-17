@@ -81,6 +81,7 @@ fn seed_fake(fake: &eg_core::testing::FakeSource) {
         trace_id: Some("0_1".into()),
         token_id: None,
         log_index: None,
+        call_index: None,
     };
     fake.add_tx(tx, receipt, vec![internal], ts());
 }

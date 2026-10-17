@@ -117,6 +117,7 @@ async fn internal_by_address_skips_errors_and_maps_trace() {
     assert_eq!(page.transfers.len(), 2);
     assert_eq!(page.transfers[0].trace_id.as_deref(), Some("0_1"));
     assert_eq!(page.transfers[1].trace_id, None);
+    assert!(page.transfers.iter().all(|t| t.call_index.is_none()));
     assert_eq!(page.transfers[1].to, addr(0xc3));
     assert!(page.transfers[0].sub_id.starts_with("internal:eth:"));
 }
@@ -134,6 +135,23 @@ async fn internal_txs_by_hash_uses_requested_hash() {
     assert_eq!(ts.len(), 2);
     assert!(ts.iter().all(|t| t.tx_hash == hash(1)));
     assert!(ts.iter().all(|t| t.kind == TransferKind::Internal));
+}
+
+#[tokio::test]
+async fn internal_txs_by_hash_sets_call_index_without_trace_id() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(query_param("action", "txlistinternal"))
+        .and(query_param("txhash", format!("{:#x}", hash(1))))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string(fixture("internal_by_hash_real.json")),
+        )
+        .mount(&server)
+        .await;
+    let ts = source(&server).internal_txs(P, hash(1)).await.unwrap();
+    let idx: Vec<_> = ts.iter().map(|t| t.call_index).collect();
+    assert_eq!(idx, vec![Some(0), Some(1), Some(2)]);
+    assert!(ts.iter().all(|t| t.trace_id.is_none()));
 }
 
 #[tokio::test]

@@ -296,6 +296,7 @@ mod tests {
             token_id: None,
             trace_id: None,
             log_index: None,
+            call_index: None,
         }
     }
 
@@ -328,6 +329,32 @@ mod tests {
         store.upsert_transfers(&v).await.unwrap();
         store.upsert_transfers(&v).await.unwrap();
         assert_eq!(count(&pool).await, 3);
+    }
+
+    #[sqlx::test]
+    async fn upsert_keeps_call_index_and_trace_id_when_later_null(pool: PgPool) {
+        let store = Store::from_pool(pool.clone());
+        let mut first = tr(1, TransferKind::Internal, U256::from(5));
+        first.call_index = Some(3);
+        let mut v = vec![first];
+        assign_sub_ids(&mut v);
+        store.upsert_transfers(&v).await.unwrap();
+
+        // Address sync: trace_id known, call_index unknown.
+        let mut second = tr(1, TransferKind::Internal, U256::from(5));
+        second.trace_id = Some("0_2".into());
+        let mut v2 = vec![second];
+        assign_sub_ids(&mut v2);
+        assert_eq!(v[0].sub_id, v2[0].sub_id);
+        store.upsert_transfers(&v2).await.unwrap();
+
+        // Later FetchTx: call_index again, trace_id unknown.
+        store.upsert_transfers(&v).await.unwrap();
+
+        assert_eq!(count(&pool).await, 1);
+        let got = store.transfers_of_tx(B256::repeat_byte(1)).await.unwrap();
+        assert_eq!(got[0].call_index, Some(3));
+        assert_eq!(got[0].trace_id.as_deref(), Some("0_2"));
     }
 
     #[sqlx::test]
