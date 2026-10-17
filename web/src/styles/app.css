@@ -1065,3 +1065,34 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
   font-size: var(--fs-12);
   white-space: nowrap;
 }
+
+/* ---------- First-run tour: outline over the target plus a bubble beside it ---------- */
+
+.tour__highlight {
+  position: absolute;
+  z-index: 70;
+  pointer-events: none;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius);
+}
+.tour__bubble {
+  position: fixed;
+  z-index: 71;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  width: 280px;
+  padding: var(--sp-3);
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pop);
+  box-shadow: var(--shadow-pop);
+}
+.tour__title { margin: 0; font-size: var(--fs-16); }
+.tour__body { margin: 0; }
+.tour__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}

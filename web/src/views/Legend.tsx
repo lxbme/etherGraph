@@ -120,7 +120,7 @@ export function Legend({ groups, collapsedKey }: { groups: LegendGroup[]; collap
   const toggle = () => setCollapsed(!collapsed);
 
   return (
-    <section className={collapsedKey ? "legend legend--floating" : "legend"} aria-label={t("legend.title")} data-testid={collapsedKey ? "legend" : "legend-full"}>
+    <section className={collapsedKey ? "legend legend--floating" : "legend"} aria-label={t("legend.title")} data-testid={collapsedKey ? "legend" : "legend-full"} data-tour={collapsedKey ? "legend" : undefined}>
       {collapsedKey && (
         <div className="legend__head">
           <span className="legend__title">{t("legend.title")}</span>

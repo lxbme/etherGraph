@@ -69,7 +69,7 @@ export function SearchBox() {
   };
 
   return (
-    <div className="search">
+    <div className="search" data-tour="search">
       <input
         ref={inputRef}
         type="search"

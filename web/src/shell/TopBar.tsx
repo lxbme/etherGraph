@@ -51,6 +51,7 @@ export function TopBar({ search, filter, workspaceMenu, onToggleDetail, detailOp
       )}
       <button
         id={HELP_BUTTON_ID}
+        data-tour="help"
         className="btn btn--icon"
         aria-label={t("help.open")}
         title={t("help.open")}

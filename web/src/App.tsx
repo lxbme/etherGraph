@@ -4,6 +4,7 @@ import { queryClient } from "./api/queryClient";
 import { useEvents } from "./api/useEvents";
 import { Banners } from "./shell/Banners";
 import { HelpDrawer } from "./shell/HelpDrawer";
+import { Tour } from "./shell/Tour";
 import { ResizableSplit } from "./shell/ResizableSplit";
 import { RightPanel } from "./shell/RightPanel";
 import { StatusBar } from "./shell/StatusBar";
@@ -70,6 +71,7 @@ function Shell() {
       </div>
       <StatusBar saveStatus={wsStatus} />
       <HelpDrawer />
+      <Tour />
       <Toasts />
     </div>
   );

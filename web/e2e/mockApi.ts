@@ -169,6 +169,8 @@ export async function installMockApi(page: Page): Promise<MockApi> {
   const holds = new Map<RouteKey, Promise<void>>();
   const sse: Route[] = [];
   const unhandled: string[] = [];
+  // The first-run tour would cover the page under test.
+  await page.addInitScript(() => localStorage.setItem("eg.tour.done", "1"));
 
   await page.route("**/api/**", async (route) => {
     const req = route.request();
