@@ -1,6 +1,15 @@
 import cytoscape from "cytoscape";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { NODE_SHAPE, TAG_ICON_SVG, assetColors, categoryColors, graphStylesheet, txFlowStylesheet } from "./styles";
+import {
+  NODE_SHAPE,
+  PARTIAL_ICON_SVG,
+  PIN_ICON_SVG,
+  SYNCING_ICON_SVG,
+  TAG_ICON_SVG,
+  assetColors,   categoryColors,
+  graphStylesheet,
+  txFlowStylesheet,
+} from "./styles";
 
 type Block = { selector: string; style: Record<string, unknown> };
 const sheet = (theme: "light" | "dark" = "light") => graphStylesheet(theme) as unknown as Block[];
@@ -14,6 +23,11 @@ afterEach(() => {
   document.documentElement.style.removeProperty("--cat-exchange");
   document.documentElement.style.removeProperty("--accent");
 });
+
+/** Cytoscape's parsed style (untyped in the bundled typings): list properties keep one entry per image. */
+type Parsed = { value: unknown; strValue: string; pfValue: unknown };
+const ps = (ele: cytoscape.CollectionReturnValue, prop: string) =>
+  (ele as unknown as { pstyle(p: string): Parsed }).pstyle(prop);
 
 /** Runs a stylesheet through headless Cytoscape and fails on any style warning or error. */
 function withCy(style: cytoscape.StylesheetJson, elements: cytoscape.ElementDefinition[], check: (cy: cytoscape.Core) => void) {
@@ -100,18 +114,67 @@ describe("graphStylesheet", () => {
     expect(sel).not.toHaveProperty("border-color"); // the node keeps its own stroke
   });
 
-  test("a user label is a tag icon drawn outside the node's top-right, not a ring", () => {
+  test("a user label is a tag icon, not a ring", () => {
     const u = styleOf(sheet(), "node.user-label");
-    expect(u["background-image"]).toBe(TAG_ICON_SVG);
-    expect(TAG_ICON_SVG).toMatch(/^data:image\/svg\+xml,/);
-    expect(decodeURIComponent(TAG_ICON_SVG)).toContain("M12.586 2.586"); // lucide `tag` path
-    expect(u["background-clip"]).toBe("none");
-    expect(u["background-image-containment"]).toBe("over");
+    expect(u).toHaveProperty("background-image");
     expect(u["bounds-expansion"]).toBeGreaterThan(0);
     for (const key of Object.keys(u)) {
       expect(key).not.toMatch(/^(underlay|outline)-/);
     }
     expect(sheet().some((b) => b.selector.includes("user-label.kind-"))).toBe(false);
+  });
+
+  test("corner icons are lucide data URIs", () => {
+    const icons = { TAG_ICON_SVG, PIN_ICON_SVG, SYNCING_ICON_SVG, PARTIAL_ICON_SVG };
+    for (const uri of Object.values(icons)) {
+      expect(uri).toMatch(/^data:image\/svg\+xml,/);
+      expect(uri).not.toMatch(/\s/); // Cytoscape splits multi-image lists on whitespace
+    }
+    expect(decodeURIComponent(TAG_ICON_SVG)).toContain("M12.586 2.586"); // lucide `tag`
+    expect(decodeURIComponent(PIN_ICON_SVG)).toContain("M12 17v5"); // lucide `pin`
+    expect(decodeURIComponent(SYNCING_ICON_SVG)).toContain("M12 6v6l4 2"); // lucide `clock`
+    expect(decodeURIComponent(PARTIAL_ICON_SVG)).toContain("m21.73 18-8-14"); // lucide `triangle-alert`
+    expect(decodeURIComponent(PARTIAL_ICON_SVG)).toContain("#e8a317"); // --warn
+  });
+
+  test("state icons sit outside the node corners: tag top-right, pin top-left, syncing bottom-right, partial bottom-left", () => {
+    withCy(
+      graphStylesheet("light"),
+      [
+        { group: "nodes", data: { id: "all", text: "x" }, classes: "kind-eoa pinned user-label partial" },
+        { group: "nodes", data: { id: "sync", text: "x" }, classes: "kind-eoa syncing" },
+        { group: "nodes", data: { id: "tag", text: "x" }, classes: "kind-eoa user-label" },
+        { group: "nodes", data: { id: "plain", text: "x" }, classes: "kind-eoa" },
+      ],
+      (cy) => {
+        const all = cy.getElementById("all");
+        const list = (prop: string) => ps(all, prop).value as unknown[];
+        expect(list("background-image")).toEqual([TAG_ICON_SVG, PIN_ICON_SVG, PARTIAL_ICON_SVG]);
+        expect(list("background-position-x")).toHaveLength(3);
+        expect(ps(all, "background-position-x").strValue).toBe("100% 0% 0%");
+        expect(ps(all, "background-position-y").strValue).toBe("0% 0% 100%");
+        expect(ps(all, "background-offset-x").pfValue).toEqual([6, -6, -6]);
+        expect(ps(all, "background-offset-y").pfValue).toEqual([-6, -6, 6]);
+        expect(list("background-clip")).toEqual(["none", "none", "none"]);
+        expect(list("background-image-containment")).toEqual(["over", "over", "over"]);
+        expect(ps(all, "background-width").pfValue).toEqual([11, 11, 11]);
+        expect(ps(all, "background-height").pfValue).toEqual([11, 11, 11]);
+
+        const sync = cy.getElementById("sync");
+        expect(ps(sync, "background-image").value).toEqual([SYNCING_ICON_SVG]);
+        expect(ps(sync, "background-position-x").strValue).toBe("100%");
+        expect(ps(sync, "background-position-y").strValue).toBe("100%");
+
+        expect(ps(cy.getElementById("tag"), "background-image").value).toEqual([TAG_ICON_SVG]);
+        // A bottom icon pushes the label down so they do not overlap.
+        expect(ps(sync, "text-margin-y").pfValue as number).toBeGreaterThan(ps(cy.getElementById("tag"), "text-margin-y").pfValue as number);
+        expect(cy.getElementById("plain").style("background-image")).toBe("none");
+
+        // Icons follow class changes (e.g. a pin toggled in place).
+        cy.getElementById("tag").addClass("pinned");
+        expect(ps(cy.getElementById("tag"), "background-image").value).toEqual([TAG_ICON_SVG, PIN_ICON_SVG]);
+      },
+    );
   });
 
   test("edge colours follow the asset class", () => {

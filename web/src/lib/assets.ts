@@ -25,11 +25,3 @@ export const ASSET_COLORS: Record<AssetClass, string> = {
   erc20: "var(--asset-erc20)",
   nft: "var(--asset-nft)",
 };
-
-/** Concrete colors for Cytoscape, which cannot resolve CSS variables. */
-export const ASSET_HEX: Record<AssetClass, string> = {
-  eth: "#8c8cff",
-  stable: "#2bb673",
-  erc20: "#e0a030",
-  nft: "#999999",
-};

@@ -38,19 +38,53 @@ const TINT_WEIGHT: Record<Theme, number> = { light: 0.15, dark: 0.28 };
 /** The center node's ring stays white in both themes. */
 const CENTER_RING = "#ffffff";
 
-const TAG_ICON_RAW =
-  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="#1f5eff" ' +
-  'stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-  '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/>' +
-  '<circle cx="7.5" cy="7.5" r="1.5" fill="#ffffff" stroke="none"/></svg>';
 /**
- * The lucide `tag` icon as a data URI, marking nodes that carry a user label. It is filled with the
- * accent and outlined in white so it reads on either canvas and over edges.
+ * Corner icons (lucide paths on a 24px grid) as data URIs, for node states. Each is a filled glyph with a
+ * white outline so it reads on either canvas and over edges; plan 4's legend reuses them.
  */
-export const TAG_ICON_SVG = `data:image/svg+xml,${encodeURIComponent(TAG_ICON_RAW)}`;
-/** Tag icon size and how far it sticks out past the node's top-right corner, in px. */
-const TAG_SIZE = 11;
-const TAG_OVERHANG = 6;
+const svgUri = (body: string) =>
+  `data:image/svg+xml,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" ' +
+      `stroke-linecap="round" stroke-linejoin="round">${body}</svg>`,
+  )}`;
+const OUTLINE = '#ffffff';
+
+/** User label: lucide `tag` in the accent. */
+export const TAG_ICON_SVG = svgUri(
+  `<path fill="#1f5eff" stroke="${OUTLINE}" stroke-width="2" d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/>` +
+    `<circle cx="7.5" cy="7.5" r="1.5" fill="${OUTLINE}"/>`,
+);
+/** Pinned: lucide `pin` in a dark neutral. */
+export const PIN_ICON_SVG = svgUri(
+  `<path stroke="${OUTLINE}" stroke-width="5" d="M12 17v5"/>` +
+    `<path fill="#374151" stroke="${OUTLINE}" stroke-width="2" d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>` +
+    `<path stroke="#374151" stroke-width="2.5" d="M12 17v5"/>`,
+);
+/** Syncing: lucide `clock` in the accent. */
+export const SYNCING_ICON_SVG = svgUri(
+  `<circle cx="12" cy="12" r="10" fill="#1f5eff" stroke="${OUTLINE}" stroke-width="2"/>` +
+    `<path stroke="${OUTLINE}" stroke-width="2" d="M12 6v6l4 2"/>`,
+);
+/** Partial (a category hit the record cap): lucide `triangle-alert` in --warn. */
+export const PARTIAL_ICON_SVG = svgUri(
+  `<path fill="#e8a317" stroke="${OUTLINE}" stroke-width="2" d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>` +
+    `<path stroke="#111827" stroke-width="2" d="M12 9v4"/><path stroke="#111827" stroke-width="2" d="M12 17h.01"/>`,
+);
+
+/** Corner icon per state class, in drawing order; x/y pick the corner the icon hangs off. */
+const BADGES = [
+  { cls: "user-label", svg: TAG_ICON_SVG, x: "100%", y: "0%" },
+  { cls: "pinned", svg: PIN_ICON_SVG, x: "0%", y: "0%" },
+  { cls: "syncing", svg: SYNCING_ICON_SVG, x: "100%", y: "100%" },
+  { cls: "partial", svg: PARTIAL_ICON_SVG, x: "0%", y: "100%" },
+] as const;
+type Badge = (typeof BADGES)[number];
+/** Icon size and how far it sticks out past the node's corner, in px. */
+const BADGE_SIZE = 11;
+const BADGE_OVERHANG = 6;
+const LABEL_GAP = 4;
+/** Label gap below a node with a bottom icon, so the icon does not sit on the text. */
+const LABEL_GAP_BELOW_BADGE = 8;
 
 /** Cytoscape cannot resolve `var(--x)`, so resolve the token to a concrete value now. */
 function cssVar(name: string, fallback: string): string {
@@ -100,7 +134,31 @@ export function assetColors(theme: Theme): Record<AssetClass | "other", string> 
 }
 
 /** Plain `{selector, style}` blocks; property names/values follow the Cytoscape 3.34 docs. */
-type Block = { selector: string; style: Record<string, string | number> };
+type StyleFn = (ele: cytoscape.NodeSingular) => unknown;
+type Block = { selector: string; style: Record<string, string | number | StyleFn> };
+
+const badgesOf = (ele: cytoscape.NodeSingular) => BADGES.filter((b) => ele.hasClass(b.cls));
+/** One value per icon the node shows: Cytoscape's multi-image properties are parallel lists. */
+const perBadge = (f: (b: Badge) => string | number): StyleFn => (ele) => badgesOf(ele).map(f);
+const away = (pos: "0%" | "100%") => (pos === "0%" ? -BADGE_OVERHANG : BADGE_OVERHANG);
+
+/**
+ * The state icons, composed from the node's classes. Every list property is given in full, since
+ * Cytoscape falls back to its own defaults (e.g. a clipped, centered image) for missing entries.
+ */
+const BADGE_STYLE: Block["style"] = {
+  "background-image": perBadge((b) => b.svg),
+  "background-width": perBadge(() => BADGE_SIZE),
+  "background-height": perBadge(() => BADGE_SIZE),
+  "background-position-x": perBadge((b) => b.x),
+  "background-position-y": perBadge((b) => b.y),
+  "background-offset-x": perBadge((b) => away(b.x)),
+  "background-offset-y": perBadge((b) => away(b.y)),
+  "background-clip": perBadge(() => "none"),
+  "background-image-containment": perBadge(() => "over"),
+  "bounds-expansion": BADGE_OVERHANG,
+  "text-margin-y": (ele) => (badgesOf(ele).some((b) => b.y === "100%") ? LABEL_GAP_BELOW_BADGE : LABEL_GAP),
+};
 
 const edgeColor = (c: string) => ({ "line-color": c, "target-arrow-color": c });
 const catStyle = (c: CategoryColor) => ({ "background-color": c.fill, "border-color": c.stroke });
@@ -127,7 +185,7 @@ function graphBlocks(theme: Theme): Block[] {
         label: "data(text)",
         "text-valign": "bottom",
         "text-halign": "center",
-        "text-margin-y": 4,
+        "text-margin-y": LABEL_GAP,
         "text-wrap": "wrap",
         "text-max-width": "160px",
         "font-family": font,
@@ -160,23 +218,8 @@ function graphBlocks(theme: Theme): Block[] {
     },
     { selector: "node.synced", style: { "border-style": "solid" } },
     { selector: "node.unsynced", style: { "border-style": "dashed" } },
-    {
-      // A small tag icon just outside the node's top-right corner.
-      selector: "node.user-label",
-      style: {
-        "background-image": TAG_ICON_SVG,
-        "background-fit": "none",
-        "background-width": TAG_SIZE,
-        "background-height": TAG_SIZE,
-        "background-position-x": "100%",
-        "background-position-y": "0%",
-        "background-offset-x": TAG_OVERHANG,
-        "background-offset-y": -TAG_OVERHANG,
-        "background-clip": "none",
-        "background-image-containment": "over",
-        "bounds-expansion": TAG_OVERHANG,
-      },
-    },
+    // Corner icons for user label, pinned, syncing and partial; each block composes all of them.
+    ...BADGES.map((b) => ({ selector: `node.${b.cls}`, style: BADGE_STYLE })),
     {
       // A ring outside the border, so the selected node keeps its own fill and stroke (the center's white ring too).
       selector: "node.selected, node:selected",

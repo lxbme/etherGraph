@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { ASSET_COLORS, ASSET_HEX, STABLECOINS, assetClass } from "./assets";
+import { ASSET_COLORS, STABLECOINS, assetClass } from "./assets";
 
 const USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
 
@@ -20,5 +20,4 @@ test("stablecoin list and colors", () => {
   expect(STABLECOINS.size).toBe(8);
   expect(ASSET_COLORS.eth).toBe("var(--asset-eth)");
   expect(ASSET_COLORS.nft).toBe("var(--asset-nft)");
-  expect(ASSET_HEX).toEqual({ eth: "#8c8cff", stable: "#2bb673", erc20: "#e0a030", nft: "#999999" });
 });

@@ -89,14 +89,16 @@ describe("nodeElement", () => {
     expect(named.data.text).toBe(`alice.eth\n${shortAddr(A)}`);
   });
 
-  test("badges and omitted count are rendered into the label text", () => {
+  test("states are classes (drawn as corner icons), never glyphs in the label; the omitted count stays", () => {
     const el = nodeElement(
       node({ display_name: "Binance 14", partial: true, syncing: true }),
       ui({ pinned: true }),
       { ...ctx, omitted: 1834 },
     );
     expect(el.data.omitted).toBe(1834);
-    expect(el.data.text).toBe(`⚠ ⏳ 📌 Binance 14 (+1834)\n${shortAddr(A)}`);
+    expect(el.data.text).toBe(`Binance 14 (+1834)\n${shortAddr(A)}`);
+    expect(el.data.text).not.toMatch(/[⚠⏳📌]/u);
+    expect(classesOf(el)).toEqual(expect.arrayContaining(["partial", "syncing", "pinned"]));
   });
 
   test("stored position is carried into the element", () => {

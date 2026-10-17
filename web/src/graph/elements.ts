@@ -7,14 +7,11 @@ import { edgeWidth, type VisualEdge } from "./visualEdges";
 const lc = (s: string) => s.toLowerCase();
 
 /**
- * Cytoscape has no pseudo-elements, so node badges are rendered as glyphs in
- * the label: "⚠ " partial, "⏳ " syncing, "📌 " pinned, " (+N)" omitted
- * neighbours; the short address follows on a second line when a name exists.
+ * The label is the name plus " (+N)" omitted neighbours, with the short address on a second line when a
+ * name exists. States (partial, syncing, pinned, user label) are classes the stylesheet draws as corner icons.
  */
-function labelText(n: NodeSummaryDto, ui: NodeUi | undefined, omitted: number, name: string, sub: string): string {
-  const prefix = (n.partial ? "⚠ " : "") + (n.syncing ? "⏳ " : "") + (ui?.pinned ? "📌 " : "");
-  const suffix = omitted > 0 ? ` (+${omitted})` : "";
-  const first = `${prefix}${name}${suffix}`;
+function labelText(n: NodeSummaryDto, omitted: number, name: string, sub: string): string {
+  const first = omitted > 0 ? `${name} (+${omitted})` : name;
   return n.display_name ? `${first}\n${sub}` : first;
 }
 
@@ -40,7 +37,7 @@ export function nodeElement(
   ].filter(Boolean);
   const el: cytoscape.ElementDefinition = {
     group: "nodes",
-    data: { id, label, sub, text: labelText(n, ui, ctx.omitted, label, sub), omitted: ctx.omitted },
+    data: { id, label, sub, text: labelText(n, ctx.omitted, label, sub), omitted: ctx.omitted },
     classes: classes.join(" "),
   };
   if (ui?.pos) el.position = { ...ui.pos };
