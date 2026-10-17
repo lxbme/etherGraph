@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "../api/endpoints";
@@ -192,5 +192,27 @@ describe("jobs popover batches", () => {
     expect(m.cancelBatch).toHaveBeenCalledWith(b1);
     await userEvent.click(within(dlg).getByRole("button", { name: "Cancel all background" }));
     expect(m.cancelBackground).toHaveBeenCalledTimes(1);
+  });
+  test("a pending batch cancel disables only that batch's button", async () => {
+    const b1 = "11111111-aaaa", b2 = "22222222-bbbb", b3 = "33333333-cccc";
+    m.jobs.mockResolvedValue([job({ id: 1, batches: [b1] }), job({ id: 2, batches: [b2] }), job({ id: 3, batches: [b3] })]);
+    let release1 = () => {};
+    m.cancelBatch.mockImplementation((id) =>
+      id === b1 ? new Promise((r) => (release1 = () => r({ cancelled: [] }))) : new Promise(() => {}),
+    );
+    wrap(<StatusBar />);
+    await userEvent.click(await screen.findByRole("button", { name: /^Jobs/ }));
+    const dlg = await screen.findByRole("dialog", { name: "Jobs" });
+    const btn = async (name: string) =>
+      within(await within(dlg).findByRole("region", { name })).getByRole("button", { name: "Cancel batch" });
+    await userEvent.click(await btn("Batch 11111111"));
+    await userEvent.click(await btn("Batch 22222222"));
+    // Both requests are in flight: both buttons stay disabled, the third batch's does not.
+    expect(await btn("Batch 11111111")).toBeDisabled();
+    expect(await btn("Batch 22222222")).toBeDisabled();
+    expect(await btn("Batch 33333333")).toBeEnabled();
+    await act(async () => release1());
+    await waitFor(async () => expect(await btn("Batch 11111111")).toBeEnabled());
+    expect(await btn("Batch 22222222")).toBeDisabled();
   });
 });

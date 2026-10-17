@@ -44,6 +44,18 @@ describe("expansion effects", () => {
     expect(m.cancelBatch).toHaveBeenLastCalledWith(arg.batch);
   });
 
+  test("redo of more than 50 unsynced addresses syncs them in chunks of 50 under one new batch", () => {
+    const many = Array.from({ length: 120 }, (_, i) => "0x" + (i + 1).toString(16).padStart(40, "0"));
+    g().expand(many, "b1", 3);
+    g().undo();
+    g().redo();
+    const reqs = m.sync.mock.calls.map((c) => c[0]);
+    expect(reqs.map((r) => r.addresses.length)).toEqual([50, 50, 20]);
+    expect(reqs.flatMap((r) => r.addresses)).toEqual(many);
+    expect(new Set(reqs.map((r) => r.batch)).size).toBe(1);
+    expect(reqs[0]!.batch).not.toBe("b1");
+  });
+
   test("redo with everything synced does not call the API", () => {
     queryClient.setQueryData(["graph", "x"], {
       nodes: [A, B].map((address) => ({ address, synced: true, syncing: false })),

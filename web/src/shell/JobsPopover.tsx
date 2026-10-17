@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/endpoints";
 import { ApiError, messageFor } from "../api/errors";
@@ -10,6 +10,7 @@ import { kindName, statusName, targetText } from "./jobText";
 import { toast } from "./Toasts";
 
 const REFRESH_MS = 5000;
+const CANCEL_BATCH = ["cancelBatch"];
 const ERR_MAX = 40;
 
 function Row({ job, onCancel, cancelling }: { job: JobDto; onCancel?: () => void; cancelling?: boolean }) {
@@ -111,10 +112,18 @@ export function JobsPopover({ activeCount }: { activeCount: number }) {
   });
 
   const cancelBatch = useMutation({
+    mutationKey: CANCEL_BATCH,
     mutationFn: (id: string) => api.cancelBatch(id),
     onError: (e) => toast(messageFor(e), "error"),
     onSettled: () => qc.invalidateQueries({ queryKey: qk.jobs() }),
   });
+  // Each batch's own request: cancelling one batch leaves the others' buttons usable.
+  const cancellingBatches = new Set(
+    useMutationState({
+      filters: { mutationKey: CANCEL_BATCH, status: "pending" },
+      select: (m) => m.state.variables as string,
+    }),
+  );
   const cancelBackground = useMutation({
     mutationFn: () => api.cancelBackground(),
     onError: (e) => toast(messageFor(e), "error"),
@@ -162,7 +171,11 @@ export function JobsPopover({ activeCount }: { activeCount: number }) {
                   <strong>{title}</strong>
                   <span className="num">{t("jobs.groupJobs", { count: g.jobs.length })}</span>
                   {batch !== null && (
-                    <button className="btn btn--compact" disabled={cancelBatch.isPending} onClick={() => cancelBatch.mutate(batch)}>
+                    <button
+                      className="btn btn--compact"
+                      disabled={cancellingBatches.has(batch)}
+                      onClick={() => cancelBatch.mutate(batch)}
+                    >
                       {t("jobs.cancelBatch")}
                     </button>
                   )}
