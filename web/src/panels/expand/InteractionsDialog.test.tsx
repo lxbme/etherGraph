@@ -66,6 +66,32 @@ test("when the sync job finishes with no counterparties the syncing note gives w
   expect(screen.queryByText(/Syncing this contract/)).toBeNull();
 });
 
+test("the note shows while the sync request is pending", async () => {
+  vi.spyOn(api, "sync").mockReturnValue(new Promise(() => {}));
+  vi.spyOn(api, "counterparties").mockResolvedValue({ items: [], total: 0 });
+  mount(node(999, { kind: "contract", synced: false }));
+  expect(screen.getByText(/Syncing this contract/)).toBeInTheDocument();
+});
+
+test("a job that never reports but is absent from the active list clears the note and refetches", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    vi.spyOn(api, "sync").mockResolvedValue({ jobs: [9] } as never);
+    vi.spyOn(api, "jobs").mockResolvedValue([]);
+    const spy = vi.spyOn(api, "counterparties").mockResolvedValue({ items: [], total: 0 });
+    useJobProgress.setState({ byId: {} });
+    mount(node(999, { kind: "contract", synced: false }));
+    expect(await screen.findByText(/Syncing this contract/)).toBeInTheDocument();
+    const calls = spy.mock.calls.length;
+    await act(() => vi.advanceTimersByTimeAsync(5100));
+    expect(await screen.findByText("No stored interactions match.")).toBeInTheDocument();
+    expect(screen.queryByText(/Syncing this contract/)).toBeNull();
+    expect(spy.mock.calls.length).toBeGreaterThan(calls);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("a failed sync request clears the syncing note", async () => {
   vi.spyOn(api, "sync").mockRejectedValue(new Error("boom"));
   vi.spyOn(api, "counterparties").mockResolvedValue({ items: [], total: 0 });
