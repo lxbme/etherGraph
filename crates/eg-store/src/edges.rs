@@ -204,20 +204,22 @@ impl Store {
              max(last_ts) AS k_recent FROM p GROUP BY 1, 2) s) \
              SELECT g.from_addr, g.to_addr, g.asset, g.cnt, LEAST(g.total, {U256_MAX_DEC}) AS total, \
              g.first_ts, g.last_ts, g.asset_kind, \
-             NULL::bytea AS center, NULL::bigint AS omitted FROM g \
-             WHERE EXISTS (SELECT 1 FROM r WHERE r.rk <= "
+             NULL::bytea AS center, NULL::bigint AS omitted FROM g WHERE "
         ));
-        qb.push_bind(limit).push(" AND (");
-        if out {
-            qb.push("(r.center = g.from_addr AND r.nb = g.to_addr)");
-        }
-        if out && inb {
-            qb.push(" OR ");
-        }
-        if inb {
-            qb.push("(r.center = g.to_addr AND r.nb = g.from_addr)");
-        }
-        qb.push(")) UNION ALL SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, center, n - ")
+        // Equality on a row value lets Postgres hash the semi-join; an OR of
+        // the two orientations forced a nested loop over g × r (22 s for one
+        // center with 25k neighbours). With both directions the pair is
+        // unordered, so compare it normalised.
+        qb.push(match (out, inb) {
+            (true, true) => {
+                "(LEAST(g.from_addr, g.to_addr), GREATEST(g.from_addr, g.to_addr)) IN \
+                 (SELECT LEAST(center, nb), GREATEST(center, nb) FROM r WHERE rk <= "
+            }
+            (true, false) => "(g.from_addr, g.to_addr) IN (SELECT center, nb FROM r WHERE rk <= ",
+            _ => "(g.to_addr, g.from_addr) IN (SELECT center, nb FROM r WHERE rk <= ",
+        });
+        qb.push_bind(limit);
+        qb.push(") UNION ALL SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, center, n - ")
             .push_bind(limit)
             .push(" FROM (SELECT DISTINCT center, n FROM r WHERE n > ")
             .push_bind(limit)
@@ -727,6 +729,42 @@ mod tests {
         let ss = find(&r.edges, s, s, None);
         assert_eq!(ss.count, 1);
         assert!(r.omitted.is_empty());
+    }
+
+    #[sqlx::test]
+    async fn out_only_keeps_pair_orientation_between_centers(pool: PgPool) {
+        // X's top out-neighbour is Y, but Y's top out-neighbour is B, so the
+        // Y→X edge must stay out even though {X, Y} is a kept pair for X.
+        let (x, y) = (Address::repeat_byte(0x21), Address::repeat_byte(0x22));
+        let mut v = vec![
+            tr(1, x, y, None, 1, 100),
+            tr(2, x, y, None, 1, 110),
+            tr(3, x, A, None, 1, 120),
+            tr(4, y, B, None, 1, 130),
+            tr(5, y, B, None, 1, 140),
+            tr(6, y, B, None, 1, 150),
+            tr(7, y, x, None, 1, 160),
+        ];
+        assign_sub_ids(&mut v);
+        let store = Store::from_pool(pool);
+        store.upsert_transfers(&v).await.unwrap();
+        let mut q = query(
+            EdgeFilter {
+                direction: Direction::Out,
+                ..EdgeFilter::default()
+            },
+            1,
+            SortBy::Count,
+        );
+        q.centers = vec![x, y];
+
+        let r = store.query_edges(&q).await.unwrap();
+        let pairs: Vec<_> = r.edges.iter().map(|e| (e.from, e.to)).collect();
+        assert_eq!(pairs.len(), 2, "{pairs:?}");
+        assert!(pairs.contains(&(x, y)));
+        assert!(pairs.contains(&(y, B)));
+        assert_eq!(r.omitted.get(&x), Some(&1));
+        assert_eq!(r.omitted.get(&y), Some(&1));
     }
 
     #[sqlx::test]
