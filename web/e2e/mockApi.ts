@@ -6,6 +6,7 @@ import type { JobDto } from "../src/api/generated/JobDto";
 import type { SearchResultDto } from "../src/api/generated/SearchResultDto";
 import type { StatusDto } from "../src/api/generated/StatusDto";
 import type { TransferPageDto } from "../src/api/generated/TransferPageDto";
+import type { TxRawDto } from "../src/api/generated/TxRawDto";
 import type { TxResponseDto } from "../src/api/generated/TxResponseDto";
 import type { WorkspaceDto } from "../src/api/generated/WorkspaceDto";
 import addressJson from "./fixtures/address.json" with { type: "json" };
@@ -14,6 +15,7 @@ import longTextJson from "./fixtures/long-text.json" with { type: "json" };
 import statusJson from "./fixtures/status.json" with { type: "json" };
 import transfersJson from "./fixtures/transfers.json" with { type: "json" };
 import txJson from "./fixtures/tx.json" with { type: "json" };
+import txRawJson from "./fixtures/tx-raw.json" with { type: "json" };
 
 export const A = "0xa11ce00000000000000000000000000000000001";
 export const B = "0xb0b0000000000000000000000000000000000002";
@@ -28,6 +30,7 @@ export const fixtures = {
   status: statusJson as StatusDto,
   transfers: transfersJson as TransferPageDto,
   tx: txJson as TxResponseDto,
+  txRaw: txRawJson as TxRawDto,
   /** Long ENS / contract name / error strings for the overflow checks. */
   longText: longTextJson as { ens: string; contractName: string; invalidInput: string; job: JobDto },
 };
@@ -68,6 +71,7 @@ function defaultHandlers(): Map<RouteKey, Handler> {
     ],
     ["POST /api/graph/edges", () => ({ json: fixtures.graph })],
     ["GET /api/transfers", () => ({ json: fixtures.transfers })],
+    ["GET /api/tx/*/raw", () => ({ json: fixtures.txRaw })],
     [
       "GET /api/tx/*",
       (_req, url) =>
@@ -95,8 +99,8 @@ function defaultHandlers(): Map<RouteKey, Handler> {
 
 /** `/api/address/0xabc` → `GET /api/address/*`; fixed paths map to themselves. */
 function routeKey(method: string, path: string): RouteKey {
-  const m = /^(\/api\/(?:address|tx|jobs|workspaces|labels))\/[^/]+$/.exec(path);
-  return `${method} ${m ? `${m[1]}/*` : path}`;
+  const m = /^(\/api\/(?:address|tx|jobs|workspaces|labels))\/[^/]+(\/raw)?$/.exec(path);
+  return `${method} ${m ? `${m[1]}/*${m[2] ?? ""}` : path}`;
 }
 
 export interface MockApi {

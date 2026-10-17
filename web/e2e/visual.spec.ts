@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expectLaidOut, tapNode } from "./cy";
-import { A, B, C, D, expect, fixtures, type MockApi, test } from "./mockApi";
+import { A, B, C, D, TX, expect, fixtures, type MockApi, test } from "./mockApi";
 
 const THEMES = ["light", "dark"] as const;
 const LOCALES = ["en", "zh"] as const;
@@ -10,7 +10,7 @@ const SIZES = [
 ] as const;
 
 /** Elements that must not overflow: topbar / statusbar / right panel (and its scrolling bodies) / transfers / jobs popover / kv keys. */
-const CONTAINERS = [".topbar", ".statusbar", ".main__right", ".main__right-body", ".detail", ".transfers", ".jobs__popover", ".kv > dt"];
+const CONTAINERS = [".topbar", ".statusbar", ".main__right", ".main__right-body", ".detail", ".transfers", ".jobs__popover", ".kv > dt", ".txbar", ".txdetail__tabs", ".txdetail__tabs .seg", ".txdetail__body", ".txdetail__kv"];
 /** Checked too, but an intentional ellipsis (overflow hidden + title) is allowed: buttons, key/value values, job cells. */
 const ELLIPSIS_OK = [".btn", ".kv > dd", ".jobs__popover td"];
 
@@ -133,6 +133,21 @@ for (const theme of THEMES) {
         await expectAligned(page, "settings menu");
 
         await page.screenshot({ path: `test-results/visual/${theme}-${locale}-${size.width}.png` });
+        // Transaction tab, Overview active: summary bar, tab group and kv grid.
+        await page.keyboard.press("Escape");
+        await page.locator(".settings").waitFor({ state: "hidden" }).catch(() => {});
+        await search.fill(TX);
+        await search.press("Enter");
+        const txView = page.getByTestId("tx-view");
+        await expect(txView.getByTestId("tx-summary-bar")).toBeVisible();
+        await expectLaidOut(page, { tx: TX }, 3);
+        const tabGroup = txView.locator(".txdetail__tabs .seg");
+        await expect(tabGroup.getByRole("button").first()).toHaveAttribute("aria-pressed", "true");
+        await expect(txView.locator(".txdetail__kv")).toBeVisible();
+        await expectNoOverflow(page, "tx tab");
+        await expectAligned(page, "tx tab");
+        await page.screenshot({ path: `test-results/visual/tx-${theme}-${locale}-${size.width}.png` });
+
         expect(mock.unhandled).toEqual([]);
       });
     }

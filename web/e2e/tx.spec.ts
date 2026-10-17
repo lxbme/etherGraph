@@ -90,3 +90,49 @@ test("tx search → add a node to the graph → the graph built while hidden fit
 
   expect(mock.unhandled).toEqual([]);
 });
+
+test("transfer row → summary card → Open transaction → every detail tab shows its content", async ({ page, mock }) => {
+  await page.goto("/?e2e=1");
+  await page.getByRole("searchbox", { name: "Search" }).fill(A);
+  await page.getByRole("searchbox", { name: "Search" }).press("Enter");
+  await expectLaidOut(page, "main", 4);
+  await tapEdge(page, A, B);
+
+  await page.getByTestId("transfer-row").first().click();
+  const card = page.locator(".main__right").getByTestId("tx-summary");
+  await expect(card).toContainText("swapExactETHForTokens");
+  await card.getByRole("button", { name: "Open transaction" }).click();
+
+  const txView = page.getByTestId("tx-view");
+  await expect(page.getByRole("tab", { name: /^Tx 0x7e57/ })).toHaveAttribute("aria-selected", "true");
+  await expect(txView.getByTestId("tx-summary-bar")).toBeVisible();
+  await expectLaidOut(page, { tx: TX }, 3);
+
+  const tabs = txView.getByRole("group", { name: "Transaction details" });
+  const body = txView.locator(".txdetail__body");
+  await expect(tabs.getByRole("button")).toHaveText(["Overview", "Input", "Token Transfers", "Internal Calls", "Logs", "Raw"]);
+
+  await expect(tabs.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "true");
+  await expect(body).toContainText("Gas limit");
+  await expect(body).toContainText("Nonce");
+
+  await tabs.getByRole("button", { name: "Input" }).click();
+  await expect(body).toContainText("swapExactETHForTokens(uint256,address[],address,uint256)");
+
+  await tabs.getByRole("button", { name: "Token Transfers" }).click();
+  await expect(body.locator("tbody tr")).toHaveCount(1);
+
+  await tabs.getByRole("button", { name: "Internal Calls" }).click();
+  await expect(body.locator("tbody tr")).toHaveCount(1);
+
+  await tabs.getByRole("button", { name: "Logs" }).click();
+  await expect(body.locator(".placeholder")).toBeVisible();
+
+  expect(mock.count("GET /api/tx/*/raw")).toBe(0); // only fetched when the Raw tab opens
+  await tabs.getByRole("button", { name: "Raw" }).click();
+  await expect(body).toContainText("blockNumber");
+  await expect(body).toContainText("gasUsed");
+  expect(mock.count("GET /api/tx/*/raw")).toBe(1);
+
+  expect(mock.unhandled).toEqual([]);
+});
