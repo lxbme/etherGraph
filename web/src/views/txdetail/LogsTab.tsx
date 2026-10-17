@@ -19,7 +19,7 @@ function LogCard({ event: e, flow }: { event: DecodedEventDto; flow: TxFlowDto }
         <span className="num detail__muted">{t("tx.logs.index", { index: String(e.log_index) })}</span>
         <AddressCell address={e.address} node={nodeOf(flow, e.address)} onSelect={select} />
         {decoded ? <b>{e.name}</b> : <span className="txview__tag">{t("tx.undecoded")}</span>}
-        <div className="seg txlog__toggle" role="group">
+        <div className="seg txlog__toggle" role="group" aria-label={t("tx.logs.view")}>
           <button type="button" className="seg__item" aria-pressed={!raw} disabled={!decoded} onClick={() => setRaw(false)}>
             {t("tx.logs.decoded")}
           </button>

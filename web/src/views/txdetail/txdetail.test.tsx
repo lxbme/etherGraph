@@ -190,7 +190,7 @@ test("Input lists the decoded arguments; address arguments select the tx-graph n
   expect(useGraph.getState().ui[WETH]?.hidden).toBe(false);
   // Raw hex is behind a toggle, in 64-character lines after the selector.
   expect(screen.queryByText(/^0x7ff36ab5$/m)).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Raw hex" }));
+  fireEvent.click(within(screen.getByRole("group", { name: "Input view" })).getByRole("button", { name: "Raw hex" }));
   const pre = document.querySelector("pre")!;
   const lines = pre.textContent!.split("\n");
   expect(lines[0]).toBe("0x7ff36ab5");
@@ -263,7 +263,7 @@ test("Logs show decoded cards that switch to raw topics and data, capped at 200 
   const first = cards()[0]!;
   expect(within(first).getByText("Transfer")).toBeInTheDocument();
   expect(within(first).getByTitle(BOB)).toBeInTheDocument();
-  fireEvent.click(within(first).getByRole("button", { name: "Raw" }));
+  fireEvent.click(within(within(first).getByRole("group", { name: "Log view" })).getByRole("button", { name: "Raw" }));
   expect(within(first).getByText(ev.topics[0]!)).toBeInTheDocument();
   expect(within(first).queryByTitle(BOB)).toBeNull();
 

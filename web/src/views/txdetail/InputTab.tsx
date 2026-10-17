@@ -39,7 +39,7 @@ export function InputTab({ flow }: { flow: TxFlowDto }) {
       <div className="txdetail__line">
         <span className="detail__mono">{call.signature}</span>
         <CopyButton value={call.signature} />
-        <div className="seg txdetail__toggle" role="group">
+        <div className="seg txdetail__toggle" role="group" aria-label={t("tx.input.view")}>
           <button type="button" className="seg__item" aria-pressed={showHex} onClick={() => setShowHex(!showHex)}>
             {t("tx.input.rawHex")}
           </button>
