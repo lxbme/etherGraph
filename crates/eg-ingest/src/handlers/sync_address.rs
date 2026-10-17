@@ -22,10 +22,13 @@ pub struct SyncParams {
     pub direction: SyncDirection,
     /// Empty means all five kinds.
     pub kinds: Vec<TransferKind>,
+    /// Records fetched per kind; `None` means `max_records_per_category`.
+    #[serde(default)]
+    pub cap: Option<u32>,
 }
 
 impl SyncParams {
-    fn kinds(&self) -> Vec<TransferKind> {
+    pub fn kinds(&self) -> Vec<TransferKind> {
         if self.kinds.is_empty() {
             TransferKind::ALL.to_vec()
         } else {
@@ -57,6 +60,8 @@ struct Plan<'a> {
     address: Address,
     direction: SyncDirection,
     kinds: Vec<TransferKind>,
+    /// Records fetched per kind before it is marked truncated.
+    cap: u32,
     /// Gate priority of each kind's first page: Interactive only for an
     /// Interactive job, otherwise Background (as are all later pages).
     first_page: Priority,
@@ -73,6 +78,7 @@ impl JobHandler for SyncAddressHandler {
             address: params.address,
             direction: params.direction,
             kinds: params.kinds(),
+            cap: params.cap.unwrap_or(ctx.cfg.max_records_per_category),
             first_page: match job.priority {
                 Priority::Interactive => Priority::Interactive,
                 Priority::Background | Priority::Low => Priority::Background,
@@ -201,7 +207,7 @@ impl Plan<'_> {
     ) -> Result<SyncProgress, JobError> {
         let (ctx, job) = (self.ctx, self.job);
         let page_size = ctx.cfg.page_size;
-        let cap = ctx.cfg.max_records_per_category;
+        let cap = self.cap;
         loop {
             if ctx.store.cancel_requested(job.id).await? {
                 return Err(JobError::Cancelled);

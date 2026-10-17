@@ -1,13 +1,16 @@
-//! Call-cost estimate for the 2-hop expansion confirmation.
+//! Call-cost estimates: syncs not yet enqueued (for the expansion
+//! confirmation) and the calls still ahead of queued jobs.
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use eg_core::types::{Address, TransferKind};
-use eg_store::SyncRow;
+use eg_store::{JobKind, JobRow, SyncRow};
 
+use crate::config::IngestConfig;
 use crate::enqueue::SyncDirection;
+use crate::handlers::SyncParams;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Estimate {
@@ -65,6 +68,34 @@ pub fn estimate(
     }
 }
 
+/// Provider calls `job` still needs (an upper bound for a sync: the kind in
+/// progress counts in full). A sync not started yet also looks up the head;
+/// each remaining kind costs `ceil(cap / page_size)` pages. Unreadable sync
+/// params count as 0: the job fails without calling out.
+pub fn remaining_calls(job: &JobRow, cfg: &IngestConfig) -> u32 {
+    match job.kind {
+        JobKind::SyncAddress => {
+            let Ok(p) = serde_json::from_value::<SyncParams>(job.params.clone()) else {
+                return 0;
+            };
+            let kinds = p.kinds().len() as u32;
+            let (head, done) = match &job.progress {
+                None => (LATEST_HEAD_CALLS, 0),
+                Some(prog) => (0, prog["kind_index"].as_u64().unwrap_or(0) as u32),
+            };
+            let cap = p.cap.unwrap_or(cfg.max_records_per_category);
+            let pages = cap.div_ceil(cfg.page_size.max(1));
+            head.saturating_add(kinds.saturating_sub(done).saturating_mul(pages))
+        }
+        JobKind::FetchTx => 4,
+        JobKind::FetchBlock | JobKind::ResolveNames | JobKind::TokenMeta => 1,
+        JobKind::ContractMeta => {
+            let n = job.params["addresses"].as_array().map_or(0, Vec::len);
+            u32::try_from(n).unwrap_or(u32::MAX).saturating_mul(2)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,6 +147,84 @@ mod tests {
             e.per_address,
             HashMap::from([(never, 6), (fresh, 0), (stale, 6), (other, 0)])
         );
+    }
+
+    fn job(
+        kind: JobKind,
+        params: serde_json::Value,
+        progress: Option<serde_json::Value>,
+    ) -> JobRow {
+        JobRow {
+            id: 1,
+            key: "k".into(),
+            kind,
+            params,
+            priority: eg_core::source::Priority::Background,
+            status: eg_store::JobStatus::Pending,
+            progress,
+            attempts: 0,
+            error: None,
+            created_at: now(),
+            updated_at: now(),
+        }
+    }
+
+    fn sync_params(cap: Option<u32>, kinds: &[&str]) -> serde_json::Value {
+        serde_json::json!({
+            "address": format!("{:#x}", Address::repeat_byte(1)),
+            "direction": "latest",
+            "kinds": kinds,
+            "cap": cap,
+        })
+    }
+
+    #[test]
+    fn remaining_calls_per_job_kind() {
+        let cfg = IngestConfig::default();
+        // eth_blockNumber plus one page for each of the five kinds.
+        let fresh = job(JobKind::SyncAddress, sync_params(Some(1000), &[]), None);
+        assert_eq!(remaining_calls(&fresh, &cfg), 6);
+        // Full depth: 10 pages per kind; two of five kinds left once started.
+        let progress = serde_json::json!({
+            "kind_index": 3,
+            "cursor": {"end_block": 9, "page": 2, "fetched": 1000, "min_seen": 5, "skipped": false},
+            "head": 9,
+            "start_block": 0,
+        });
+        let started = job(JobKind::SyncAddress, sync_params(None, &[]), Some(progress));
+        assert_eq!(remaining_calls(&started, &cfg), 20);
+        // A cap that is not a page multiple rounds up; old params have no cap.
+        let odd = job(
+            JobKind::SyncAddress,
+            sync_params(Some(1500), &["native"]),
+            None,
+        );
+        assert_eq!(remaining_calls(&odd, &cfg), 3);
+        let legacy = job(
+            JobKind::SyncAddress,
+            serde_json::json!({"address": format!("{:#x}", Address::repeat_byte(1)),
+                "direction": "older", "kinds": ["native", "erc20"]}),
+            None,
+        );
+        assert_eq!(remaining_calls(&legacy, &cfg), 21);
+        let addrs = serde_json::json!({"addresses": ["0x01", "0x02", "0x03"]});
+        for (kind, params, want) in [
+            (JobKind::FetchTx, serde_json::json!({}), 4),
+            (JobKind::FetchBlock, serde_json::json!({}), 1),
+            (JobKind::ContractMeta, addrs.clone(), 6),
+            (JobKind::ResolveNames, addrs.clone(), 1),
+            (
+                JobKind::TokenMeta,
+                serde_json::json!({"tokens": ["0x01"]}),
+                1,
+            ),
+        ] {
+            assert_eq!(
+                remaining_calls(&job(kind, params, None), &cfg),
+                want,
+                "{kind:?}"
+            );
+        }
     }
 
     #[test]

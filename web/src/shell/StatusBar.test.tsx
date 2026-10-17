@@ -22,11 +22,11 @@ const ADDR = "0x3f2a" + "0".repeat(32) + "91c0";
 const job = (over: Partial<JobDto> = {}): JobDto => ({
   id: 1, key: "k", kind: "sync_address", status: "running", priority: "interactive",
   params: { address: ADDR, direction: "older" }, progress: null, attempts: 1, error: null,
-  created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z", ...over,
+  created_at: "2026-10-17T00:00:00Z", updated_at: "2026-10-17T00:00:00Z", batches: [], ...over,
 });
 const status = (over: Partial<StatusDto> = {}): StatusDto => ({
   quota_used: 10, quota_limit: 100, paused: false, reset_at: "2026-10-18T00:00:00Z", queue_len: 7,
-  rate: 5, jobs_active: 0, calls: 0, retries: 0, errors: {}, degraded: null, ...over,
+  rate: 5, jobs_active: 0, queued_calls: 0, calls: 0, retries: 0, errors: {}, degraded: null, ...over,
 });
 const prog = (over: Partial<JobProgressEvent> = {}): JobProgressEvent => ({
   type: "JobProgress", job_id: 1, kind: "sync_address", fetched: 3000, cursor_block: null, status: "running", error: null, ...over,

@@ -27,7 +27,7 @@ const node = (address: string): NodeSummaryDto => ({
 });
 const status: StatusDto = {
   quota_used: 10, quota_limit: 100, paused: false, reset_at: "2026-10-18T00:00:00Z", queue_len: 0,
-  rate: 5, jobs_active: 0, calls: 0, retries: 0, errors: {}, degraded: "invalid_key",
+  rate: 5, jobs_active: 0, queued_calls: 0, calls: 0, retries: 0, errors: {}, degraded: "invalid_key",
 };
 
 let qc: QueryClient;
@@ -200,7 +200,7 @@ test("writes SSE state, loads status on mount and unsubscribes on unmount", asyn
 
 const job = (id: number): JobDto => ({
   id, key: `k${id}`, kind: "sync_address", status: "running", priority: "interactive", params: null,
-  progress: null, attempts: 0, error: null, created_at: "", updated_at: "",
+  progress: null, attempts: 0, error: null, created_at: "", updated_at: "", batches: [],
 });
 const progress = (job_id: number) =>
   ({ type: "JobProgress" as const, job_id, kind: "sync_address" as const, fetched: 0, cursor_block: null, status: "running" as const, error: null });

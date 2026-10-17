@@ -9,7 +9,8 @@ use tracing::Level;
 
 use crate::error::ApiError;
 use crate::routes::{
-    address, events, graph, jobs, labels, probe, search, status, sync, transfers, tx, workspaces,
+    address, batches, events, graph, jobs, labels, probe, search, status, sync, transfers, tx,
+    workspaces,
 };
 use crate::state::AppState;
 
@@ -18,8 +19,9 @@ use crate::state::AppState;
 pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .route("/status", get(status::status))
-        .route("/jobs", get(jobs::list))
+        .route("/jobs", get(jobs::list).delete(jobs::cancel_scope))
         .route("/jobs/{id}", get(jobs::get).delete(jobs::cancel))
+        .route("/batches/{id}", delete(batches::release))
         .route("/events", get(events::events))
         .route("/search", get(search::search))
         .route("/address/{addr}", get(address::profile))

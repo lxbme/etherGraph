@@ -742,3 +742,141 @@ async fn probe_upstream_failure_writes_nothing(pool: PgPool) {
     let (st, b) = post_json(&app, "/api/probe", &body).await;
     assert_eq!(st, StatusCode::OK, "{b}");
 }
+
+// ------------------------------------------------------------------ batches
+
+async fn active_job(app: &axum::Router, id: i64) -> Option<Value> {
+    let (st, jobs) = get(app, "/api/jobs").await;
+    assert_eq!(st, StatusCode::OK, "{jobs}");
+    jobs.as_array()
+        .unwrap()
+        .iter()
+        .find(|j| j["id"] == id)
+        .cloned()
+}
+
+async fn sync_job(app: &axum::Router, body: Value) -> i64 {
+    let (st, b) = post_json(app, "/api/sync", &body).await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    b["jobs"][0].as_i64().unwrap()
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn batches_own_jobs_until_the_last_one_is_cancelled(pool: PgPool) {
+    use eg_ingest::Event;
+    use eg_store::JobStatus;
+    let (app, state, _) = test_app(pool);
+    let from = format!("{FROM:#x}");
+    let id = sync_job(&app, json!({"addresses": [from], "batch": "b1"})).await;
+    let job = active_job(&app, id).await.unwrap();
+    assert_eq!(job["batches"], json!(["b1"]));
+    // Shallow by default: one page per kind.
+    assert_eq!(job["params"]["cap"], 1000);
+
+    let again = sync_job(&app, json!({"addresses": [from], "batch": "b2"})).await;
+    assert_eq!(again, id);
+    let job = active_job(&app, id).await.unwrap();
+    assert_eq!(job["batches"], json!(["b1", "b2"]));
+    let (st, status) = get(&app, "/api/status").await;
+    assert_eq!(st, StatusCode::OK, "{status}");
+    // eth_blockNumber + one page for each of the five kinds.
+    assert_eq!(status["queued_calls"], 6);
+
+    let mut rx = state.ctx.bus.subscribe();
+    let (st, b) = delete(&app, "/api/batches/b1").await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    assert_eq!(b, json!({"cancelled": []}));
+    let job = active_job(&app, id).await.unwrap();
+    assert_eq!(job["batches"], json!(["b2"]));
+    assert!(rx.try_recv().is_err());
+
+    let (st, b) = delete(&app, "/api/batches/b2").await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    assert_eq!(b, json!({"cancelled": [id]}));
+    assert!(active_job(&app, id).await.is_none());
+    assert_eq!(
+        state.store.job(id).await.unwrap().unwrap().status,
+        JobStatus::Cancelled
+    );
+    match rx.try_recv().unwrap() {
+        Event::JobProgress { job_id, status, .. } => {
+            assert_eq!(job_id, id);
+            assert_eq!(status, JobStatus::Cancelled);
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn manual_sync_keeps_a_job_alive_after_its_batches_go(pool: PgPool) {
+    let (app, _state, _) = test_app(pool);
+    let to = format!("{TO:#x}");
+    let id = sync_job(&app, json!({"addresses": [to], "batch": "b3"})).await;
+    assert_eq!(sync_job(&app, json!({"addresses": [to]})).await, id);
+    let (st, b) = delete(&app, "/api/batches/b3").await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    assert_eq!(b, json!({"cancelled": []}));
+    let job = active_job(&app, id).await.unwrap();
+    assert_eq!(job["batches"], json!([]));
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn cancel_background_scope_spares_interactive_jobs(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let (interactive, _) = state
+        .store
+        .enqueue(&eg_store::NewJob {
+            key: "tx:x".into(),
+            kind: eg_store::JobKind::FetchTx,
+            params: json!({"hash": format!("{HASH:#x}")}),
+            priority: Priority::Interactive,
+        })
+        .await
+        .unwrap();
+    let bg = sync_job(&app, json!({"addresses": [format!("{FROM:#x}")]})).await;
+    let (st, b) = delete(&app, "/api/jobs?scope=background").await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    assert_eq!(b, json!({"cancelled": [bg]}));
+    assert!(active_job(&app, bg).await.is_none());
+    assert!(active_job(&app, interactive).await.is_some());
+    for uri in ["/api/jobs", "/api/jobs?scope=all"] {
+        let (st, b) = delete(&app, uri).await;
+        assert_eq!((st, code(&b)), (StatusCode::BAD_REQUEST, "invalid_input"));
+    }
+    assert!(active_job(&app, interactive).await.is_some());
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn sync_depth_and_batch_validation(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let a = |b: u8| format!("{:#x}", Address::repeat_byte(b));
+    let full = sync_job(&app, json!({"addresses": [a(1)], "depth": "full"})).await;
+    let older = sync_job(
+        &app,
+        json!({"addresses": [a(2)], "direction": "older", "depth": "shallow"}),
+    )
+    .await;
+    for id in [full, older] {
+        let job = state.store.job(id).await.unwrap().unwrap();
+        assert!(job.params["cap"].is_null(), "{}", job.params);
+    }
+    let long = "x".repeat(65);
+    for body in [
+        json!({"addresses": [a(3)], "batch": "a b"}),
+        json!({"addresses": [a(3)], "batch": ""}),
+        json!({"addresses": [a(3)], "batch": long}),
+        json!({"addresses": [a(3)], "depth": "deep"}),
+    ] {
+        let (st, b) = post_json(&app, "/api/sync", &body).await;
+        assert_eq!(
+            (st, code(&b)),
+            (StatusCode::BAD_REQUEST, "invalid_input"),
+            "{body}"
+        );
+    }
+    let ok = "A-z0-9".repeat(10) + "abcd";
+    assert_eq!(ok.len(), 64);
+    sync_job(&app, json!({"addresses": [a(3)], "batch": ok})).await;
+    let (st, b) = delete(&app, "/api/batches/a%20b").await;
+    assert_eq!((st, code(&b)), (StatusCode::BAD_REQUEST, "invalid_input"));
+}

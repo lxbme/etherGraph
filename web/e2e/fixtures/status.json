@@ -6,6 +6,7 @@
   "queue_len": 0,
   "rate": 5,
   "jobs_active": 0,
+  "queued_calls": 0,
   "calls": 120,
   "retries": 0,
   "errors": {},

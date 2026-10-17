@@ -8,6 +8,7 @@ use eg_ingest::{SyncDirection, enqueue_sync, estimate};
 
 use crate::dto::{SyncRequestDto, SyncResponseDto, hex_addr};
 use crate::error::{ApiError, invalid};
+use crate::routes::batches::validate_batch;
 use crate::routes::{ApiJson, parse_addresses};
 use crate::state::AppState;
 
@@ -25,6 +26,18 @@ pub async fn sync(
             )));
         }
     };
+    let shallow = match req.depth.as_deref() {
+        None | Some("shallow") => true,
+        Some("full") => false,
+        Some(other) => {
+            return Err(invalid(format!(
+                "depth must be \"shallow\" or \"full\", got {other:?}"
+            )));
+        }
+    };
+    if let Some(b) = &req.batch {
+        validate_batch(b)?;
+    }
     if req.dry_run.unwrap_or(false) {
         let rows = s.store.sync_rows(&addrs).await?;
         let cfg = &s.ctx.cfg;
@@ -48,9 +61,21 @@ pub async fn sync(
             jobs: None,
         }));
     }
+    // Shallow: one page per kind. Loading older records is always full depth.
+    let cap = (shallow && dir == SyncDirection::Latest).then_some(s.ctx.cfg.page_size);
     let mut jobs = Vec::with_capacity(addrs.len());
     for a in addrs {
-        jobs.push(enqueue_sync(&s.ctx, a, dir, Priority::Background).await?);
+        jobs.push(
+            enqueue_sync(
+                &s.ctx,
+                a,
+                dir,
+                Priority::Background,
+                cap,
+                req.batch.as_deref(),
+            )
+            .await?,
+        );
     }
     Ok(Json(SyncResponseDto {
         estimated_calls: None,

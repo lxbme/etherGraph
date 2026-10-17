@@ -9,7 +9,8 @@ use sqlx::{Postgres, QueryBuilder, Row};
 
 use crate::convert::{addr_to_bytes, bd_to_u256, bytes_to_addr, u256_to_bd};
 use crate::edges::{push_filter, to_u64};
-use crate::{Result, Store, StoreError};
+use crate::jobs::cancel_ids;
+use crate::{JobKind, JobStatus, Result, Store, StoreError};
 
 /// Per-address upper bound for [`Store::transfer_counts`].
 const COUNT_CAP: i64 = 100_000;
@@ -163,27 +164,36 @@ impl Store {
         Ok(out)
     }
 
-    /// Drops `batch`'s ownership and returns the active jobs (pending, running
-    /// or quota-paused) it leaves with no owner at all; a batch-less owner
-    /// still counts as an owner.
-    pub async fn release_batch(&self, batch: &str) -> Result<Vec<i64>> {
+    /// Drops `batch`'s ownership and cancels (as [`Store::cancel_job`]) the
+    /// active jobs it leaves with no owner at all; a batch-less owner still
+    /// counts as an owner. Returns each cancelled job's id, kind and resulting
+    /// status, by id.
+    pub async fn release_batch(&self, batch: &str) -> Result<Vec<(i64, JobKind, JobStatus)>> {
         let mut tx = self.pool.begin().await?;
         let released: Vec<i64> =
             sqlx::query_scalar("DELETE FROM job_owners WHERE batch_id = $1 RETURNING job_id")
                 .bind(batch)
                 .fetch_all(&mut *tx)
                 .await?;
+        // A new owner's foreign-key check share-locks its job row, so after
+        // this lock every owner added concurrently is either committed (and
+        // seen by the next statement's fresh snapshot) or waits for this
+        // transaction, i.e. joins a job that is already cancelled.
+        sqlx::query("SELECT 1 FROM jobs WHERE id = ANY($1) ORDER BY id FOR UPDATE")
+            .bind(&released)
+            .execute(&mut *tx)
+            .await?;
         let orphans: Vec<i64> = sqlx::query_scalar(
             "SELECT id FROM jobs WHERE id = ANY($1) \
-             AND status IN ('pending', 'running', 'paused_quota') \
              AND NOT EXISTS (SELECT 1 FROM job_owners o WHERE o.job_id = jobs.id) \
              ORDER BY id",
         )
-        .bind(released)
+        .bind(&released)
         .fetch_all(&mut *tx)
         .await?;
+        let out = cancel_ids(&mut tx, &orphans).await?;
         tx.commit().await?;
-        Ok(orphans)
+        Ok(out)
     }
 
     /// Neighbours of `addr` grouped by address, filtered like edges (and by
@@ -299,7 +309,7 @@ fn push_counterparty_cte(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{JobKind, JobStatus, NewJob};
+    use crate::NewJob;
     use alloy_primitives::B256;
     use eg_core::source::Priority;
     use eg_core::types::{Transfer, TransferKind};
@@ -367,10 +377,22 @@ mod tests {
         assert_eq!(batches[&j1], vec!["b1".to_string()]);
         assert_eq!(batches[&j2], vec!["b1".to_string(), "b2".to_string()]);
         assert_eq!(batches[&j3], vec!["b1".to_string()]);
-        assert_eq!(s.release_batch("b1").await.unwrap(), vec![j1]);
+        assert_eq!(
+            s.release_batch("b1").await.unwrap(),
+            vec![(j1, JobKind::SyncAddress, JobStatus::Cancelled)]
+        );
+        assert_eq!(
+            s.job(j1).await.unwrap().unwrap().status,
+            JobStatus::Cancelled
+        );
+        assert_eq!(s.job(j2).await.unwrap().unwrap().status, JobStatus::Pending);
         // The batch is gone; a second release finds nothing.
         assert!(s.release_batch("b1").await.unwrap().is_empty());
-        assert_eq!(s.release_batch("b2").await.unwrap(), vec![j2]);
+        assert_eq!(
+            s.release_batch("b2").await.unwrap(),
+            vec![(j2, JobKind::SyncAddress, JobStatus::Cancelled)]
+        );
+        assert_eq!(s.job(j3).await.unwrap().unwrap().status, JobStatus::Pending);
     }
 
     #[sqlx::test]
@@ -393,7 +415,41 @@ mod tests {
         s.claim_next().await.unwrap().unwrap();
         let second = s.claim_next().await.unwrap().unwrap();
         s.pause_job_quota(second.id).await.unwrap();
-        assert_eq!(s.release_batch("b").await.unwrap(), vec![j1, j2]);
+        // The running job is only flagged; the paused one is cancelled.
+        assert_eq!(
+            s.release_batch("b").await.unwrap(),
+            vec![
+                (j1, JobKind::SyncAddress, JobStatus::Running),
+                (j2, JobKind::SyncAddress, JobStatus::Cancelled)
+            ]
+        );
+        assert!(s.cancel_requested(j1).await.unwrap());
+    }
+
+    #[sqlx::test]
+    async fn release_batch_waits_for_a_concurrent_owner(pool: PgPool) {
+        let s = Store::from_pool(pool.clone());
+        let j = job(&s, "j", Priority::Background).await;
+        s.add_job_owner(j, Some("b")).await.unwrap();
+        // A concurrent sync request joins the job; its insert is not committed yet.
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("INSERT INTO job_owners (job_id, batch_id) VALUES ($1, NULL)")
+            .bind(j)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let release = tokio::spawn({
+            let s = s.clone();
+            async move { s.release_batch("b").await.unwrap() }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert!(
+            !release.is_finished(),
+            "release must wait for the new owner"
+        );
+        tx.commit().await.unwrap();
+        assert!(release.await.unwrap().is_empty());
+        assert_eq!(s.job(j).await.unwrap().unwrap().status, JobStatus::Pending);
     }
 
     #[sqlx::test]

@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use eg_core::source::Priority;
 use serde::{Deserialize, Serialize};
+use sqlx::PgConnection;
 use sqlx::Row;
 use sqlx::postgres::PgRow;
 use ts_rs::TS;
@@ -111,6 +112,46 @@ macro_rules! job_cols {
     () => {
         "id, key, kind, params, priority, status, progress, attempts, error, created_at, updated_at"
     };
+}
+
+/// `UPDATE` cancelling the active jobs matching `$where`: pending and
+/// quota-paused ones become cancelled, running ones get `cancel_requested`.
+/// Returns `(id, kind, status)` rows.
+macro_rules! cancel_active {
+    ($where:literal) => {
+        concat!(
+            "UPDATE jobs SET updated_at = now(), \
+             status = CASE WHEN status IN ('pending', 'paused_quota') THEN 'cancelled' \
+             ELSE status END, \
+             cancel_requested = (status = 'running') OR cancel_requested \
+             WHERE status IN ('pending', 'running', 'paused_quota') AND ",
+            $where,
+            " RETURNING id, kind, status"
+        )
+    };
+}
+
+/// Parses `cancel_active!` rows, sorted by id.
+fn cancelled(rows: Vec<(i64, String, String)>) -> Result<Vec<(i64, JobKind, JobStatus)>> {
+    let mut out = rows
+        .into_iter()
+        .map(|(id, k, st)| Ok((id, JobKind::parse(&k)?, JobStatus::parse(&st)?)))
+        .collect::<Result<Vec<_>>>()?;
+    out.sort_by_key(|r| r.0);
+    Ok(out)
+}
+
+/// [`Store::cancel_job`] for each of `ids` that is still active, inside the
+/// caller's transaction.
+pub(crate) async fn cancel_ids(
+    conn: &mut PgConnection,
+    ids: &[i64],
+) -> Result<Vec<(i64, JobKind, JobStatus)>> {
+    let rows = sqlx::query_as(cancel_active!("id = ANY($1)"))
+        .bind(ids)
+        .fetch_all(conn)
+        .await?;
+    cancelled(rows)
 }
 
 fn job_row(r: &PgRow) -> Result<JobRow> {
@@ -253,38 +294,23 @@ impl Store {
     /// `cancel_requested`. Returns the job's kind and resulting status (`Cancelled`, or `Running`
     /// when only flagged); `None` for an unknown or finished job.
     pub async fn cancel_job(&self, id: i64) -> Result<Option<(JobKind, JobStatus)>> {
-        let row: Option<(String, String)> = sqlx::query_as(
-            "UPDATE jobs SET updated_at = now(), \
-             status = CASE WHEN status IN ('pending', 'paused_quota') THEN 'cancelled' \
-             ELSE status END, \
-             cancel_requested = (status = 'running') OR cancel_requested \
-             WHERE id = $1 AND status IN ('pending', 'running', 'paused_quota') \
-             RETURNING kind, status",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
-        row.map(|(k, st)| Ok((JobKind::parse(&k)?, JobStatus::parse(&st)?)))
-            .transpose()
+        let row: Option<(i64, String, String)> = sqlx::query_as(cancel_active!("id = $1"))
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(cancelled(row.into_iter().collect())?
+            .pop()
+            .map(|(_, k, st)| (k, st)))
     }
 
     /// [`Store::cancel_job`] applied to every active job that is not
     /// Interactive; returns each affected job's id, kind and resulting status.
     pub async fn cancel_background(&self) -> Result<Vec<(i64, JobKind, JobStatus)>> {
-        let rows: Vec<(i64, String, String)> = sqlx::query_as(
-            "UPDATE jobs SET updated_at = now(), \
-             status = CASE WHEN status IN ('pending', 'paused_quota') THEN 'cancelled' \
-             ELSE status END, \
-             cancel_requested = (status = 'running') OR cancel_requested \
-             WHERE priority > $1 AND status IN ('pending', 'running', 'paused_quota') \
-             RETURNING id, kind, status",
-        )
-        .bind(Priority::Interactive.as_i16())
-        .fetch_all(&self.pool)
-        .await?;
-        rows.into_iter()
-            .map(|(id, k, st)| Ok((id, JobKind::parse(&k)?, JobStatus::parse(&st)?)))
-            .collect()
+        let rows = sqlx::query_as(cancel_active!("priority > $1"))
+            .bind(Priority::Interactive.as_i16())
+            .fetch_all(&self.pool)
+            .await?;
+        cancelled(rows)
     }
 
     pub async fn cancel_requested(&self, id: i64) -> Result<bool> {

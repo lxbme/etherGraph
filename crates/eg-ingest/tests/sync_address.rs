@@ -381,6 +381,26 @@ async fn sync_cap_marks_truncated(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
+async fn shallow_sync_stops_after_one_page(pool: PgPool) {
+    let e = env(pool, 10_000);
+    e.fake.set_latest_block(6000);
+    native_blocks(&e, 2500);
+    let mut p = params("latest", &["native"]);
+    p["cap"] = json!(1000);
+    run_to_done(&e, "s", p).await;
+
+    let qs = e.spy.queries();
+    assert_eq!(qs.len(), 1, "one history page for the kind");
+    assert_eq!(qs[0].1.kind, TransferKind::Native);
+    assert_eq!(transfer_count(&e).await, 1000);
+    let r = row(&e, TransferKind::Native).await;
+    assert_eq!(
+        (r.from_block, r.to_block, r.truncated),
+        (Some(1501), Some(6000), true)
+    );
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
 async fn resume_after_crash_does_not_refetch_done_pages(pool: PgPool) {
     let e = env(pool, 10_000);
     e.fake.set_latest_block(5000);

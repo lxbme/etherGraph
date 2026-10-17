@@ -1,14 +1,15 @@
-//! `GET /api/jobs?active=true|false`, `GET /api/jobs/{id}`, `DELETE /api/jobs/{id}`.
+//! `GET /api/jobs?active=true|false`, `DELETE /api/jobs?scope=background`,
+//! `GET /api/jobs/{id}`, `DELETE /api/jobs/{id}`.
 
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use eg_ingest::handlers::SyncParams;
 use eg_ingest::{Event, other_sync_active};
-use eg_store::{JobKind, JobStatus, StoreError};
+use eg_store::{JobKind, JobRow, JobStatus, StoreError};
 use serde::Deserialize;
 
-use crate::dto::JobDto;
+use crate::dto::{CancelledDto, JobDto};
 use crate::error::{ApiError, invalid};
 use crate::routes::{ApiPath, ApiQuery};
 use crate::state::AppState;
@@ -37,7 +38,40 @@ pub async fn list(
             )));
         }
     };
-    Ok(Json(jobs.into_iter().map(JobDto::from).collect()))
+    Ok(Json(with_batches(&s, jobs).await?))
+}
+
+async fn with_batches(s: &AppState, jobs: Vec<JobRow>) -> Result<Vec<JobDto>, ApiError> {
+    let ids: Vec<i64> = jobs.iter().map(|j| j.id).collect();
+    let mut batches = s.store.job_batches(&ids).await?;
+    Ok(jobs
+        .into_iter()
+        .map(|j| {
+            let b = batches.remove(&j.id).unwrap_or_default();
+            JobDto::new(j, b)
+        })
+        .collect())
+}
+
+#[derive(Deserialize)]
+pub struct CancelQuery {
+    pub scope: Option<String>,
+}
+
+/// `scope=background` (required): cancels every active job that is not
+/// Interactive.
+pub async fn cancel_scope(
+    State(s): State<AppState>,
+    ApiQuery(q): ApiQuery<CancelQuery>,
+) -> Result<Json<CancelledDto>, ApiError> {
+    if q.scope.as_deref() != Some("background") {
+        return Err(invalid(format!(
+            "scope must be \"background\", got {:?}",
+            q.scope
+        )));
+    }
+    let cancelled = s.store.cancel_background().await?;
+    Ok(Json(after_cancels(&s, cancelled).await))
 }
 
 fn parse_id(raw: &str) -> Result<i64, ApiError> {
@@ -56,7 +90,8 @@ pub async fn get(
         .job(id)
         .await?
         .ok_or_else(|| ApiError::not_found(format!("no job {id}")))?;
-    Ok(Json(job.into()))
+    let mut dto = with_batches(&s, vec![job]).await?;
+    Ok(Json(dto.remove(0)))
 }
 
 /// 204 when the job was cancelled (pending or quota-paused) or flagged for
@@ -72,20 +107,41 @@ pub async fn cancel(
         .cancel_job(id)
         .await?
         .ok_or_else(|| ApiError::not_found(format!("no active job {id}")))?;
-    if status == JobStatus::Cancelled {
-        if kind == JobKind::SyncAddress {
-            settle_cancelled_sync(&s, id).await;
-        }
-        s.ctx.bus.publish(Event::JobProgress {
-            job_id: id,
-            kind,
-            fetched: 0,
-            cursor_block: None,
-            status,
-            error: None,
-        });
-    }
+    after_cancel(&s, id, kind, status).await;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Follow-up for a job the store just cancelled or flagged: an immediate
+/// cancellation settles a sync's `syncing` kinds and is announced here; the
+/// runner announces flagged (running) ones.
+async fn after_cancel(s: &AppState, id: i64, kind: JobKind, status: JobStatus) {
+    if status != JobStatus::Cancelled {
+        return;
+    }
+    if kind == JobKind::SyncAddress {
+        settle_cancelled_sync(s, id).await;
+    }
+    s.ctx.bus.publish(Event::JobProgress {
+        job_id: id,
+        kind,
+        fetched: 0,
+        cursor_block: None,
+        status,
+        error: None,
+    });
+}
+
+/// [`after_cancel`] for each job; lists them all, flagged ones included.
+pub(crate) async fn after_cancels(
+    s: &AppState,
+    jobs: Vec<(i64, JobKind, JobStatus)>,
+) -> CancelledDto {
+    let mut cancelled = Vec::with_capacity(jobs.len());
+    for (id, kind, status) in jobs {
+        after_cancel(s, id, kind, status).await;
+        cancelled.push(id);
+    }
+    CancelledDto { cancelled }
 }
 
 /// A pending or paused sync may have left kinds `syncing` (it ran before being

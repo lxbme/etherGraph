@@ -35,6 +35,8 @@ pub struct StatusDto {
     /// Current permits per second (lowered during an adaptive slowdown).
     pub rate: f64,
     pub jobs_active: usize,
+    /// Provider calls the active jobs still need (upper bound).
+    pub queued_calls: u32,
     #[ts(type = "number")]
     pub calls: u64,
     #[ts(type = "number")]
@@ -66,6 +68,8 @@ pub struct JobDto {
     pub error: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// Named batches owning the job (batch-less owners are not listed).
+    pub batches: Vec<String>,
 }
 
 fn priority_str(p: Priority) -> &'static str {
@@ -76,8 +80,8 @@ fn priority_str(p: Priority) -> &'static str {
     }
 }
 
-impl From<JobRow> for JobDto {
-    fn from(j: JobRow) -> Self {
+impl JobDto {
+    pub fn new(j: JobRow, batches: Vec<String>) -> Self {
         Self {
             id: j.id,
             key: j.key,
@@ -90,8 +94,18 @@ impl From<JobRow> for JobDto {
             error: j.error,
             created_at: rfc3339(j.created_at),
             updated_at: rfc3339(j.updated_at),
+            batches,
         }
     }
+}
+
+/// Jobs cancelled (or, when running, flagged for cancellation) by a batch or
+/// background cancellation, by id.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CancelledDto {
+    #[ts(type = "Array<number>")]
+    pub cancelled: Vec<i64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -345,6 +359,12 @@ pub struct SyncRequestDto {
     #[ts(optional = nullable, type = r#""latest" | "older" | null"#)]
     pub direction: Option<String>,
     pub dry_run: Option<bool>,
+    /// Default `"shallow"`: one page per kind. Ignored (always full) for
+    /// `direction: "older"`.
+    #[ts(optional = nullable, type = r#""shallow" | "full" | null"#)]
+    pub depth: Option<String>,
+    /// Batch owning the jobs: 1 to 64 characters of `[A-Za-z0-9-]`.
+    pub batch: Option<String>,
 }
 
 /// Dry run: the estimate fields are set; otherwise `jobs`.

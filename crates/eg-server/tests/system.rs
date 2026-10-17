@@ -473,6 +473,8 @@ async fn cancel_pending_sync_settles_syncing_kinds(pool: PgPool) {
         addr,
         SyncDirection::Latest,
         Priority::Background,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -499,6 +501,8 @@ async fn cancel_pending_sync_settles_syncing_kinds(pool: PgPool) {
         other,
         SyncDirection::Older,
         Priority::Background,
+        None,
+        None,
     )
     .await
     .unwrap();
@@ -508,6 +512,8 @@ async fn cancel_pending_sync_settles_syncing_kinds(pool: PgPool) {
         other,
         SyncDirection::Latest,
         Priority::Background,
+        None,
+        None,
     )
     .await
     .unwrap();

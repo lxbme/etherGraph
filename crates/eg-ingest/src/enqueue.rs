@@ -41,22 +41,35 @@ fn sync_key_prefix(addr: Address) -> String {
     format!("sync:{addr:#x}:")
 }
 
+/// Enqueues (or joins) the address's sync in `dir` and records `owner` (a
+/// batch id, or `None` for a batch-less caller) as one of its owners. `cap`
+/// limits the records fetched per kind (`None`: `max_records_per_category`);
+/// a joined job keeps its own cap.
 pub async fn enqueue_sync(
     ctx: &JobCtx,
     addr: Address,
     dir: SyncDirection,
     p: Priority,
+    cap: Option<u32>,
+    owner: Option<&str>,
 ) -> Result<i64, StoreError> {
-    enqueue_one(
+    let id = enqueue_one(
         ctx,
         NewJob {
             key: format!("{}{dir}", sync_key_prefix(addr)),
             kind: JobKind::SyncAddress,
-            params: json!({"address": format!("{addr:#x}"), "direction": dir, "kinds": []}),
+            params: json!({
+                "address": format!("{addr:#x}"),
+                "direction": dir,
+                "kinds": [],
+                "cap": cap,
+            }),
             priority: p,
         },
     )
-    .await
+    .await?;
+    ctx.store.add_job_owner(id, owner).await?;
+    Ok(id)
 }
 
 pub async fn enqueue_fetch_tx(ctx: &JobCtx, hash: TxHash) -> Result<i64, StoreError> {

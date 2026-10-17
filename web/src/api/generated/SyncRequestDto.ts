@@ -8,4 +8,13 @@ addresses: Array<string>,
 /**
  * Default `"latest"`.
  */
-direction?: "latest" | "older" | null, dry_run?: boolean | null, };
+direction?: "latest" | "older" | null, dry_run?: boolean | null, 
+/**
+ * Default `"shallow"`: one page per kind. Ignored (always full) for
+ * `direction: "older"`.
+ */
+depth?: "shallow" | "full" | null, 
+/**
+ * Batch owning the jobs: 1 to 64 characters of `[A-Za-z0-9-]`.
+ */
+batch?: string | null, };

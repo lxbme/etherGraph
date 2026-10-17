@@ -13,7 +13,7 @@ pub use enqueue::{
     SyncDirection, enqueue_fetch_block, enqueue_fetch_tx, enqueue_meta, enqueue_names,
     enqueue_sync, enqueue_tokens, other_sync_active,
 };
-pub use estimate::{Estimate, estimate};
+pub use estimate::{Estimate, estimate, remaining_calls};
 pub use events::{Event, EventBus, NameItem};
 pub use handlers::default_handlers;
 pub use runner::{JobCtx, JobError, JobHandler, Runner};

@@ -8,7 +8,11 @@ reset_at: string, queue_len: number,
 /**
  * Current permits per second (lowered during an adaptive slowdown).
  */
-rate: number, jobs_active: number, calls: number, retries: number, errors: Record<string, number>, 
+rate: number, jobs_active: number, 
+/**
+ * Provider calls the active jobs still need (upper bound).
+ */
+queued_calls: number, calls: number, retries: number, errors: Record<string, number>, 
 /**
  * `"invalid_key"` once Etherscan rejected the API key; null otherwise.
  */

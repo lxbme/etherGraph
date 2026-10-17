@@ -65,7 +65,16 @@ pub async fn profile(
     };
     if let Some(p) = refresh {
         // Serve what is stored now; the sync result arrives over SSE.
-        if let Err(e) = enqueue_sync(&s.ctx, addr, SyncDirection::Latest, p).await {
+        if let Err(e) = enqueue_sync(
+            &s.ctx,
+            addr,
+            SyncDirection::Latest,
+            p,
+            Some(s.ctx.cfg.page_size),
+            None,
+        )
+        .await
+        {
             tracing::warn!(error = %e, address = %hex_addr(addr), "enqueueing sync failed");
         }
     }
