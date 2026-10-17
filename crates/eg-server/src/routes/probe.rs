@@ -57,7 +57,7 @@ pub async fn probe(
     let mut calls = 0u32;
     if !stale.is_empty() {
         let mut fresh: Vec<StatsRow> = Vec::with_capacity(stale.len());
-        let mut new_contracts: Vec<Address> = Vec::new();
+        let mut new_kinds: Vec<(Address, AccountKind)> = Vec::new();
         for a in &stale {
             let known_kind = accounts
                 .get(a)
@@ -70,9 +70,14 @@ pub async fn probe(
                 (None, None) => {
                     calls += 1;
                     let c = !s.ctx.source.code(prio, *a).await?.is_empty();
-                    if c {
-                        new_contracts.push(*a);
-                    }
+                    new_kinds.push((
+                        *a,
+                        if c {
+                            AccountKind::Contract
+                        } else {
+                            AccountKind::Eoa
+                        },
+                    ));
                     Some(c)
                 }
             };
@@ -102,7 +107,7 @@ pub async fn probe(
             r.balance = balances.get(&r.address).copied();
         }
         s.store.upsert_account_stats(&fresh).await?;
-        mark_contracts(&s, &new_contracts, &mut accounts).await?;
+        mark_kinds(&s, &new_kinds, &mut accounts).await?;
         for r in fresh {
             stats.insert(r.address, r);
         }
@@ -145,24 +150,25 @@ pub async fn probe(
     Ok(Json(ProbeResponseDto { items, calls }))
 }
 
-/// Records `contract` on accounts that are unknown or have no row yet. A new
+/// Records the probed kind on accounts that are unknown or have no row yet
+/// (never overwrites a known kind). A new
 /// row gets the epoch as `meta_fetched_at` so the metadata job still runs.
-async fn mark_contracts(
+async fn mark_kinds(
     s: &AppState,
-    addrs: &[Address],
+    found: &[(Address, AccountKind)],
     accounts: &mut HashMap<Address, AccountRow>,
 ) -> Result<(), ApiError> {
     let mut rows = Vec::new();
-    for a in addrs {
+    for (a, kind) in found {
         let row = match accounts.get(a) {
             Some(r) if r.kind != AccountKind::Unknown => continue,
             Some(r) => AccountRow {
-                kind: AccountKind::Contract,
+                kind: *kind,
                 ..r.clone()
             },
             None => AccountRow {
                 address: *a,
-                kind: AccountKind::Contract,
+                kind: *kind,
                 contract_name: None,
                 is_proxy: false,
                 implementation: None,

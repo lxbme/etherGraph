@@ -645,13 +645,15 @@ async fn probe_caches_and_feeds_node_summaries(pool: PgPool) {
     let (st, g) = post_json(
         &app,
         "/api/graph/edges",
-        &json!({"addresses": [format!("{FROM:#x}")]}),
+        &json!({"addresses": [format!("{FROM:#x}"), format!("{TOKEN:#x}")]}),
     )
     .await;
     assert_eq!(st, StatusCode::OK, "{g}");
     let n = &g["nodes"][0];
     assert_eq!(n["nonce"], 7);
     assert_eq!(n["balance"], "1000000000000000000");
+    assert_eq!(n["kind"], "eoa");
+    assert_eq!(g["nodes"][1]["kind"], "contract");
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
