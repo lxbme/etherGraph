@@ -1,6 +1,7 @@
 import cytoscape from "cytoscape";
 import { describe, expect, test, vi } from "vitest";
-import { runDagreLayout, runIncrementalLayout } from "./layout";
+import { PER_NODE_PX } from "./budget";
+import { runDagreLayout, runIncrementalLayout, spreadToViewport } from "./layout";
 
 const finite = (p: { x: number; y: number }) => Number.isFinite(p.x) && Number.isFinite(p.y);
 
@@ -186,5 +187,98 @@ describe("runDagreLayout", () => {
     runDagreLayout(cy);
     expect(fit).toHaveBeenCalled();
     expect(cy.zoom()).toBeLessThanOrEqual(1.2);
+  });
+});
+
+/** A center with `n` leaves plus its "+N more" proxy, all new. */
+function star(n: number): cytoscape.Core {
+  const cy = cytoscape({ headless: true });
+  const els: cytoscape.ElementDefinition[] = [{ data: { id: "c" } }];
+  for (let i = 0; i < n; i++) els.push({ data: { id: `l${i}` } }, { data: { id: `cl${i}`, source: "c", target: `l${i}` } });
+  els.push({ data: { id: "more:c" }, classes: "more" }, { data: { id: "more-edge:c", source: "c", target: "more:c" } });
+  cy.add(els);
+  return cy;
+}
+const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
+function nearestDistances(ps: { x: number; y: number }[]): number[] {
+  return ps.map((p, i) => Math.min(...ps.filter((_, j) => j !== i).map((q) => Math.hypot(q.x - p.x, q.y - p.y))));
+}
+function bbox(ps: { x: number; y: number }[]) {
+  const xs = ps.map((p) => p.x);
+  const ys = ps.map((p) => p.y);
+  return { w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+}
+/** Beyond the farthest real neighbour of `center`. */
+function proxyOutside(cy: cytoscape.Core, center: string): boolean {
+  const c = cy.getElementById(center).position();
+  const d = (n: cytoscape.NodeSingular) => Math.hypot(n.position("x") - c.x, n.position("y") - c.y);
+  const nb = cy.getElementById(center).neighborhood("node");
+  const proxy = nb.filter((n) => n.id().startsWith("more:"));
+  const farthest = Math.max(...nb.difference(proxy).map(d));
+  return proxy.length === 1 && d(proxy[0]!) > farthest;
+}
+
+describe("spreadToViewport", () => {
+  const vp = { width: 1000, height: 500, padding: 0 };
+  test("stretches a small cluster per axis toward the viewport, around its centre", () => {
+    const ps = new Map([["a", { x: 0, y: 0 }], ["b", { x: 100, y: 100 }]]);
+    const out = spreadToViewport(ps, vp);
+    const a = out.get("a")!;
+    const b = out.get("b")!;
+    // Two nodes claim 2 x 96^2 of the ellipse inscribed in a box of the canvas's shape, scaled by f.
+    const f = Math.sqrt((2 * PER_NODE_PX ** 2 * 4) / Math.PI / (1000 * 500));
+    expect(b.x - a.x).toBeCloseTo(1000 * f);
+    expect(b.y - a.y).toBeCloseTo(500 * f);
+    expect((a.x + b.x) / 2).toBeCloseTo(50);
+    expect((a.y + b.y) / 2).toBeCloseTo(50);
+  });
+
+  test("never compresses", () => {
+    const ps = new Map([["a", { x: 0, y: 0 }], ["b", { x: 3000, y: 2000 }]]);
+    expect(spreadToViewport(ps, vp)).toEqual(ps);
+  });
+
+  test("caps the x:y stretch at 3", () => {
+    const ps = new Map(Array.from({ length: 200 }, (_, i) => [`n${i}`, { x: (i % 20) * 10, y: Math.floor(i / 20) * 10 }]));
+    const box = bbox([...spreadToViewport(ps, { width: 4000, height: 400, padding: 0 }).values()]);
+    expect(box.w / 190).toBeCloseTo(3 * (box.h / 90));
+  });
+
+  test("an empty viewport or a single node is left alone", () => {
+    const one = new Map([["a", { x: 5, y: 6 }]]);
+    expect(spreadToViewport(one, vp)).toEqual(one);
+    const two = new Map([["a", { x: 0, y: 0 }], ["b", { x: 10, y: 10 }]]);
+    expect(spreadToViewport(two, { width: 0, height: 0, padding: 0 })).toEqual(two);
+  });
+});
+
+describe("density at the budgeted node count", () => {
+  test("150 leaves on one center use a 2233x826 canvas", () => {
+    const cy = star(150);
+    const viewport = { width: 2233, height: 826 };
+    runIncrementalLayout(cy, cy.nodes().map((n) => n.id()), { viewport });
+    const ps = cy.nodes().map((n) => n.position());
+    const box = bbox(ps);
+    expect(box.w).toBeGreaterThanOrEqual(0.8 * (viewport.width - 80));
+    expect(box.h).toBeGreaterThanOrEqual(0.8 * (viewport.height - 80));
+    expect(median(nearestDistances(ps))).toBeGreaterThanOrEqual(0.8 * PER_NODE_PX);
+    expect(proxyOutside(cy, "c")).toBe(true);
+  });
+
+  test("an incremental batch of 150 leaves keeps nodes apart and its proxy outside", () => {
+    const cy = cytoscape({ headless: true });
+    cy.add([{ data: { id: "c" }, position: { x: 0, y: 0 } }]);
+    const els: cytoscape.ElementDefinition[] = [];
+    for (let i = 0; i < 150; i++) els.push({ data: { id: `l${i}` } }, { data: { id: `cl${i}`, source: "c", target: `l${i}` } });
+    els.push({ data: { id: "more:c" }, classes: "more" }, { data: { id: "more-edge:c", source: "c", target: "more:c" } });
+    cy.add(els);
+    const ids = cy.nodes().filter((n) => n.id() !== "c").map((n) => n.id());
+    runIncrementalLayout(cy, ids, { viewport: { width: 2233, height: 826 } });
+    const ps = cy.nodes().map((n) => n.position());
+    // Ring slots are 0.75 PER_NODE_PX apart (no spread on an incremental batch).
+    expect(median(nearestDistances(ps))).toBeGreaterThanOrEqual(0.7 * PER_NODE_PX);
+    const box = bbox(ps);
+    expect(box.w).toBeGreaterThan(box.h); // elliptical rings follow the wide canvas
+    expect(proxyOutside(cy, "c")).toBe(true);
   });
 });

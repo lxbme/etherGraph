@@ -1,6 +1,8 @@
 import cytoscape from "cytoscape";
 import dagre from "cytoscape-dagre";
 import fcose, { type FcoseLayoutOptions } from "cytoscape-fcose";
+import { PER_NODE_PX } from "./budget";
+import { isMoreId, MORE_PREFIX } from "./elements";
 import { fitClamped } from "./refit";
 
 // Register layout extensions once (cytoscape(type, name) returns the registered extension).
@@ -11,18 +13,72 @@ if (!cytoscape("layout", "dagre")) cytoscape.use(dagre);
 const DRAFT_THRESHOLD = 300;
 /** Incremental batches above this many new nodes skip fcose and use deterministic rings. */
 const FCOSE_NEW_LIMIT = 150;
-const NEIGHBOR_RADIUS = 90;
+/**
+ * Spacing follows the budget's PER_NODE_PX (the canvas area one node is granted), so the node count the
+ * budget allows actually fits: ideal edge length and first ring radius, ring slot spacing, minimum clearance.
+ */
+const NEIGHBOR_RADIUS = PER_NODE_PX;
 /** Cap on the existing non-anchor nodes fixed (as repellers) in an incremental fcose run. */
 const MAX_FIXED_NEARBY = 100;
-/** Distance between ring slots (along the ring and between rings). */
-const SPACING = 45;
+/** Distance between ring slots (along the ring and between rings, on the ring's short axis). */
+const SPACING = 0.75 * PER_NODE_PX;
 /** A placed node keeps at least this distance to every other node's centre. */
-const CLEARANCE = 30;
+const CLEARANCE = 0.5 * PER_NODE_PX;
+/** Most a layout is stretched along one axis relative to the other (spread and ring ellipses). */
+const MAX_STRETCH = 3;
+/** Padding of the fit after a full layout (the spread leaves room for it). */
+const FIT_PADDING = 40;
 
 type Pos = { x: number; y: number };
+export interface Viewport {
+  width: number;
+  height: number;
+}
 export interface LayoutOptions {
   /** Defaults to: animate when the Core is mounted (has a container) and the layout is small. */
   animate?: boolean;
+  /** Canvas size in CSS pixels; defaults to the Core's. An empty size disables spreading and ellipses. */
+  viewport?: Viewport;
+}
+
+const hasArea = (v: Viewport) => v.width > 0 && v.height > 0;
+
+/**
+ * Axis factors (kx * ky = 1) that turn rings into ellipses of the canvas's aspect, the ratio capped at
+ * MAX_STRETCH; circles without a viewport.
+ */
+function ellipse(v: Viewport): { kx: number; ky: number } {
+  if (!hasArea(v)) return { kx: 1, ky: 1 };
+  const r = Math.sqrt(Math.min(MAX_STRETCH, Math.max(1 / MAX_STRETCH, v.width / v.height)));
+  return { kx: r, ky: 1 / r };
+}
+
+/**
+ * Stretches a laid-out graph toward the viewport so it uses the canvas instead of a disc in its middle.
+ * The target is a box of the viewport's shape (inside `padding`) whose inscribed ellipse grants each node at
+ * most PER_NODE_PX^2, so a small graph stays compact. Each axis is scaled by max(1, target / extent): never compressed, and one
+ * axis is stretched at most MAX_STRETCH times the other. Scales around the bounding box centre.
+ */
+export function spreadToViewport(positions: Map<string, Pos>, v: Viewport & { padding: number }): Map<string, Pos> {
+  const w = v.width - 2 * v.padding;
+  const h = v.height - 2 * v.padding;
+  if (positions.size < 2 || !(w > 0 && h > 0)) return positions;
+  const ps = [...positions.values()];
+  const x1 = Math.min(...ps.map((p) => p.x));
+  const x2 = Math.max(...ps.map((p) => p.x));
+  const y1 = Math.min(...ps.map((p) => p.y));
+  const y2 = Math.max(...ps.map((p) => p.y));
+  // The nodes fill roughly the ellipse inscribed in the box, π/4 of its area.
+  const f = Math.min(1, Math.sqrt((positions.size * PER_NODE_PX * PER_NODE_PX * 4) / Math.PI / (w * h)));
+  // A flat extent (all nodes on a line) is not stretched along its zero axis.
+  let sx = x2 > x1 ? Math.max(1, (w * f) / (x2 - x1)) : 1;
+  let sy = y2 > y1 ? Math.max(1, (h * f) / (y2 - y1)) : 1;
+  sx = Math.min(sx, MAX_STRETCH * sy);
+  sy = Math.min(sy, MAX_STRETCH * sx);
+  if (sx === 1 && sy === 1) return positions;
+  const cx = (x1 + x2) / 2;
+  const cy = (y1 + y2) / 2;
+  return new Map([...positions].map(([id, p]) => [id, { x: cx + (p.x - cx) * sx, y: cy + (p.y - cy) * sy }]));
 }
 
 const ANIMATION_MS = 400;
@@ -96,19 +152,63 @@ class Occupancy {
   }
 }
 
+type Axes = { kx: number; ky: number };
+
+/** Distance in ring units: the `r` of the ellipse (axes r*kx, r*ky) through `p`. */
+const ringDist = (p: Pos, c: Pos, k: Axes) => Math.hypot((p.x - c.x) / k.kx, (p.y - c.y) / k.ky);
+
+/** Ring radius step: rings are SPACING apart on the ellipse's short axis. */
+const ringStep = (k: Axes) => SPACING / Math.min(k.kx, k.ky);
+/** Slots on the ring of radius `r` (about SPACING apart along it). */
+function ringCapacity(r: number, k: Axes): number {
+  const rx = r * k.kx;
+  const ry = r * k.ky;
+  return Math.max(6, Math.floor((2 * Math.PI * Math.sqrt((rx * rx + ry * ry) / 2)) / SPACING));
+}
+
+/** Samples per ellipse for the arc-length table. */
+const ARC_SAMPLES = 256;
+
 /**
- * Concentric rings of slots around `center`, starting at radius `r0`. Each ring is filled
- * starting from `theta0` and alternating outwards, so a partly filled ring sits on the side
- * facing `theta0` (away from the graph's centre).
+ * Concentric elliptical rings of slots around `center` (axes r*kx, r*ky), starting at `r0`, ringStep apart.
+ * Slots are spaced evenly by arc length (an even angle step would bunch them at the long axis's ends). Each
+ * ring is filled starting from `theta0` and alternating outwards, so a partly filled ring sits on the side
+ * facing `theta0` (away from the graph's centre). When `total` (the slots that will be taken) is known, the
+ * last ring spreads the rest evenly around it instead.
  */
-function* ringSlots(center: Pos, r0: number, theta0: number): Generator<Pos, never> {
-  for (let r = r0; ; r += SPACING) {
-    const n = Math.max(6, Math.floor((2 * Math.PI * r) / SPACING));
-    const step = (2 * Math.PI) / n;
+function* ringSlots(center: Pos, r0: number, theta0: number, k: Axes, total = Infinity): Generator<Pos, never> {
+  let left = total;
+  for (let r = r0; ; r += ringStep(k)) {
+    const rx = r * k.kx;
+    const ry = r * k.ky;
+    // Cumulative arc length at ARC_SAMPLES even parameter steps.
+    const cum = [0];
+    for (let i = 1; i <= ARC_SAMPLES; i++) {
+      const a = (2 * Math.PI * (i - 0.5)) / ARC_SAMPLES;
+      cum.push(cum[i - 1]! + ((2 * Math.PI) / ARC_SAMPLES) * Math.hypot(rx * Math.sin(a), ry * Math.cos(a)));
+    }
+    const length = cum[ARC_SAMPLES]!;
+    const paramAt = (len: number) => {
+      const l = ((len % length) + length) % length;
+      let lo = 0;
+      let hi = ARC_SAMPLES;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (cum[mid]! <= l) lo = mid;
+        else hi = mid;
+      }
+      const seg = cum[lo + 1]! - cum[lo]!;
+      return ((2 * Math.PI) / ARC_SAMPLES) * (lo + (seg > 0 ? (l - cum[lo]!) / seg : 0));
+    };
+    const t0 = Math.atan2(Math.sin(theta0) / k.ky, Math.cos(theta0) / k.kx);
+    const start = cum[Math.floor(((((t0 % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) / (2 * Math.PI)) * ARC_SAMPLES)]!;
+    const cap = ringCapacity(r, k);
+    const n = left > 0 && left < cap ? left : cap;
+    left -= n;
     for (let j = 0; j < n; j++) {
       const off = j === 0 ? 0 : Math.ceil(j / 2) * (j % 2 === 1 ? 1 : -1);
-      const a = theta0 + off * step;
-      yield { x: center.x + r * Math.cos(a), y: center.y + r * Math.sin(a) };
+      const t = paramAt(start + (off * length) / n);
+      yield { x: center.x + rx * Math.cos(t), y: center.y + ry * Math.sin(t) };
     }
   }
 }
@@ -125,7 +225,13 @@ const centroid = (ps: Pos[]): Pos => {
  * go on a ring outside the current bounding box. Every slot keeps CLEARANCE from all nodes.
  * Returns a function that re-places a node into the next free slot of its group.
  */
-function placeOnRings(fresh: cytoscape.NodeCollection, existing: cytoscape.NodeCollection) {
+function placeOnRings(
+  fresh: cytoscape.NodeCollection,
+  existing: cytoscape.NodeCollection,
+  k: Axes,
+  /** Nodes per group (keyed by the anchor ids), when known: the last ring of a group is spread evenly. */
+  counts?: Map<string, number>,
+) {
   const occ = new Occupancy();
   const existingPos = existing.map((n) => n.position());
   for (const p of existingPos) occ.add(p);
@@ -142,16 +248,16 @@ function placeOnRings(fresh: cytoscape.NodeCollection, existing: cytoscape.NodeC
     if (!g) {
       let center: Pos;
       let r0: number;
+      let occupied = 0;
       if (anchors.empty()) {
         center = { x: (bb.x1 + bb.x2) / 2, y: (bb.y1 + bb.y2) / 2 };
-        r0 = Math.hypot(bb.w, bb.h) / 2 + 2 * SPACING;
+        r0 = Math.hypot(bb.w / k.kx, bb.h / k.ky) / 2 + 2 * SPACING;
       } else {
         center = centroid(anchors.map((a) => a.position()));
-        let occupied = 0;
         if (anchors.length === 1) {
+          // A "+N more" proxy is moved outside afterwards; it does not push the new ring out.
           anchors.neighborhood("node").intersection(existing).nodes().forEach((n) => {
-            const p = n.position();
-            occupied = Math.max(occupied, Math.hypot(p.x - center.x, p.y - center.y));
+            if (!isMoreId(n.id())) occupied = Math.max(occupied, ringDist(n.position(), center, k));
           });
         }
         r0 = anchors.length === 1 ? Math.max(NEIGHBOR_RADIUS, occupied + SPACING) : SPACING;
@@ -159,7 +265,9 @@ function placeOnRings(fresh: cytoscape.NodeCollection, existing: cytoscape.NodeC
       const dx = center.x - gc.x;
       const dy = center.y - gc.y;
       const theta0 = Math.hypot(dx, dy) < 1 ? 0 : Math.atan2(dy, dx);
-      g = { slots: ringSlots(center, r0, theta0) };
+      // An anchor without placed neighbours gets an evenly filled disc; otherwise the partial ring faces outwards.
+      const total = anchors.length === 1 && occupied === 0 ? counts?.get(key) : undefined;
+      g = { slots: ringSlots(center, r0, theta0, k, total) };
       groups.set(key, g);
     }
     return g.slots;
@@ -193,6 +301,113 @@ function placeOnRings(fresh: cytoscape.NodeCollection, existing: cytoscape.NodeC
   };
 }
 
+/**
+ * Puts the "+N more" proxy of each of `centers` just outside the farthest of the center's other neighbours,
+ * on the canvas's long axis, on that neighbour's side (where the rings reach farthest).
+ */
+function placeProxies(cy: cytoscape.Core, centers: Set<string>, k: Axes): void {
+  const wide = k.kx >= k.ky;
+  for (const id of centers) {
+    const proxy = cy.getElementById(`${MORE_PREFIX}${id}`);
+    const center = cy.getElementById(id);
+    if (proxy.empty() || center.empty()) continue;
+    const c = center.position();
+    let far = 0;
+    let side = 1;
+    center.neighborhood("node").forEach((n) => {
+      if (isMoreId(n.id())) return;
+      const dx = n.position("x") - c.x;
+      const dy = n.position("y") - c.y;
+      const d = Math.hypot(dx, dy);
+      if (d <= far) return;
+      far = d;
+      side = (wide ? dx : dy) < 0 ? -1 : 1;
+    });
+    const d = Math.max(far, NEIGHBOR_RADIUS / 2) + SPACING;
+    proxy.position(wide ? { x: c.x + side * d, y: c.y } : { x: c.x, y: c.y + side * d });
+  }
+}
+
+/** Centers of the proxies among `fresh`, plus fresh nodes' anchors that have a proxy. */
+function proxyCenters(fresh: cytoscape.NodeCollection): Set<string> {
+  const out = new Set<string>();
+  fresh.forEach((n) => {
+    if (isMoreId(n.id())) {
+      n.neighborhood("node").forEach((c) => {
+        out.add(c.id());
+      });
+      return;
+    }
+    n.neighborhood("node").forEach((a) => {
+      if (!isMoreId(a.id()) && a.neighborhood("node").filter((m) => isMoreId(m.id())).nonempty()) out.add(a.id());
+    });
+  });
+  return out;
+}
+
+/** Neighbours other than "+N more" proxies. */
+const realNeighbours = (n: cytoscape.NodeSingular) =>
+  n.neighborhood("node").nodes().filter((m) => !isMoreId(m.id())).nodes();
+
+/** A node whose only neighbour has others: it belongs on that anchor's rings. */
+function isLeaf(n: cytoscape.NodeSingular): boolean {
+  const a = realNeighbours(n);
+  return a.length === 1 && realNeighbours(a.first()).length > 1;
+}
+
+/** Leaves per anchor id (a leaf's ring group key). */
+function leafCounts(leaves: cytoscape.NodeCollection): Map<string, number> {
+  const out = new Map<string, number>();
+  leaves.forEach((l) => {
+    const a = realNeighbours(l).first().id();
+    out.set(a, (out.get(a) ?? 0) + 1);
+  });
+  return out;
+}
+
+/** Outer ring radius (ring units) that `m` leaves around one anchor reach. */
+function ringsRadius(m: number, k: Axes): number {
+  let r = NEIGHBOR_RADIUS;
+  for (let left = m - ringCapacity(r, k); left > 0; left -= ringCapacity(r, k)) r += ringStep(k);
+  return r;
+}
+/** Most the core of a full layout is scaled up to make room for its anchors' leaf rings. */
+const MAX_CORE_SCALE = 6;
+
+/**
+ * Full layout, after fcose: fcose crowds the leaves of a busy node (a center's neighbours that touch nothing
+ * else) into a disc denser near its middle. Keep fcose's positions for the rest (the core), scale the core
+ * up so anchors with more than one ring of leaves do not share space, and put each anchor's leaves on even
+ * elliptical rings around it.
+ */
+function ringLeaves(cy: cytoscape.Core, k: Axes): void {
+  const real = cy.nodes().filter((n) => !isMoreId(n.id())).nodes();
+  const leaves = real.filter((n) => isLeaf(n as cytoscape.NodeSingular)).nodes();
+  if (leaves.empty()) return;
+  const core = real.difference(leaves).nodes();
+  const count = leafCounts(leaves);
+  const big = [...count]
+    .filter(([, m]) => m > ringCapacity(NEIGHBOR_RADIUS, k))
+    .map(([id, m]) => ({ p: cy.getElementById(id).position(), r: ringsRadius(m, k) }));
+  let scale = 1;
+  for (let i = 0; i < big.length; i++) {
+    for (let j = i + 1; j < big.length; j++) {
+      const a = big[i]!;
+      const b = big[j]!;
+      const need = a.r + b.r + SPACING;
+      scale = Math.max(scale, need / Math.max(ringDist(a.p, b.p, k), need / MAX_CORE_SCALE));
+    }
+  }
+  if (scale > 1) {
+    const c = centroid(core.map((n) => n.position()));
+    core.forEach((n) => {
+      const p = n.position();
+      n.position({ x: c.x + (p.x - c.x) * scale, y: c.y + (p.y - c.y) * scale });
+    });
+  }
+  placeOnRings(leaves, core, k, count);
+}
+
 /** Up to `limit` existing nodes within NEIGHBOR_RADIUS of any seed, nearest first. */
 function nearestExisting(existing: cytoscape.NodeCollection, seeds: Map<string, Pos>, limit: number) {
   const cell = (v: number) => Math.floor(v / NEIGHBOR_RADIUS);
@@ -224,10 +439,12 @@ function nearestExisting(existing: cytoscape.NodeCollection, seeds: Map<string, 
 const positionsOf = (nodes: cytoscape.NodeCollection) => new Map(nodes.map((n) => [n.id(), { ...n.position() }]));
 
 /**
- * First run (no already-placed nodes): fcose over everything ("draft" above 300 nodes). Later
- * runs only move `newIds`: they are placed on rings around their existing neighbours; batches
- * of at most 150 are then refined by a short fcose in which nearby existing nodes are fixed.
- * Existing node positions are restored afterwards, so user-dragged positions never change.
+ * First run (no already-placed nodes): fcose over everything ("draft" above 300 nodes), then leaves (nodes
+ * with a single neighbour) go on even elliptical rings around it and the result is spread toward the
+ * viewport. Later runs only move `newIds`: non-leaves are placed on rings around their existing
+ * neighbours and, at most 150 of them, refined by a short fcose in which nearby existing nodes are fixed;
+ * then new leaves go on rings around their anchors. Existing node positions never change (user-dragged
+ * positions stay), except "+N more" proxies, which move outside their center's neighbours.
  * Layouts compute synchronously; small ones then animate (see `glide`), and an animation still
  * in flight is finished before the next layout starts.
  */
@@ -237,6 +454,8 @@ export function runIncrementalLayout(cy: cytoscape.Core, newIds: string[], opts:
   const fresh = cy.nodes().filter((n) => freshIds.has(n.id()));
   if (fresh.length === 0) return;
   const existing = cy.nodes().difference(fresh).nodes();
+  const viewport = opts.viewport ?? { width: cy.width(), height: cy.height() };
+  const k = ellipse(viewport);
 
   if (existing.length === 0) {
     const total = cy.nodes().length;
@@ -251,24 +470,56 @@ export function runIncrementalLayout(cy: cytoscape.Core, newIds: string[], opts:
       nodeRepulsion: 6000,
       idealEdgeLength: NEIGHBOR_RADIUS,
     } as FcoseLayoutOptions).run();
-    fitClamped(cy, 40);
+    ringLeaves(cy, k);
+    // The rings still sit in the middle of a wide canvas the budget counted on: spread them out.
+    const spread = spreadToViewport(positionsOf(cy.nodes().filter((n) => !isMoreId(n.id()))), {
+      ...viewport,
+      padding: FIT_PADDING,
+    });
+    for (const [id, p] of spread) cy.getElementById(id).position(p);
+    placeProxies(cy, proxyCenters(fresh), k);
+    fitClamped(cy, FIT_PADDING);
     if (!big && shouldAnimate(cy, total, opts)) glide(cy, fresh, from);
     return;
   }
 
-  const fixOverlaps = placeOnRings(fresh, existing);
-  if (fresh.length > FCOSE_NEW_LIMIT) return;
-  const seeds = positionsOf(fresh);
+  const proxies = proxyCenters(fresh);
+  const real = fresh.filter((n) => !isMoreId(n.id())).nodes();
+  const leaves = real.filter((n) => isLeaf(n as cytoscape.NodeSingular)).nodes();
+  const others = real.difference(leaves).nodes();
+  // Animation starts: the others glide from their ring seeds, leaves bloom out of their anchor.
+  const start = new Map<string, Pos>();
+  if (others.nonempty()) {
+    const fixOverlaps = placeOnRings(others, existing, k);
+    const seeds = positionsOf(others);
+    for (const [id, p] of seeds) start.set(id, p);
+    if (others.length <= FCOSE_NEW_LIMIT) {
+      refine(others, existing, seeds);
+      fixOverlaps();
+    }
+  }
+  // Leaves last, on rings around their anchors' final positions (fcose would crowd them back in).
+  leaves.forEach((l) => {
+    start.set(l.id(), { ...realNeighbours(l).first().position() });
+  });
+  placeOnRings(leaves, existing.union(others).nodes(), k, leafCounts(leaves));
+  placeProxies(cy, proxies, k);
+  if (fresh.length <= FCOSE_NEW_LIMIT && shouldAnimate(cy, fresh.length, opts)) glide(cy, fresh, start);
+}
 
-  // Fix the anchors plus the existing nodes closest to the seeds (capped, to keep fcose short),
-  // so they repel the new ones; anything that still lands too close is fixed by fixOverlaps.
-  const anchors = fresh.neighborhood("node").intersection(existing).nodes();
+/**
+ * A short fcose from the seeded positions that only moves `nodes`: their anchors plus the existing nodes
+ * closest to the seeds (capped, to keep fcose short) are fixed so they repel the new ones. Existing
+ * positions are restored afterwards; anything that still lands too close is for the caller's fixOverlaps.
+ */
+function refine(nodes: cytoscape.NodeCollection, existing: cytoscape.NodeCollection, seeds: Map<string, Pos>): void {
+  const anchors = nodes.neighborhood("node").intersection(existing).nodes();
   const fixed = anchors.union(nearestExisting(existing, seeds, MAX_FIXED_NEARBY)).nodes();
-  const eles = fresh.union(fresh.connectedEdges()).union(fixed);
+  const inLayout = nodes.union(fixed);
+  const edges = nodes.connectedEdges().filter((e) => inLayout.contains(e.source()) && inLayout.contains(e.target()));
   const saved = positionsOf(existing);
-
   // randomize:false (incremental cose from the seeded positions) requires a non-draft quality.
-  eles.layout({
+  inLayout.union(edges).layout({
     name: "fcose",
     quality: "default",
     randomize: false,
@@ -283,8 +534,6 @@ export function runIncrementalLayout(cy: cytoscape.Core, newIds: string[], opts:
     const p = saved.get(n.id())!;
     if (n.position("x") !== p.x || n.position("y") !== p.y) n.position(p);
   });
-  fixOverlaps();
-  if (shouldAnimate(cy, eles.nodes().length, opts)) glide(cy, fresh, seeds);
 }
 
 /** Left-to-right dagre layout (tx flow view); small graphs, so it simply re-runs on every change. */
