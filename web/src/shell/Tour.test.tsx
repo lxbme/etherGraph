@@ -128,3 +128,19 @@ test("a throwing localStorage does not stop the tour or raise", async () => {
   await user.click(screen.getByRole("button", { name: "Skip" }));
   expect(screen.queryByRole("dialog")).toBeNull();
 });
+
+test("the bubble's body describes it; a resize does not pull focus back to Next", async () => {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  render(<><Targets /><input aria-label="elsewhere" /><Tour /></>);
+  await begin();
+  const dialog = screen.getByRole("dialog", { name: "Search an address" });
+  expect(dialog).toHaveAccessibleDescription("Paste an address, ENS name or transaction hash to start a graph.");
+  expect(screen.getByRole("button", { name: "Next" })).toHaveFocus();
+  const elsewhere = screen.getByRole("textbox", { name: "elsewhere" });
+  await user.click(elsewhere);
+  act(() => { window.dispatchEvent(new Event("resize")); });
+  expect(elsewhere).toHaveFocus();
+  // A new step does take focus.
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  expect(screen.getByRole("button", { name: "Next" })).toHaveFocus();
+});

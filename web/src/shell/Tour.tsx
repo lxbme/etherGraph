@@ -116,9 +116,14 @@ export function Tour() {
     setPos({ left: clamp(rect.left, MARGIN, Math.max(MARGIN, window.innerWidth - w - MARGIN)), top });
   }, [rect, step]);
 
+  // Focus Next when a step appears, not on every re-measure (a resize must not pull focus back).
+  const placed = pos !== null;
+  useEffect(() => {
+    if (step !== null && placed) next.current?.focus();
+  }, [step, placed]);
+
   useEffect(() => {
     if (!rect || !pos) return;
-    next.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -131,6 +136,7 @@ export function Tour() {
 
   if (step === null || !id || !rect) return null;
   const titleId = "eg-tour-title";
+  const bodyId = "eg-tour-body";
   const last = step === STEPS.length - 1;
   return (
     <>
@@ -144,10 +150,11 @@ export function Tour() {
         className="tour__bubble"
         role="dialog"
         aria-labelledby={titleId}
+        aria-describedby={bodyId}
         style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: "hidden" }}
       >
         <h2 className="tour__title" id={titleId}>{t(`tour.${id}.title` as MsgKey)}</h2>
-        <p className="tour__body">{t(`tour.${id}.body` as MsgKey)}</p>
+        <p className="tour__body" id={bodyId}>{t(`tour.${id}.body` as MsgKey)}</p>
         <div className="tour__actions">
           <button type="button" className="btn btn--ghost" onClick={() => useTour.getState().skip()}>{t("tour.skip")}</button>
           <button type="button" className="btn" ref={next} onClick={() => useTour.getState().next()}>{t(last ? "tour.done" : "tour.next")}</button>

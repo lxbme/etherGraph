@@ -99,3 +99,8 @@ describe("components", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
+
+it("the node panel's “fetch older” reads the same as the context menu item in zh", async () => {
+  const { zh } = await import("./zh");
+  expect(zh["node.fetchOlder"]).toBe(zh["ctx.older"]);
+});

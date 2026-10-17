@@ -84,6 +84,48 @@ test("every combo in the table except search (the search box's own) is handled h
   }
 });
 
+describe("useShortcuts stays out of the way", () => {
+  test("while typing in a field", async () => {
+    const { actions } = await setup();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    try {
+      fireEvent.keyDown(input, { key: "p" });
+      expect(actions.togglePin).not.toHaveBeenCalled();
+    } finally {
+      input.remove();
+    }
+  });
+
+  test("while a dialog or menu is open", async () => {
+    const { actions } = await setup();
+    for (const role of ["dialog", "menu"]) {
+      const el = document.createElement("div");
+      el.setAttribute("role", role);
+      document.body.appendChild(el);
+      try {
+        fireEvent.keyDown(document.body, { key: "p" });
+      } finally {
+        el.remove();
+      }
+    }
+    expect(actions.togglePin).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: "p" });
+    expect(actions.togglePin).toHaveBeenCalledWith(A);
+  });
+
+  test("while a tx tab is shown", async () => {
+    const { actions, useGraph } = await setup();
+    const { useTabs } = await import("../shell/tabs");
+    const undo = vi.spyOn(useGraph.getState(), "undo");
+    act(() => useTabs.setState({ active: "0x" + "12".repeat(32) }));
+    fireEvent.keyDown(document.body, { key: "p" });
+    fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+    expect(actions.togglePin).not.toHaveBeenCalled();
+    expect(undo).not.toHaveBeenCalled();
+  });
+});
+
 test("matchesCombo needs the exact modifiers; Mod accepts Ctrl or ⌘", () => {
   expect(matchesCombo({ key: "z", ctrlKey: true, metaKey: false, shiftKey: false, altKey: false }, "Mod+Z")).toBe(true);
   expect(matchesCombo({ key: "z", ctrlKey: false, metaKey: true, shiftKey: false, altKey: false }, "Mod+Z")).toBe(true);

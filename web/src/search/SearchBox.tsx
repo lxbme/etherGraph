@@ -20,7 +20,8 @@ export function SearchBox() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (isShortcut(e, "search")) {
+      // A modal dialog keeps the keyboard (and focus) to itself.
+      if (isShortcut(e, "search") && !document.querySelector('[aria-modal="true"]')) {
         e.preventDefault();
         inputRef.current?.focus();
         inputRef.current?.select();

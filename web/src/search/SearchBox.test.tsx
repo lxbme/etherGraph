@@ -132,4 +132,19 @@ describe('SearchBox', () => {
     await userEvent.keyboard('{Meta>}k{/Meta}')
     expect(box).toHaveFocus()
   })
+
+  it('Mod+K leaves focus alone while a modal dialog is open', async () => {
+    render(
+      <>
+        <SearchBox />
+        <div role="dialog" aria-modal="true">
+          <button>inside</button>
+        </div>
+      </>,
+    )
+    const inside = screen.getByRole('button', { name: 'inside' })
+    inside.focus()
+    await userEvent.keyboard('{Control>}k{/Control}')
+    expect(inside).toHaveFocus()
+  })
 })

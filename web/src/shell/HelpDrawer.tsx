@@ -7,6 +7,7 @@ import { MAX_NEIGHBOUR_LIMIT } from "../graph/store";
 import { useT, type MsgKey } from "../i18n";
 import { useUi } from "../panels/uiStore";
 import { Legend } from "../views/Legend";
+import { useQuota } from "./statusStore";
 import { useTheme } from "./theme";
 import { replayTour } from "./tourBus";
 
@@ -14,7 +15,7 @@ export const HELP_BUTTON_ID = "eg-help-button";
 export const HELP_DRAWER_ID = "eg-help";
 const TITLE_ID = "eg-help-title";
 
-/** Etherscan free tier and server defaults (config.example.toml), quoted in "Data & quotas". */
+/** Etherscan free tier and server defaults (config.example.toml), quoted in "Data & quotas" (the server's own limit once known). */
 const DAILY_QUOTA = 100_000;
 const RATE_PER_SEC = "2.5";
 /** Records per category a shallow sync fetches (server side). */
@@ -26,7 +27,7 @@ type SectionId = "reading" | "expanding" | "tx" | "shortcuts" | "data";
 type Params = Record<string, string | number>;
 
 /** Body keys of each section after its intro (`help.<id>.body`), rendered as a bullet list. */
-function bullets(id: SectionId, mac: boolean): { key: MsgKey; params?: Params }[] {
+function bullets(id: SectionId, mac: boolean, quota: number): { key: MsgKey; params?: Params }[] {
   switch (id) {
     case "reading":
       return [{ key: "help.reading.body1" }, { key: "help.reading.body2" }, { key: "help.reading.body3" }, { key: "help.reading.body4" }, { key: "help.reading.body5" }];
@@ -48,7 +49,7 @@ function bullets(id: SectionId, mac: boolean): { key: MsgKey; params?: Params }[
       return [];
     case "data":
       return [
-        { key: "help.data.body1", params: { quota: DAILY_QUOTA } },
+        { key: "help.data.body1", params: { quota } },
         { key: "help.data.body2", params: { rate: RATE_PER_SEC } },
         { key: "help.data.body3", params: { records: SHALLOW_RECORDS } },
         { key: "help.data.body4" },
@@ -70,6 +71,7 @@ function HelpDrawerPanel() {
   const toggleHelp = useUi((s) => s.toggleHelp);
   const ref = useRef<HTMLDivElement>(null);
   const mac = isMac();
+  const quota = useQuota((s) => s.quota?.limit) ?? DAILY_QUOTA;
 
   // Modal: focus moves in on open, Tab cycles inside, Escape closes, focus returns to the "?" button.
   useEffect(() => {
@@ -120,7 +122,7 @@ function HelpDrawerPanel() {
         {/* Focusable so the keyboard can scroll the long text. */}
         <div className="drawer__body" tabIndex={0}>
           {SECTIONS.map((id) => {
-            const items = bullets(id, mac);
+            const items = bullets(id, mac, quota);
             return (
               <section key={id} className="help__section" aria-labelledby={`eg-help-${id}`}>
                 <h3 className="help__title" id={`eg-help-${id}`}>{t(`help.${id}.title`)}</h3>

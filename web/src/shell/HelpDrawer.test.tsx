@@ -6,6 +6,7 @@ import { useUi } from "../panels/uiStore";
 import { HelpDrawer } from "./HelpDrawer";
 import { setReplayTourHandler } from "./tourBus";
 import { TopBar } from "./TopBar";
+import { useQuota } from "./statusStore";
 
 const EN_TITLES = ["Reading the graph", "Expanding safely", "Transaction view", "Keyboard shortcuts", "Data & quotas"];
 
@@ -21,6 +22,7 @@ function Host() {
 beforeEach(() => {
   useLocale.getState().setLocale("en");
   useUi.setState({ helpOpen: false });
+  useQuota.setState({ quota: null });
 });
 afterEach(() => {
   setReplayTourHandler(null);
@@ -103,4 +105,21 @@ test("Replay tour closes the drawer and asks the tour to start", async () => {
   await user.click(screen.getByRole("button", { name: "Replay tour" }));
   expect(start).toHaveBeenCalledTimes(1);
   expect(useUi.getState().helpOpen).toBe(false);
+});
+
+test("the daily quota is the server's limit once known, else the free-tier 100,000", () => {
+  useUi.setState({ helpOpen: true });
+  render(<HelpDrawer />);
+  const drawer = screen.getByRole("dialog", { name: "Help" });
+  expect(drawer).toHaveTextContent("Daily quota: 100,000 calls.");
+  act(() => useQuota.getState().setQuota({ used: 5, limit: 250000, paused: false, reset_at: "2026-10-19T00:00:00Z" }));
+  expect(drawer).toHaveTextContent("Daily quota: 250,000 calls.");
+});
+
+test("Hot is explained next to Heavy, in both languages", () => {
+  useUi.setState({ helpOpen: true });
+  render(<HelpDrawer />);
+  expect(screen.getByRole("dialog", { name: "Help" })).toHaveTextContent("Hot: an address labelled Exchange or DeFi, or with very many neighbours.");
+  act(() => useLocale.getState().setLocale("zh"));
+  expect(screen.getByRole("dialog", { name: "帮助" })).toHaveTextContent("热门：带有交易所或 DeFi 标签、或邻居非常多的地址。");
 });
