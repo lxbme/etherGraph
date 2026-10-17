@@ -48,9 +48,9 @@ export const useUi = create<UiState>((set, get) => ({
     }),
 }));
 
-/** A new selection drops a pending label editor request; on narrow screens a selected node opens the overlay. */
-function selectionChanged(node: boolean): void {
-  useUi.setState(node && isNarrow() ? { labelEditorFor: null, detailOpen: true } : { labelEditorFor: null });
+/** A new selection drops a pending label editor request; on narrow screens a selected node or tx opens the overlay. */
+function selectionChanged(opens: boolean): void {
+  useUi.setState(opens && isNarrow() ? { labelEditorFor: null, detailOpen: true } : { labelEditorFor: null });
 }
 
 const selKey = (s: Selection) =>
@@ -58,6 +58,6 @@ const selKey = (s: Selection) =>
 
 useGraph.subscribe((s, prev) => {
   if (s.selection !== prev.selection && selKey(s.selection) !== selKey(prev.selection)) {
-    selectionChanged(s.selection?.kind === "node");
+    selectionChanged(s.selection?.kind === "node" || s.selection?.kind === "tx");
   }
 });

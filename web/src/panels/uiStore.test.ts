@@ -52,6 +52,17 @@ test("under 900px selecting a node opens the detail overlay; wide screens keep t
   expect(useUi.getState().detailOpen).toBe(false);
 });
 
+test("under 900px selecting a transaction (its summary card) opens the overlay too; a pair does not", () => {
+  stubNarrow(true);
+  useUi.setState({ detailOpen: false });
+  useGraph.getState().select({ kind: "tx", hash: H, context: { kind: "node", address: A } });
+  expect(useUi.getState().detailOpen).toBe(true);
+
+  useUi.setState({ detailOpen: false });
+  useGraph.getState().select({ kind: "pair", a: A, b: B });
+  expect(useUi.getState().detailOpen).toBe(false);
+});
+
 test("tx tabs keep their own selection; changing it clears the editor and opens the overlay when narrow", () => {
   stubNarrow(true);
   useUi.setState({ detailOpen: false });
