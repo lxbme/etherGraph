@@ -13,4 +13,14 @@ limit_per_address?: number | null,
 /**
  * Default `"count"`; `"amount"` requires exactly one asset in the filter.
  */
-sort?: "count" | "amount" | "recent" | null, };
+sort?: "count" | "amount" | "recent" | null, 
+/**
+ * Per-center overrides of `limit_per_address` (clamped to 1..=1000);
+ * every key must be one of `addresses`.
+ */
+limits?: Record<string, number> | null, 
+/**
+ * Up to 2000 addresses (e.g. nodes already on canvas) ranked ahead of
+ * other neighbours when a limit applies.
+ */
+prefer?: Array<string> | null, };

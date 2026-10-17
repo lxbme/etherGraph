@@ -71,6 +71,10 @@ pub struct EdgeQuery {
     pub centers: Vec<Address>,
     pub filter: EdgeFilter,
     pub limit_per_center: u32,
+    /// Per-center overrides of `limit_per_center`.
+    pub limits: HashMap<Address, u32>,
+    /// Neighbours ranked ahead of all others (e.g. nodes already on canvas).
+    pub prefer: Vec<Address>,
     pub sort: SortBy,
 }
 

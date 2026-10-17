@@ -181,6 +181,14 @@ pub struct GraphRequestDto {
     /// Default `"count"`; `"amount"` requires exactly one asset in the filter.
     #[ts(optional = nullable, type = r#""count" | "amount" | "recent" | null"#)]
     pub sort: Option<String>,
+    /// Per-center overrides of `limit_per_address` (clamped to 1..=1000);
+    /// every key must be one of `addresses`.
+    #[ts(optional = nullable, type = "Record<string, number> | null")]
+    pub limits: Option<HashMap<String, u32>>,
+    /// Up to 2000 addresses (e.g. nodes already on canvas) ranked ahead of
+    /// other neighbours when a limit applies.
+    #[ts(optional = nullable, type = "Array<string> | null")]
+    pub prefer: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

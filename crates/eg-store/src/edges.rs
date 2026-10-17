@@ -134,6 +134,12 @@ impl Store {
         }
         let centers: Vec<Vec<u8>> = q.centers.iter().copied().map(addr_to_bytes).collect();
         let limit = i64::from(q.limit_per_center);
+        let (lim_centers, lims): (Vec<Vec<u8>>, Vec<i32>) = q
+            .limits
+            .iter()
+            .map(|(a, l)| (addr_to_bytes(*a), i32::try_from(*l).unwrap_or(i32::MAX)))
+            .unzip();
+        let prefer: Vec<Vec<u8>> = q.prefer.iter().copied().map(addr_to_bytes).collect();
         let (out, inb) = match q.filter.direction {
             Direction::Out => (true, false),
             Direction::In => (false, true),
@@ -196,35 +202,48 @@ impl Store {
             SortBy::Amount => "k_amount",
             SortBy::Recent => "k_recent",
         };
+        qb.push(
+            "), r AS (SELECT center, nb, row_number() OVER (PARTITION BY center ORDER BY (nb = ANY(",
+        );
+        qb.push_bind(prefer);
         qb.push(format!(
-            "), r AS (SELECT center, nb, \
-             row_number() OVER (PARTITION BY center ORDER BY {key} DESC, nb) AS rk, \
+            ")) DESC, {key} DESC, nb) AS rk, \
              count(*) OVER (PARTITION BY center) AS n \
              FROM (SELECT center, nb, sum(cnt) AS k_count, sum(total) AS k_amount, \
-             max(last_ts) AS k_recent FROM p GROUP BY 1, 2) s) \
-             SELECT g.from_addr, g.to_addr, g.asset, g.cnt, LEAST(g.total, {U256_MAX_DEC}) AS total, \
-             g.first_ts, g.last_ts, g.asset_kind, \
-             NULL::bytea AS center, NULL::bigint AS omitted FROM g WHERE "
+             max(last_ts) AS k_recent FROM p GROUP BY 1, 2) s), \
+             rl AS (SELECT r.center, r.nb, r.rk, r.n, COALESCE(l.lim, "
         ));
+        // Per-center cap: the override when present, else the default.
+        qb.push_bind(limit)
+            .push(") AS cap FROM r LEFT JOIN unnest(")
+            .push_bind(lim_centers)
+            .push("::bytea[], ")
+            .push_bind(lims)
+            .push(format!(
+                "::int[]) AS l(center, lim) ON l.center = r.center) \
+                 SELECT g.from_addr, g.to_addr, g.asset, g.cnt, LEAST(g.total, {U256_MAX_DEC}) AS total, \
+                 g.first_ts, g.last_ts, g.asset_kind, \
+                 NULL::bytea AS center, NULL::bigint AS omitted FROM g WHERE "
+            ));
         // Equality on a row value lets Postgres hash the semi-join; an OR of
-        // the two orientations forced a nested loop over g × r (22 s for one
+        // the two orientations forced a nested loop over g × rl (22 s for one
         // center with 25k neighbours). With both directions the pair is
         // unordered, so compare it normalised.
         qb.push(match (out, inb) {
             (true, true) => {
                 "(LEAST(g.from_addr, g.to_addr), GREATEST(g.from_addr, g.to_addr)) IN \
-                 (SELECT LEAST(center, nb), GREATEST(center, nb) FROM r WHERE rk <= "
+                 (SELECT LEAST(center, nb), GREATEST(center, nb) FROM rl WHERE rk <= cap"
             }
-            (true, false) => "(g.from_addr, g.to_addr) IN (SELECT center, nb FROM r WHERE rk <= ",
-            _ => "(g.to_addr, g.from_addr) IN (SELECT center, nb FROM r WHERE rk <= ",
+            (true, false) => {
+                "(g.from_addr, g.to_addr) IN (SELECT center, nb FROM rl WHERE rk <= cap"
+            }
+            _ => "(g.to_addr, g.from_addr) IN (SELECT center, nb FROM rl WHERE rk <= cap",
         });
-        qb.push_bind(limit);
-        qb.push(") UNION ALL SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, center, n - ")
-            .push_bind(limit)
-            .push(" FROM (SELECT DISTINCT center, n FROM r WHERE n > ")
-            .push_bind(limit)
-            .push(") o ORDER BY center NULLS FIRST, from_addr, to_addr, asset NULLS FIRST");
-
+        qb.push(
+            ") UNION ALL SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, center, n - cap \
+             FROM (SELECT DISTINCT center, n, cap FROM rl WHERE n > cap) o \
+             ORDER BY center NULLS FIRST, from_addr, to_addr, asset NULLS FIRST",
+        );
         let rows = qb.build().fetch_all(&self.pool).await?;
         let mut res = EdgeQueryResult::default();
         for r in &rows {
@@ -417,6 +436,8 @@ mod tests {
             centers: vec![C],
             filter,
             limit_per_center: limit,
+            limits: Default::default(),
+            prefer: Vec::new(),
             sort,
         }
     }
@@ -597,6 +618,45 @@ mod tests {
         let r = store.query_edges(&q).await.unwrap();
         assert_eq!(r.omitted.get(&C), Some(&7));
         assert!(!r.omitted.contains_key(&A));
+    }
+
+    #[sqlx::test]
+    async fn per_center_limits_override_default(pool: PgPool) {
+        let store = seed(&pool).await;
+        // F gets four neighbours of its own (G1..G4).
+        let f = Address::repeat_byte(0xf0);
+        let mut v: Vec<Transfer> = (1..=4u8)
+            .map(|i| tr(40 + i, f, Address::repeat_byte(0x90 + i), None, 1, 700))
+            .collect();
+        assign_sub_ids(&mut v);
+        store.upsert_transfers(&v).await.unwrap();
+
+        let mut q = query(EdgeFilter::default(), 2, SortBy::Count);
+        q.centers = vec![C, f];
+        q.limits.insert(C, 3);
+        let r = store.query_edges(&q).await.unwrap();
+        let of_c = r.edges.iter().filter(|e| e.from == C || e.to == C).count();
+        let of_f = r.edges.iter().filter(|e| e.from == f || e.to == f).count();
+        assert_eq!(of_c, 3);
+        assert_eq!(r.omitted[&C], 5);
+        // F has no entry in `limits`: the default of 2 applies.
+        assert_eq!(of_f, 2);
+        assert_eq!(r.omitted[&f], 2);
+    }
+
+    #[sqlx::test]
+    async fn prefer_ranks_listed_neighbours_first(pool: PgPool) {
+        let store = seed(&pool).await;
+        let mut q = query(EdgeFilter::default(), 1, SortBy::Count);
+        q.limits.insert(C, 1);
+        // Without prefer the busiest neighbour (A) wins.
+        let r = store.query_edges(&q).await.unwrap();
+        assert_eq!(neighbours(&r.edges), HashSet::from([A]));
+        // E5 has a single transfer but is preferred.
+        q.prefer = vec![e(5)];
+        let r = store.query_edges(&q).await.unwrap();
+        assert_eq!(neighbours(&r.edges), HashSet::from([e(5)]));
+        assert_eq!(r.omitted[&C], 7);
     }
 
     fn tq(scope: TransferScope, asset: Option<Option<Address>>, limit: u32) -> TransferQuery {

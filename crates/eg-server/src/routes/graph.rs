@@ -14,12 +14,15 @@ use crate::dto::{
 };
 use crate::error::{ApiError, invalid};
 use crate::nodes::{enqueue_missing_meta, load_nodes, token_map};
-use crate::parse::{parse_amount, parse_asset, parse_direction, parse_kind, parse_time};
+use crate::parse::{
+    parse_address, parse_amount, parse_asset, parse_direction, parse_kind, parse_time,
+};
 use crate::routes::{ApiJson, parse_addresses};
 use crate::state::AppState;
 
 const DEFAULT_LIMIT: u32 = 200;
 const MAX_LIMIT: u32 = 1000;
+const MAX_PREFER: usize = 2000;
 const ETH_DECIMALS: u8 = 18;
 
 pub async fn edges(
@@ -50,12 +53,33 @@ pub async fn edges(
         .limit_per_address
         .unwrap_or(DEFAULT_LIMIT)
         .clamp(1, MAX_LIMIT);
+    let mut limits = HashMap::new();
+    for (k, v) in req.limits.unwrap_or_default() {
+        let a = parse_address(&k)?;
+        if !centers.contains(&a) {
+            return Err(invalid(format!("limits key {k} is not in addresses")));
+        }
+        limits.insert(a, v.clamp(1, MAX_LIMIT));
+    }
+    let prefer_raw = req.prefer.unwrap_or_default();
+    if prefer_raw.len() > MAX_PREFER {
+        return Err(invalid(format!(
+            "at most {MAX_PREFER} prefer addresses, got {}",
+            prefer_raw.len()
+        )));
+    }
+    let prefer = prefer_raw
+        .iter()
+        .map(|a| parse_address(a))
+        .collect::<Result<Vec<_>, _>>()?;
     let res = s
         .store
         .query_edges(&EdgeQuery {
             centers: centers.clone(),
             filter,
             limit_per_center: limit,
+            limits,
+            prefer,
             sort,
         })
         .await?;

@@ -524,6 +524,10 @@ async fn graph_rejects_bad_input(pool: PgPool) {
         json!({"addresses": [hex(C)], "filter": {"time": {"from": "yesterday"}}}),
         json!({"addresses": [hex(C)], "filter": {"assets": [{"asset": "btc"}]}}),
         json!({"addresses": "nope"}),
+        json!({"addresses": [hex(C)], "limits": {hex(A): 3}}),
+        json!({"addresses": [hex(C)], "limits": {"0x12": 3}}),
+        json!({"addresses": [hex(C)], "prefer": ["0x12"]}),
+        json!({"addresses": [hex(C)], "prefer": vec![hex(A); 2001]}),
     ];
     for body in cases {
         let (s, b) = post_json(&app, "/api/graph/edges", &body).await;
@@ -549,6 +553,38 @@ async fn graph_rejects_bad_input(pool: PgPool) {
     let edges = b["edges"].as_array().unwrap();
     assert_eq!(edges.len(), 1);
     assert_eq!(edges[0]["from"], hex(B));
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn graph_limits_and_prefer(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    seed(
+        &state,
+        vec![
+            tr(1, C, A, None, U256::from(1), 0),
+            tr(2, C, A, None, U256::from(1), 10),
+            tr(3, C, B, None, U256::from(1), 20),
+        ],
+    )
+    .await;
+    // Upper-case hex keys are accepted; `limits` and `prefer` apply.
+    let body = json!({
+        "addresses": [hex(C)],
+        "limits": {hex(C).to_uppercase().replace("0X", "0x"): 1},
+        "prefer": [hex(B).to_uppercase().replace("0X", "0x"), hex(Address::repeat_byte(0x77))],
+    });
+    let (s, b) = post_json(&app, "/api/graph/edges", &body).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let edges = b["edges"].as_array().unwrap();
+    assert_eq!(edges.len(), 1, "{b}");
+    assert_eq!(edges[0]["to"], hex(B));
+    assert_eq!(b["omitted"][hex(C)], 1);
+
+    // A limits value above the maximum is clamped, not rejected.
+    let body = json!({"addresses": [hex(C)], "limits": {hex(C): 5000}});
+    let (s, b) = post_json(&app, "/api/graph/edges", &body).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["edges"].as_array().unwrap().len(), 2);
 }
 
 // ---------------------------------------------------------------- sync
