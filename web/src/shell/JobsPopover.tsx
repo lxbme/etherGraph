@@ -19,7 +19,7 @@ function Row({ job, onCancel, cancelling }: { job: JobDto; onCancel?: () => void
       <td>{kindName(job.kind)}</td>
       <td>{targetText(job)}</td>
       <td>{statusName(job.status)}</td>
-      <td className="num">{job.attempts}</td>
+      <td className="num table__num">{job.attempts}</td>
       <td className="jobs__err" title={err ?? undefined}>
         {err ? (err.length > ERR_MAX ? `${err.slice(0, ERR_MAX)}…` : err) : ""}
       </td>
@@ -54,7 +54,7 @@ function Table({
           <th>{t("jobs.col.kind")}</th>
           <th>{t("jobs.col.target")}</th>
           <th>{t("jobs.col.status")}</th>
-          <th>{t("jobs.col.attempts")}</th>
+          <th className="table__num">{t("jobs.col.attempts")}</th>
           <th>{t("jobs.col.error")}</th>
           {cancel && <th />}
         </tr>

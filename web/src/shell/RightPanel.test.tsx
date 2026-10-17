@@ -82,3 +82,10 @@ test("arrow keys resize in 16px steps", () => {
   expect(panel.style.width).toBe("304px");
   expect(localStorage.getItem(KEY)).toBe("304");
 });
+
+test("the separator exposes its range: 280px to 40% of the viewport", () => {
+  const { handle } = setup();
+  expect(handle).toHaveAttribute("aria-valuemin", "280");
+  expect(handle).toHaveAttribute("aria-valuemax", "409");
+  expect(handle).toHaveAttribute("aria-valuenow", "320");
+});

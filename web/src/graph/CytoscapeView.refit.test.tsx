@@ -89,3 +89,24 @@ test("dagre-lr: a resize refits while the user has not panned or zoomed since th
   h.cb!();
   expect(fit).toHaveBeenCalledTimes(2);
 });
+
+test("styles are recomputed once the web fonts have loaded (label widths)", async () => {
+  let fontsLoaded!: () => void;
+  const ready = new Promise<void>((r) => (fontsLoaded = r));
+  Object.defineProperty(document, "fonts", { configurable: true, value: { ready } });
+  try {
+    let update!: ReturnType<typeof vi.fn>;
+    mount((c) => {
+      update = vi.fn();
+      // Headless cores have no style object; stand one in.
+      vi.spyOn(c, "style").mockReturnValue({ update } as unknown as ReturnType<cytoscape.Core["style"]>);
+    });
+    expect(update).not.toHaveBeenCalled();
+    fontsLoaded();
+    await ready;
+    await Promise.resolve();
+    expect(update).toHaveBeenCalledTimes(1);
+  } finally {
+    delete (document as unknown as Record<string, unknown>).fonts;
+  }
+});

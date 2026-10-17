@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>etherGraph</title>
+    <!-- Theme before first paint (no light flash in dark mode); src/shell/theme.ts takes over once loaded. -->
+    <script>
+      (function () {
+        var pref = "light";
+        try {
+          var v = localStorage.getItem("eg.theme");
+          if (v === "dark" || v === "system") pref = v;
+        } catch (e) {}
+        if (pref === "system") {
+          pref = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+        document.documentElement.setAttribute("data-theme", pref);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

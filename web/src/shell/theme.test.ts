@@ -81,3 +81,32 @@ describe("useTheme", () => {
     expect(useTheme.getState().resolved).toBe("dark");
   });
 });
+
+describe("index.html pre-paint theme script", () => {
+  // @ts-expect-error node builtins are untyped here (no @types/node); the module exists at runtime.
+  const loadHtml = async () => ((await import("node:fs")) as { readFileSync(p: string, e: string): string }).readFileSync("index.html", "utf8");
+  async function runInline() {
+    const html = await loadHtml();
+    const m = /<script>([\s\S]*?)<\/script>/.exec(html);
+    expect(m, "inline <script> in index.html").not.toBeNull();
+    expect(html.indexOf(m![0]), "runs before the module script").toBeLessThan(html.indexOf('type="module"'));
+    new Function(m![1]!)();
+    return document.documentElement.dataset.theme;
+  }
+  it("applies the stored theme before the app loads", async () => {
+    localStorage.setItem("eg.theme", "dark");
+    expect(await runInline()).toBe("dark");
+  });
+  it("resolves system through matchMedia", async () => {
+    localStorage.setItem("eg.theme", "system");
+    mockMatchMedia(true);
+    expect(await runInline()).toBe("dark");
+  });
+  it("falls back to light when storage is unavailable or unset", async () => {
+    expect(await runInline()).toBe("light");
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("denied");
+    });
+    expect(await runInline()).toBe("light");
+  });
+});

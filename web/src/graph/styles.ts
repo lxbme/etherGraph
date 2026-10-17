@@ -236,7 +236,7 @@ function graphBlocks(theme: Theme): Block[] {
         ...edgeColor(asset.other),
         opacity: 0.85,
         "font-family": font,
-        "font-size": 9,
+        "font-size": 11,
         color: fg,
       },
     },

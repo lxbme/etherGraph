@@ -8,10 +8,13 @@ const MIN_WIDTH = 280;
 const MAX_SHARE = 0.4;
 const KEY_STEP = 16;
 
+/** The widest the panel may be: 40% of the viewport, but never below the minimum. */
+function maxWidth(): number {
+  return Math.max(MIN_WIDTH, Math.floor(window.innerWidth * MAX_SHARE));
+}
 /** Between 280px and 40% of the viewport; the minimum wins on very narrow screens. */
 function clamp(w: number): number {
-  const max = Math.max(MIN_WIDTH, Math.floor(window.innerWidth * MAX_SHARE));
-  return Math.round(Math.min(Math.max(w, MIN_WIDTH), max));
+  return Math.round(Math.min(Math.max(w, MIN_WIDTH), maxWidth()));
 }
 function load(): number {
   try {
@@ -72,6 +75,7 @@ export function RightPanel({ children }: { children: ReactNode }) {
         aria-label={t("panel.resize")}
         aria-valuenow={width}
         aria-valuemin={MIN_WIDTH}
+        aria-valuemax={maxWidth()}
         tabIndex={0}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

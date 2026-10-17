@@ -212,6 +212,11 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       ro = new ResizeObserver(() => refit.onResize());
       ro.observe(container);
     }
+    // Label widths are measured with whatever font is loaded; re-measure once Inter / Plex Mono arrive.
+    // (`document.fonts` is missing in jsdom; headless cores have no style object.)
+    void document.fonts?.ready.then(() => {
+      if (alive) cy.style()?.update();
+    });
     propsRef.current.onReady?.(cy);
     return () => {
       alive = false;

@@ -62,6 +62,10 @@ describe("graphStylesheet", () => {
     expect(styleOf(sheet(), "edge[badge]")["text-background-color"]).toBe("#fbfcfd");
   });
 
+  test("edge badges use the smallest type-scale size (11px)", () => {
+    expect(styleOf(sheet(), "edge")["font-size"]).toBe(11);
+  });
+
   test("dark and light produce different default node colours", () => {
     const light = styleOf(sheet("light"), "node");
     const dark = styleOf(sheet("dark"), "node");

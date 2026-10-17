@@ -129,6 +129,8 @@ describe("jobs popover", () => {
     expect(err.textContent!.length).toBeLessThan(long.length);
     expect(screen.getByText("Failed")).toBeInTheDocument();
     expect(screen.getByText("0xabab…abab")).toBeInTheDocument();
+    expect(screen.getByText("3")).toHaveClass("num", "table__num");
+    expect(screen.getAllByRole("columnheader", { name: "Attempts" })[0]).toHaveClass("table__num");
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Jobs" })).toBeNull();
   });

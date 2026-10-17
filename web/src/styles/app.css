@@ -523,8 +523,9 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
   position: absolute;
   top: 0;
   bottom: 0;
-  left: calc(var(--sp-1) - 1px);
+  left: 50%;
   width: 2px;
+  transform: translateX(-50%);
 }
 .main__right-handle:hover::after,
 .main__right-handle:focus-visible::after { background: var(--accent); }
@@ -658,8 +659,8 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 }
 .address-graph__status {
   position: absolute;
-  top: 8px;
-  left: 8px;
+  top: var(--sp-2);
+  left: var(--sp-2);
   padding: var(--sp-1) var(--sp-2);
   border-radius: var(--radius);
   font-size: var(--fs-12);
@@ -668,13 +669,14 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
   border: 1px solid var(--line);
   pointer-events: none;
 }
-.address-graph__status--error { color: var(--cat-scam); }
-.address-graph__unhide { position: absolute; top: 8px; right: 28px; z-index: 5; font-size: var(--fs-12); padding: var(--sp-1) var(--sp-2); }
+.address-graph__status--error { color: var(--neg); }
+/* Left of the refreshing dot (right: --sp-3, width --sp-2), with a --sp-2 gap. */
+.address-graph__unhide { position: absolute; top: var(--sp-2); right: calc(var(--sp-3) + var(--sp-2) + var(--sp-2)); z-index: 5; font-size: var(--fs-12); padding: var(--sp-1) var(--sp-2); }
 .address-graph__refreshing {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  width: 8px;
+  top: var(--sp-3);
+  right: var(--sp-3);
+  width: var(--sp-2);
   height: var(--sp-2);
   border-radius: 100%;
   background: var(--accent);
@@ -744,7 +746,7 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 
 .batch-bar {
   position: absolute;
-  bottom: 12px;
+  bottom: var(--sp-3);
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -760,10 +762,10 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .dialog__list { margin: 0; padding: 0; list-style: none; overflow-y: auto; }
 .dialog__row { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) 0; cursor: pointer; }
 .dialog__name { flex: 1; font-family: var(--font-mono); font-size: var(--fs-12); }
-.dialog__tag { padding: 0 var(--sp-2); font-size: var(--fs-11); color: var(--on-accent); background: var(--cat-mixer); border-radius: var(--radius-pop); }
+.dialog__tag { padding: 0 var(--sp-2); font-size: var(--fs-11); color: var(--fg); background: color-mix(in srgb, var(--warn) 18%, var(--bg)); border-radius: var(--radius); }
 .dialog__calls { color: var(--fg-muted); font-size: var(--fs-12); }
 .dialog__summary { font-size: var(--fs-12); color: var(--fg-muted); }
-.dialog__warn { font-size: var(--fs-12); color: var(--cat-mixer); }
+.dialog__warn { font-size: var(--fs-12); color: color-mix(in srgb, var(--warn) 70%, var(--fg)); }
 
 /* Right panel: kind caption, address, tags, key/value grid, actions (spec §3.2), 16px inset. */
 .detail { height: 100%; padding: var(--sp-4); overflow: auto; font-size: var(--fs-13); }
@@ -818,7 +820,7 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .txview__ok { color: var(--pos); }
 .txview__fail { color: var(--neg); }
 .txview__muted { color: var(--fg-muted); }
-.txview__tag { padding: 0 var(--sp-2); font-size: var(--fs-11); color: var(--fg-muted); border: 1px solid var(--line); border-radius: var(--radius-pop); }
+.txview__tag { padding: 0 var(--sp-2); font-size: var(--fs-11); color: var(--fg-muted); border: 1px solid var(--line); border-radius: var(--radius); }
 .txview__banner { padding: var(--sp-2) var(--sp-3); font-size: var(--fs-12); color: var(--fg-muted); background: var(--bg); border-bottom: 1px solid var(--line); }
 .txview__graph { flex: 1; min-height: var(--h-graph-min); position: relative; }
 .txview__tables { flex: none; max-height: var(--mh-tables); overflow: auto; background: var(--bg); border-top: 1px solid var(--line); font-size: var(--fs-12); }
