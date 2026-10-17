@@ -1,0 +1,80 @@
+{
+  "items": [
+    {
+      "node": {
+        "address": "0x0000000000000000000000000000000000200001",
+        "kind": "eoa",
+        "display_name": null,
+        "ens": null,
+        "contract_name": null,
+        "labels": [],
+        "partial": false,
+        "syncing": false,
+        "synced": false,
+        "hot": false,
+        "nonce": null,
+        "balance": null
+      },
+      "count": 9,
+      "last_ts": "2026-10-01T08:00:00Z",
+      "assets": [
+        {
+          "asset": null,
+          "symbol": "ETH",
+          "decimals": 18
+        }
+      ]
+    },
+    {
+      "node": {
+        "address": "0x0000000000000000000000000000000000200002",
+        "kind": "eoa",
+        "display_name": null,
+        "ens": null,
+        "contract_name": null,
+        "labels": [],
+        "partial": false,
+        "syncing": false,
+        "synced": false,
+        "hot": false,
+        "nonce": null,
+        "balance": null
+      },
+      "count": 5,
+      "last_ts": "2026-10-01T08:00:00Z",
+      "assets": [
+        {
+          "asset": null,
+          "symbol": "ETH",
+          "decimals": 18
+        }
+      ]
+    },
+    {
+      "node": {
+        "address": "0x0000000000000000000000000000000000200003",
+        "kind": "eoa",
+        "display_name": null,
+        "ens": null,
+        "contract_name": null,
+        "labels": [],
+        "partial": false,
+        "syncing": false,
+        "synced": false,
+        "hot": false,
+        "nonce": null,
+        "balance": null
+      },
+      "count": 2,
+      "last_ts": "2026-10-01T08:00:00Z",
+      "assets": [
+        {
+          "asset": null,
+          "symbol": "ETH",
+          "decimals": 18
+        }
+      ]
+    }
+  ],
+  "total": 3
+}

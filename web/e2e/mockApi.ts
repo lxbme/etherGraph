@@ -1,17 +1,27 @@
 import { test as base, type Page, type Request, type Route } from "@playwright/test";
 import type { AddressProfileDto } from "../src/api/generated/AddressProfileDto";
+import type { CancelledDto } from "../src/api/generated/CancelledDto";
+import type { CounterpartyPageDto } from "../src/api/generated/CounterpartyPageDto";
 import type { Event } from "../src/api/generated/Event";
 import type { GraphResponseDto } from "../src/api/generated/GraphResponseDto";
 import type { JobDto } from "../src/api/generated/JobDto";
+import type { ProbeItemDto } from "../src/api/generated/ProbeItemDto";
+import type { ProbeRequestDto } from "../src/api/generated/ProbeRequestDto";
+import type { ProbeResponseDto } from "../src/api/generated/ProbeResponseDto";
 import type { SearchResultDto } from "../src/api/generated/SearchResultDto";
 import type { StatusDto } from "../src/api/generated/StatusDto";
+import type { SyncResponseDto } from "../src/api/generated/SyncResponseDto";
 import type { TransferPageDto } from "../src/api/generated/TransferPageDto";
 import type { TxRawDto } from "../src/api/generated/TxRawDto";
 import type { TxResponseDto } from "../src/api/generated/TxResponseDto";
 import type { WorkspaceDto } from "../src/api/generated/WorkspaceDto";
 import addressJson from "./fixtures/address.json" with { type: "json" };
+import counterpartiesJson from "./fixtures/counterparties.json" with { type: "json" };
+import counterpartiesContractJson from "./fixtures/counterparties-contract.json" with { type: "json" };
 import graphJson from "./fixtures/graph.json" with { type: "json" };
 import longTextJson from "./fixtures/long-text.json" with { type: "json" };
+import probeContractJson from "./fixtures/probe-contract.json" with { type: "json" };
+import probeWalletJson from "./fixtures/probe-wallet.json" with { type: "json" };
 import statusJson from "./fixtures/status.json" with { type: "json" };
 import transfersJson from "./fixtures/transfers.json" with { type: "json" };
 import txJson from "./fixtures/tx.json" with { type: "json" };
@@ -31,6 +41,12 @@ export const fixtures = {
   transfers: transfersJson as TransferPageDto,
   tx: txJson as TxResponseDto,
   txRaw: txRawJson as TxRawDto,
+  /** The 120 neighbours of the big wallet (count descending; last two: a whale and a contract). */
+  counterparties: counterpartiesJson as CounterpartyPageDto,
+  /** Three wallets that interacted with a contract. */
+  counterpartiesContract: counterpartiesContractJson as CounterpartyPageDto,
+  /** Probe facts by address for the two counterparty sets above. */
+  probe: { ...probeWalletJson, ...probeContractJson } as Record<string, ProbeItemDto>,
   /** Long ENS / contract name / error strings for the overflow checks. */
   longText: longTextJson as { ens: string; contractName: string; invalidInput: string; job: JobDto },
 };
@@ -70,6 +86,25 @@ function defaultHandlers(): Map<RouteKey, Handler> {
       },
     ],
     ["POST /api/graph/edges", () => ({ json: fixtures.graph })],
+    ["GET /api/address/*/counterparties", () => ({ json: { items: [], total: 0 } satisfies CounterpartyPageDto })],
+    [
+      "POST /api/probe",
+      (req) => {
+        const body = req.postDataJSON() as ProbeRequestDto;
+        const items = body.addresses.map((a) => fixtures.probe[a.toLowerCase()]).filter((i): i is ProbeItemDto => !!i);
+        return { json: { items, calls: items.length * 2 } satisfies ProbeResponseDto };
+      },
+    ],
+    [
+      "POST /api/sync",
+      (req) => {
+        const body = req.postDataJSON() as { addresses: string[] };
+        const jobs = body.addresses.map((_, i) => i + 1);
+        return { json: { estimated_calls: null, estimated_seconds: null, per_address: null, jobs } satisfies SyncResponseDto };
+      },
+    ],
+    ["DELETE /api/batches/*", () => ({ json: { cancelled: [] } satisfies CancelledDto })],
+    ["DELETE /api/jobs", () => ({ json: { cancelled: [] } satisfies CancelledDto })],
     ["GET /api/transfers", () => ({ json: fixtures.transfers })],
     ["GET /api/tx/*/raw", () => ({ json: fixtures.txRaw })],
     [
@@ -99,7 +134,7 @@ function defaultHandlers(): Map<RouteKey, Handler> {
 
 /** `/api/address/0xabc` → `GET /api/address/*`; fixed paths map to themselves. */
 function routeKey(method: string, path: string): RouteKey {
-  const m = /^(\/api\/(?:address|tx|jobs|workspaces|labels))\/[^/]+(\/raw)?$/.exec(path);
+  const m = /^(\/api\/(?:address|tx|jobs|workspaces|labels|batches))\/[^/]+(\/raw|\/counterparties)?$/.exec(path);
   return `${method} ${m ? `${m[1]}/*${m[2] ?? ""}` : path}`;
 }
 
