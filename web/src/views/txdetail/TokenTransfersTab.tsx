@@ -6,7 +6,7 @@ import { formatFixed } from "../../lib/amount";
 import { assetClass } from "../../lib/assets";
 import { AddressCell } from "../../shell/AddressCell";
 import { CopyButton } from "../../shell/CopyButton";
-import { nodeOf } from "./common";
+import { nodeOf, useFlowLink } from "./common";
 
 const TOKEN_KINDS: ReadonlySet<FlowDto["kind"]> = new Set(["erc20", "erc721", "erc1155"]);
 
@@ -23,6 +23,7 @@ function Amount({ f }: { f: FlowDto }) {
 /** ERC-20 / 721 / 1155 transfers of the transaction in log order. */
 export function TokenTransfersTab({ flow }: { flow: TxFlowDto }) {
   const t = useT();
+  const { select, rowProps } = useFlowLink(flow.tx.hash);
   const rows = flow.flows
     .filter((f) => TOKEN_KINDS.has(f.kind))
     .sort((a, b) => (a.log_index ?? Number.MAX_SAFE_INTEGER) - (b.log_index ?? Number.MAX_SAFE_INTEGER) || a.seq - b.seq);
@@ -40,10 +41,10 @@ export function TokenTransfersTab({ flow }: { flow: TxFlowDto }) {
       </thead>
       <tbody>
         {rows.map((f, i) => (
-          <tr key={`${f.seq}-${i}`}>
+          <tr key={`${f.seq}-${i}`} {...rowProps(f.seq)}>
             <td className="num table__num">{f.seq}</td>
-            <td><AddressCell address={f.from} node={nodeOf(flow, f.from)} /></td>
-            <td><AddressCell address={f.to} node={nodeOf(flow, f.to)} /></td>
+            <td><AddressCell address={f.from} node={nodeOf(flow, f.from)} onSelect={select} /></td>
+            <td><AddressCell address={f.to} node={nodeOf(flow, f.to)} onSelect={select} /></td>
             <td className="num table__num"><Amount f={f} /></td>
             <td>
               {f.asset && (

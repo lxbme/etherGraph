@@ -1,10 +1,12 @@
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import type { DecodedArgDto } from "../../api/generated/DecodedArgDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import type { TxFlowDto } from "../../api/generated/TxFlowDto";
 import { useGraph } from "../../graph/store";
 import { t, useT } from "../../i18n";
 import { CopyButton } from "../../shell/CopyButton";
+import { useUi } from "../../panels/uiStore";
+import { useTabs } from "../../shell/tabs";
 import { toast } from "../../shell/Toasts";
 
 /** Values longer than this are folded until expanded. */
@@ -16,6 +18,27 @@ export const FOLD_BYTES = 4096;
 export function addToGraph(address: string) {
   useGraph.getState().addCenter(address.toLowerCase());
   toast(t("tx.added"));
+}
+
+/**
+ * Links a detail table to the tx graph: `select` picks an address as the tab's selected node (the right panel
+ * follows); `rowProps(seq)` makes a row toggle the highlight of that flow's edge (clicks on buttons are ignored).
+ */
+export function useFlowLink(hash: string) {
+  const id = hash.toLowerCase();
+  const highlighted = useTabs((s) => {
+    const entry = s.tabs.find((x) => x.id === id);
+    return entry && "kind" in entry ? (entry.highlightedSeq ?? null) : null;
+  });
+  const select = (address: string) => useUi.getState().selectTx(id, address);
+  const rowProps = (seq: number) => ({
+    className: highlighted === seq ? "txdetail__row txdetail__row--active" : "txdetail__row",
+    onClick: (e: MouseEvent) => {
+      if ((e.target as Element).closest("button")) return;
+      useTabs.getState().setHighlightedSeq(id, highlighted === seq ? null : seq);
+    },
+  });
+  return { select, rowProps };
 }
 
 export function nodeOf(flow: TxFlowDto, address: string): NodeSummaryDto | undefined {

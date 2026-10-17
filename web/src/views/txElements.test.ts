@@ -75,3 +75,10 @@ test("selected node gets the selected class", () => {
   const n = txElements(dto(), A).find((e) => e.data.id === A)!;
   expect(n.classes).toContain("selected");
 });
+
+test("only the flow edge with the highlighted seq gets the highlighted class", () => {
+  const els = txElements(dto({ flows: [flow(), flow({ seq: 2 })] }), null, 2);
+  expect(els.find((e) => e.data.id === "flow-1-0")!.classes).toBe("asset-stable");
+  expect(els.find((e) => e.data.id === "flow-2-1")!.classes).toBe("asset-stable highlighted");
+  expect(txElements(dto(), null, null).find((e) => e.data.id === "flow-1-0")!.classes).toBe("asset-stable");
+});

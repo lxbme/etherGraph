@@ -3,7 +3,7 @@ import { create } from "zustand";
 /** The detail section shown under a transaction's flow graph. */
 export type TxDetailTab = "overview" | "input" | "transfers" | "internal" | "logs" | "raw";
 
-export type Tab = { id: "graph" } | { id: string; kind: "tx"; hash: string; detailTab?: TxDetailTab };
+export type Tab = { id: "graph" } | { id: string; kind: "tx"; hash: string; detailTab?: TxDetailTab; highlightedSeq?: number | null };
 
 interface TabsState {
   tabs: Tab[];
@@ -13,6 +13,8 @@ interface TabsState {
   activate(id: string): void;
   /** Remembers a tx tab's detail section; no-op for unknown ids. */
   setDetailTab(id: string, detailTab: TxDetailTab): void;
+  /** Highlights the flow edge with this seq in a tx tab's graph (null clears); no-op for unknown ids. */
+  setHighlightedSeq(id: string, seq: number | null): void;
 }
 
 export const useTabs = create<TabsState>((set, get) => ({
@@ -38,5 +40,8 @@ export const useTabs = create<TabsState>((set, get) => ({
   },
   setDetailTab: (id, detailTab) => {
     set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && "kind" in t ? { ...t, detailTab } : t)) }));
+  },
+  setHighlightedSeq: (id, highlightedSeq) => {
+    set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && "kind" in t ? { ...t, highlightedSeq } : t)) }));
   },
 }));

@@ -2,11 +2,12 @@ import type { TxFlowDto } from "../../api/generated/TxFlowDto";
 import { useT } from "../../i18n";
 import { formatFixed } from "../../lib/amount";
 import { AddressCell } from "../../shell/AddressCell";
-import { nodeOf } from "./common";
+import { nodeOf, useFlowLink } from "./common";
 
 /** Value-carrying internal calls in execution order (Etherscan does not report zero-value ones). */
 export function InternalCallsTab({ flow }: { flow: TxFlowDto }) {
   const t = useT();
+  const { select, rowProps } = useFlowLink(flow.tx.hash);
   const rows = flow.flows.filter((f) => f.kind === "internal").sort((a, b) => a.seq - b.seq);
   return (
     <>
@@ -28,10 +29,10 @@ export function InternalCallsTab({ flow }: { flow: TxFlowDto }) {
             {rows.map((f, i) => {
               const v = formatFixed(f.amount, 18, "eth");
               return (
-                <tr key={`${f.seq}-${i}`}>
+                <tr key={`${f.seq}-${i}`} {...rowProps(f.seq)}>
                   <td className="num table__num">{f.seq}</td>
-                  <td><AddressCell address={f.from} node={nodeOf(flow, f.from)} /></td>
-                  <td><AddressCell address={f.to} node={nodeOf(flow, f.to)} /></td>
+                  <td><AddressCell address={f.from} node={nodeOf(flow, f.from)} onSelect={select} /></td>
+                  <td><AddressCell address={f.to} node={nodeOf(flow, f.to)} onSelect={select} /></td>
                   <td className="num table__num" title={v.full}>{v.text} ETH</td>
                   <td className="num">{f.trace_path ?? "—"}</td>
                 </tr>

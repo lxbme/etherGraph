@@ -34,8 +34,11 @@ export function callLabel(flow: TxFlowDto): string {
   return flow.call?.name ?? (flow.tx.selector ? t("tx.undecodedSelector", { selector: flow.tx.selector }) : t("tx.call"));
 }
 
-/** Nodes, a dashed call edge (tx.from → tx.to) and one solid edge per flow; edges to unknown nodes are skipped. */
-export function txElements(flow: TxFlowDto, selected?: string | null): cytoscape.ElementDefinition[] {
+/**
+ * Nodes, a dashed call edge (tx.from → tx.to) and one solid edge per flow; edges to unknown nodes are skipped.
+ * The flow with seq `highlightedSeq` (picked in a detail table) gets the `highlighted` class.
+ */
+export function txElements(flow: TxFlowDto, selected?: string | null, highlightedSeq?: number | null): cytoscape.ElementDefinition[] {
   const out: cytoscape.ElementDefinition[] = [];
   const present = new Set<string>();
   const sel = selected ? lc(selected) : null;
@@ -58,7 +61,7 @@ export function txElements(flow: TxFlowDto, selected?: string | null): cytoscape
     out.push({
       group: "edges",
       data: { id: `flow-${f.seq}-${i}`, source: lc(f.from), target: lc(f.to), width: 2.5, label: flowLabel(f) },
-      classes: `asset-${assetClass(f.asset, f.kind)}`,
+      classes: [`asset-${assetClass(f.asset, f.kind)}`, f.seq === highlightedSeq ? "highlighted" : ""].filter(Boolean).join(" "),
     });
   });
   return out;

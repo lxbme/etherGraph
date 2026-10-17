@@ -22,3 +22,18 @@ test("prefers the node's name", () => {
   );
   expect(screen.getByText("Alice")).toHaveAttribute("title", A);
 });
+
+test("with onSelect the name is a button reporting the address; the other buttons do not select", () => {
+  const onSelect = vi.fn();
+  render(<AddressCell address={A} onSelect={onSelect} />);
+  fireEvent.click(screen.getByRole("button", { name: "0xaaaa…aaaa" }));
+  expect(onSelect).toHaveBeenCalledWith(A);
+  fireEvent.click(screen.getByRole("button", { name: "Add to graph" }));
+  expect(onSelect).toHaveBeenCalledTimes(1);
+});
+
+test("without onSelect the name is plain text", () => {
+  render(<AddressCell address={A} />);
+  expect(screen.queryByRole("button", { name: "0xaaaa…aaaa" })).toBeNull();
+  expect(screen.getAllByRole("button")).toHaveLength(2); // copy, add to graph
+});

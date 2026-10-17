@@ -248,3 +248,44 @@ test("detail tabs use the shared table, segmented tabs and button styles with lo
   act(() => h.props!.onTapNode(B, { shift: false }));
   expect(within(screen.getByTestId("aside")).getByRole("button", { name: "Add to graph" })).toHaveClass("btn");
 });
+
+test("detail table address names select the node in the tx graph and the right panel follows", async () => {
+  vi.spyOn(api, "tx").mockResolvedValue(ready());
+  renderView();
+  await screen.findByTestId("tx-detail");
+  detailTab("Token Transfers");
+  const row = detail().getAllByRole("row")[1]!;
+  // Copy / add-to-graph buttons neither select nor highlight.
+  fireEvent.click(within(row).getAllByRole("button", { name: "Add to graph" })[1]!);
+  expect(useUi.getState().txSelection[HASH] ?? null).toBeNull();
+  expect(row).not.toHaveClass("txdetail__row--active");
+  fireEvent.click(within(row).getByRole("button", { name: "Router" }));
+  expect(useUi.getState().txSelection[HASH]).toBe(B);
+  expect(screen.getByTestId("aside")).toHaveTextContent(`detail:${B}`);
+  expect(h.props!.elements.find((e) => e.data.id === B)!.classes).toContain("selected");
+  expect(row).not.toHaveClass("txdetail__row--active");
+});
+
+test("clicking a token-transfer or internal-call row highlights its flow edge; clicking again clears it", async () => {
+  const internal: FlowDto = { ...flow, seq: 2, kind: "internal", asset: null, amount: "1", decimals: 18, symbol: null, log_index: null, trace_path: "0_1" };
+  vi.spyOn(api, "tx").mockResolvedValue(ready({ flows: [flow, internal] }));
+  renderView();
+  await screen.findByTestId("tx-detail");
+  const edge = (id: string) => h.props!.elements.find((e) => e.data.id === id)!;
+  detailTab("Token Transfers");
+  const amount = detail().getByText("12.50");
+  fireEvent.click(amount);
+  expect(amount.closest("tr")).toHaveClass("txdetail__row--active");
+  expect(edge("flow-1-0").classes).toContain("highlighted");
+  expect(edge("flow-2-1").classes).not.toContain("highlighted");
+  fireEvent.click(amount);
+  expect(amount.closest("tr")).not.toHaveClass("txdetail__row--active");
+  expect(edge("flow-1-0").classes).not.toContain("highlighted");
+
+  detailTab("Internal Calls");
+  fireEvent.click(detail().getByText("0_1"));
+  expect(detail().getByText("0_1").closest("tr")).toHaveClass("txdetail__row--active");
+  expect(edge("flow-2-1").classes).toContain("highlighted");
+  expect(edge("flow-1-0").classes).not.toContain("highlighted");
+  expect(useTabs.getState().tabs.find((t) => t.id === HASH)).toMatchObject({ highlightedSeq: 2 });
+});

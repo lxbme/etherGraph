@@ -10,6 +10,7 @@ import { txFlowStylesheet } from "../graph/styles";
 import { NodeDetail } from "../panels/NodeDetail";
 import { useUi } from "../panels/uiStore";
 import { useJobProgress } from "../shell/statusStore";
+import { useTabs } from "../shell/tabs";
 import { useTheme } from "../shell/theme";
 import { txElements } from "./txElements";
 import { addToGraph } from "./txdetail/common";
@@ -64,8 +65,15 @@ export function TxFlowView({ hash }: { hash: string }) {
   const selected = useUi((s) => s.txSelection[hash.toLowerCase()] ?? null);
   const selectTx = useUi((s) => s.selectTx);
   const setSelected = useCallback((a: string | null) => selectTx(hash, a), [selectTx, hash]);
+  const highlightedSeq = useTabs((s) => {
+    const entry = s.tabs.find((x) => x.id === hash.toLowerCase());
+    return entry && "kind" in entry ? (entry.highlightedSeq ?? null) : null;
+  });
   const flow = q.data?.status === "ready" ? q.data.flow : null;
-  const elements = useMemo(() => (flow ? txElements(flow, selected) : []), [flow, selected, locale]); // labels are translated when built
+  const elements = useMemo(
+    () => (flow ? txElements(flow, selected, highlightedSeq) : []),
+    [flow, selected, highlightedSeq, locale], // labels are translated when built
+  );
   useEffect(
     () => () => {
       exposeTxCy(hash, null);
