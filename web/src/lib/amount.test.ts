@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatAmount, parseHumanAmount } from "./amount";
+import { formatAmount, formatFixed, parseHumanAmount } from "./amount";
 
 const MAX = (2n ** 256n - 1n).toString();
 
@@ -59,5 +59,43 @@ describe("parseHumanAmount", () => {
     for (const s of ["0,001", "00,001", "01,000", "1,0000", "1234,567", "1,00,000", "0,000"]) {
       expect(parseHumanAmount(s, 6), s).toBeNull();
     }
+  });
+});
+
+describe("formatFixed", () => {
+  test("pads to the asset class's fixed decimals", () => {
+    expect(formatFixed("1000000000000000000", 18, "eth").text).toBe("1.000000");
+    expect(formatFixed("0", 18, "eth").text).toBe("0.000000");
+    expect(formatFixed("5", 0, "erc20").text).toBe("5.0000");
+    expect(formatFixed("7", 0, "nft").text).toBe("7");
+  });
+  test("truncates instead of rounding", () => {
+    expect(formatFixed("1234500", 6, "stable").text).toBe("1.23");
+    expect(formatFixed("1999999", 6, "stable").text).toBe("1.99");
+    expect(formatFixed("1999999999999999999", 18, "eth").text).toBe("1.999999");
+  });
+  test("a non-zero value that truncates to zero shows the smallest step", () => {
+    expect(formatFixed("1", 18, "eth").text).toBe("<0.000001");
+    expect(formatFixed("1", 6, "stable").text).toBe("<0.01");
+    expect(formatFixed("1", 18, "erc20").text).toBe("<0.0001");
+  });
+  test("handles 2^256-1 and keeps the untruncated value in full", () => {
+    const r = formatFixed(MAX, 18, "erc20");
+    expect(r.text).toBe("115,792,089,237,316,195,423,570,985,008,687,907,853,269,984,665,640,564,039,457.5840");
+    expect(r.full).toBe("115,792,089,237,316,195,423,570,985,008,687,907,853,269,984,665,640,564,039,457.584007913129639935");
+    expect(r.unknownDecimals).toBe(false);
+  });
+  test("full drops trailing zeros only", () => {
+    expect(formatFixed("1000000000000000000", 18, "eth").full).toBe("1");
+    expect(formatFixed("1234500", 6, "stable").full).toBe("1.2345");
+    expect(formatFixed("1", 18, "eth").full).toBe("0.000000000000000001");
+    expect(formatFixed("5", 0, "erc20").full).toBe("5");
+  });
+  test("unknown decimals show the raw integer", () => {
+    expect(formatFixed("42", null, "erc20")).toEqual({ text: "42", full: "42", unknownDecimals: true });
+    expect(formatFixed("1234567", null, "erc20").text).toBe("1,234,567");
+  });
+  test("invalid raw", () => {
+    expect(formatFixed("12a", 6, "stable")).toEqual({ text: "?", full: "12a", unknownDecimals: false });
   });
 });

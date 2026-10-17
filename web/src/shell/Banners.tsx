@@ -1,14 +1,14 @@
 import { AlertTriangle } from "lucide-react";
 import type { ReactNode } from "react";
 import { useT } from "../i18n";
-import { formatTime } from "../lib/format";
+import { formatLocalTime, formatTime } from "../lib/format";
 import { useQuota, useSseState } from "./statusStore";
 
-function Banner({ kind, children }: { kind: "warn" | "fatal"; children: ReactNode }) {
+function Banner({ kind, title, children }: { kind: "warn" | "fatal"; title?: string; children: ReactNode }) {
   return (
     <div className={`banner banner--${kind}`} role="alert">
       <AlertTriangle className="banner__icon" size={16} />
-      <span>{children}</span>
+      <span title={title}>{children}</span>
     </div>
   );
 }
@@ -22,7 +22,11 @@ export function Banners() {
     <div className="banners">
       {degraded === "invalid_key" && <Banner kind="fatal">{t("banner.invalidKey")}</Banner>}
       {sseDown && <Banner kind="warn">{t("banner.sseDown")}</Banner>}
-      {quota?.paused && <Banner kind="warn">{t("banner.quotaPaused", { time: formatTime(quota.reset_at) })}</Banner>}
+      {quota?.paused && (
+        <Banner kind="warn" title={formatLocalTime(quota.reset_at)}>
+          {t("banner.quotaPaused", { time: formatTime(quota.reset_at) })}
+        </Banner>
+      )}
     </div>
   );
 }

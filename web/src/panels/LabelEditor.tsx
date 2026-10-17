@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
@@ -18,6 +18,7 @@ const MAX = 64;
 export function LabelEditor({ address, onClose }: { address: string; onClose: () => void }) {
   const qc = useQueryClient();
   const tr = useT();
+  const textId = useId();
   const [text, setText] = useState("");
   const [category, setCategory] = useState<Category>("other");
   const trimmed = text.trim();
@@ -43,16 +44,25 @@ export function LabelEditor({ address, onClose }: { address: string; onClose: ()
         if (valid && !add.isPending) add.mutate();
       }}
     >
-      <label>
-        {tr("label.text")}
-        <input value={text} onChange={(e) => setText(e.target.value)} autoFocus />
-      </label>
-      <span className={len > MAX ? "label-editor__count label-editor__count--bad" : "label-editor__count"}>
-        {len}/{MAX}
-      </span>
-      <label>
+      <div className="label-editor__field">
+        <span className="label-editor__head">
+          <label htmlFor={textId}>{tr("label.text")}</label>
+          <span className={len > MAX ? "label-editor__count label-editor__count--bad num" : "label-editor__count num"}>
+            {len}/{MAX}
+          </span>
+        </span>
+        <input
+          id={textId}
+          className="input input--compact"
+          aria-invalid={len > MAX}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          autoFocus
+        />
+      </div>
+      <label className="label-editor__field">
         {tr("label.category")}
-        <select value={category} onChange={(e) => setCategory(e.target.value as Category)}>
+        <select className="input input--compact" value={category} onChange={(e) => setCategory(e.target.value as Category)}>
           {CATEGORIES.map((c) => (
             <option key={c} value={c}>{tr(`category.${c}`)}</option>
           ))}
@@ -60,8 +70,8 @@ export function LabelEditor({ address, onClose }: { address: string; onClose: ()
       </label>
       {add.isError && <div className="detail__error" role="alert">{messageFor(add.error)}</div>}
       <div className="label-editor__actions">
-        <button type="submit" disabled={!valid || add.isPending}>{tr("label.add")}</button>
-        <button type="button" onClick={onClose}>{tr("common.cancel")}</button>
+        <button type="button" className="btn btn--compact" onClick={onClose}>{tr("common.cancel")}</button>
+        <button type="submit" className="btn btn--compact btn--primary" disabled={!valid || add.isPending}>{tr("label.add")}</button>
       </div>
     </form>
   );

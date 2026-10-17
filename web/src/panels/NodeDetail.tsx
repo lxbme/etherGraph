@@ -1,13 +1,18 @@
+import { Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
+import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { SyncStatusDto } from "../api/generated/SyncStatusDto";
 import { qk } from "../api/queryClient";
+import { neighborsOf } from "../graph/neighbors";
 import { useGraph } from "../graph/store";
-import { formatTime } from "../lib/format";
+import { useGraphData } from "../graph/useGraphData";
+import { formatCount, formatLocalTime, formatTime } from "../lib/format";
 import { shortAddr } from "../lib/address";
 import { type MsgKey, useT } from "../i18n";
+import { CopyButton } from "../shell/CopyButton";
 import { toast } from "../shell/Toasts";
 import { useTabs } from "../shell/tabs";
 import { LabelEditor, categoryName } from "./LabelEditor";
@@ -22,13 +27,32 @@ const KINDS: { value: SyncStatusDto["kind"]; label: MsgKey | null }[] = [
 ];
 const STATE_KEYS: Record<SyncStatusDto["state"], MsgKey> = { syncing: "sync.syncing", ok: "sync.ok", failed: "sync.failed" };
 const KIND_KEYS: Record<string, MsgKey> = { eoa: "node.kind.eoa", contract: "node.kind.contract", unknown: "node.kind.unknown" };
+/** Categories with their own hue; anything else uses the neutral tag. */
+const HUED = new Set(["exchange", "defi", "bridge", "mixer", "scam", "sanctioned"]);
+
+/** Transfer count and distinct counterparties over the canvas edges touching `address`; null when none do. */
+function canvasStats(address: string, edges: EdgeDto[]): { transfers: number; neighbours: number } | null {
+  const a = address.toLowerCase();
+  let transfers = 0;
+  let touched = false;
+  for (const e of edges) {
+    if (e.from.toLowerCase() !== a && e.to.toLowerCase() !== a) continue;
+    touched = true;
+    transfers += e.count;
+  }
+  return touched ? { transfers, neighbours: neighborsOf(a, edges).length } : null;
+}
+
+function Time({ iso }: { iso: string }) {
+  return <span className="num" title={formatLocalTime(iso)}>{formatTime(iso)}</span>;
+}
 
 function AddrButton({ addr, onNavigate }: { addr: string; onNavigate?: (addr: string) => void }) {
   const addCenter = useGraph((s) => s.addCenter);
   const select = useGraph((s) => s.select);
   return (
     <button
-      className="detail__link detail__mono"
+      className="detail__link num"
       title={addr}
       onClick={() => {
         if (onNavigate) return onNavigate(addr.toLowerCase());
@@ -51,6 +75,7 @@ function Note({ address }: { address: string }) {
     <label className="detail__note">
       {t("node.note")}
       <textarea
+        className="input detail__textarea"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => {
@@ -68,6 +93,7 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
   const editorFor = useUi((u) => u.labelEditorFor);
   const closeEditor = useUi((u) => u.closeLabelEditor);
   const openEditor = useUi((u) => u.openLabelEditor);
+  const { data: graph } = useGraphData();
   const q = useQuery({ queryKey: qk.address(address), queryFn: () => api.address(address) });
 
   const sync = useMutation({
@@ -90,20 +116,71 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
   const n = p.node;
   const coverage = new Map(p.coverage.map((c) => [c.kind, c]));
   const anyTruncated = p.coverage.some((c) => c.truncated);
-  const copy = () => {
-    if (!navigator.clipboard) return toast(t("common.copyFailed"), "error");
-    navigator.clipboard.writeText(address).then(() => toast(t("common.copied"))).catch(() => toast(t("common.copyFailed"), "error"));
-  };
+  const covered = KINDS.filter((k) => coverage.get(k.value)?.to_block != null).length;
+  const stats = canvasStats(address, graph?.edges ?? []);
+  const categories = [...new Set(n.labels.map((l) => l.category))];
+  const syncKey: MsgKey = n.syncing ? "sync.syncing" : n.synced ? "sync.ok" : "node.notSynced";
 
   return (
     <div className="detail__section">
-      <h3 className="detail__title">{n.display_name ?? shortAddr(address)}</h3>
-      <div>
-        <span className="detail__mono detail__addr">{address}</span>
-        <button onClick={copy}>{t("common.copy")}</button>
+      {/* 1. Kind */}
+      <div className="overline">{KIND_KEYS[n.kind] ? t(KIND_KEYS[n.kind]!) : n.kind}</div>
+      {n.display_name && <h3 className="detail__title">{n.display_name}</h3>}
+
+      {/* 2. Address */}
+      <div className="detail__addr">
+        <span className="num">{address}</span>
+        <CopyButton value={address} />
       </div>
-      <dl className="detail__props">
-        <dt>{t("node.type")}</dt><dd>{KIND_KEYS[n.kind] ? t(KIND_KEYS[n.kind]!) : n.kind}</dd>
+
+      {/* 3. Tags: categories, sync state, labels */}
+      <div className="detail__tags" data-testid="node-tags">
+        {categories.map((c) => (
+          <span key={`cat:${c}`} className={`tag tag--${HUED.has(c) ? c : "neutral"}`}>{categoryName(c)}</span>
+        ))}
+        <span className="tag tag--neutral">{t(syncKey)}</span>
+        {n.partial && <span className="tag tag--warn">{t("node.truncated")}</span>}
+        {n.labels.map((l) => {
+          const imported = l.source.startsWith("import:");
+          return (
+            <span
+              key={l.id}
+              className="tag"
+              title={imported ? `${categoryName(l.category)} · ${l.source.slice("import:".length)}` : categoryName(l.category)}
+            >
+              {l.text}
+              {!imported && (
+                <button type="button" className="tag__remove" aria-label={t("label.delete")} onClick={() => del.mutate(l.id)}>
+                  <X size={12} />
+                </button>
+              )}
+            </span>
+          );
+        })}
+        {editorFor !== address && (
+          <button type="button" className="btn btn--ghost btn--compact" onClick={() => openEditor(address)}>
+            <Plus size={14} />
+            {t("label.addButton")}
+          </button>
+        )}
+      </div>
+      {del.isError && <div className="detail__error" role="alert">{messageFor(del.error)}</div>}
+      {editorFor === address && <LabelEditor address={address} onClose={closeEditor} />}
+
+      {/* 4. Balance: no data until probing lands, so no row yet. */}
+
+      {/* 5. Key/value grid */}
+      <dl className="kv" data-testid="node-kv">
+        <dt>{t("node.transactions")}</dt>
+        <dd className="num" title={t("node.canvasCount")}>{stats ? formatCount(stats.transfers) : "—"}</dd>
+        <dt>{t("node.firstSeen")}</dt>
+        <dd>{p.first_seen ? <Time iso={p.first_seen} /> : "—"}</dd>
+        <dt>{t("node.lastSeen")}</dt>
+        <dd>{p.last_seen ? <Time iso={p.last_seen} /> : "—"}</dd>
+        <dt>{t("node.neighbours")}</dt>
+        <dd className="num" title={t("node.canvasCount")}>{stats ? formatCount(stats.neighbours) : "—"}</dd>
+        <dt>{t("node.coverageShort")}</dt>
+        <dd className="num">{`${covered} / ${KINDS.length}`}</dd>
         {n.ens && (<><dt>ENS</dt><dd>{n.ens}</dd></>)}
         {n.contract_name && (<><dt>{t("node.contractName")}</dt><dd>{n.contract_name}</dd></>)}
         {p.is_proxy && (
@@ -117,17 +194,21 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
           <>
             <dt>{t("node.deployTx")}</dt>
             <dd>
-              <button className="detail__link detail__mono" title={p.creation_tx} onClick={() => openTx(p.creation_tx!)}>
+              <button className="detail__link num" title={p.creation_tx} onClick={() => openTx(p.creation_tx!)}>
                 {shortAddr(p.creation_tx)}
               </button>
             </dd>
           </>
         )}
-        {p.first_seen && (<><dt>{t("node.firstSeen")}</dt><dd>{formatTime(p.first_seen)}</dd></>)}
-        {p.last_seen && (<><dt>{t("node.lastSeen")}</dt><dd>{formatTime(p.last_seen)}</dd></>)}
       </dl>
 
-      <h4>{t("node.coverage")}</h4>
+      {/* 6. Primary action */}
+      <div className="detail__actions">
+        <button className="btn btn--primary" onClick={() => sync.mutate(undefined)}>{t("node.syncRefresh")}</button>
+        {anyTruncated && <button className="btn" onClick={() => sync.mutate("older")}>{t("node.fetchOlder")}</button>}
+      </div>
+
+      <h4 className="overline">{t("node.coverage")}</h4>
       <ul className="detail__list">
         {KINDS.map((k) => {
           const c = coverage.get(k.value);
@@ -136,44 +217,21 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
               <span>{k.label ? t(k.label) : k.value.toUpperCase()}</span>
               {c ? (
                 <>
-                  <span className="detail__mono">
+                  <span className="detail__state">
+                    {c.truncated && <span className="tag tag--warn">{t("node.truncated")}</span>}
+                    {t(STATE_KEYS[c.state])}
+                  </span>
+                  <span className="num detail__range">
                     {c.from_block === null || c.to_block === null ? "—" : `${c.from_block} – ${c.to_block}`}
                   </span>
-                  {c.truncated && <span className="detail__tag">{t("node.truncated")}</span>}
-                  <span>{t(STATE_KEYS[c.state])}</span>
                 </>
               ) : (
-                <span className="detail__muted">{t("node.notSynced")}</span>
+                <span className="detail__state detail__muted">{t("node.notSynced")}</span>
               )}
             </li>
           );
         })}
       </ul>
-      <div className="detail__actions">
-        <button onClick={() => sync.mutate(undefined)}>{t("node.syncRefresh")}</button>
-        {anyTruncated && <button onClick={() => sync.mutate("older")}>{t("node.fetchOlder")}</button>}
-      </div>
-
-      <h4>{t("node.labels")}</h4>
-      <ul className="detail__list">
-        {n.labels.map((l) => (
-          <li key={l.id}>
-            <span>{l.text}</span>
-            <span className="detail__muted">{categoryName(l.category)}</span>
-            {l.source.startsWith("import:") ? (
-              <span className="detail__muted">{l.source.slice("import:".length)}</span>
-            ) : (
-              <button aria-label={t("label.delete")} onClick={() => del.mutate(l.id)}>×</button>
-            )}
-          </li>
-        ))}
-      </ul>
-      {del.isError && <div className="detail__error" role="alert">{messageFor(del.error)}</div>}
-      {editorFor === address ? (
-        <LabelEditor address={address} onClose={closeEditor} />
-      ) : (
-        <button onClick={() => openEditor(address)}>{t("label.addButton")}</button>
-      )}
 
       <Note address={address} />
     </div>

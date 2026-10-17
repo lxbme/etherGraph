@@ -8,6 +8,7 @@ import { toast } from './Toasts'
 import { api } from '../api/endpoints'
 import { queryClient } from '../api/queryClient'
 import { useUi } from '../panels/uiStore'
+import { formatLocalTime } from '../lib/format'
 
 // Cytoscape cannot render in jsdom and the SSE stream is covered by api/useEvents.test.tsx.
 vi.mock('../graph/CytoscapeView', () => ({ CytoscapeView: () => <div data-testid="cy" /> }))
@@ -127,7 +128,8 @@ describe('banners', () => {
   it('quota paused shows the reset time banner', () => {
     useQuota.setState({ quota: { used: 100, limit: 100, paused: true, reset_at: '2026-10-18T00:00:00Z' } })
     render(<App />)
-    expect(screen.getByText(/Etherscan quota used up for today; resets at .+/)).toBeInTheDocument()
+    const text = screen.getByText('Etherscan quota used up for today; resets at 2026-10-18 00:00:00')
+    expect(text).toHaveAttribute('title', formatLocalTime('2026-10-18T00:00:00Z'))
   })
 
   it('invalid_key degraded shows the fatal banner', () => {

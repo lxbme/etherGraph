@@ -86,10 +86,10 @@ test("imported labels have no delete button; user labels do", async () => {
   const del = vi.spyOn(api, "deleteLabel").mockResolvedValue(undefined as never);
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderPanel();
-  const imported = (await screen.findByText("Binance 14")).closest("li")!;
-  expect(within(imported).queryByRole("button")).toBeNull();
-  expect(within(imported).getByText("etherscan-labels")).toBeInTheDocument();
-  const user = screen.getByText("mine").closest("li")!;
+  const imported = (await screen.findByText("Binance 14")).closest(".tag")!;
+  expect(within(imported as HTMLElement).queryByRole("button")).toBeNull();
+  expect(imported).toHaveAttribute("title", "Exchange · etherscan-labels");
+  const user = screen.getByText("mine").closest(".tag") as HTMLElement;
   fireEvent.click(within(user).getByRole("button", { name: "Delete label" }));
   await waitFor(() => expect(del).toHaveBeenCalledWith(2));
 });
@@ -166,10 +166,13 @@ test("edge detail toggles the pair expansion", async () => {
     useGraph.getState().select({ kind: "pair", a: A, b: B });
   });
   renderPanel();
-  const eth = (await screen.findByText("ETH")).closest("li")!;
+  const eth = (await screen.findByText("ETH")).closest("tr")!;
+  expect(within(eth).getByText("A → B")).toBeInTheDocument();
   expect(within(eth).getByText("3")).toBeInTheDocument();
-  expect(within(eth).getByText("1.5")).toBeInTheDocument();
-  expect(screen.getByText("USDC").closest("li")).toHaveTextContent("2");
+  expect(within(eth).getByText("1.500000")).toHaveAttribute("title", "1.5");
+  const usdc = screen.getByText("USDC").closest("tr")!;
+  expect(within(usdc).getByText("B → A")).toBeInTheDocument();
+  expect(within(usdc).getByText("2.0000")).toHaveClass("num"); // an unlisted token: erc20 class, 4 places
   fireEvent.click(screen.getByRole("button", { name: "Expand parallel edges" }));
   expect(useGraph.getState().expandedPairs.has(pairKey(A, B))).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Collapse parallel edges" }));

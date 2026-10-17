@@ -12,7 +12,7 @@ import { graphStylesheet } from "../graph/styles";
 import { shortAddr } from "../lib/address";
 import { formatAmount } from "../lib/amount";
 import { assetClass } from "../lib/assets";
-import { formatTime } from "../lib/format";
+import { formatLocalTime, formatTime } from "../lib/format";
 import { NodeDetail } from "../panels/NodeDetail";
 import { useUi } from "../panels/uiStore";
 import { useJobProgress } from "../shell/statusStore";
@@ -78,7 +78,7 @@ function Header({ flow }: { flow: TxFlowDto }) {
           {tx.success ? t("tx.success") : t("tx.failed")}
         </span>
         <span>{t("tx.block")} <b>{tx.block_number}</b></span>
-        <span>{formatTime(tx.ts)}</span>
+        <span className="num" title={formatLocalTime(tx.ts)}>{formatTime(tx.ts)}</span>
         <span>{t("tx.fee")} <b>{formatAmount(tx.fee, 18).text} ETH</b></span>
       </div>
     </div>

@@ -48,7 +48,7 @@ function Table({
   const t = useT();
   if (jobs.length === 0) return <p className="jobs__empty">{empty}</p>;
   return (
-    <table className="jobs__table">
+    <table className="table table--inset">
       <thead>
         <tr>
           <th>{t("jobs.col.kind")}</th>

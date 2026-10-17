@@ -187,42 +187,48 @@ function FilterForm({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="filter__popover" role="dialog" aria-label={t("filter.button")}>
+    <div className="popover filter__popover" role="dialog" aria-label={t("filter.button")}>
       <fieldset className="filter__group">
-        <legend>{t("filter.time")}</legend>
-        <label>
-          {t("filter.from")}
-          <input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} />
-        </label>
-        <label>
-          {t("filter.to")}
-          <input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} />
-        </label>
+        <legend className="popover__section">{t("filter.time")}</legend>
+        <div className="filter__times">
+          <label className="filter__field">
+            {t("filter.from")}
+            <input className="input input--compact" type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </label>
+          <label className="filter__field">
+            {t("filter.to")}
+            <input className="input input--compact" type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} />
+          </label>
+        </div>
         {timeInvalid && <span className="filter__error">{t("filter.timeInvalid")}</span>}
       </fieldset>
 
       <fieldset className="filter__group">
-        <legend>{t("filter.kinds")}</legend>
-        {KINDS.map((k) => (
-          <label key={k.value}>
-            <input type="checkbox" checked={kinds.has(k.value)} onChange={() => setKinds(toggle(kinds, k.value))} />
-            {k.label ? t(k.label) : k.value.toUpperCase()}
-          </label>
-        ))}
+        <legend className="popover__section">{t("filter.kinds")}</legend>
+        <div className="filter__chips">
+          {KINDS.map((k) => (
+            <label key={k.value} className={`chip chip--toggle${kinds.has(k.value) ? " chip--active" : ""}`}>
+              <input type="checkbox" checked={kinds.has(k.value)} onChange={() => setKinds(toggle(kinds, k.value))} />
+              {k.label ? t(k.label) : k.value.toUpperCase()}
+            </label>
+          ))}
+        </div>
       </fieldset>
 
       <fieldset className="filter__group">
-        <legend>{t("filter.direction")}</legend>
-        {DIRECTIONS.map((d) => (
-          <label key={d.value}>
-            <input type="radio" name="filter-direction" checked={direction === d.value} onChange={() => setDirection(d.value)} />
-            {t(d.label)}
-          </label>
-        ))}
+        <legend className="popover__section">{t("filter.direction")}</legend>
+        <div className="seg">
+          {DIRECTIONS.map((d) => (
+            <label key={d.value} className="seg__item">
+              <input type="radio" name="filter-direction" checked={direction === d.value} onChange={() => setDirection(d.value)} />
+              {t(d.label)}
+            </label>
+          ))}
+        </div>
       </fieldset>
 
       <fieldset className="filter__group">
-        <legend>{t("filter.assets")}</legend>
+        <legend className="popover__section">{t("filter.assets")}</legend>
         {options.length === 0 && <span className="filter__hint">{t("filter.noAssets")}</span>}
         {options.map((o) => {
           const checked = assets.has(o.key);
@@ -231,7 +237,7 @@ function FilterForm({ onClose }: { onClose: () => void }) {
           const valid = thresholdValid(o, text);
           return (
             <div className="filter__asset" key={o.key}>
-              <label>
+              <label className="filter__check">
                 <input
                   type="checkbox"
                   checked={checked}
@@ -246,7 +252,7 @@ function FilterForm({ onClose }: { onClose: () => void }) {
               {checked && (
                 <>
                   <input
-                    className={`filter__threshold${valid ? "" : " filter__threshold--invalid"}`}
+                    className="input input--compact num filter__threshold"
                     aria-label={t("filter.minAmountFor", { asset: o.label })}
                     aria-invalid={!valid}
                     placeholder={t("filter.minAmount")}
@@ -264,24 +270,26 @@ function FilterForm({ onClose }: { onClose: () => void }) {
       </fieldset>
 
       <fieldset className="filter__group">
-        <legend>{t("filter.sort")}</legend>
-        {SORTS.map((s) => (
-          <label key={s.value}>
-            <input
-              type="radio"
-              name="filter-sort"
-              checked={effectiveSort === s.value}
-              disabled={s.value === "amount" && !canAmountSort}
-              onChange={() => setSort(s.value)}
-            />
-            {t(s.label)}
-          </label>
-        ))}
+        <legend className="popover__section">{t("filter.sort")}</legend>
+        <div className="seg">
+          {SORTS.map((s) => (
+            <label key={s.value} className="seg__item">
+              <input
+                type="radio"
+                name="filter-sort"
+                checked={effectiveSort === s.value}
+                disabled={s.value === "amount" && !canAmountSort}
+                onChange={() => setSort(s.value)}
+              />
+              {t(s.label)}
+            </label>
+          ))}
+        </div>
       </fieldset>
 
       <div className="filter__actions">
         <button className="btn" onClick={reset}>{t("filter.reset")}</button>
-        <button className="btn filter__apply" onClick={apply} disabled={anyInvalid || timeInvalid}>{t("filter.apply")}</button>
+        <button className="btn btn--primary" onClick={apply} disabled={anyInvalid || timeInvalid}>{t("filter.apply")}</button>
       </div>
     </div>
   );

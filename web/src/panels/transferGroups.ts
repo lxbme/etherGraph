@@ -5,6 +5,7 @@ export interface TransferGroup {
   from: string;
   to: string;
   asset: string | null;
+  kind: EdgeDto["asset_kind"];
   count: number;
   sum: string;
   decimals: number | null;
@@ -26,6 +27,7 @@ export function groupsForPair(edges: EdgeDto[], a: string, b: string): TransferG
       from: e.from.toLowerCase(),
       to: e.to.toLowerCase(),
       asset: e.asset === null ? null : e.asset.toLowerCase(),
+      kind: e.asset_kind,
       count: e.count,
       sum: e.sum,
       decimals: e.decimals,

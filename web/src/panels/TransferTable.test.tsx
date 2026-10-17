@@ -8,6 +8,7 @@ import { ApiError } from "../api/errors";
 import { graphQueryKey } from "../graph/useGraphData";
 import { useGraph } from "../graph/store";
 import { useTabs } from "../shell/tabs";
+import { formatLocalTime } from "../lib/format";
 import { TransferTable } from "./TransferTable";
 import { groupsForPair } from "./transferGroups";
 
@@ -218,4 +219,33 @@ test("errors render inline with retry", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await screen.findByText("No matching transfers");
   expect(spy).toHaveBeenCalledTimes(2);
+});
+
+test("amounts use fixed per-class decimals in a right-aligned num cell with the full value as title", async () => {
+  vi.spyOn(api, "transfers").mockResolvedValue({
+    items: [
+      tr({ amount: "1234567890123456789" }),
+      tr({ sub_id: "1", amount: "1239999", decimals: 6, asset: USDC, kind: "erc20", symbol: "USDC" }),
+    ],
+    next_cursor: null,
+  });
+  act(() => useGraph.getState().select({ kind: "node", address: A }));
+  renderTable();
+  const eth = await screen.findByText("1.234567");
+  expect(eth.tagName).toBe("TD");
+  expect(eth).toHaveClass("num", "table__num");
+  expect(eth).toHaveAttribute("title", "1.234567890123456789");
+  const usdc = screen.getByText("1.23");
+  expect(usdc).toHaveClass("num");
+  expect(usdc).toHaveAttribute("title", "1.239999");
+  expect(usdc.nextElementSibling).toHaveTextContent("USDC");
+});
+
+test("times render in UTC with the local time as title", async () => {
+  vi.spyOn(api, "transfers").mockResolvedValue({ items: [tr({ ts: "2026-10-16T04:11:07Z" })], next_cursor: null });
+  act(() => useGraph.getState().select({ kind: "node", address: A }));
+  renderTable();
+  const cell = await screen.findByText("2026-10-16 04:11:07");
+  expect(cell).toHaveAttribute("title", formatLocalTime("2026-10-16T04:11:07Z"));
+  expect(screen.getByRole("columnheader", { name: "Time (UTC)" })).toBeInTheDocument();
 });

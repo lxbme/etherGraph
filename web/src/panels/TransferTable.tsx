@@ -1,4 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { api, type TransfersParams } from "../api/endpoints";
 import { messageFor } from "../api/errors";
@@ -11,8 +12,9 @@ import { useAssetRegistry } from "../graph/assetRegistry";
 import { useGraph } from "../graph/store";
 import { useGraphData } from "../graph/useGraphData";
 import { shortAddr } from "../lib/address";
-import { formatAmount } from "../lib/amount";
-import { formatTime } from "../lib/format";
+import { formatFixed } from "../lib/amount";
+import { assetClass } from "../lib/assets";
+import { formatLocalTime, formatTime } from "../lib/format";
 import { useTabs } from "../shell/tabs";
 import { groupsForPair, type TransferGroup } from "./transferGroups";
 
@@ -41,19 +43,23 @@ function symbolOf(asset: string | null, symbol: string | null): string {
   return symbol ?? (asset === null ? "ETH" : shortAddr(asset));
 }
 
-function Amount({ raw, decimals }: { raw: string; decimals: number | null }) {
+function UnknownDecimals() {
   const t = useT();
-  const f = formatAmount(raw, decimals);
   return (
-    <>
+    <span className="transfers__warn" title={t("transfers.unknownDecimals")}>
+      <AlertTriangle size={12} aria-hidden="true" />
+    </span>
+  );
+}
+
+/** Right-aligned fixed-decimal amount cell; the exact value is the title. */
+function AmountCell({ row }: { row: TransferDto }) {
+  const f = formatFixed(row.amount, row.decimals, assetClass(row.asset, row.kind));
+  return (
+    <td className="num table__num" title={f.full}>
+      {f.unknownDecimals && <UnknownDecimals />}
       {f.text}
-      {f.unknownDecimals && (
-        <span className="transfers__warn" title={t("transfers.unknownDecimals")}>
-          {" "}
-          ⚠
-        </span>
-      )}
-    </>
+    </td>
   );
 }
 
@@ -73,7 +79,7 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
     return (
       <div className="transfers__msg transfers__msg--error" role="alert">
         {messageFor(q.error)}{" "}
-        <button type="button" className="btn" onClick={() => void q.refetch()}>
+        <button type="button" className="btn btn--compact" onClick={() => void q.refetch()}>
           {t("common.retry")}
         </button>
       </div>
@@ -94,13 +100,14 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
 
   return (
     <>
-      <table className="transfers__table">
+      <table className="table">
         <thead>
           <tr>
             <th>{t("transfers.col.time")}</th>
             <th>{t("transfers.col.direction")}</th>
             <th>{t("transfers.col.counterparty")}</th>
-            <th>{t("transfers.col.amount")}</th>
+            <th className="table__num">{t("transfers.col.amount")}</th>
+            <th>{t("transfers.col.asset")}</th>
             <th>{t("transfers.col.type")}</th>
             <th>{t("transfers.col.hash")}</th>
           </tr>
@@ -110,7 +117,7 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
             const from = row.from.toLowerCase();
             const to = row.to.toLowerCase();
             const asset = row.asset === null ? null : row.asset.toLowerCase();
-            const dir = t(from === sel && to === sel ? "transfers.dir.self" : to === sel ? "transfers.dir.in" : "transfers.dir.out");
+            const dir = from === sel && to === sel ? "self" : to === sel ? "in" : "out";
             const other = from === sel ? row.to : row.from;
             const active = !!highlight && highlight.from === from && highlight.to === to && highlight.asset === asset;
             return (
@@ -120,17 +127,16 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
                 data-testid="transfer-row"
                 onClick={() => onRow(row)}
               >
-                <td>{formatTime(row.ts)}</td>
-                <td>{dir}</td>
-                <td title={other}>{shortAddr(other)}</td>
-                <td className="transfers__amount">
-                  <Amount raw={row.amount} decimals={row.decimals} /> {symbolOf(row.asset, row.symbol)}
-                </td>
-                <td>{row.kind}</td>
+                <td className="num" title={formatLocalTime(row.ts)}>{formatTime(row.ts)}</td>
+                <td className={`transfers__dir transfers__dir--${dir}`}>{t(`transfers.dir.${dir}`)}</td>
+                <td className="num" title={other}>{shortAddr(other)}</td>
+                <AmountCell row={row} />
+                <td>{symbolOf(row.asset, row.symbol)}</td>
+                <td className="transfers__muted">{row.kind}</td>
                 <td>
                   <button
                     type="button"
-                    className="transfers__hash"
+                    className="transfers__hash num"
                     title={row.tx_hash}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -146,7 +152,7 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
         </tbody>
       </table>
       {q.hasNextPage && (
-        <button type="button" className="btn transfers__more" disabled={q.isFetchingNextPage} onClick={() => void q.fetchNextPage()}>
+        <button type="button" className="btn btn--compact transfers__more" disabled={q.isFetchingNextPage} onClick={() => void q.fetchNextPage()}>
           {q.isFetchingNextPage ? t("common.loading") : t("transfers.loadMore")}
         </button>
       )}
@@ -168,7 +174,7 @@ function GroupSection({
   selected: string;
 }) {
   const t = useT();
-  const sum = formatAmount(group.sum, group.decimals);
+  const sum = formatFixed(group.sum, group.decimals, assetClass(group.asset, group.kind));
   const title = t("transfers.group", {
     symbol: symbolOf(group.asset, group.symbol),
     from: shortAddr(group.from),
@@ -179,8 +185,9 @@ function GroupSection({
   return (
     <section className="transfers__group" data-testid="transfer-group">
       <button type="button" className="transfers__group-head" aria-expanded={open} onClick={onToggle}>
-        {open ? "▾" : "▸"} {title}
-        {sum.unknownDecimals ? " ⚠" : ""}
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <span title={sum.full}>{title}</span>
+        {sum.unknownDecimals && <UnknownDecimals />}
       </button>
       {open && (
         <TransferRows
@@ -241,8 +248,11 @@ function AssetSections({ address, filter, direction }: { address: string; filter
               aria-expanded={isOpen}
               onClick={() => setOpen((o) => ({ ...o, [key]: !isOpen }))}
             >
-              {isOpen ? "▾" : "▸"} {symbol}
-              {min !== undefined ? ` · ≥ ${min}` : ""}
+              {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              <span>
+                {symbol}
+                {min !== undefined ? ` · ≥ ${min}` : ""}
+              </span>
             </button>
             {isOpen && (
               <TransferRows
