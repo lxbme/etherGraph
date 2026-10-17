@@ -3,10 +3,10 @@ use std::time::Duration;
 
 use alloy_primitives::{Address, B256, Bytes, U256};
 use async_trait::async_trait;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{TimeZone, Utc};
 use eg_core::source::{
-    ChainSource, ContractCreation, ContractSource, HistoryPage, HistoryQuery, Priority, RawReceipt,
-    RawTx, SourceError,
+    ChainSource, ContractCreation, ContractSource, HistoryPage, HistoryQuery, Priority, RawBlock,
+    RawReceipt, RawTx, SourceError,
 };
 use eg_core::testing::FakeSource;
 use eg_core::types::{Transfer, TransferKind, TxHash};
@@ -92,8 +92,11 @@ impl ChainSource for Spy {
     async fn internal_txs(&self, p: Priority, h: TxHash) -> Result<Vec<Transfer>, SourceError> {
         self.inner.internal_txs(p, h).await
     }
-    async fn block_timestamp(&self, p: Priority, b: u64) -> Result<DateTime<Utc>, SourceError> {
-        self.inner.block_timestamp(p, b).await
+    async fn block(&self, p: Priority, b: u64) -> Result<RawBlock, SourceError> {
+        self.inner.block(p, b).await
+    }
+    async fn tx_status(&self, p: Priority, h: TxHash) -> Result<Option<String>, SourceError> {
+        self.inner.tx_status(p, h).await
     }
     async fn latest_block(&self, p: Priority) -> Result<u64, SourceError> {
         self.inner.latest_block(p).await

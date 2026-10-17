@@ -7,10 +7,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
 
 use crate::source::{
-    ChainSource, ContractCreation, ContractSource, HistoryPage, HistoryQuery, Priority, RawReceipt,
-    RawTx, SourceError, TokenInfo,
+    ChainSource, ContractCreation, ContractSource, HistoryPage, HistoryQuery, Priority, RawBlock,
+    RawReceipt, RawTx, SourceError, TokenInfo,
 };
-use crate::types::{Address, Bytes, Transfer, TransferKind, TxHash};
+use crate::types::{Address, Bytes, Transfer, TransferKind, TxHash, U256};
 
 type EthCallFn = Box<dyn Fn(Address, &Bytes) -> Result<Bytes, SourceError> + Send + Sync>;
 type HistoryEntry = (Vec<Transfer>, Vec<TokenInfo>);
@@ -21,6 +21,8 @@ pub struct FakeSource {
     history: Mutex<HashMap<(Address, TransferKind), HistoryEntry>>,
     txs: Mutex<HashMap<TxHash, TxEntry>>,
     block_ts: Mutex<HashMap<u64, DateTime<Utc>>>,
+    blocks: Mutex<HashMap<u64, RawBlock>>,
+    statuses: Mutex<HashMap<TxHash, Option<String>>>,
     contracts: Mutex<HashMap<Address, (ContractSource, ContractCreation)>>,
     latest: Mutex<u64>,
     eth_call: Mutex<Option<EthCallFn>>,
@@ -64,6 +66,14 @@ impl FakeSource {
             .lock()
             .unwrap()
             .insert(tx.hash, (tx, receipt, internals));
+    }
+
+    pub fn add_block(&self, b: RawBlock) {
+        self.blocks.lock().unwrap().insert(b.number, b);
+    }
+
+    pub fn set_tx_status(&self, hash: TxHash, status: Option<String>) {
+        self.statuses.lock().unwrap().insert(hash, status);
     }
 
     pub fn add_contract(&self, src: ContractSource, creation: ContractCreation) {
@@ -153,19 +163,32 @@ impl ChainSource for FakeSource {
             .unwrap_or_default())
     }
 
-    async fn block_timestamp(
-        &self,
-        _p: Priority,
-        block: u64,
-    ) -> Result<DateTime<Utc>, SourceError> {
+    async fn block(&self, _p: Priority, number: u64) -> Result<RawBlock, SourceError> {
         self.enter()?;
-        Ok(self
+        if let Some(b) = self.blocks.lock().unwrap().get(&number) {
+            return Ok(b.clone());
+        }
+        // Blocks only known by timestamp (via `add_tx`) get a bare header.
+        let ts = self
             .block_ts
             .lock()
             .unwrap()
-            .get(&block)
+            .get(&number)
             .copied()
-            .unwrap_or_else(|| Utc.timestamp_opt(0, 0).unwrap()))
+            .unwrap_or_else(|| Utc.timestamp_opt(0, 0).unwrap());
+        Ok(RawBlock {
+            number,
+            ts,
+            base_fee: None,
+            gas_limit: U256::ZERO,
+            gas_used: U256::ZERO,
+            fee_recipient: Address::ZERO,
+        })
+    }
+
+    async fn tx_status(&self, _p: Priority, hash: TxHash) -> Result<Option<String>, SourceError> {
+        self.enter()?;
+        Ok(self.statuses.lock().unwrap().get(&hash).cloned().flatten())
     }
 
     async fn latest_block(&self, _p: Priority) -> Result<u64, SourceError> {

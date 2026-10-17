@@ -360,12 +360,11 @@ impl eg_core::source::ChainSource for FlakySource {
     ) -> Result<Vec<eg_core::types::Transfer>, SourceError> {
         self.inner.internal_txs(p, h).await
     }
-    async fn block_timestamp(
-        &self,
-        p: Priority,
-        b: u64,
-    ) -> Result<chrono::DateTime<chrono::Utc>, SourceError> {
-        self.inner.block_timestamp(p, b).await
+    async fn block(&self, p: Priority, b: u64) -> Result<eg_core::source::RawBlock, SourceError> {
+        self.inner.block(p, b).await
+    }
+    async fn tx_status(&self, p: Priority, h: B256) -> Result<Option<String>, SourceError> {
+        self.inner.tx_status(p, h).await
     }
     async fn latest_block(&self, p: Priority) -> Result<u64, SourceError> {
         self.inner.latest_block(p).await

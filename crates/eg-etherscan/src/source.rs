@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use eg_core::rpc_json::{parse_receipt, parse_tx};
 use eg_core::source::{
-    ChainSource, ContractCreation, ContractSource, HistoryPage, HistoryQuery, Priority, RawReceipt,
-    RawTx, SourceError, TokenInfo,
+    ChainSource, ContractCreation, ContractSource, HistoryPage, HistoryQuery, Priority, RawBlock,
+    RawReceipt, RawTx, SourceError, TokenInfo,
 };
 use eg_core::types::{Address, Bytes, Transfer, TransferKind, TxHash, U256, assign_sub_ids};
 use serde::de::DeserializeOwned;
@@ -63,6 +63,14 @@ fn hex_u64(field: &str, v: &Value) -> Result<u64, SourceError> {
         .strip_prefix("0x")
         .ok_or_else(|| perr(field, "missing 0x prefix"))?;
     u64::from_str_radix(h, 16).map_err(|e| perr(field, e))
+}
+
+fn hex_u256(field: &str, v: &Value) -> Result<U256, SourceError> {
+    let s = v.as_str().ok_or_else(|| perr(field, "not a string"))?;
+    let h = s
+        .strip_prefix("0x")
+        .ok_or_else(|| perr(field, "missing 0x prefix"))?;
+    U256::from_str_radix(h, 16).map_err(|e| perr(field, e))
 }
 
 fn non_empty(s: &str) -> Option<String> {
@@ -323,22 +331,59 @@ impl ChainSource for EtherscanSource {
         Ok(out)
     }
 
-    async fn block_timestamp(&self, p: Priority, block: u64) -> Result<DateTime<Utc>, SourceError> {
+    async fn block(&self, p: Priority, number: u64) -> Result<RawBlock, SourceError> {
         let v = self
             .rpc(
                 p,
                 "eth_getBlockByNumber",
                 &[
-                    ("tag", format!("{block:#x}")),
+                    ("tag", format!("{number:#x}")),
                     ("boolean", "false".to_owned()),
                 ],
             )
             .await?;
-        let t = v
-            .get("timestamp")
-            .ok_or_else(|| perr("timestamp", "block not found"))?;
-        let secs = i64::try_from(hex_u64("timestamp", t)?).map_err(|e| perr("timestamp", e))?;
-        DateTime::from_timestamp(secs, 0).ok_or_else(|| perr("timestamp", "out of range"))
+        let field = |name: &str| {
+            v.get(name)
+                .filter(|x| !x.is_null())
+                .ok_or_else(|| perr(name, "block not found"))
+        };
+        let secs = i64::try_from(hex_u64("timestamp", field("timestamp")?)?)
+            .map_err(|e| perr("timestamp", e))?;
+        let miner = field("miner")?
+            .as_str()
+            .ok_or_else(|| perr("miner", "not a string"))?;
+        Ok(RawBlock {
+            number,
+            ts: DateTime::from_timestamp(secs, 0)
+                .ok_or_else(|| perr("timestamp", "out of range"))?,
+            base_fee: v
+                .get("baseFeePerGas")
+                .filter(|x| !x.is_null())
+                .map(|x| hex_u256("baseFeePerGas", x))
+                .transpose()?,
+            gas_limit: hex_u256("gasLimit", field("gasLimit")?)?,
+            gas_used: hex_u256("gasUsed", field("gasUsed")?)?,
+            fee_recipient: addr("miner", miner)?,
+        })
+    }
+
+    async fn tx_status(&self, p: Priority, hash: TxHash) -> Result<Option<String>, SourceError> {
+        let result = self
+            .client
+            .call(
+                p,
+                &[
+                    ("module", "transaction".to_owned()),
+                    ("action", "getstatus".to_owned()),
+                    ("txhash", format!("{hash:#x}")),
+                ],
+            )
+            .await?;
+        let is_error = result.get("isError").and_then(Value::as_str) == Some("1");
+        Ok(is_error
+            .then(|| result.get("errDescription").and_then(Value::as_str))
+            .flatten()
+            .and_then(non_empty))
     }
 
     async fn latest_block(&self, p: Priority) -> Result<u64, SourceError> {

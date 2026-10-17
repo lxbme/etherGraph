@@ -447,3 +447,62 @@ async fn tx_and_receipt_found() {
     let r = s.receipt(P, hash(9)).await.unwrap().unwrap();
     assert!(r.success);
 }
+
+async fn serve_block(server: &MockServer, body: String) {
+    Mock::given(method("GET"))
+        .and(query_param("action", "eth_getBlockByNumber"))
+        .and(query_param("tag", "0x64"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(body))
+        .mount(server)
+        .await;
+}
+
+#[tokio::test]
+async fn block_parses_base_fee_and_recipient() {
+    let server = MockServer::start().await;
+    serve_block(&server, fixture("block.json")).await;
+    let b = source(&server).block(P, 100).await.unwrap();
+    assert_eq!(b.number, 100);
+    assert_eq!(b.ts.timestamp(), 1_700_000_000);
+    assert_eq!(b.base_fee, Some(U256::from(1_000_000_000u64)));
+    assert_eq!(b.gas_limit, U256::from(30_000_000u64));
+    assert_eq!(b.gas_used, U256::from(12_000_000u64));
+    assert_eq!(b.fee_recipient, addr(0xb1));
+}
+
+#[tokio::test]
+async fn block_without_base_fee_is_none() {
+    let server = MockServer::start().await;
+    let body = fixture("block.json").replace("\"baseFeePerGas\":\"0x3b9aca00\",", "");
+    assert!(!body.contains("baseFeePerGas"));
+    serve_block(&server, body).await;
+    let b = source(&server).block(P, 100).await.unwrap();
+    assert_eq!(b.base_fee, None);
+}
+
+#[tokio::test]
+async fn tx_status_returns_err_description() {
+    let server = MockServer::start().await;
+    serve(
+        &server,
+        "transaction",
+        "getstatus",
+        fixture("getstatus_error.json"),
+    )
+    .await;
+    let s = source(&server).tx_status(P, hash(1)).await.unwrap();
+    assert_eq!(s.as_deref(), Some("Bad jump destination"));
+}
+
+#[tokio::test]
+async fn tx_status_ok_is_none() {
+    let server = MockServer::start().await;
+    serve(
+        &server,
+        "transaction",
+        "getstatus",
+        fixture("getstatus_ok.json"),
+    )
+    .await;
+    assert_eq!(source(&server).tx_status(P, hash(1)).await.unwrap(), None);
+}

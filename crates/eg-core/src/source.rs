@@ -131,6 +131,17 @@ pub struct RawReceipt {
     pub json: serde_json::Value,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RawBlock {
+    pub number: u64,
+    pub ts: DateTime<Utc>,
+    /// `None` for pre-London blocks.
+    pub base_fee: Option<U256>,
+    pub gas_limit: U256,
+    pub gas_used: U256,
+    pub fee_recipient: Address,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContractSource {
     pub address: Address,
@@ -154,7 +165,12 @@ pub trait ChainSource: Send + Sync {
     async fn tx(&self, p: Priority, hash: TxHash) -> Result<Option<RawTx>, SourceError>;
     async fn receipt(&self, p: Priority, hash: TxHash) -> Result<Option<RawReceipt>, SourceError>;
     async fn internal_txs(&self, p: Priority, hash: TxHash) -> Result<Vec<Transfer>, SourceError>;
-    async fn block_timestamp(&self, p: Priority, block: u64) -> Result<DateTime<Utc>, SourceError>;
+    async fn block(&self, p: Priority, number: u64) -> Result<RawBlock, SourceError>;
+    async fn block_timestamp(&self, p: Priority, block: u64) -> Result<DateTime<Utc>, SourceError> {
+        Ok(self.block(p, block).await?.ts)
+    }
+    /// The revert reason of a failed tx; `None` when it succeeded or Etherscan has no description.
+    async fn tx_status(&self, p: Priority, hash: TxHash) -> Result<Option<String>, SourceError>;
     async fn latest_block(&self, p: Priority) -> Result<u64, SourceError>;
     async fn contract_source(
         &self,
