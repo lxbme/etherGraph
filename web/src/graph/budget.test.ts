@@ -68,4 +68,23 @@ describe("budget", () => {
     const u = usage([cand(1), cand(2, { onCanvas: true })], { nodes: 10, calls: 13 });
     expect(u).toEqual({ nodes: 11, calls: 14, overNodes: true, overCalls: true });
   });
+  it("non-finite inputs count as 0", () => {
+    expect(callBudget({ rate: NaN, queuedCalls: 0, quotaRemaining: 100 })).toBe(0);
+    expect(callBudget({ rate: 2.5, queuedCalls: 0, quotaRemaining: NaN })).toBe(0);
+    expect(nodeCapacity({ width: NaN, height: 500 })).toBe(0);
+    expect(nodeBudget(NaN, 3)).toBe(0);
+    expect(perCenterBatch(NaN, 2, 0)).toBe(3);
+    expect(defaultSelection([cand(1)], { nodes: NaN, calls: NaN }).overBudget).toBe(true);
+  });
+  it("negative nonce weighs 0", () => {
+    expect(weight({ nonce: -5, localTransfers: 0 })).toEqual({ value: 0, estimated: false });
+    expect(weight({ nonce: null, localTransfers: -5 })).toEqual({ value: 0, estimated: true });
+  });
+  it("empty candidates", () => {
+    expect(defaultSelection([], { nodes: 10, calls: 10 })).toEqual({ selected: [], overBudget: false });
+  });
+  it("onCanvas candidate costs K_MIN only", () => {
+    const r = defaultSelection([cand(1, { onCanvas: true }), cand(2, { onCanvas: true })], { nodes: 5, calls: 100 });
+    expect(r).toEqual({ selected: [cand(1).address], overBudget: false });
+  });
 });

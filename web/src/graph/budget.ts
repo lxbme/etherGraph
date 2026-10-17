@@ -19,22 +19,28 @@ export type Candidate = {
   weight: Weight;
 };
 
+/** Non-finite inputs (NaN, +-Infinity) count as 0 so budgets never become NaN. */
+const fin = (n: number): number => (Number.isFinite(n) ? n : 0);
+
 export function nodeCapacity(c: { width: number; height: number }): number {
-  return Math.floor((c.width * c.height) / (PER_NODE_PX * PER_NODE_PX));
+  return Math.max(0, Math.floor((fin(c.width) * fin(c.height)) / (PER_NODE_PX * PER_NODE_PX)));
 }
 
 export function nodeBudget(capacity: number, visible: number): number {
-  return Math.max(0, capacity - visible);
+  return Math.max(0, fin(capacity) - fin(visible));
 }
 
 export function callBudget(o: { rate: number; queuedCalls: number; quotaRemaining: number | null | undefined }): number {
-  return Math.max(0, Math.min(Math.floor(o.rate * HORIZON_SEC) - o.queuedCalls, o.quotaRemaining ?? Infinity));
+  // null/undefined quota = unknown (unbounded); a non-finite number is treated as 0.
+  const quota = o.quotaRemaining == null ? Infinity : fin(o.quotaRemaining);
+  return Math.max(0, Math.min(Math.floor(fin(o.rate) * HORIZON_SEC) - fin(o.queuedCalls), quota));
 }
 
 export function weight(c: { nonce: number | null; localTransfers: number }): Weight {
+  const nn = (n: number) => Math.max(0, fin(n));
   return c.nonce != null
-    ? { value: Math.log10(c.nonce + 1), estimated: false }
-    : { value: Math.log10(c.localTransfers + 1), estimated: true };
+    ? { value: Math.log10(nn(c.nonce) + 1), estimated: false }
+    : { value: Math.log10(nn(c.localTransfers) + 1), estimated: true };
 }
 
 /** R type 7 quantile on a sorted array. */
@@ -46,7 +52,7 @@ function quantile(sorted: number[], p: number): number {
   return a + (h - lo) * (b - a);
 }
 
-/** Keys whose weight is a Tukey upper outlier; empty for fewer than 4 samples. */
+/** Computed over all candidates passed in (contracts and hot included). Keys whose weight is a Tukey upper outlier; empty for fewer than 4 samples. */
 export function heavySet(weights: Map<string, number>): Set<string> {
   if (weights.size < 4) return new Set();
   const sorted = [...weights.values()].sort((x, y) => x - y);
@@ -60,8 +66,9 @@ const nodeCost = (c: Candidate) => (c.onCanvas ? 0 : 1) + K_MIN;
 
 export function defaultSelection(
   cands: Candidate[],
-  b: { nodes: number; calls: number },
+  budget: { nodes: number; calls: number },
 ): { selected: string[]; overBudget: boolean } {
+  const b = { nodes: fin(budget.nodes), calls: fin(budget.calls) };
   const heavy = heavySet(new Map(cands.map((c) => [c.address, c.weight.value])));
   const eligible = cands
     .filter((c) => c.kind !== "contract" && !c.hot && !heavy.has(c.address))
@@ -81,10 +88,11 @@ export function defaultSelection(
 }
 
 export function perCenterBatch(nodes: number, selected: number, newSelf: number): number {
-  return Math.max(K_FLOOR, Math.floor((nodes - newSelf) / Math.max(1, selected)));
+  return Math.max(K_FLOOR, Math.floor((fin(nodes) - fin(newSelf)) / Math.max(1, fin(selected))));
 }
 
-export function usage(selected: Candidate[], b: { nodes: number; calls: number }) {
+export function usage(selected: Candidate[], budget: { nodes: number; calls: number }) {
+  const b = { nodes: fin(budget.nodes), calls: fin(budget.calls) };
   const nodes = selected.reduce((s, c) => s + nodeCost(c), 0);
   const calls = selected.reduce((s, c) => s + c.calls, 0);
   return { nodes, calls, overNodes: nodes > b.nodes, overCalls: calls > b.calls };
