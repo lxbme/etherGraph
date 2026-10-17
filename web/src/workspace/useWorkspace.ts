@@ -43,7 +43,8 @@ useGraph.subscribe((s, prev) => {
     s.filter !== prev.filter ||
     s.sort !== prev.sort ||
     s.expandedPairs !== prev.expandedPairs ||
-    s.ui !== prev.ui
+    s.ui !== prev.ui ||
+    s.limits !== prev.limits
   ) {
     graphVersion++;
     useWorkspace.getState().markDirty();
@@ -197,6 +198,7 @@ function applyState(state: WorkspaceStateV1): void {
     sort: state.sort,
     expandedPairs: state.expanded_pairs.map(([a, b]) => pairKey(a, b)),
     ui,
+    limits: state.limits,
   });
   applyViewportLater(state, ++restoreGen);
 }

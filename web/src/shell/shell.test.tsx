@@ -1,6 +1,7 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { App } from '../App'
+import { useCanvasMetrics } from '../graph/canvasMetrics'
 import { useGraph } from '../graph/store'
 import { useTabs } from './tabs'
 import { useJobProgress, useQuota, useSseState } from './statusStore'
@@ -211,6 +212,18 @@ describe('fix round 1', () => {
     })
     expect(location.hash).toBe('#/address/' + A2)
     expect(useGraph.getState().selection).toEqual({ kind: 'node', address: A2 })
+  })
+
+  it('a #/address route center gets a budgeted first batch', () => {
+    useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 0 })
+    render(<App />)
+    const A2 = '0x' + '78'.repeat(20)
+    act(() => {
+      history.replaceState(null, '', '#/address/' + A2)
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    })
+    expect(useGraph.getState().limits[A2]).toEqual(expect.any(Number))
+    expect(useGraph.getState().limits[A2]).toBeGreaterThanOrEqual(3)
   })
 
   it('a #/address route to a hidden node shows it again', () => {

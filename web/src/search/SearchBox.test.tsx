@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api/endpoints'
 import { ApiError } from '../api/errors'
+import { useCanvasMetrics } from '../graph/canvasMetrics'
 import { useGraph } from '../graph/store'
 import { useTabs } from '../shell/tabs'
 import { qk, queryClient } from '../api/queryClient'
@@ -41,6 +42,15 @@ describe('SearchBox', () => {
     expect(addr).toHaveBeenCalledTimes(1)
     expect(addr).toHaveBeenCalledWith(A, { sync: 'auto' })
     expect(box).toHaveValue('')
+  })
+
+  it('a searched address becomes a center with a budgeted first batch', async () => {
+    useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 0 })
+    vi.spyOn(api, 'search').mockResolvedValue({ kind: 'address', value: A, resolved_address: null })
+    vi.spyOn(api, 'address').mockResolvedValue({} as never)
+    render(<SearchBox />)
+    await userEvent.type(screen.getByRole('searchbox'), `${A}{Enter}`)
+    await waitFor(() => expect(useGraph.getState().limits).toEqual({ [A]: 59 }))
   })
 
   it('searching a hidden address shows it again', async () => {

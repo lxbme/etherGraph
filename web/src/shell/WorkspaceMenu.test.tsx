@@ -106,7 +106,7 @@ describe("WorkspaceMenu", () => {
     useWorkspace.getState().setCurrent(dto());
     m.updateWorkspace.mockRejectedValueOnce(new ApiError("conflict", 409, "x"));
     const server = serialize(
-      { centers: [A], filter: {}, sort: "count", expandedPairs: new Set(), ui: {} },
+      { centers: [A], filter: {}, sort: "count", expandedPairs: new Set(), ui: {}, limits: { [A]: 20 } },
       { zoom: 1, pan: { x: 0, y: 0 } },
     );
     m.workspace.mockResolvedValue(dto({ updated_at: "T7", state: JSON.parse(JSON.stringify(server)) }));

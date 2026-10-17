@@ -101,7 +101,7 @@ test("transactions and neighbours come from the canvas edges", async () => {
     edges: [{ ...e, from: A, to: B, count: 3 }, { ...e, from: C, to: A, count: 4 }, { ...e, from: B, to: A, count: 2 }, { ...e, from: B, to: C, count: 9 }],
   };
   const s = useGraph.getState();
-  act(() => qc.setQueryData(graphQueryKey({ centers: s.centers, filter: s.filter, sort: s.sort }), data));
+  act(() => qc.setQueryData(graphQueryKey(s), data));
   const kv = await screen.findByTestId("node-kv");
   await waitFor(() => expect(within(kv).getByText("Transactions").nextElementSibling).toHaveTextContent("9"));
   expect(within(kv).getByText("Neighbours").nextElementSibling).toHaveTextContent("2");

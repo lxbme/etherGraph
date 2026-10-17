@@ -36,7 +36,7 @@ function renderTable() {
 function seedGraph(edges: EdgeDto[]) {
   const data: GraphResponseDto = { nodes: [], edges, omitted: {}, coverage: {} };
   const s = useGraph.getState();
-  qc.setQueryData(graphQueryKey({ centers: s.centers, filter: s.filter, sort: s.sort }), data);
+  qc.setQueryData(graphQueryKey(s), data);
 }
 
 beforeEach(() => {

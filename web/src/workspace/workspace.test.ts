@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "../api/endpoints";
 import { ApiError } from "../api/errors";
 import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
+import { useCanvasMetrics } from "../graph/canvasMetrics";
 import { getMainCy } from "../graph/cyRegistry";
 import { useGraph } from "../graph/store";
 import { useTabs } from "../shell/tabs";
@@ -46,6 +47,7 @@ const dto = (over: Partial<WorkspaceDto> = {}): WorkspaceDto => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 0 });
   g().reset();
   useWorkspace.getState().clear();
 });
@@ -298,5 +300,57 @@ describe("workspace copy", () => {
   test("deserialize failure reasons are English", () => {
     expect(deserialize(null, 1)).toEqual({ ok: false, reason: "Invalid workspace data" });
     expect(deserialize({}, 2)).toEqual({ ok: false, reason: "Unsupported workspace version" });
+  });
+});
+
+describe("limits", () => {
+  test("serialize writes the limits of centers only and they load back", async () => {
+    g().setCenters([A, B]);
+    g().raiseLimit(A, 5);
+    g().removeCenter(B);
+    const s = serialize(g(), VP);
+    expect(s.limits).toEqual({ [A]: 64 });
+    g().reset();
+    m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(s)) }));
+    await expect(loadWorkspace(7)).resolves.toBe(true);
+    expect(g().limits).toEqual({ [A]: 64 });
+  });
+
+  test("an old state without limits loads and every center gets a first batch", async () => {
+    g().setCenters([A, B]);
+    const { limits: _omit, ...legacy } = serialize(g(), VP);
+    g().reset();
+    const r = deserialize(JSON.parse(JSON.stringify(legacy)), 1);
+    expect(r.ok && r.state.limits).toEqual({ [A]: 59, [B]: 59 });
+    m.workspace.mockResolvedValue(dto({ state: legacy as never }));
+    await expect(loadWorkspace(7)).resolves.toBe(true);
+    expect(g().limits).toEqual({ [A]: 59, [B]: 59 });
+  });
+
+  test("centers missing from limits get a first batch", () => {
+    g().setCenters([A, B]);
+    const s = { ...serialize(g(), VP), limits: { [A]: 12 } };
+    const r = deserialize(JSON.parse(JSON.stringify(s)), 1);
+    expect(r.ok && r.state.limits).toEqual({ [A]: 12, [B]: 59 });
+  });
+
+  test("malformed limits are rejected with a translated reason", async () => {
+    const good = serialize((g().setCenters([A]), g()), VP);
+    expect(deserialize({ ...good, limits: "bad" }, 1)).toEqual({ ok: false, reason: "Invalid limits" });
+    expect(deserialize({ ...good, limits: [5] }, 1).ok).toBe(false);
+    expect(deserialize({ ...good, limits: { [A]: "5" } }, 1).ok).toBe(false);
+    expect(deserialize({ ...good, limits: { [A]: 0 } }, 1).ok).toBe(false);
+    expect(deserialize({ ...good, limits: { [A]: 2.5 } }, 1).ok).toBe(false);
+    g().reset();
+    m.workspace.mockResolvedValue(dto({ state: { ...good, limits: "bad" } as never }));
+    await expect(loadWorkspace(7)).resolves.toBe(false);
+    expect(g().centers).toEqual([]);
+  });
+
+  test("a limit change marks the workspace dirty", () => {
+    g().setCenters([A]);
+    useWorkspace.getState().setCurrent(dto());
+    g().raiseLimit(A, 3);
+    expect(useWorkspace.getState().dirty).toBe(true);
   });
 });

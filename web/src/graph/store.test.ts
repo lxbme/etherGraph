@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, test } from "vitest";
-import { pairKey, useGraph } from "./store";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { useCanvasMetrics } from "./canvasMetrics";
+import { setHistoryEffectHandler, type ExpandEffect } from "./historyEffects";
+import { firstBatch, pairKey, useGraph } from "./store";
 
 const A = "0x" + "a".repeat(40);
 const B = "0x" + "b".repeat(40);
@@ -7,7 +9,11 @@ const C = "0x" + "c".repeat(40);
 const D = "0x" + "d".repeat(40);
 const g = () => useGraph.getState();
 
-beforeEach(() => g().reset());
+beforeEach(() => {
+  g().reset();
+  useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 0 });
+});
+afterEach(() => setHistoryEffectHandler(null));
 
 describe("graph store", () => {
   test("any select clears the highlighted transfer", () => {
@@ -160,5 +166,121 @@ describe("graph store", () => {
     expect(g().ui[C]?.hidden).toBe(true);
     expect(g().ui[D]?.hidden).toBe(true);
     expect(g().ui[B]?.hidden).toBe(false);
+  });
+});
+
+describe("per-center limits", () => {
+  test("firstBatch uses the measured canvas minus visible nodes", () => {
+    expect(firstBatch()).toBe(59); // capacity(960x576) = 60, minus the new center itself
+    useCanvasMetrics.getState().set({ visible: 20 });
+    expect(firstBatch()).toBe(39);
+  });
+
+  test("firstBatch estimates the canvas as 60% of the window before the first measure", () => {
+    useCanvasMetrics.getState().set({ width: 0, height: 0, visible: 0 });
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    try {
+      Object.defineProperty(window, "innerWidth", { value: 1600, configurable: true, writable: true });
+      Object.defineProperty(window, "innerHeight", { value: 960, configurable: true, writable: true });
+      expect(firstBatch()).toBe(99); // 0.6 * 1600 * 960 / 96^2 = 100, minus 1
+    } finally {
+      Object.defineProperty(window, "innerWidth", { value: w, configurable: true, writable: true });
+      Object.defineProperty(window, "innerHeight", { value: h, configurable: true, writable: true });
+    }
+  });
+
+  test("addCenter writes the first batch; an existing limit is kept", () => {
+    g().addCenter("x");
+    expect(g().limits.x).toBe(59);
+    g().raiseLimit("x", 5);
+    g().removeCenter("x");
+    g().addCenter("x");
+    expect(g().limits.x).toBe(64);
+  });
+
+  test("revealCenter and setCenters give new centers a first batch", () => {
+    g().revealCenter(A.toUpperCase().replace("0X", "0x"));
+    expect(g().limits).toEqual({ [A]: 59 });
+    useCanvasMetrics.getState().set({ visible: 10 });
+    g().setCenters([A, B]);
+    expect(g().limits).toEqual({ [A]: 59, [B]: 49 });
+  });
+
+  test("expand adds centers with limit k in one step; undo/redo run the batch effects", () => {
+    const undone: ExpandEffect[] = [];
+    const redone: ExpandEffect[] = [];
+    setHistoryEffectHandler({
+      onUndo: (e) => { undone.push(e); },
+      onRedo: (e) => {
+        redone.push(e);
+        return { ...e, batch: "b2" };
+      },
+    });
+    g().addCenter(C);
+    g().expand(["a", "b"], "b1", 7);
+    expect(g().centers).toEqual([C, "a", "b"]);
+    expect(g().limits).toEqual({ [C]: 59, a: 7, b: 7 });
+
+    g().undo();
+    expect(g().centers).toEqual([C]);
+    expect(g().limits).toEqual({ [C]: 59 });
+    expect(undone).toEqual([{ kind: "expand", batch: "b1", addresses: ["a", "b"] }]);
+
+    g().redo();
+    expect(g().centers).toEqual([C, "a", "b"]);
+    expect(g().limits).toEqual({ [C]: 59, a: 7, b: 7 });
+    expect(redone).toEqual([{ kind: "expand", batch: "b1", addresses: ["a", "b"] }]);
+
+    g().undo();
+    expect(undone[1]).toEqual({ kind: "expand", batch: "b2", addresses: ["a", "b"] });
+  });
+
+  test("expand keeps the limit of an address that already is a center and unhides hidden ones", () => {
+    g().addCenter(A);
+    g().setHidden([B], true);
+    g().expand([A, B.toUpperCase().replace("0X", "0x")], "b1", 7);
+    expect(g().centers).toEqual([A, B]);
+    expect(g().limits).toEqual({ [A]: 59, [B]: 7 });
+    expect(g().ui[B]?.hidden).toBe(false);
+  });
+
+  test("undo and redo of an expand work without a handler", () => {
+    g().expand(["a"], "b1", 7);
+    g().undo();
+    expect(g().centers).toEqual([]);
+    g().redo();
+    expect(g().centers).toEqual(["a"]);
+  });
+
+  test("non-expand steps run no effect", () => {
+    const onUndo = vi.fn();
+    const onRedo = vi.fn();
+    setHistoryEffectHandler({ onUndo, onRedo });
+    g().addCenter(A);
+    g().undo();
+    g().redo();
+    expect(onUndo).not.toHaveBeenCalled();
+    expect(onRedo).not.toHaveBeenCalled();
+  });
+
+  test("raiseLimit is one history step without effect", () => {
+    const onUndo = vi.fn();
+    setHistoryEffectHandler({ onUndo, onRedo: vi.fn() });
+    g().expand(["a", "b"], "b1", 7);
+    g().raiseLimit("a", 5);
+    expect(g().limits.a).toBe(12);
+    g().undo();
+    expect(g().limits.a).toBe(7);
+    expect(onUndo).not.toHaveBeenCalled();
+    g().redo();
+    expect(g().limits.a).toBe(12);
+  });
+
+  test("loadSnapshot keeps given limits and gives centers without one a first batch", () => {
+    g().loadSnapshot({ centers: [A, B], filter: {}, expandedPairs: [], ui: {}, limits: { [A.toUpperCase().replace("0X", "0x")]: 12 } });
+    expect(g().limits).toEqual({ [A]: 12, [B]: 59 });
+    g().reset();
+    expect(g().limits).toEqual({});
   });
 });

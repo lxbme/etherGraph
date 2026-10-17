@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
 import { useAssetRegistry } from "./assetRegistry";
+import { nodeBudget, nodeCapacity, perCenterBatch } from "./budget";
+import { useCanvasMetrics } from "./canvasMetrics";
+import { runRedoEffect, runUndoEffect, type ExpandEffect } from "./historyEffects";
 import { pairKey } from "./pairKey";
 import { pushCapped } from "./undo";
 
@@ -31,15 +34,22 @@ export interface GraphState {
   sort: SortKey;
   expandedPairs: Set<string>;
   ui: Record<string, NodeUi>;
+  /** Neighbour limit per center (kept after a center is removed, so re-adding it restores it); only centers' entries are sent. */
+  limits: Record<string, number>;
   selection: Selection;
   highlightTransfer: { from: string; to: string; asset: string | null } | null;
   /** Bumped by `reset` and `loadSnapshot`: a new canvas whose nodes have nothing to do with earlier ones. */
   epoch: number;
+  /** New centers (here and in `revealCenter`/`setCenters`/`loadSnapshot`) without a limit get `firstBatch()`. */
   addCenter(a: string): void;
   /** Makes `a` a shown center (adds it and/or unhides it) in one history step; no-op if it already is. */
   revealCenter(a: string): void;
   removeCenter(a: string): void;
   setCenters(a: string[]): void;
+  /** Adds `addresses` as shown centers with limit `k` (existing centers keep theirs) in one history step whose undo/redo runs the batch's effect. */
+  expand(addresses: string[], batch: string, k: number): void;
+  /** Raises a center's limit by `by` (> 0) in one history step. */
+  raiseLimit(center: string, by: number): void;
   setFilter(f: EdgeFilterDto): void;
   setSort(s: SortKey): void;
   /** Sets filter and sort as ONE history step. */
@@ -64,7 +74,14 @@ export interface GraphState {
   canRedo(): boolean;
   reset(): void;
   /** Replaces the whole canvas state (as after opening a workspace) without any history; clears selection. */
-  loadSnapshot(v: { centers: string[]; filter: EdgeFilterDto; sort?: SortKey; expandedPairs: string[]; ui: Record<string, NodeUi> }): void;
+  loadSnapshot(v: {
+    centers: string[];
+    filter: EdgeFilterDto;
+    sort?: SortKey;
+    expandedPairs: string[];
+    ui: Record<string, NodeUi>;
+    limits?: Record<string, number>;
+  }): void;
   /** Internal history stacks. */
   _past: HistoryEntry[];
   _future: HistoryEntry[];
@@ -77,15 +94,43 @@ interface Snapshot {
   ui: Record<string, UiFlags>;
   filter: EdgeFilterDto;
   sort: SortKey;
+  limits: Record<string, number>;
 }
-/** A snapshot step, or (when `positions` is set) a position-move step. */
+/** A snapshot step, or (when `positions` is set) a position-move step; `effect` runs after it is undone/redone. */
 interface HistoryEntry {
   snap?: Snapshot;
   positions?: Record<string, Pos>;
+  effect?: ExpandEffect;
 }
 
 const lc = (s: string) => s.toLowerCase();
 const blankUi = (): NodeUi => ({ pinned: false, hidden: false, note: "" });
+
+/** Share of the window area taken as the canvas before the canvas was first measured (ruling R4). */
+const UNMEASURED_CANVAS_SHARE = 0.6;
+
+/** Neighbour limit of a new center: the per-center batch for one new center under the current node budget. */
+export function firstBatch(): number {
+  const m = useCanvasMetrics.getState();
+  const canvas =
+    m.width > 0 && m.height > 0
+      ? m
+      : typeof window === "undefined"
+        ? { width: 0, height: 0 }
+        : // Scaling one side scales the area: 60% of innerWidth x innerHeight.
+          { width: window.innerWidth * UNMEASURED_CANVAS_SHARE, height: window.innerHeight };
+  return perCenterBatch(nodeBudget(nodeCapacity(canvas), m.visible), 1, 1);
+}
+
+/** `limits` with a first batch for each of `addrs` (lowercase) that has none; the same object when nothing is missing. */
+function withFirstBatch(limits: Record<string, number>, addrs: string[]): Record<string, number> {
+  const missing = addrs.filter((a) => limits[a] === undefined);
+  if (missing.length === 0) return limits;
+  const k = firstBatch();
+  const next = { ...limits };
+  for (const a of missing) next[a] = k;
+  return next;
+}
 
 function snapshot(s: GraphState): Snapshot {
   const ui: Record<string, UiFlags> = {};
@@ -98,6 +143,7 @@ function snapshot(s: GraphState): Snapshot {
     ui,
     filter: s.filter,
     sort: s.sort,
+    limits: { ...s.limits },
   };
 }
 
@@ -127,6 +173,7 @@ const initial = () => ({
   sort: "count" as SortKey,
   expandedPairs: new Set<string>(),
   ui: {} as Record<string, NodeUi>,
+  limits: {} as Record<string, number>,
   selection: null as Selection,
   highlightTransfer: null as GraphState["highlightTransfer"],
   _past: [] as HistoryEntry[],
@@ -134,11 +181,11 @@ const initial = () => ({
 });
 
 export const useGraph = create<GraphState>()((set, get) => {
-  /** Apply a tracked change: record a pre-change snapshot, clear redo. */
-  const tracked = (change: (s: GraphState) => Partial<GraphState>) =>
+  /** Apply a tracked change: record a pre-change snapshot (with its side effect, if any), clear redo. */
+  const tracked = (change: (s: GraphState) => Partial<GraphState>, effect?: ExpandEffect) =>
     set((s) => ({
       ...change(s),
-      _past: pushCapped(s._past, { snap: snapshot(s) }),
+      _past: pushCapped(s._past, effect ? { snap: snapshot(s), effect } : { snap: snapshot(s) }),
       _future: [],
     }));
 
@@ -162,8 +209,9 @@ export const useGraph = create<GraphState>()((set, get) => {
         ui: restoreUi(s.ui, snap.ui),
         filter: snap.filter,
         sort: snap.sort,
+        limits: { ...snap.limits },
       },
-      { snap: snapshot(s) },
+      entry.effect ? { snap: snapshot(s), effect: entry.effect } : { snap: snapshot(s) },
     ];
   };
 
@@ -173,7 +221,7 @@ export const useGraph = create<GraphState>()((set, get) => {
     addCenter: (a) => {
       const addr = lc(a);
       if (get().centers.includes(addr)) return;
-      tracked((s) => ({ centers: [...s.centers, addr] }));
+      tracked((s) => ({ centers: [...s.centers, addr], limits: withFirstBatch(s.limits, [addr]) }));
     },
     revealCenter: (a) => {
       const addr = lc(a);
@@ -184,6 +232,7 @@ export const useGraph = create<GraphState>()((set, get) => {
       tracked((cur) => ({
         centers: isCenter ? cur.centers : [...cur.centers, addr],
         ui: hidden ? applyUiPatch(cur.ui, [addr], { hidden: false }) : cur.ui,
+        limits: withFirstBatch(cur.limits, [addr]),
       }));
     },
     removeCenter: (a) => {
@@ -192,7 +241,33 @@ export const useGraph = create<GraphState>()((set, get) => {
       tracked((s) => ({ centers: s.centers.filter((c) => c !== addr) }));
     },
     setCenters: (list) =>
-      tracked(() => ({ centers: [...new Set(list.map(lc))] })),
+      tracked((s) => {
+        const centers = [...new Set(list.map(lc))];
+        return { centers, limits: withFirstBatch(s.limits, centers) };
+      }),
+    expand: (addresses, batch, k) => {
+      const addrs = [...new Set(addresses.map(lc))];
+      if (addrs.length === 0) return;
+      tracked(
+        (s) => {
+          const fresh = addrs.filter((a) => !s.centers.includes(a));
+          const hidden = addrs.filter((a) => s.ui[a]?.hidden);
+          const limits = { ...s.limits };
+          for (const a of fresh) limits[a] = k;
+          return {
+            centers: [...s.centers, ...fresh],
+            limits: withFirstBatch(limits, addrs),
+            ui: hidden.length > 0 ? applyUiPatch(s.ui, hidden, { hidden: false }) : s.ui,
+          };
+        },
+        { kind: "expand", batch, addresses: addrs },
+      );
+    },
+    raiseLimit: (center, by) => {
+      if (!(Number.isFinite(by) && by > 0)) return;
+      const a = lc(center);
+      tracked((s) => ({ limits: { ...s.limits, [a]: (s.limits[a] ?? firstBatch()) + by } }));
+    },
     setFilter: (f) => tracked(() => ({ filter: f })),
     setSort: (sort) => tracked(() => ({ sort })),
     applyFilter: (f, sort) => tracked(() => ({ filter: f, sort })),
@@ -249,6 +324,7 @@ export const useGraph = create<GraphState>()((set, get) => {
         _past: s._past.slice(0, -1),
         _future: pushCapped(s._future, counter),
       });
+      if (entry.effect) runUndoEffect(entry.effect);
     },
     redo: () => {
       const s = get();
@@ -259,6 +335,15 @@ export const useGraph = create<GraphState>()((set, get) => {
         ...patch,
         _future: s._future.slice(0, -1),
         _past: pushCapped(s._past, counter),
+      });
+      if (!entry.effect) return;
+      const effect = runRedoEffect(entry.effect);
+      if (effect === entry.effect) return;
+      // The redone step now carries the new effect (e.g. its new batch), so a later undo cancels that one.
+      set((cur) => {
+        const top = cur._past[cur._past.length - 1];
+        if (top !== counter) return {};
+        return { _past: [...cur._past.slice(0, -1), { ...counter, effect }] };
       });
     },
     canUndo: () => get()._past.length > 0,
@@ -271,10 +356,14 @@ export const useGraph = create<GraphState>()((set, get) => {
       useAssetRegistry.getState().clear();
       const ui: Record<string, NodeUi> = {};
       for (const [k, u] of Object.entries(v.ui)) ui[lc(k)] = { ...u };
+      const centers = [...new Set(v.centers.map(lc))];
+      const limits: Record<string, number> = {};
+      for (const [k, n] of Object.entries(v.limits ?? {})) limits[lc(k)] = n;
       set({
         ...initial(),
         epoch: get().epoch + 1,
-        centers: [...new Set(v.centers.map(lc))],
+        centers,
+        limits: withFirstBatch(limits, centers),
         filter: v.filter,
         sort: v.sort ?? "count",
         expandedPairs: new Set(v.expandedPairs),

@@ -1,6 +1,6 @@
 import { t } from "../i18n";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
-import type { GraphState, Pos, SortKey } from "../graph/store";
+import { firstBatch, type GraphState, type Pos, type SortKey } from "../graph/store";
 
 export interface WorkspaceStateV1 {
   nodes: { address: string; x?: number; y?: number; pinned: boolean; hidden: boolean; note: string }[];
@@ -9,6 +9,8 @@ export interface WorkspaceStateV1 {
   filter: EdgeFilterDto;
   /** Absent in older states: means "count". */
   sort?: SortKey;
+  /** Neighbour limit per center. Absent in older states; centers without one get a first batch on load. */
+  limits?: Record<string, number>;
   viewport: { zoom: number; pan: { x: number; y: number } };
 }
 
@@ -25,7 +27,7 @@ export interface SerializeOpts {
 const lc = (s: string) => s.toLowerCase();
 
 export function serialize(
-  state: Pick<GraphState, "centers" | "filter" | "sort" | "expandedPairs" | "ui">,
+  state: Pick<GraphState, "centers" | "filter" | "sort" | "expandedPairs" | "ui" | "limits">,
   viewport: WorkspaceStateV1["viewport"],
   opts: SerializeOpts = {},
 ): WorkspaceStateV1 {
@@ -54,6 +56,12 @@ export function serialize(
     expanded_pairs: [...state.expandedPairs].map((k) => k.split("|") as [string, string]),
     filter: state.filter,
     sort: state.sort,
+    limits: Object.fromEntries(
+      state.centers.flatMap((c) => {
+        const n = state.limits[c];
+        return n === undefined ? [] : [[c, n]];
+      }),
+    ),
     viewport: { zoom: viewport.zoom, pan: { ...viewport.pan } },
   };
 }
@@ -64,6 +72,7 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const isStr = (v: unknown): v is string => typeof v === "string";
 const isStrArr = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr);
+const isLimit = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 1;
 
 export function deserialize(
   v: unknown,
@@ -90,5 +99,13 @@ export function deserialize(
   if (!isObj(viewport) || !isNum(viewport.zoom) || !isObj(viewport.pan) || !isNum(viewport.pan.x) || !isNum(viewport.pan.y)) {
     return bad(t("ws.err.field", { field: "viewport" }));
   }
-  return { ok: true, state: v as unknown as WorkspaceStateV1 };
+  if (v.limits !== undefined && !(isObj(v.limits) && Object.values(v.limits).every(isLimit))) {
+    return bad(t("ws.err.field", { field: "limits" }));
+  }
+  // Centers saved without a limit (older states) get the first batch of a new center.
+  const limits: Record<string, number> = {};
+  for (const [k, n] of Object.entries((v.limits ?? {}) as Record<string, number>)) limits[lc(k)] = n;
+  let batch: number | undefined;
+  for (const c of centers.map(lc)) if (limits[c] === undefined) limits[c] = batch ??= firstBatch();
+  return { ok: true, state: { ...(v as unknown as WorkspaceStateV1), limits } };
 }
