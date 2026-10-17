@@ -733,3 +733,58 @@ async fn guard_miss_leaves_state_to_another_active_sync(pool: PgPool) {
         SyncState::Syncing
     );
 }
+
+async fn owners(e: &Env, id: i64) -> Vec<Option<String>> {
+    sqlx::query_scalar("SELECT batch_id FROM job_owners WHERE job_id = $1 ORDER BY batch_id")
+        .bind(id)
+        .fetch_all(e.ctx.store.pool())
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn enqueue_sync_never_joins_a_job_cancelled_under_it(pool: PgPool) {
+    use eg_ingest::{SyncDirection, enqueue_sync};
+    let e = env(pool.clone(), 10_000);
+    let dir = SyncDirection::Latest;
+    let first = enqueue_sync(&e.ctx, ADDR, dir, Priority::Background, None, Some("b1"))
+        .await
+        .unwrap();
+    // A batch release locks the job, then cancels it, while a second request
+    // has already found the job by key and is adding itself as an owner.
+    let mut release = pool.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM jobs WHERE id = $1 FOR UPDATE")
+        .bind(first)
+        .execute(&mut *release)
+        .await
+        .unwrap();
+    let join = tokio::spawn({
+        let ctx = e.ctx.clone();
+        async move {
+            enqueue_sync(&ctx, ADDR, dir, Priority::Background, None, Some("b2"))
+                .await
+                .unwrap()
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !join.is_finished(),
+        "the owner insert waits for the release"
+    );
+    sqlx::query("DELETE FROM job_owners WHERE batch_id = 'b1'")
+        .execute(&mut *release)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE jobs SET status = 'cancelled' WHERE id = $1")
+        .bind(first)
+        .execute(&mut *release)
+        .await
+        .unwrap();
+    release.commit().await.unwrap();
+
+    let second = join.await.unwrap();
+    assert_ne!(second, first, "a fresh job replaces the cancelled one");
+    assert_eq!(job_status(&e, second).await, "pending");
+    assert_eq!(owners(&e, second).await, vec![Some("b2".to_string())]);
+    assert!(owners(&e, first).await.is_empty());
+}

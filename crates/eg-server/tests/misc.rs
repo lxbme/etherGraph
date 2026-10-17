@@ -880,3 +880,31 @@ async fn sync_depth_and_batch_validation(pool: PgPool) {
     let (st, b) = delete(&app, "/api/batches/a%20b").await;
     assert_eq!((st, code(&b)), (StatusCode::BAD_REQUEST, "invalid_input"));
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn cancelling_a_running_job_lists_it_but_leaves_the_event_to_the_runner(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let a = |b: u8| format!("{:#x}", Address::repeat_byte(b));
+    let by_batch = sync_job(&app, json!({"addresses": [a(1)], "batch": "b1"})).await;
+    assert_eq!(
+        state.store.claim_next().await.unwrap().unwrap().id,
+        by_batch
+    );
+    let mut rx = state.ctx.bus.subscribe();
+    let (st, b) = delete(&app, "/api/batches/b1").await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    assert_eq!(b, json!({"cancelled": [by_batch]}));
+    assert!(state.store.cancel_requested(by_batch).await.unwrap());
+
+    let background = sync_job(&app, json!({"addresses": [a(2)]})).await;
+    assert_eq!(
+        state.store.claim_next().await.unwrap().unwrap().id,
+        background
+    );
+    let (st, b) = delete(&app, "/api/jobs?scope=background").await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    // The first job is still running (flagged), so it is listed again.
+    assert_eq!(b, json!({"cancelled": [by_batch, background]}));
+    assert!(state.store.cancel_requested(background).await.unwrap());
+    assert!(rx.try_recv().is_err(), "no JobProgress for running jobs");
+}

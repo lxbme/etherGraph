@@ -10,7 +10,7 @@ use eg_store::{JobKind, JobRow, SyncRow};
 
 use crate::config::IngestConfig;
 use crate::enqueue::SyncDirection;
-use crate::handlers::SyncParams;
+use crate::handlers::{SyncParams, SyncProgress};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Estimate {
@@ -71,21 +71,25 @@ pub fn estimate(
 /// Provider calls `job` still needs (an upper bound for a sync: the kind in
 /// progress counts in full). A sync not started yet also looks up the head;
 /// each remaining kind costs `ceil(cap / page_size)` pages. Unreadable sync
-/// params count as 0: the job fails without calling out.
+/// params or progress count as 0: the job fails without calling out.
 pub fn remaining_calls(job: &JobRow, cfg: &IngestConfig) -> u32 {
     match job.kind {
         JobKind::SyncAddress => {
             let Ok(p) = serde_json::from_value::<SyncParams>(job.params.clone()) else {
                 return 0;
             };
-            let kinds = p.kinds().len() as u32;
+            let kinds = p.kinds().len();
             let (head, done) = match &job.progress {
                 None => (LATEST_HEAD_CALLS, 0),
-                Some(prog) => (0, prog["kind_index"].as_u64().unwrap_or(0) as u32),
+                Some(v) => match serde_json::from_value::<SyncProgress>(v.clone()) {
+                    Ok(prog) => (0, prog.kind_index),
+                    Err(_) => return 0,
+                },
             };
+            let kinds = u32::try_from(kinds.saturating_sub(done)).unwrap_or(u32::MAX);
             let cap = p.cap.unwrap_or(cfg.max_records_per_category);
             let pages = cap.div_ceil(cfg.page_size.max(1));
-            head.saturating_add(kinds.saturating_sub(done).saturating_mul(pages))
+            head.saturating_add(kinds.saturating_mul(pages))
         }
         JobKind::FetchTx => 4,
         JobKind::FetchBlock | JobKind::ResolveNames | JobKind::TokenMeta => 1,
@@ -193,6 +197,12 @@ mod tests {
         });
         let started = job(JobKind::SyncAddress, sync_params(None, &[]), Some(progress));
         assert_eq!(remaining_calls(&started, &cfg), 20);
+        let broken = job(
+            JobKind::SyncAddress,
+            sync_params(None, &[]),
+            Some(serde_json::json!({"kind_index": "x"})),
+        );
+        assert_eq!(remaining_calls(&broken, &cfg), 0);
         // A cap that is not a page multiple rounds up; old params have no cap.
         let odd = job(
             JobKind::SyncAddress,

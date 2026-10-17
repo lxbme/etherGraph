@@ -135,17 +135,37 @@ impl Store {
             .collect()
     }
 
-    /// Records that `batch` (or, for `None`, a batch-less caller) owns the job.
-    /// Adding an existing owner is a no-op.
-    pub async fn add_job_owner(&self, job_id: i64, batch: Option<&str>) -> Result<()> {
+    /// Records that `batch` (or, for `None`, a batch-less caller) owns the job,
+    /// if it is still active; a running job's pending cancellation is withdrawn
+    /// since it has an owner again. Returns `false`, recording nothing, when the
+    /// job has finished or was cancelled. Adding an existing owner is a no-op.
+    ///
+    /// The owner row goes in first: its foreign-key check share-locks the job,
+    /// so this either commits before a concurrent [`Store::release_batch`]
+    /// locks the job (which then sees the owner), or waits for it and then
+    /// finds the job cancelled.
+    pub async fn add_job_owner(&self, job_id: i64, batch: Option<&str>) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
         sqlx::query(
             "INSERT INTO job_owners (job_id, batch_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
         )
         .bind(job_id)
         .bind(batch)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
-        Ok(())
+        let live: Option<i64> = sqlx::query_scalar(
+            "UPDATE jobs SET cancel_requested = false \
+             WHERE id = $1 AND status IN ('pending', 'running', 'paused_quota') RETURNING id",
+        )
+        .bind(job_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if live.is_none() {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        tx.commit().await?;
+        Ok(true)
     }
 
     /// Named batches owning each job (batch-less owners are not listed).
@@ -424,6 +444,29 @@ mod tests {
             ]
         );
         assert!(s.cancel_requested(j1).await.unwrap());
+    }
+
+    #[sqlx::test]
+    async fn add_job_owner_refuses_finished_jobs_and_revives_flagged_ones(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let running = job(&s, "running", Priority::Background).await;
+        let pending = job(&s, "pending", Priority::Background).await;
+        assert!(s.add_job_owner(running, Some("b1")).await.unwrap());
+        assert!(s.add_job_owner(pending, Some("b1")).await.unwrap());
+        assert_eq!(s.claim_next().await.unwrap().unwrap().id, running);
+        // b1 goes: the pending job is cancelled, the running one only flagged.
+        s.release_batch("b1").await.unwrap();
+        assert!(s.cancel_requested(running).await.unwrap());
+        // A request that found the cancelled job by key must not join it.
+        assert!(!s.add_job_owner(pending, Some("b2")).await.unwrap());
+        assert!(s.job_batches(&[pending]).await.unwrap().is_empty());
+        // A new owner of the still-running job withdraws its cancellation.
+        assert!(s.add_job_owner(running, Some("b2")).await.unwrap());
+        assert!(!s.cancel_requested(running).await.unwrap());
+        assert_eq!(
+            s.job_batches(&[running]).await.unwrap()[&running],
+            vec!["b2".to_string()]
+        );
     }
 
     #[sqlx::test]

@@ -13,6 +13,10 @@ use crate::runner::JobCtx;
 
 const META_CHUNK: usize = 20;
 
+/// Times [`enqueue_sync`] retries when the job it found ended before it could
+/// be joined.
+const OWNER_ATTEMPTS: usize = 3;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SyncDirection {
@@ -44,7 +48,8 @@ fn sync_key_prefix(addr: Address) -> String {
 /// Enqueues (or joins) the address's sync in `dir` and records `owner` (a
 /// batch id, or `None` for a batch-less caller) as one of its owners. `cap`
 /// limits the records fetched per kind (`None`: `max_records_per_category`);
-/// a joined job keeps its own cap.
+/// a joined job keeps its own cap. A job that is cancelled (or finishes)
+/// before the owner is recorded is not joined: a fresh job is enqueued.
 pub async fn enqueue_sync(
     ctx: &JobCtx,
     addr: Address,
@@ -53,23 +58,27 @@ pub async fn enqueue_sync(
     cap: Option<u32>,
     owner: Option<&str>,
 ) -> Result<i64, StoreError> {
-    let id = enqueue_one(
-        ctx,
-        NewJob {
-            key: format!("{}{dir}", sync_key_prefix(addr)),
-            kind: JobKind::SyncAddress,
-            params: json!({
-                "address": format!("{addr:#x}"),
-                "direction": dir,
-                "kinds": [],
-                "cap": cap,
-            }),
-            priority: p,
-        },
-    )
-    .await?;
-    ctx.store.add_job_owner(id, owner).await?;
-    Ok(id)
+    let job = NewJob {
+        key: format!("{}{dir}", sync_key_prefix(addr)),
+        kind: JobKind::SyncAddress,
+        params: json!({
+            "address": format!("{addr:#x}"),
+            "direction": dir,
+            "kinds": [],
+            "cap": cap,
+        }),
+        priority: p,
+    };
+    for _ in 0..OWNER_ATTEMPTS {
+        let id = enqueue_one(ctx, job.clone()).await?;
+        if ctx.store.add_job_owner(id, owner).await? {
+            return Ok(id);
+        }
+    }
+    Err(StoreError::Invalid(format!(
+        "enqueue of key {} kept racing with job cancellation",
+        job.key
+    )))
 }
 
 pub async fn enqueue_fetch_tx(ctx: &JobCtx, hash: TxHash) -> Result<i64, StoreError> {
