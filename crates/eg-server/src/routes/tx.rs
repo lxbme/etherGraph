@@ -1,21 +1,23 @@
-//! `GET /api/tx/{hash}`: fund-flow view of one transaction, fetched on demand.
+//! `GET /api/tx/{hash}`: fund-flow view and detail of one transaction, fetched
+//! on demand. `GET /api/tx/{hash}/raw`: its stored tx and receipt JSON.
 
 use std::collections::HashMap;
 
 use axum::Json;
 use axum::extract::State;
 use eg_core::types::{Address, TransferKind};
-use eg_ingest::{enqueue_fetch_tx, load_tx_flow};
+use eg_ingest::{enqueue_fetch_block, enqueue_fetch_tx, load_tx_flow};
 
 use crate::dto::{
-    DecodedCallDto, DecodedEventDto, FlowDto, TxFlowDto, TxMetaDto, TxResponseDto, hex_addr,
-    rfc3339,
+    DecodedCallDto, DecodedEventDto, FlowDto, TxFlowDto, TxMetaDto, TxRawDto, TxResponseDto,
+    hex_addr, rfc3339,
 };
 use crate::error::ApiError;
 use crate::nodes::{enqueue_missing_meta, load_nodes, token_map};
 use crate::parse::parse_tx_hash;
 use crate::routes::ApiPath;
 use crate::state::AppState;
+use crate::txdetail::tx_detail;
 
 pub async fn tx(
     State(s): State<AppState>,
@@ -49,6 +51,14 @@ pub async fn tx(
     .await?
     .nodes;
     enqueue_missing_meta(&s, &f.participants, &token_addrs).await;
+    let block = s.store.block(f.tx.block_number).await?;
+    if block.is_none() {
+        // Fetched before headers were kept; the job key dedupes repeat views.
+        if let Err(e) = enqueue_fetch_block(&s.ctx, f.tx.block_number, hash).await {
+            tracing::warn!(error = %e, "enqueueing block backfill failed");
+        }
+    }
+    let head = s.head.get(&s).await;
 
     let completeness = serde_json::to_value(f.completeness)
         .ok()
@@ -70,6 +80,7 @@ pub async fn tx(
                 method: f.call.as_ref().map(|c| c.name.clone()),
                 selector: f.tx.selector.map(alloy_primitives::hex::encode_prefixed),
             },
+            detail: tx_detail(&f.tx, block.as_ref(), head),
             call: f.call.as_ref().map(DecodedCallDto::from),
             nodes,
             flows: f.flows.iter().map(|fl| FlowDto::new(fl, &tokens)).collect(),
@@ -77,5 +88,21 @@ pub async fn tx(
             completeness,
         }),
         job_id: None,
+    }))
+}
+
+pub async fn raw(
+    State(s): State<AppState>,
+    ApiPath(raw): ApiPath<String>,
+) -> Result<Json<TxRawDto>, ApiError> {
+    let hash = parse_tx_hash(&raw)?;
+    let row = s
+        .store
+        .transaction(hash)
+        .await?
+        .ok_or_else(|| ApiError::not_found("transaction not fetched"))?;
+    Ok(Json(TxRawDto {
+        tx: row.raw_tx,
+        receipt: row.raw_receipt,
     }))
 }

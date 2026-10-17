@@ -47,6 +47,12 @@ const ready = (over: Partial<TxFlowDto> = {}): TxResponseDto => ({
   flow: {
     tx: { hash: HASH, block_number: 19000000, ts: "2026-01-01T00:00:00Z", from: A, to: B, value: "0", success: true,
       gas_used: "21000", fee: "1500000000000000", method: "swap", selector: "0x12345678" },
+    detail: {
+      nonce: 0, tx_type: 2, position: 0, confirmations: null, gas_limit: "21000", gas_used: "21000",
+      gas_price: null, effective_gas_price: null, max_fee: null, max_priority_fee: null, base_fee: null,
+      burnt_fee: null, savings: null, blob_gas_used: null, blob_gas_price: null, access_list_len: null,
+      contract_created: null, revert_reason: null, input: "0x",
+    },
     call: { signature: "swap(uint256,address)", name: "swap", args: [{ name: "amount", ty: "uint256", value: "5" }] },
     nodes: [node(A), node(B, { contract_name: "Router", kind: "contract" })],
     flows: [flow],

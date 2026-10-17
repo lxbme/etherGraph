@@ -27,6 +27,7 @@ pub fn router(state: AppState) -> Router {
         .route("/graph/edges", post(graph::edges))
         .route("/transfers", get(transfers::list))
         .route("/tx/{hash}", get(tx::tx))
+        .route("/tx/{hash}/raw", get(tx::raw))
         .route("/labels", get(labels::list).post(labels::create))
         .route("/labels/{id}", delete(labels::delete))
         .route(

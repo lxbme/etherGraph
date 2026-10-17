@@ -20,6 +20,12 @@ const dto = (over: Partial<TxFlowDto> = {}): TxFlowDto => ({
     hash: "0x" + "11".repeat(32), block_number: 1, ts: "2026-01-01T00:00:00Z", from: A, to: B, value: "0",
     success: true, gas_used: "21000", fee: "1000000000000000", method: "swap", selector: "0x12345678",
   },
+  detail: {
+    nonce: 0, tx_type: 2, position: 0, confirmations: null, gas_limit: "21000", gas_used: "21000",
+    gas_price: null, effective_gas_price: null, max_fee: null, max_priority_fee: null, base_fee: null,
+    burnt_fee: null, savings: null, blob_gas_used: null, blob_gas_price: null, access_list_len: null,
+    contract_created: null, revert_reason: null, input: "0x",
+  },
   call: { signature: "swap(uint256)", name: "swap", args: [] },
   nodes: [node(A), node(B)], flows: [flow()], events: [], completeness: "fund_flow", ...over,
 });

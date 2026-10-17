@@ -10,7 +10,7 @@ use eg_core::types::{Transfer, TransferKind};
 use eg_ingest::handlers::FetchTxHandler;
 use eg_ingest::{JobHandler, enqueue_fetch_tx};
 use eg_server::import_labels::import_labels;
-use eg_store::Store;
+use eg_store::{Store, TxRow};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
@@ -122,6 +122,10 @@ async fn tx_pending_then_ready(pool: PgPool) {
     assert!(f["tx"]["method"].is_null());
     assert_eq!(f["tx"]["selector"], "0xa9059cbb");
     assert!(f["call"].is_null());
+    // The fetch stored the block header, so no backfill is queued.
+    assert_eq!(f["detail"]["gas_used"], "21000");
+    assert!(f["detail"]["revert_reason"].is_null());
+    assert_eq!(fetch_block_jobs(&app).await, 0);
 
     let flows = f["flows"].as_array().unwrap();
     assert_eq!(flows.len(), 3);
@@ -154,6 +158,89 @@ async fn tx_pending_then_ready(pool: PgPool) {
     let data = ev["data"].as_str().unwrap();
     assert_eq!(data, data.to_lowercase());
     assert!(data.starts_with("0x") && data.len() == 66);
+}
+
+/// A tx stored before block headers were kept: no `blocks` row.
+fn stored_row() -> TxRow {
+    TxRow {
+        hash: HASH,
+        block_number: 100,
+        ts: ts(),
+        from: FROM,
+        to: Some(TO),
+        value: U256::from(5u8),
+        selector: None,
+        success: false,
+        gas_used: U256::from(21000u32),
+        fee: U256::from(147000u32),
+        raw_tx: json!({"hash": format!("{HASH:#x}"), "nonce": "0x2a", "type": "0x2",
+            "gas": "0x7530", "input": "0x", "maxFeePerGas": "0x9", "transactionIndex": "0x4"}),
+        raw_receipt: json!({"status": "0x0", "gasUsed": "0x5208", "effectiveGasPrice": "0x7"}),
+        revert_reason: Some("out of gas".into()),
+    }
+}
+
+async fn fetch_block_jobs(app: &axum::Router) -> usize {
+    let (st, jobs) = get(app, "/api/jobs").await;
+    assert_eq!(st, StatusCode::OK);
+    jobs.as_array()
+        .unwrap()
+        .iter()
+        .filter(|j| j["kind"] == "fetch_block")
+        .count()
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn tx_without_block_header_is_ready_and_backfills_once(pool: PgPool) {
+    let (app, state, fake) = test_app(pool);
+    state.store.upsert_transaction(&stored_row()).await.unwrap();
+    fake.set_latest_block(109);
+    let uri = format!("/api/tx/{HASH:#x}");
+
+    let (st, v) = get(&app, &uri).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(v["status"], "ready");
+    let d = &v["flow"]["detail"];
+    assert_eq!(d["nonce"], 42);
+    assert_eq!(d["tx_type"], 2);
+    assert_eq!(d["position"], 4);
+    assert_eq!(d["confirmations"], 10);
+    assert_eq!(d["gas_limit"], "30000");
+    assert_eq!(d["gas_used"], "21000");
+    assert!(d["base_fee"].is_null());
+    assert!(d["burnt_fee"].is_null());
+    // (9 − 7) × 21000
+    assert_eq!(d["savings"], "42000");
+    assert_eq!(d["revert_reason"], "out of gas");
+    assert_eq!(fetch_block_jobs(&app).await, 1);
+
+    let (st, _) = get(&app, &uri).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(fetch_block_jobs(&app).await, 1);
+    // The chain head is cached: one `latest_block` call for both requests.
+    assert_eq!(fake.calls(), 1);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn tx_raw_returns_stored_json(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let row = stored_row();
+    state.store.upsert_transaction(&row).await.unwrap();
+    let (st, v) = get(&app, &format!("/api/tx/{HASH:#x}/raw")).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(v, json!({"tx": row.raw_tx, "receipt": row.raw_receipt}));
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn tx_raw_unknown_hash_is_404(pool: PgPool) {
+    let (app, _, fake) = test_app(pool);
+    let (st, v) = get(&app, &format!("/api/tx/{:#x}/raw", B256::repeat_byte(0x77))).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    assert_eq!(code(&v), "not_found");
+    assert_eq!(fake.calls(), 0);
+    let (st, v) = get(&app, "/api/tx/0x12/raw").await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert_eq!(code(&v), "invalid_input");
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]

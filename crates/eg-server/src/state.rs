@@ -10,6 +10,7 @@ use eg_store::Store;
 use tokio::sync::Notify;
 
 use crate::config::Config;
+use crate::head::HeadCache;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -19,6 +20,7 @@ pub struct AppState {
     pub stats: Arc<ClientStats>,
     pub ctx: JobCtx,
     pub cfg: Arc<Config>,
+    pub head: Arc<HeadCache>,
 }
 
 impl AppState {
@@ -44,6 +46,7 @@ impl AppState {
             stats,
             ctx,
             cfg,
+            head: Arc::new(HeadCache::default()),
         }
     }
 }

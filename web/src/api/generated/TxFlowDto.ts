@@ -3,6 +3,7 @@ import type { DecodedCallDto } from "./DecodedCallDto";
 import type { DecodedEventDto } from "./DecodedEventDto";
 import type { FlowDto } from "./FlowDto";
 import type { NodeSummaryDto } from "./NodeSummaryDto";
+import type { TxDetailDto } from "./TxDetailDto";
 import type { TxMetaDto } from "./TxMetaDto";
 
-export type TxFlowDto = { tx: TxMetaDto, call: DecodedCallDto | null, nodes: Array<NodeSummaryDto>, flows: Array<FlowDto>, events: Array<DecodedEventDto>, completeness: "fund_flow" | "full_trace", };
+export type TxFlowDto = { tx: TxMetaDto, detail: TxDetailDto, call: DecodedCallDto | null, nodes: Array<NodeSummaryDto>, flows: Array<FlowDto>, events: Array<DecodedEventDto>, completeness: "fund_flow" | "full_trace", };

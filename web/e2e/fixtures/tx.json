@@ -15,6 +15,27 @@
       "method": "swapExactETHForTokens",
       "selector": "0x7ff36ab5"
     },
+    "detail": {
+      "nonce": 12,
+      "tx_type": 2,
+      "position": 41,
+      "confirmations": null,
+      "gas_limit": "200000",
+      "gas_used": "152000",
+      "gas_price": "20000000000",
+      "effective_gas_price": "20000000000",
+      "max_fee": "30000000000",
+      "max_priority_fee": "1000000000",
+      "base_fee": "19000000000",
+      "burnt_fee": "2888000000000000",
+      "savings": "1520000000000000",
+      "blob_gas_used": null,
+      "blob_gas_price": null,
+      "access_list_len": 0,
+      "contract_created": null,
+      "revert_reason": null,
+      "input": "0x7ff36ab5"
+    },
     "call": {
       "signature": "swapExactETHForTokens(uint256,address[],address,uint256)",
       "name": "swapExactETHForTokens",

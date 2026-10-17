@@ -421,6 +421,7 @@ pub struct TxResponseDto {
 #[ts(export)]
 pub struct TxFlowDto {
     pub tx: TxMetaDto,
+    pub detail: TxDetailDto,
     pub call: Option<DecodedCallDto>,
     pub nodes: Vec<NodeSummaryDto>,
     pub flows: Vec<FlowDto>,
@@ -448,6 +449,53 @@ pub struct TxMetaDto {
     pub method: Option<String>,
     /// First 4 calldata bytes as `0x` + 8 hex digits; null for a plain transfer.
     pub selector: Option<String>,
+}
+
+/// Full transaction detail parsed from the stored raw tx/receipt and the block
+/// header. Wei and gas amounts are decimal strings.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TxDetailDto {
+    #[ts(type = "number")]
+    pub nonce: u64,
+    /// 0 legacy, 1 access list, 2 EIP-1559, 3 blob, 4 set-code.
+    pub tx_type: u8,
+    /// Index of the tx within its block.
+    #[ts(type = "number | null")]
+    pub position: Option<u64>,
+    /// Blocks since inclusion, counting the tx's own block; null while the
+    /// chain head is unknown.
+    #[ts(type = "number | null")]
+    pub confirmations: Option<u64>,
+    pub gas_limit: String,
+    pub gas_used: String,
+    pub gas_price: Option<String>,
+    pub effective_gas_price: Option<String>,
+    pub max_fee: Option<String>,
+    pub max_priority_fee: Option<String>,
+    /// Null when the block header is not stored yet or predates London.
+    pub base_fee: Option<String>,
+    /// `base_fee × gas_used`.
+    pub burnt_fee: Option<String>,
+    /// `(max_fee − effective_gas_price) × gas_used`.
+    pub savings: Option<String>,
+    pub blob_gas_used: Option<String>,
+    pub blob_gas_price: Option<String>,
+    /// Entries in the access list; null when the tx type has none.
+    pub access_list_len: Option<u32>,
+    /// Address of the contract a creation tx deployed.
+    pub contract_created: Option<String>,
+    pub revert_reason: Option<String>,
+    /// Calldata, `0x` hex.
+    pub input: String,
+}
+
+/// `GET /api/tx/{hash}/raw`: the tx and receipt JSON as fetched.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TxRawDto {
+    pub tx: serde_json::Value,
+    pub receipt: serde_json::Value,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
