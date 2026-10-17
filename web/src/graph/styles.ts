@@ -64,6 +64,8 @@ export function iconSvgs(theme: Theme): Record<IconId, string> {
   const outline = cssVar("--canvas", t.canvas);
   const pin = cssVar("--fg", t.fg);
   const warn = cssVar("--warn", t.warn);
+  // --warn is a light amber in both themes, so its "!" needs dark ink in both: --fg in light, --canvas in dark.
+  const ink = theme === "light" ? pin : outline;
   return {
     tag: svgUri(
       `<path fill="${accent}" stroke="${outline}" stroke-width="2" d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/>` +
@@ -78,10 +80,9 @@ export function iconSvgs(theme: Theme): Record<IconId, string> {
       `<circle cx="12" cy="12" r="10" fill="${accent}" stroke="${outline}" stroke-width="2"/>` +
         `<path stroke="${outline}" stroke-width="2" d="M12 6v6l4 2"/>`,
     ),
-    // The exclamation mark is dark ink in both themes: --warn is a light amber in each.
     partial: svgUri(
       `<path fill="${warn}" stroke="${outline}" stroke-width="2" d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>` +
-        `<path stroke="${THEME_HEX.light.fg}" stroke-width="2" d="M12 9v4"/><path stroke="${THEME_HEX.light.fg}" stroke-width="2" d="M12 17h.01"/>`,
+        `<path stroke="${ink}" stroke-width="2" d="M12 9v4"/><path stroke="${ink}" stroke-width="2" d="M12 17h.01"/>`,
     ),
   };
 }

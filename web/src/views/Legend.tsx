@@ -1,12 +1,21 @@
 import { ChevronDown } from "lucide-react";
-import { useState } from "react";
+import { useSyncExternalStore } from "react";
 import type { LegendGroup, Swatch } from "../graph/legend";
 import { useT } from "../i18n";
 
 /** localStorage key of the canvas legends' collapsed state ("1" / "0"). */
 export const LEGEND_COLLAPSED_KEY = "eg.legend.collapsed";
 
+/**
+ * Collapsed state per key, shared by every mounted legend (the graph and each tx tab stay mounted while
+ * hidden). localStorage is the source; `fallback` keeps the choice for the session when writing it fails.
+ */
+const fallback = new Map<string, boolean>();
+const listeners = new Set<() => void>();
+
 function readCollapsed(key: string): boolean {
+  const kept = fallback.get(key);
+  if (kept !== undefined) return kept;
   try {
     return localStorage.getItem(key) === "1";
   } catch {
@@ -17,9 +26,24 @@ function readCollapsed(key: string): boolean {
 function writeCollapsed(key: string, collapsed: boolean) {
   try {
     localStorage.setItem(key, collapsed ? "1" : "0");
+    fallback.delete(key);
   } catch {
-    /* storage unavailable: keep the choice for this session only */
+    fallback.set(key, collapsed);
   }
+  for (const l of listeners) l();
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function useCollapsed(key: string | undefined): [boolean, (next: boolean) => void] {
+  const collapsed = useSyncExternalStore(subscribe, () => (key ? readCollapsed(key) : false));
+  const set = (next: boolean) => {
+    if (key) writeCollapsed(key, next);
+  };
+  return [collapsed, set];
 }
 
 type Paint = { fill: string; stroke: string; strokeWidth: number; strokeDasharray?: string };
@@ -90,17 +114,13 @@ function SwatchSvg({ swatch }: { swatch: Swatch }) {
  */
 export function Legend({ groups, collapsedKey }: { groups: LegendGroup[]; collapsedKey?: string }) {
   const t = useT();
-  const [collapsed, setCollapsed] = useState(() => (collapsedKey ? readCollapsed(collapsedKey) : false));
+  const [collapsed, setCollapsed] = useCollapsed(collapsedKey);
   if (groups.length === 0) return null;
 
-  const toggle = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    if (collapsedKey) writeCollapsed(collapsedKey, next);
-  };
+  const toggle = () => setCollapsed(!collapsed);
 
   return (
-    <section className={collapsedKey ? "legend legend--floating" : "legend"} aria-label={t("legend.title")} data-testid="legend">
+    <section className={collapsedKey ? "legend legend--floating" : "legend"} aria-label={t("legend.title")} data-testid={collapsedKey ? "legend" : "legend-full"}>
       {collapsedKey && (
         <div className="legend__head">
           <span className="legend__title">{t("legend.title")}</span>

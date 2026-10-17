@@ -46,6 +46,21 @@ test("collapsing hides the entries and survives a remount", () => {
   expect(localStorage.getItem(KEY)).toBe("0");
 });
 
+test("legends sharing a key collapse and expand together", () => {
+  render(
+    <>
+      <Legend groups={groups} collapsedKey={KEY} />
+      <Legend groups={groups} collapsedKey={KEY} />
+    </>,
+  );
+  expect(screen.getAllByText("Exchange")).toHaveLength(2);
+  fireEvent.click(screen.getAllByRole("button", { name: "Collapse legend" })[0]!);
+  expect(screen.queryByText("Exchange")).not.toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "Expand legend" })).toHaveLength(2);
+  fireEvent.click(screen.getAllByRole("button", { name: "Expand legend" })[1]!);
+  expect(screen.getAllByText("Exchange")).toHaveLength(2);
+});
+
 test("storage that throws leaves the legend expanded and still toggles", () => {
   vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
     throw new Error("denied");
@@ -57,10 +72,14 @@ test("storage that throws leaves the legend expanded and still toggles", () => {
   expect(screen.getByText("Exchange")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Collapse legend" }));
   expect(screen.queryByText("Exchange")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Expand legend" }));
+  expect(screen.getByText("Exchange")).toBeInTheDocument();
 });
 
 test("without a collapse key it renders every group inline, with no toggle", () => {
   render(<Legend groups={fullLegendGroups("light")} />);
+  expect(screen.getByTestId("legend-full")).toBeInTheDocument();
+  expect(screen.queryByTestId("legend")).not.toBeInTheDocument();
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
   expect(screen.getByText("①②③ = order of transfers")).toBeInTheDocument();
 });

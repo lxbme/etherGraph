@@ -163,6 +163,14 @@ describe("graphStylesheet", () => {
     expect(decodeURIComponent(dark.tag)).toContain("#5b8cff");
     expect(decodeURIComponent(dark.syncing)).toContain("#5b8cff");
     expect(decodeURIComponent(dark.partial)).toContain("#f0b64a");
+    // The "!" is dark ink on the amber in both themes: --fg in light, --canvas in dark.
+    document.documentElement.style.setProperty("--fg", "#222222");
+    try {
+      expect(decodeURIComponent(iconSvgs("light").partial)).toMatch(/stroke="#222222"[^>]*d="M12 9v4"/);
+    } finally {
+      document.documentElement.style.removeProperty("--fg");
+    }
+    expect(decodeURIComponent(dark.partial)).toMatch(/stroke="#10141a"[^>]*d="M12 9v4"/);
     expect(dark.tag).not.toBe(iconSvgs("light").tag);
     for (const uri of Object.values(dark)) expect(uri).not.toMatch(/\s/);
     withCy(graphStylesheet("dark"), [{ group: "nodes", data: { id: "p", text: "x" }, classes: "kind-eoa pinned" }], (cy) => {
