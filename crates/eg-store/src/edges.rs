@@ -125,9 +125,10 @@ pub(crate) fn transfer_from_row(r: &PgRow) -> Result<Transfer> {
 
 impl Store {
     /// Aggregates transfers touching `q.centers` into `(from, to, asset)` edges,
-    /// keeping per center only the top `limit_per_center` neighbours by `q.sort`
-    /// (ties by neighbour address ascending). `omitted[center]` counts the
-    /// dropped neighbours and is present only when positive.
+    /// keeping per center only the top `limit_per_center` (or `limits[center]`)
+    /// neighbours by `q.sort` (ties by neighbour address ascending). Neighbours in
+    /// `q.prefer` rank first and are kept even past the cap. `omitted[center]`
+    /// counts the dropped neighbours and is present only when positive.
     pub async fn query_edges(&self, q: &EdgeQuery) -> Result<EdgeQueryResult> {
         if q.centers.is_empty() {
             return Ok(EdgeQueryResult::default());
@@ -202,20 +203,29 @@ impl Store {
             SortBy::Amount => "k_amount",
             SortBy::Recent => "k_recent",
         };
+        // Preferred (on-canvas) neighbours rank first and are always shown, even past the
+        // cap, so an edge between two visible nodes is never dropped. A hashed join on the
+        // deduplicated list keeps a generic prepared plan cheap (`= ANY` would be a
+        // per-row array scan).
         qb.push(
-            "), r AS (SELECT center, nb, row_number() OVER (PARTITION BY center ORDER BY (nb = ANY(",
+            "), r AS (SELECT s.center, s.nb, pf.p IS NOT NULL AS pref, \
+             row_number() OVER (PARTITION BY s.center ORDER BY pf.p IS NOT NULL DESC, ",
         );
-        qb.push_bind(prefer);
         qb.push(format!(
-            ")) DESC, {key} DESC, nb) AS rk, \
-             count(*) OVER (PARTITION BY center) AS n \
+            "s.{key} DESC, s.nb) AS rk, \
+             count(*) OVER (PARTITION BY s.center) AS n \
              FROM (SELECT center, nb, sum(cnt) AS k_count, sum(total) AS k_amount, \
-             max(last_ts) AS k_recent FROM p GROUP BY 1, 2) s), \
-             rl AS (SELECT r.center, r.nb, r.rk, r.n, COALESCE(l.lim, "
+             max(last_ts) AS k_recent FROM p GROUP BY 1, 2) s \
+             LEFT JOIN (SELECT DISTINCT unnest("
         ));
+        qb.push_bind(prefer);
+        qb.push(
+            "::bytea[]) AS p) pf ON pf.p = s.nb), \
+             rl AS (SELECT r.center, r.nb, r.n, (r.rk <= COALESCE(l.lim, ",
+        );
         // Per-center cap: the override when present, else the default.
         qb.push_bind(limit)
-            .push(") AS cap FROM r LEFT JOIN unnest(")
+            .push(") OR r.pref) AS shown FROM r LEFT JOIN unnest(")
             .push_bind(lim_centers)
             .push("::bytea[], ")
             .push_bind(lims)
@@ -232,16 +242,15 @@ impl Store {
         qb.push(match (out, inb) {
             (true, true) => {
                 "(LEAST(g.from_addr, g.to_addr), GREATEST(g.from_addr, g.to_addr)) IN \
-                 (SELECT LEAST(center, nb), GREATEST(center, nb) FROM rl WHERE rk <= cap"
+                 (SELECT LEAST(center, nb), GREATEST(center, nb) FROM rl WHERE shown"
             }
-            (true, false) => {
-                "(g.from_addr, g.to_addr) IN (SELECT center, nb FROM rl WHERE rk <= cap"
-            }
-            _ => "(g.to_addr, g.from_addr) IN (SELECT center, nb FROM rl WHERE rk <= cap",
+            (true, false) => "(g.from_addr, g.to_addr) IN (SELECT center, nb FROM rl WHERE shown",
+            _ => "(g.to_addr, g.from_addr) IN (SELECT center, nb FROM rl WHERE shown",
         });
         qb.push(
-            ") UNION ALL SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, center, n - cap \
-             FROM (SELECT DISTINCT center, n, cap FROM rl WHERE n > cap) o \
+            ") UNION ALL SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, center, \
+             n - count(*) FILTER (WHERE shown) \
+             FROM rl GROUP BY center, n HAVING n > count(*) FILTER (WHERE shown) \
              ORDER BY center NULLS FIRST, from_addr, to_addr, asset NULLS FIRST",
         );
         let rows = qb.build().fetch_all(&self.pool).await?;
@@ -657,6 +666,24 @@ mod tests {
         let r = store.query_edges(&q).await.unwrap();
         assert_eq!(neighbours(&r.edges), HashSet::from([e(5)]));
         assert_eq!(r.omitted[&C], 7);
+    }
+
+    #[sqlx::test]
+    async fn preferred_neighbours_beyond_the_cap_are_kept(pool: PgPool) {
+        let store = seed(&pool).await;
+        let mut q = query(EdgeFilter::default(), 5, SortBy::Count);
+        // Both preferred neighbours are on the canvas: a cap of 1 must not drop either edge.
+        q.limits.insert(C, 1);
+        q.prefer = vec![e(4), e(5), e(4)];
+        let r = store.query_edges(&q).await.unwrap();
+        assert_eq!(neighbours(&r.edges), HashSet::from([e(4), e(5)]));
+        // C has 8 neighbours, 2 shown.
+        assert_eq!(r.omitted[&C], 6);
+        // A cap above the preferred count still fills the rest by rank.
+        q.limits.insert(C, 3);
+        let r = store.query_edges(&q).await.unwrap();
+        assert_eq!(neighbours(&r.edges), HashSet::from([e(4), e(5), A]));
+        assert_eq!(r.omitted[&C], 5);
     }
 
     fn tq(scope: TransferScope, asset: Option<Option<Address>>, limit: u32) -> TransferQuery {
