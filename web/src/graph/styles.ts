@@ -1,25 +1,56 @@
 import type cytoscape from "cytoscape";
-import { ASSET_HEX } from "../lib/assets";
+import type { AssetClass } from "../lib/assets";
+
+export type Theme = "light" | "dark";
+export type NodeKind = "eoa" | "contract" | "unknown";
+export type CategoryId = "exchange" | "defi" | "bridge" | "mixer" | "scam" | "sanctioned" | "none";
+export type CategoryColor = { fill: string; stroke: string };
+
+/** Node shape per address kind. */
+export const NODE_SHAPE: Record<NodeKind, string> = {
+  eoa: "ellipse",
+  contract: "round-rectangle",
+  unknown: "hexagon",
+};
 
 /** Fallbacks for the tokens in styles/tokens.css (used when CSS variables are unavailable, e.g. jsdom). */
-const CAT_HEX = {
-  exchange: "#3b7dd8",
-  defi: "#8a5cd6",
-  bridge: "#2a9d9d",
-  mixer: "#e06a2b",
-  scam: "#c23b3b",
-  none: "#9aa3ad",
-} as const;
-
 const THEME_HEX = {
-  light: { fg: "#1c2229", fgMuted: "#5f6b78", bg: "#f6f7f9", accent: "#4a9eff" },
-  dark: { fg: "#e6e9ed", fgMuted: "#98a3b0", bg: "#14181d", accent: "#4a9eff" },
+  light: { fg: "#111827", fgMuted: "#6b7280", bg: "#ffffff", canvas: "#fbfcfd", accent: "#1f5eff" },
+  dark: { fg: "#e6e9ed", fgMuted: "#98a3b0", bg: "#14181d", canvas: "#10141a", accent: "#5b8cff" },
 } as const;
 
-const OTHER_EDGE = "#999999";
-const USER_RING = "#ffffff";
-/** Halo behind the white ring: dark on light backgrounds; the muted fg on dark ones. */
-const USER_RING_HALO = { light: "#2b323a", dark: THEME_HEX.dark.fgMuted } as const;
+/** Category hues; "sanctioned" shares the scam hue. */
+type CatToken = Exclude<CategoryId, "sanctioned">;
+const CAT_HEX: Record<Theme, Record<CatToken, string>> = {
+  light: { exchange: "#2563c9", defi: "#7c3aed", bridge: "#0f8a8a", mixer: "#c2570c", scam: "#d93025", none: "#6b7280" },
+  dark: { exchange: "#6ea3f0", defi: "#a98bf0", bridge: "#4cc2c2", mixer: "#f08a4b", scam: "#f0645a", none: "#98a3b0" },
+};
+
+const ASSET_HEX: Record<Theme, Record<AssetClass, string>> = {
+  light: { eth: "#5b5bd6", stable: "#0f9d58", erc20: "#b7791f", nft: "#6b7280" },
+  dark: { eth: "#9a9aff", stable: "#34c37a", erc20: "#e0a030", nft: "#98a3b0" },
+};
+/** Edges whose asset class is unknown (and tx call edges): a neutral grey with no token of its own. */
+const OTHER_EDGE: Record<Theme, string> = { light: "#9ca3af", dark: "#6b7280" };
+
+/** Share of the hue in a category tint; the rest is the node surface (white in light, the dark surface in dark). */
+const TINT_WEIGHT: Record<Theme, number> = { light: 0.15, dark: 0.28 };
+/** The center node's ring stays white in both themes. */
+const CENTER_RING = "#ffffff";
+
+const TAG_ICON_RAW =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="#1f5eff" ' +
+  'stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+  '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/>' +
+  '<circle cx="7.5" cy="7.5" r="1.5" fill="#ffffff" stroke="none"/></svg>';
+/**
+ * The lucide `tag` icon as a data URI, marking nodes that carry a user label. It is filled with the
+ * accent and outlined in white so it reads on either canvas and over edges.
+ */
+export const TAG_ICON_SVG = `data:image/svg+xml,${encodeURIComponent(TAG_ICON_RAW)}`;
+/** Tag icon size and how far it sticks out past the node's top-right corner, in px. */
+const TAG_SIZE = 11;
+const TAG_OVERHANG = 6;
 
 /** Cytoscape cannot resolve `var(--x)`, so resolve the token to a concrete value now. */
 function cssVar(name: string, fallback: string): string {
@@ -28,32 +59,71 @@ function cssVar(name: string, fallback: string): string {
   return v || fallback;
 }
 
+function parseHex(c: string): [number, number, number] | null {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim());
+  if (!m) return null;
+  const h = m[1]!.length === 3 ? [...m[1]!].map((x) => x + x).join("") : m[1]!;
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) as [number, number, number];
+}
+
+/** `weight` of `hue` over `base` (like `color-mix(in srgb, hue weight, base)`); hex only, otherwise `base`. */
+function mixHex(hue: string, base: string, weight: number): string {
+  const a = parseHex(hue);
+  const b = parseHex(base);
+  if (!a || !b) return base;
+  return `#${a.map((v, i) => Math.round(v * weight + b[i]! * (1 - weight)).toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** Fill (a light tint of the hue on the node surface) and stroke (the hue) per category; "none" is plain. */
+export function categoryColors(theme: Theme): Record<CategoryId, CategoryColor> {
+  const surface = cssVar("--bg", THEME_HEX[theme].bg);
+  const tinted = (k: CatToken): CategoryColor => {
+    const stroke = cssVar(`--cat-${k}`, CAT_HEX[theme][k]);
+    return { fill: mixHex(stroke, surface, TINT_WEIGHT[theme]), stroke };
+  };
+  const scam = tinted("scam");
+  return {
+    exchange: tinted("exchange"),
+    defi: tinted("defi"),
+    bridge: tinted("bridge"),
+    mixer: tinted("mixer"),
+    scam,
+    sanctioned: scam,
+    none: { fill: surface, stroke: cssVar("--cat-none", CAT_HEX[theme].none) },
+  };
+}
+
+/** Edge colour per asset class. */
+export function assetColors(theme: Theme): Record<AssetClass | "other", string> {
+  const asset = (k: AssetClass) => cssVar(`--asset-${k}`, ASSET_HEX[theme][k]);
+  return { eth: asset("eth"), stable: asset("stable"), erc20: asset("erc20"), nft: asset("nft"), other: OTHER_EDGE[theme] };
+}
+
 /** Plain `{selector, style}` blocks; property names/values follow the Cytoscape 3.34 docs. */
 type Block = { selector: string; style: Record<string, string | number> };
 
-export function graphStylesheet(theme: "light" | "dark"): cytoscape.StylesheetJson {
+const edgeColor = (c: string) => ({ "line-color": c, "target-arrow-color": c });
+const catStyle = (c: CategoryColor) => ({ "background-color": c.fill, "border-color": c.stroke });
+
+function graphBlocks(theme: Theme): Block[] {
   const t = THEME_HEX[theme];
   const fg = cssVar("--fg", t.fg);
-  const fgMuted = cssVar("--fg-muted", t.fgMuted);
-  const bg = cssVar("--bg", t.bg);
+  const canvas = cssVar("--canvas", t.canvas);
   const accent = cssVar("--accent", t.accent);
-  const cat = (k: keyof typeof CAT_HEX) => cssVar(`--cat-${k}`, CAT_HEX[k]);
-  const asset = (k: keyof typeof ASSET_HEX) => cssVar(`--asset-${k}`, ASSET_HEX[k]);
-  const font = cssVar("--font-sans", "system-ui, sans-serif");
+  const font = cssVar("--font-sans", "Inter, system-ui, sans-serif");
+  const cat = categoryColors(theme);
+  const asset = assetColors(theme);
 
-  const edgeColor = (c: string) => ({ "line-color": c, "target-arrow-color": c });
-
-  const blocks: Block[] = [
+  return [
     {
       selector: "node",
       style: {
         width: 28,
         height: 28,
-        shape: "ellipse",
-        "background-color": cat("none"),
-        "border-width": 2,
+        shape: NODE_SHAPE.eoa,
+        ...catStyle(cat.none),
+        "border-width": 1.5,
         "border-style": "solid",
-        "border-color": fgMuted,
         label: "data(text)",
         "text-valign": "bottom",
         "text-halign": "center",
@@ -61,40 +131,57 @@ export function graphStylesheet(theme: "light" | "dark"): cytoscape.StylesheetJs
         "text-wrap": "wrap",
         "text-max-width": "160px",
         "font-family": font,
-        "font-size": 10,
+        "font-size": 12,
         "line-height": 1.3,
         color: fg,
-        "text-outline-color": bg,
+        "text-outline-color": canvas,
         "text-outline-width": 2,
       },
     },
-    { selector: "node.kind-eoa", style: { shape: "ellipse" } },
-    { selector: "node.kind-contract", style: { shape: "round-rectangle" } },
-    { selector: "node.kind-unknown", style: { shape: "diamond", width: 32, height: 32 } },
-    { selector: "node.center", style: { width: 38, height: 38, "font-weight": "bold" } },
-    { selector: "node.cat-exchange", style: { "background-color": cat("exchange") } },
-    { selector: "node.cat-defi", style: { "background-color": cat("defi") } },
-    { selector: "node.cat-bridge", style: { "background-color": cat("bridge") } },
-    { selector: "node.cat-mixer", style: { "background-color": cat("mixer") } },
-    { selector: "node.cat-scam, node.cat-sanctioned", style: { "background-color": cat("scam") } },
+    { selector: "node.kind-eoa", style: { shape: NODE_SHAPE.eoa } },
+    { selector: "node.kind-contract", style: { shape: NODE_SHAPE.contract } },
+    { selector: "node.kind-unknown", style: { shape: NODE_SHAPE.unknown, width: 32, height: 32 } },
+    { selector: "node.cat-exchange", style: catStyle(cat.exchange) },
+    { selector: "node.cat-defi", style: catStyle(cat.defi) },
+    { selector: "node.cat-bridge", style: catStyle(cat.bridge) },
+    { selector: "node.cat-mixer", style: catStyle(cat.mixer) },
+    { selector: "node.cat-scam, node.cat-sanctioned", style: catStyle(cat.scam) },
+    // After the categories so the center keeps its accent fill whatever its label.
+    {
+      selector: "node.center",
+      style: {
+        width: 38,
+        height: 38,
+        "background-color": accent,
+        "border-color": CENTER_RING,
+        "border-width": 3,
+        "font-weight": 600,
+      },
+    },
     { selector: "node.synced", style: { "border-style": "solid" } },
     { selector: "node.unsynced", style: { "border-style": "dashed" } },
     {
+      // A small tag icon just outside the node's top-right corner.
       selector: "node.user-label",
       style: {
-        "outline-color": USER_RING,
-        "outline-width": 3,
-        "outline-offset": 1,
-        "outline-opacity": 1,
-        // A dark halo just outside the ring keeps it visible on the light background.
-        "underlay-color": USER_RING_HALO[theme],
-        "underlay-padding": 7,
-        "underlay-opacity": 0.6,
-        "underlay-shape": "ellipse",
+        "background-image": TAG_ICON_SVG,
+        "background-fit": "none",
+        "background-width": TAG_SIZE,
+        "background-height": TAG_SIZE,
+        "background-position-x": "100%",
+        "background-position-y": "0%",
+        "background-offset-x": TAG_OVERHANG,
+        "background-offset-y": -TAG_OVERHANG,
+        "background-clip": "none",
+        "background-image-containment": "over",
+        "bounds-expansion": TAG_OVERHANG,
       },
     },
-    { selector: "node.user-label.kind-contract", style: { "underlay-shape": "round-rectangle" } },
-    { selector: "node.selected, node:selected", style: { "border-width": 4, "border-color": accent } },
+    {
+      // A ring outside the border, so the selected node keeps its own fill and stroke (the center's white ring too).
+      selector: "node.selected, node:selected",
+      style: { "outline-color": accent, "outline-width": 2, "outline-offset": 2, "outline-opacity": 1 },
+    },
 
     {
       selector: "edge",
@@ -103,7 +190,7 @@ export function graphStylesheet(theme: "light" | "dark"): cytoscape.StylesheetJs
         "curve-style": "bezier",
         "target-arrow-shape": "triangle",
         "arrow-scale": 0.8,
-        ...edgeColor(OTHER_EDGE),
+        ...edgeColor(asset.other),
         opacity: 0.85,
         "font-family": font,
         "font-size": 9,
@@ -114,23 +201,48 @@ export function graphStylesheet(theme: "light" | "dark"): cytoscape.StylesheetJs
       selector: "edge[badge]",
       style: {
         label: "data(badge)",
-        "text-background-color": bg,
+        "text-background-color": canvas,
         "text-background-opacity": 0.85,
         "text-background-padding": "2px",
         "text-background-shape": "round-rectangle",
       },
     },
-    { selector: "edge.asset-eth", style: edgeColor(asset("eth")) },
-    { selector: "edge.asset-stable", style: edgeColor(asset("stable")) },
-    { selector: "edge.asset-erc20", style: edgeColor(asset("erc20")) },
-    { selector: "edge.asset-nft", style: edgeColor(asset("nft")) },
-    { selector: "edge.asset-other", style: edgeColor(OTHER_EDGE) },
+    { selector: "edge.asset-eth", style: edgeColor(asset.eth) },
+    { selector: "edge.asset-stable", style: edgeColor(asset.stable) },
+    { selector: "edge.asset-erc20", style: edgeColor(asset.erc20) },
+    { selector: "edge.asset-nft", style: edgeColor(asset.nft) },
+    { selector: "edge.asset-other", style: edgeColor(asset.other) },
     { selector: "edge.selected, edge:selected", style: { ...edgeColor(accent), opacity: 1, "z-index": 9 } },
     {
       selector: "edge.highlighted",
       style: { ...edgeColor(accent), width: "mapData(width, 1, 8, 4, 11)", opacity: 1, "z-index": 10 },
     },
   ];
-  // The bundled typings lag behind the runtime (e.g. they lack "round-rectangle" and outline-*).
-  return blocks as unknown as cytoscape.StylesheetJson;
+}
+
+// The bundled typings lag behind the runtime (e.g. they lack "round-rectangle" and some background-* props).
+const asStylesheet = (blocks: Block[]) => blocks as unknown as cytoscape.StylesheetJson;
+
+export function graphStylesheet(theme: Theme): cytoscape.StylesheetJson {
+  return asStylesheet(graphBlocks(theme));
+}
+
+/** The tx fund-flow view: the graph stylesheet plus edge labels and the dashed call edge. */
+export function txFlowStylesheet(theme: Theme): cytoscape.StylesheetJson {
+  const canvas = cssVar("--canvas", THEME_HEX[theme].canvas);
+  return asStylesheet([
+    ...graphBlocks(theme),
+    {
+      selector: "edge[label]",
+      style: {
+        label: "data(label)",
+        "text-background-color": canvas,
+        "text-background-opacity": 0.85,
+        "text-background-padding": "2px",
+        "text-background-shape": "round-rectangle",
+        "text-rotation": "autorotate",
+      },
+    },
+    { selector: "edge.call", style: { "line-style": "dashed", ...edgeColor(assetColors(theme).other) } },
+  ]);
 }

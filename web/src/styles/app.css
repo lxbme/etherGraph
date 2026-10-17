@@ -633,7 +633,11 @@ button.chip:hover { color: var(--fg); }
 
 /* ---------- Panels (restyled in later tasks) ---------- */
 
-.address-graph { position: absolute; inset: 0; background: var(--bg-subtle); }
+/* Graph canvases: the canvas colour under a 16px dot grid. */
+.address-graph, .txview__graph {
+  background: radial-gradient(var(--canvas-dot) 1px, transparent 1px) 0 0 / 16px 16px, var(--canvas);
+}
+.address-graph { position: absolute; inset: 0; }
 .address-graph__empty {
   position: absolute;
   inset: 0;

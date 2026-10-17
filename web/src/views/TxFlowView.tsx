@@ -8,7 +8,7 @@ import { qk } from "../api/queryClient";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { exposeTxCy } from "../graph/cyRegistry";
 import { useGraph } from "../graph/store";
-import { graphStylesheet } from "../graph/styles";
+import { txFlowStylesheet } from "../graph/styles";
 import { shortAddr } from "../lib/address";
 import { formatAmount } from "../lib/amount";
 import { assetClass } from "../lib/assets";
@@ -22,25 +22,6 @@ import { flowAmountText, flowSymbol, txElements } from "./txElements";
 import type { TxFlowDto } from "../api/generated/TxFlowDto";
 
 const NOOP = () => {};
-
-/** Edge labels and the dashed call edge on top of the shared graph stylesheet. */
-function txStylesheet(theme: "light" | "dark") {
-  const extra = [
-    {
-      selector: "edge[label]",
-      style: {
-        label: "data(label)",
-        "text-background-color": theme === "dark" ? "#14181d" : "#f6f7f9",
-        "text-background-opacity": 0.85,
-        "text-background-padding": "2px",
-        "text-background-shape": "round-rectangle",
-        "text-rotation": "autorotate",
-      },
-    },
-    { selector: "edge.call", style: { "line-style": "dashed", "line-color": "#999999", "target-arrow-color": "#999999" } },
-  ];
-  return [...(graphStylesheet(theme) as unknown as object[]), ...extra] as unknown as ReturnType<typeof graphStylesheet>;
-}
 
 function Header({ flow }: { flow: TxFlowDto }) {
   const { tx, call, nodes } = flow;
@@ -191,7 +172,7 @@ export function TxFlowView({ hash }: { hash: string }) {
   const theme = useTheme((s) => s.resolved);
   const t = useT();
   const locale = useLocale((s) => s.locale);
-  const stylesheet = useMemo(() => txStylesheet(theme), [theme]);
+  const stylesheet = useMemo(() => txFlowStylesheet(theme), [theme]);
   const selected = useUi((s) => s.txSelection[hash.toLowerCase()] ?? null);
   const selectTx = useUi((s) => s.selectTx);
   const setSelected = useCallback((a: string | null) => selectTx(hash, a), [selectTx, hash]);
