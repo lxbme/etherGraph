@@ -9,6 +9,7 @@ import { qk } from "../api/queryClient";
 import { neighborsOf } from "../graph/neighbors";
 import { useGraph } from "../graph/store";
 import { useGraphData } from "../graph/useGraphData";
+import { formatFixed } from "../lib/amount";
 import { formatCount, formatLocalTime, formatTime } from "../lib/format";
 import { shortAddr } from "../lib/address";
 import { TRANSFER_KINDS, transferKindName } from "../lib/transferKinds";
@@ -113,6 +114,7 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
   const anyTruncated = p.coverage.some((c) => c.truncated);
   const covered = KINDS.filter((k) => coverage.get(k.value)?.to_block != null).length;
   const stats = canvasStats(address, graph?.edges ?? []);
+  const balance = n.balance != null ? formatFixed(n.balance, 18, "eth") : null;
   const categories = [...new Set(n.labels.map((l) => l.category))];
   const syncKey: MsgKey = n.syncing ? "sync.syncing" : n.synced ? "sync.ok" : "node.notSynced";
 
@@ -162,12 +164,26 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
       {del.isError && <div className="detail__error" role="alert">{messageFor(del.error)}</div>}
       {editorFor === address && <LabelEditor address={address} onClose={closeEditor} />}
 
-      {/* 4. Balance: no data until probing lands, so no row yet. */}
+      {/* 4. Balance: only once probed. */}
+      {balance && (
+        <div className="detail__balance num" data-testid="node-balance" title={`${balance.full} ETH`}>
+          {balance.text} ETH
+        </div>
+      )}
 
       {/* 5. Key/value grid */}
       <dl className="kv" data-testid="node-kv">
-        <dt>{t("node.transactions")}</dt>
-        <dd className="num" title={t("node.canvasCount")}>{stats ? formatCount(stats.transfers) : "—"}</dd>
+        {n.nonce != null ? (
+          <>
+            <dt>{t("node.transactionsSent")}</dt>
+            <dd className="num">{formatCount(n.nonce)}</dd>
+          </>
+        ) : (
+          <>
+            <dt>{t("node.transactions")}</dt>
+            <dd className="num" title={t("node.canvasCount")}>{stats ? formatCount(stats.transfers) : "—"}</dd>
+          </>
+        )}
         <dt>{t("node.firstSeen")}</dt>
         <dd>{p.first_seen ? <Time iso={p.first_seen} /> : "—"}</dd>
         <dt>{t("node.lastSeen")}</dt>

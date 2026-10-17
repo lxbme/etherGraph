@@ -6,7 +6,9 @@ use std::collections::HashMap;
 use eg_core::source::TokenInfo;
 use eg_core::types::{AccountKind, Address, TransferKind};
 use eg_ingest::{enqueue_meta, enqueue_names, enqueue_tokens};
-use eg_store::{AccountRow, EnsRow, EnsStatus, LabelRow, Store, StoreError, SyncRow, SyncState};
+use eg_store::{
+    AccountRow, EnsRow, EnsStatus, LabelRow, StatsRow, Store, StoreError, SyncRow, SyncState,
+};
 
 use crate::dto::{LabelDto, NodeSummaryDto, hex_addr};
 use crate::state::AppState;
@@ -30,12 +32,14 @@ pub async fn load_nodes(
     degree: &HashMap<Address, u64>,
     hot_threshold: u64,
 ) -> Result<Nodes, StoreError> {
-    let (accounts, ens, labels, sync) = tokio::try_join!(
+    let (accounts, ens, labels, sync, stats) = tokio::try_join!(
         store.accounts(addrs),
         store.ens(addrs),
         store.labels(addrs),
         store.sync_rows(addrs),
+        store.account_stats(addrs),
     )?;
+    let stats: HashMap<Address, StatsRow> = stats.into_iter().map(|r| (r.address, r)).collect();
     let accounts: HashMap<Address, AccountRow> =
         accounts.into_iter().map(|a| (a.address, a)).collect();
     let ens: HashMap<Address, EnsRow> = ens.into_iter().map(|e| (e.address, e)).collect();
@@ -50,7 +54,7 @@ pub async fn load_nodes(
     let nodes = addrs
         .iter()
         .map(|a| {
-            summarize(
+            let mut n = summarize(
                 *a,
                 accounts.get(a),
                 ens.get(a),
@@ -58,7 +62,12 @@ pub async fn load_nodes(
                 sync_by.get(a).map_or(&[], Vec::as_slice),
                 degree.get(a).copied().unwrap_or(0),
                 hot_threshold,
-            )
+            );
+            if let Some(st) = stats.get(a) {
+                n.nonce = st.nonce;
+                n.balance = st.balance.map(|b| b.to_string());
+            }
+            n
         })
         .collect();
     Ok(Nodes {
@@ -114,6 +123,8 @@ pub fn summarize(
         syncing: sync.iter().any(|r| r.state == SyncState::Syncing),
         synced,
         hot,
+        nonce: None,
+        balance: None,
     }
 }
 

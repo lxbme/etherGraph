@@ -612,3 +612,57 @@ async fn import_labels_counts_and_is_idempotent(pool: PgPool) {
     );
     assert_eq!(total(store).await, 3);
 }
+
+// ------------------------------------------------------------------ probe
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn probe_caches_and_feeds_node_summaries(pool: PgPool) {
+    let (app, _state, fake) = test_app(pool);
+    fake.set_code(TOKEN, Bytes::from(vec![0x60, 0x80]));
+    fake.set_nonce(FROM, 7);
+    fake.set_balance(FROM, U256::from(10u8).pow(U256::from(18u8)));
+    let body = json!({"addresses": [format!("{TOKEN:#x}"), format!("{FROM:#x}")]});
+
+    let (st, first) = post_json(&app, "/api/probe", &body).await;
+    assert_eq!(st, StatusCode::OK, "{first}");
+    // code x2, tx_count x1, balances x1
+    assert_eq!(first["calls"], 4);
+    assert_eq!(fake.calls(), 4);
+    let items = first["items"].as_array().unwrap();
+    assert_eq!(items[0]["kind"], "contract");
+    assert!(items[0]["nonce"].is_null());
+    assert_eq!(items[1]["kind"], "eoa");
+    assert_eq!(items[1]["nonce"], 7);
+    assert_eq!(items[1]["balance"], "1000000000000000000");
+    assert_eq!(items[1]["local_transfers"], 0);
+    assert_eq!(items[1]["synced"], false);
+
+    let (_, second) = post_json(&app, "/api/probe", &body).await;
+    assert_eq!(second["calls"], 0);
+    assert_eq!(fake.calls(), 4);
+    assert_eq!(second["items"], first["items"]);
+
+    let (st, g) = post_json(
+        &app,
+        "/api/graph/edges",
+        &json!({"addresses": [format!("{FROM:#x}")]}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{g}");
+    let n = &g["nodes"][0];
+    assert_eq!(n["nonce"], 7);
+    assert_eq!(n["balance"], "1000000000000000000");
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn probe_rejects_more_than_20_addresses(pool: PgPool) {
+    let (app, _state, _fake) = test_app(pool);
+    let addrs: Vec<String> = (1..=21u8)
+        .map(|i| format!("{:#x}", Address::repeat_byte(i)))
+        .collect();
+    let (st, b) = post_json(&app, "/api/probe", &json!({"addresses": addrs})).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert_eq!(code(&b), "invalid_input");
+    let (st, b) = post_json(&app, "/api/probe", &json!({"addresses": []})).await;
+    assert_eq!((st, code(&b)), (StatusCode::BAD_REQUEST, "invalid_input"));
+}

@@ -162,6 +162,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "node.firstSeen": "首次活跃",
   "node.lastSeen": "最后活跃",
   "node.transactions": "交易数",
+  "node.transactionsSent": "已发送交易数",
   "node.neighbours": "邻居数",
   "node.canvasCount": "按当前画布上的边统计",
   "node.coverageShort": "同步覆盖",

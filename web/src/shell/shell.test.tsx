@@ -258,7 +258,7 @@ describe('fix round 1', () => {
 
 describe('final review fixes', () => {
   const profile = (a: string) => ({
-    node: { address: a, kind: 'eoa' as const, display_name: null, ens: null, contract_name: null, labels: [], partial: false, syncing: false, synced: true, hot: false },
+    node: { address: a, kind: 'eoa' as const, display_name: null, ens: null, contract_name: null, labels: [], partial: false, syncing: false, synced: true, hot: false, nonce: null, balance: null },
     is_proxy: false, implementation: null, creator: null, creation_tx: null, coverage: [], first_seen: null, last_seen: null,
   })
 

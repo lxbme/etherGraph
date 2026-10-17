@@ -20,7 +20,7 @@ test("prefers the node's name", () => {
   render(
     <AddressCell
       address={A}
-      node={{ address: A, kind: "eoa", display_name: "Alice", ens: null, contract_name: null, labels: [], partial: false, syncing: false, synced: true, hot: false }}
+      node={{ address: A, kind: "eoa", display_name: "Alice", ens: null, contract_name: null, labels: [], partial: false, syncing: false, synced: true, hot: false, nonce: null, balance: null }}
     />,
   );
   expect(screen.getByText("Alice")).toHaveAttribute("title", A);

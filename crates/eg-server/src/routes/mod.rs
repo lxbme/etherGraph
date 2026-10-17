@@ -3,6 +3,7 @@ pub mod events;
 pub mod graph;
 pub mod jobs;
 pub mod labels;
+pub mod probe;
 pub mod search;
 pub mod status;
 pub mod sync;

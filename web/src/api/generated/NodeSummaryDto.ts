@@ -22,4 +22,12 @@ synced: boolean,
 /**
  * Exchange/DeFi label or more neighbours than `hot_neighbor_threshold`.
  */
-hot: boolean, };
+hot: boolean, 
+/**
+ * Outgoing transaction count from the probe cache; null when never probed.
+ */
+nonce: number | null, 
+/**
+ * Native balance in wei (decimal) from the probe cache; null when never probed.
+ */
+balance: string | null, };

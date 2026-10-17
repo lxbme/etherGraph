@@ -10,7 +10,7 @@ import { ExpandDialog } from "./ExpandDialog";
 const addr = (n: number) => "0x" + n.toString(16).padStart(40, "0");
 const node = (n: number, o: Partial<NodeSummaryDto> = {}): NodeSummaryDto => ({
   address: addr(n), kind: "eoa", display_name: null, ens: null, contract_name: null, labels: [],
-  partial: false, syncing: false, synced: false, hot: false, ...o,
+  partial: false, syncing: false, synced: false, hot: false, nonce: null, balance: null, ...o,
 });
 
 beforeEach(() => {

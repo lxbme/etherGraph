@@ -160,6 +160,7 @@ export const en = {
   "node.firstSeen": "First seen",
   "node.lastSeen": "Last active",
   "node.transactions": "Transactions",
+  "node.transactionsSent": "Transactions sent",
   "node.neighbours": "Neighbours",
   "node.canvasCount": "Counted from the edges on the current canvas",
   "node.coverageShort": "Coverage",

@@ -239,6 +239,49 @@ pub struct NodeSummaryDto {
     pub synced: bool,
     /// Exchange/DeFi label or more neighbours than `hot_neighbor_threshold`.
     pub hot: bool,
+    /// Outgoing transaction count from the probe cache; null when never probed.
+    #[ts(type = "number | null")]
+    pub nonce: Option<u64>,
+    /// Native balance in wei (decimal) from the probe cache; null when never probed.
+    pub balance: Option<String>,
+}
+
+// ------------------------------------------------------------------ probe
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export, optional_fields = nullable)]
+pub struct ProbeRequestDto {
+    /// 1 to 20 addresses.
+    pub addresses: Vec<String>,
+    /// Default `"interactive"`.
+    #[ts(optional = nullable, type = r#""interactive" | "background" | null"#)]
+    pub priority: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ProbeItemDto {
+    pub address: String,
+    #[ts(type = r#""eoa" | "contract" | "unknown""#)]
+    pub kind: String,
+    #[ts(type = "number | null")]
+    pub nonce: Option<u64>,
+    /// Wei, decimal string.
+    pub balance: Option<String>,
+    /// Stored transfers touching the address (capped by the store).
+    #[ts(type = "number")]
+    pub local_transfers: u64,
+    pub synced: bool,
+    pub partial: bool,
+    pub probed_at: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ProbeResponseDto {
+    pub items: Vec<ProbeItemDto>,
+    /// Upstream calls actually made (0 when everything was cached).
+    pub calls: u32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

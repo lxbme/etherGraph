@@ -23,7 +23,7 @@ const C = "0x" + "cc".repeat(20);
 
 const node = (address: string): NodeSummaryDto => ({
   address, kind: "eoa", display_name: null, ens: null, contract_name: null, labels: [],
-  partial: false, syncing: false, synced: true, hot: false,
+  partial: false, syncing: false, synced: true, hot: false, nonce: null, balance: null,
 });
 const status: StatusDto = {
   quota_used: 10, quota_limit: 100, paused: false, reset_at: "2026-10-18T00:00:00Z", queue_len: 0,

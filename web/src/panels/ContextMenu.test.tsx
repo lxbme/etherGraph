@@ -11,7 +11,7 @@ import { useUi } from "./uiStore";
 const A = "0x" + "aa".repeat(20);
 const node = (partial: boolean): NodeSummaryDto => ({
   address: A, kind: "eoa", display_name: null, ens: null, contract_name: null, labels: [],
-  partial, syncing: false, synced: true, hot: false,
+  partial, syncing: false, synced: true, hot: false, nonce: null, balance: null,
 });
 const data: GraphResponseDto = { nodes: [], edges: [], omitted: {}, coverage: {} };
 const menu = (partial: boolean) => (

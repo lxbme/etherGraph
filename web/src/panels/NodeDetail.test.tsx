@@ -14,7 +14,7 @@ const IMPL = "0x" + "AB".repeat(20);
 const profile: AddressProfileDto = {
   node: {
     address: A, kind: "contract", display_name: null, ens: null, contract_name: "Proxy", labels: [],
-    partial: false, syncing: false, synced: true, hot: false,
+    partial: false, syncing: false, synced: true, hot: false, nonce: null, balance: null,
   },
   is_proxy: true, implementation: IMPL, creator: null, creation_tx: null, coverage: [], first_seen: null, last_seen: null,
 };
@@ -54,7 +54,7 @@ const wallet: AddressProfileDto = {
   node: {
     address: A, kind: "eoa", display_name: null, ens: null, contract_name: null,
     labels: [{ id: 1, text: "Hot wallet", category: "exchange", source: "import:x" }],
-    partial: false, syncing: false, synced: true, hot: false,
+    partial: false, syncing: false, synced: true, hot: false, nonce: null, balance: null,
   },
   is_proxy: false, implementation: null, creator: null, creation_tx: null,
   coverage: [{ kind: "native", from_block: 1, to_block: 2, truncated: false, state: "ok", last_synced_at: null }],
@@ -81,8 +81,8 @@ test("follows the spec hierarchy: kind, address with copy, tags, key/value grid,
   const last = within(kv).getByText("2026-10-16 04:11:07");
   expect(last).toHaveAttribute("title", formatLocalTime("2026-10-16T04:11:07Z"));
   expect(within(kv).getByText("1 / 5")).toBeInTheDocument();
-  // No balance until probing exists (plan 3).
-  expect(screen.queryByText(/balance/i)).toBeNull();
+  // No balance row until the node has been probed.
+  expect(screen.queryByTestId("node-balance")).toBeNull();
 
   expect(screen.getByRole("button", { name: "Sync / refresh" })).toHaveClass("btn--primary");
   // Order on the page.
@@ -123,4 +123,25 @@ test("free-text key/value cells carry the full value as title (they ellipsize in
   const kv = await screen.findByTestId("node-kv");
   expect(within(kv).getByText(ens)).toHaveAttribute("title", ens);
   expect(within(kv).getByText("AVeryLongContractNameThatWillNotFit")).toHaveAttribute("title", "AVeryLongContractNameThatWillNotFit");
+});
+
+test("a probed node shows its balance above the grid and the sent-transaction count", async () => {
+  act(() => useGraph.getState().setCenters([A]));
+  renderDetail(undefined, { ...wallet, node: { ...wallet.node, nonce: 1234, balance: "1500000000000000000" } });
+  const bal = await screen.findByTestId("node-balance");
+  expect(bal).toHaveTextContent("1.500000 ETH");
+  const tags = screen.getByTestId("node-tags");
+  const kv = screen.getByTestId("node-kv");
+  expect(tags.compareDocumentPosition(bal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(bal.compareDocumentPosition(kv) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const keys = [...kv.querySelectorAll("dt")].map((d) => d.textContent);
+  expect(keys[0]).toBe("Transactions sent");
+  expect(kv.querySelector("dd")).toHaveTextContent("1,234");
+});
+
+test("without a nonce the transactions row keeps the canvas count and no balance row shows", async () => {
+  renderDetail(undefined, wallet);
+  const kv = await screen.findByTestId("node-kv");
+  expect([...kv.querySelectorAll("dt")][0]!.textContent).toBe("Transactions");
+  expect(screen.queryByTestId("node-balance")).toBeNull();
 });

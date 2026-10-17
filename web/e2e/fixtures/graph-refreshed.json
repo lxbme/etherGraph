@@ -10,7 +10,9 @@
       "partial": false,
       "syncing": false,
       "synced": true,
-      "hot": false
+      "hot": false,
+      "nonce": null,
+      "balance": null
     },
     {
       "address": "0xb0b0000000000000000000000000000000000002",
@@ -29,7 +31,9 @@
       "partial": false,
       "syncing": false,
       "synced": false,
-      "hot": true
+      "hot": true,
+      "nonce": null,
+      "balance": null
     },
     {
       "address": "0xc0ffee0000000000000000000000000000000003",
@@ -41,7 +45,9 @@
       "partial": false,
       "syncing": false,
       "synced": false,
-      "hot": false
+      "hot": false,
+      "nonce": null,
+      "balance": null
     },
     {
       "address": "0xd00d000000000000000000000000000000000004",
@@ -53,7 +59,9 @@
       "partial": false,
       "syncing": false,
       "synced": false,
-      "hot": false
+      "hot": false,
+      "nonce": null,
+      "balance": null
     },
     {
       "address": "0xe0e0000000000000000000000000000000000005",
@@ -65,7 +73,9 @@
       "partial": false,
       "syncing": false,
       "synced": false,
-      "hot": false
+      "hot": false,
+      "nonce": null,
+      "balance": null
     }
   ],
   "edges": [

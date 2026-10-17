@@ -9,7 +9,9 @@
     "partial": false,
     "syncing": false,
     "synced": true,
-    "hot": false
+    "hot": false,
+    "nonce": null,
+    "balance": null
   },
   "is_proxy": false,
   "implementation": null,

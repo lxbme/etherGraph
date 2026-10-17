@@ -25,7 +25,7 @@ const flow = (): TxFlowDto => ({
   detail: {} as TxFlowDto["detail"],
   call: null,
   nodes: [
-    { address: A, kind: "eoa", display_name: "Alice", ens: null, contract_name: null, labels: [], partial: false, syncing: false, synced: true, hot: false },
+    { address: A, kind: "eoa", display_name: "Alice", ens: null, contract_name: null, labels: [], partial: false, syncing: false, synced: true, hot: false, nonce: null, balance: null },
   ],
   flows: [], events: [], completeness: "fund_flow",
 });
