@@ -13,6 +13,19 @@ async function openGraph(page: import("@playwright/test").Page) {
   await expectLaidOut(page, "main", 4);
 }
 
+/** Waits until no node on the address graph moves between two looks 250 ms apart. */
+async function settled(page: import("@playwright/test").Page) {
+  const pos = async () => JSON.stringify((await snapshot(page, "main"))!.nodes);
+  let last = await pos();
+  await expect(async () => {
+    await page.waitForTimeout(250);
+    const cur = await pos();
+    const same = cur === last;
+    last = cur;
+    expect(same, "layout settled").toBe(true);
+  }).toPass({ timeout: 5000 });
+}
+
 test("legend lists what is on the canvas; excluding NFT removes its row", async ({ page, mock }) => {
   mock.on(GRAPH, () => ({ json: { ...fixtures.graph, edges: [...fixtures.graph.edges, NFT] } }));
   await openGraph(page);
@@ -30,6 +43,23 @@ test("legend lists what is on the canvas; excluding NFT removes its row", async 
   await expect.poll(() => mock.count(GRAPH)).toBe(2);
   await expect(legend.getByText("NFT", { exact: true })).toHaveCount(0);
   await expect(legend.getByText("ETH", { exact: true })).toBeVisible();
+  expect(mock.unhandled).toEqual([]);
+});
+
+test("the expanded legend never covers a node: fits keep its strip clear; collapsing gives it back", async ({ page, mock }) => {
+  await openGraph(page);
+  const legend = page.getByTestId("legend");
+  const canvas = (await page.locator(".address-graph .cy-view").boundingBox())!;
+  const leftmost = async () => Math.min(...(await snapshot(page, "main"))!.nodes.map((n) => canvas.x + n.x1));
+  await settled(page);
+  await expect(async () => {
+    const l = (await legend.boundingBox())!;
+    expect(await leftmost()).toBeGreaterThanOrEqual(l.x + l.width);
+  }).toPass({ timeout: 5000 });
+  const open = await leftmost();
+  await legend.getByRole("button", { name: "Collapse legend" }).click();
+  // Untouched viewport: the fit takes the strip back.
+  await expect.poll(leftmost).toBeLessThan(open);
   expect(mock.unhandled).toEqual([]);
 });
 

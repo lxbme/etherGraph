@@ -120,3 +120,25 @@ test("a refit on resize is clamped to the maximum fit zoom", () => {
   h.cb!();
   expect(cy.zoom()).toBeLessThanOrEqual(1.2);
 });
+
+test("a new left fit inset refits until the user pans or zooms; the same inset does not", () => {
+  size = { w: 800, h: 600 };
+  let cy!: cytoscape.Core;
+  const two: cytoscape.ElementDefinition[] = [
+    { group: "nodes", data: { id: "a" }, position: { x: 0, y: 0 } },
+    { group: "nodes", data: { id: "b" }, position: { x: 2000, y: 0 } },
+  ];
+  const view = render(<CytoscapeView {...props(two, "incremental")} onReady={(c) => { cy = c; }} />);
+  vi.spyOn(cy, "width").mockReturnValue(800);
+  vi.spyOn(cy, "height").mockReturnValue(600);
+  const viewport = vi.spyOn(cy, "viewport");
+  view.rerender(<CytoscapeView {...props(two, "incremental")} fitInsetLeft={200} />);
+  expect(viewport).toHaveBeenCalledTimes(1);
+  // Graph's left edge right of the inset plus the usual padding.
+  expect(cy.pan().x + cy.zoom() * cy.elements().boundingBox().x1).toBeGreaterThanOrEqual(200);
+  view.rerender(<CytoscapeView {...props(two, "incremental")} fitInsetLeft={200} />);
+  expect(viewport).toHaveBeenCalledTimes(1);
+  view.container.querySelector(".cy-view")!.dispatchEvent(new Event("wheel"));
+  view.rerender(<CytoscapeView {...props(two, "incremental")} fitInsetLeft={0} />);
+  expect(viewport).toHaveBeenCalledTimes(1);
+});

@@ -8,11 +8,12 @@ test("first load shows the tour; Next/Done finishes it; reload shows none", asyn
   await expect(tour).toBeVisible();
   await expect(tour.getByRole("button", { name: "Next" })).toBeFocused();
   await tour.getByRole("button", { name: "Next" }).click();
+  // An empty canvas still shows the legend's header, so step 2 always points at it.
   const legend = page.getByRole("dialog", { name: "Legend" });
-  // The legend only exists with a graph; without one the step is skipped to Help.
+  await expect(legend).toBeVisible();
+  await expect(page.getByTestId("legend")).toContainText("Signals appear here once the graph has nodes");
+  await legend.getByRole("button", { name: "Next" }).click();
   const help = page.getByRole("dialog", { name: "Help" });
-  await expect(legend.or(help)).toBeVisible();
-  if (await legend.isVisible()) await legend.getByRole("button", { name: "Next" }).click();
   await expect(help).toBeVisible();
   await help.getByRole("button", { name: "Done" }).click();
   await expect(page.locator(".tour__bubble")).toHaveCount(0);

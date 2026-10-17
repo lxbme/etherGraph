@@ -1,5 +1,5 @@
 import { ChevronDown } from "lucide-react";
-import { useSyncExternalStore } from "react";
+import { useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import type { LegendGroup, Swatch } from "../graph/legend";
 import { useT } from "../i18n";
 
@@ -119,17 +119,45 @@ function SwatchSvg({ swatch }: { swatch: Swatch }) {
 
 /**
  * The canvas legend. With `collapsedKey` it floats over the canvas's bottom-left corner with a
- * collapse toggle remembered under that key; without, it renders inline (e.g. inside the help).
+ * collapse toggle remembered under that key (on an empty canvas: the header and a hint); without, it
+ * renders inline (e.g. inside the help), and nothing when there are no groups.
+ *
+ * `onCover` gets the canvas width the floating legend covers from the left edge (its right edge), or 0
+ * while collapsed, so fits can keep that strip clear.
  */
-export function Legend({ groups, collapsedKey }: { groups: LegendGroup[]; collapsedKey?: string }) {
+export function Legend({ groups, collapsedKey, onCover }: { groups: LegendGroup[]; collapsedKey?: string; onCover?(px: number): void }) {
   const t = useT();
   const [collapsed, setCollapsed] = useCollapsed(collapsedKey);
-  if (groups.length === 0) return null;
+  const ref = useRef<HTMLElement>(null);
+  const coverRef = useRef(onCover);
+  coverRef.current = onCover;
+  useLayoutEffect(() => {
+    const report = coverRef.current;
+    const el = ref.current;
+    if (!report) return;
+    if (!el || collapsed) {
+      report(0);
+      return;
+    }
+    const measure = () => report(el.offsetLeft + el.offsetWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [collapsed]);
+  if (groups.length === 0 && !collapsedKey) return null;
 
   const toggle = () => setCollapsed(!collapsed);
 
   return (
-    <section className={collapsedKey ? "legend legend--floating" : "legend"} aria-label={t("legend.title")} data-testid={collapsedKey ? "legend" : "legend-full"} data-tour={collapsedKey ? "legend" : undefined}>
+    <section
+      ref={ref}
+      className={collapsedKey ? "legend legend--floating" : "legend"}
+      aria-label={t("legend.title")}
+      data-testid={collapsedKey ? "legend" : "legend-full"}
+      data-tour={collapsedKey ? "legend" : undefined}
+    >
       {collapsedKey && (
         <div className="legend__head">
           <span className="legend__title">{t("legend.title")}</span>
@@ -144,6 +172,7 @@ export function Legend({ groups, collapsedKey }: { groups: LegendGroup[]; collap
           </button>
         </div>
       )}
+      {!collapsed && groups.length === 0 && <p className="legend__empty">{t("legend.empty")}</p>}
       {!collapsed &&
         groups.map((g) => (
           <div key={g.id} className="legend__group">

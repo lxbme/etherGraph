@@ -16,9 +16,41 @@ const groups = legendFor(
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.restoreAllMocks());
 
-test("renders nothing without groups", () => {
-  const { container } = render(<Legend groups={[]} collapsedKey={KEY} />);
+test("inline, renders nothing without groups", () => {
+  const { container } = render(<Legend groups={[]} />);
   expect(container).toBeEmptyDOMElement();
+});
+
+test("floating on an empty canvas: the header and one hint line, still the tour target and collapsible", () => {
+  render(<Legend groups={[]} collapsedKey={KEY} />);
+  const legend = screen.getByTestId("legend");
+  expect(legend).toHaveAttribute("data-tour", "legend");
+  expect(screen.getByText("Legend")).toBeInTheDocument();
+  expect(screen.getByText("Signals appear here once the graph has nodes")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Collapse legend" }));
+  expect(screen.queryByText("Signals appear here once the graph has nodes")).toBeNull();
+  expect(screen.getByTestId("legend")).toBeInTheDocument();
+});
+
+test("reports the canvas width it covers from the left edge while expanded, 0 when collapsed", () => {
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(200);
+  vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockReturnValue(12);
+  const onCover = vi.fn();
+  render(<Legend groups={groups} collapsedKey={KEY} onCover={onCover} />);
+  expect(onCover).toHaveBeenLastCalledWith(212);
+  fireEvent.click(screen.getByRole("button", { name: "Collapse legend" }));
+  expect(onCover).toHaveBeenLastCalledWith(0);
+  fireEvent.click(screen.getByRole("button", { name: "Expand legend" }));
+  expect(onCover).toHaveBeenLastCalledWith(212);
+});
+
+test("the floating legend is opaque: canvas content never shows through it", () => {
+  // @ts-expect-error node builtins are untyped here (no @types/node); the module exists at runtime.
+  return import("node:fs").then(({ readFileSync }: { readFileSync(p: string, e: string): string }) => {
+    const css = readFileSync("src/styles/app.css", "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    const body = /(?:^|\})\s*\.legend\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(body).toMatch(/background:\s*var\(--bg\)\s*;/);
+  });
 });
 
 test("lists each entry with a 16px swatch and its label", () => {

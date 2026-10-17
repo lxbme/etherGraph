@@ -368,6 +368,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "legend.title": "图例",
   "legend.collapse": "收起图例",
   "legend.expand": "展开图例",
+  "legend.empty": "图中有节点后，这里会列出图上出现的视觉信号",
   "legend.group.shape": "地址类型",
   "legend.group.category": "标签类别",
   "legend.group.state": "状态",

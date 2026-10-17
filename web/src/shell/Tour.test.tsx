@@ -6,6 +6,7 @@ import { HelpDrawer } from "./HelpDrawer";
 import { TOUR_DONE_KEY, Tour, useTour } from "./Tour";
 import { setReplayTourHandler } from "./tourBus";
 import { TopBar } from "./TopBar";
+import { Legend } from "../views/Legend";
 
 /** jsdom lays nothing out: give a target a box and an offsetParent so it counts as visible. */
 function show(el: Element) {
@@ -75,6 +76,15 @@ test("Skip and Escape write the flag", async () => {
   await user.keyboard("{Escape}");
   expect(localStorage.getItem(TOUR_DONE_KEY)).toBe("1");
   expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+test("an empty canvas's header-only legend is step 2", async () => {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  render(<><Targets legend={false} /><Legend groups={[]} collapsedKey="eg.test.legend" /><Tour /></>);
+  show(document.querySelector('[data-tour="legend"]')!);
+  await begin();
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  expect(screen.getByRole("dialog", { name: "Legend" })).toBeInTheDocument();
 });
 
 test("a missing legend is skipped: Next on step 1 lands on the help step", async () => {

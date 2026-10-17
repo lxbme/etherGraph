@@ -10,7 +10,7 @@ const SIZES = [
 ] as const;
 
 /** Elements that must not overflow: topbar / statusbar / right panel (and its scrolling bodies) / transfers / jobs popover / kv keys. */
-const CONTAINERS = [".topbar", ".statusbar", ".main__right", ".main__right-body", ".detail", ".transfers", ".jobs__popover", ".kv > dt", ".txbar", ".txdetail__tabs", ".txdetail__tabs .seg", ".txdetail__body", ".txdetail__overview", ".txdetail__kv", ".legend", ".legend__body", ".drawer", ".drawer__body", ".help__keys"];
+const CONTAINERS = [".topbar", ".statusbar", ".main__right", ".main__right-body", ".detail", ".transfers", ".jobs__popover", ".kv > dt", ".txbar", ".txdetail__tabs", ".txdetail__tabs .seg", ".txdetail__body", ".txdetail__overview", ".txdetail__kv", ".legend", ".drawer", ".drawer__body", ".help__keys"];
 /** Checked too, but an intentional ellipsis (overflow hidden + title) is allowed: buttons, key/value values, job cells. */
 const ELLIPSIS_OK = [".btn", ".kv > dd", ".jobs__popover td"];
 

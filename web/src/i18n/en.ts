@@ -366,6 +366,7 @@ export const en = {
   "legend.title": "Legend",
   "legend.collapse": "Collapse legend",
   "legend.expand": "Expand legend",
+  "legend.empty": "Signals appear here once the graph has nodes",
   "legend.group.shape": "Address type",
   "legend.group.category": "Label category",
   "legend.group.state": "State",

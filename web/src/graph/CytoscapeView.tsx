@@ -1,6 +1,6 @@
 import cytoscape from "cytoscape";
 import { useEffect, useRef, type JSX } from "react";
-import { createRefitGuard, fitClamped } from "./refit";
+import { createRefitGuard, fitClamped, setFitInset } from "./refit";
 import { runDagreLayout, runIncrementalLayout } from "./layout";
 
 type Pos = { x: number; y: number };
@@ -27,6 +27,11 @@ export interface CytoscapeViewProps {
   onReady?(cy: cytoscape.Core): void;
   /** Hover for 300 ms over a node / edge → its id and rendered position; `null` as soon as it should go away. */
   onHover?(t: { kind: "node" | "edge"; id: string; pos: Pos } | null): void;
+  /**
+   * Canvas width on the left that fits keep clear (the expanded floating legend). A change refits unless
+   * the user has panned or zoomed since the last layout.
+   */
+  fitInsetLeft?: number;
   /**
    * A change starts a new canvas (new/opened workspace): positions of nodes from before it are not
    * remembered, so they are laid out afresh if they show up again.
@@ -264,6 +269,18 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
     if (!cy) return;
     cy.style(props.stylesheet);
   }, [props.stylesheet]);
+
+  // Before the elements effect, so the first layout's fit already keeps the inset clear.
+  const insetRef = useRef<number | null>(null);
+  useEffect(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const left = props.fitInsetLeft ?? 0;
+    setFitInset(cy, { left });
+    const before = insetRef.current;
+    insetRef.current = left;
+    if (before !== null && before !== left && cy.nodes().nonempty()) refitRef.current?.refitUnlessUserMoved();
+  }, [props.fitInsetLeft]);
 
   useEffect(() => {
     const cy = cyRef.current;

@@ -79,6 +79,8 @@ export function TxFlowView({ hash }: { hash: string }) {
     [flow, selected, highlightedSeq, locale], // labels are translated when built
   );
   const legend = useMemo(() => txLegendFor(elements, theme), [elements, theme]);
+  /** Canvas width the expanded legend covers from the left; fits keep it clear. */
+  const [legendCover, setLegendCover] = useState(0);
   const [hover, setHover] = useState<{ kind: "node" | "edge"; id: string; pos: { x: number; y: number } } | null>(null);
   const tooltipLines = useMemo((): TooltipLine[] | null => {
     if (!hover || !flow) return null;
@@ -150,9 +152,10 @@ export function TxFlowView({ hash }: { hash: string }) {
             onDragEnd={NOOP}
             onReady={(cy) => exposeTxCy(hash, cy)}
             onHover={setHover}
+            fitInsetLeft={legendCover}
           />
           {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
-          <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} />
+          <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
         </div>
         <TxDetailTabs flow={flow} />
       </div>

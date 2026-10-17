@@ -712,7 +712,7 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
   padding: var(--sp-3);
   border-radius: var(--radius-pop);
   border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  background: var(--bg);
   color: var(--fg);
   font-size: var(--fs-11);
 }
@@ -731,6 +731,7 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .legend__toggle { margin: calc(0px - var(--sp-2)) calc(0px - var(--sp-2)) calc(0px - var(--sp-2)) 0; }
 .legend__chevron--up { transform: rotate(180deg); }
 .legend__head + .legend__group, .legend__group + .legend__group { margin-top: var(--sp-2); }
+.legend__empty { margin: var(--sp-2) 0 0; color: var(--fg-muted); }
 .legend__group-title { margin-bottom: var(--sp-1); color: var(--fg-muted); }
 .legend__list { display: grid; gap: var(--sp-1); margin: 0; padding: 0; list-style: none; }
 .legend__item { display: flex; align-items: center; gap: var(--sp-2); }

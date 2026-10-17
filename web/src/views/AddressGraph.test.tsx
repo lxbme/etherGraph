@@ -108,7 +108,8 @@ test("graph data flows into elements; elements and stylesheet are memoized", asy
 
 test("the legend sits in the canvas and lists only what is on it", async () => {
   const { container } = mount();
-  expect(screen.queryByTestId("legend")).toBeNull();
+  // Empty canvas: just the header and a hint (it is still the tour's second step).
+  expect(screen.getByTestId("legend")).toHaveTextContent("Signals appear here once the graph has nodes");
   act(() => useGraph.getState().addCenter(A));
   await waitFor(() => expect(ids()).toContain(A));
   const legend = within(container.querySelector(".address-graph")!).getByTestId("legend");
@@ -126,6 +127,15 @@ test("hover tooltips: a pinned center says so; an edge names its ends by display
   expect(screen.getByTestId("graph-tooltip")).toHaveTextContent("alice.eth → 0xbbbb");
   act(() => props().onHover?.(null));
   expect(screen.queryByTestId("graph-tooltip")).toBeNull();
+});
+
+test("the expanded legend's width is kept clear on the left of every fit", async () => {
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(180);
+  vi.spyOn(HTMLElement.prototype, "offsetLeft", "get").mockReturnValue(12);
+  await mountWithData();
+  expect(props().fitInsetLeft).toBe(192);
+  act(() => screen.getByRole("button", { name: "Collapse legend" }).click());
+  expect(props().fitInsetLeft).toBe(0);
 });
 
 test("hidden nodes and their edges are left out", async () => {

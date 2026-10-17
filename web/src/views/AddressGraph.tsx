@@ -85,6 +85,8 @@ export function AddressGraph() {
     [data, visual, ui, centers, selection, highlightTransfer, limits],
   );
   const legend = useMemo(() => legendFor(elements, theme), [elements, theme]);
+  /** Canvas width the expanded legend covers from the left; fits keep it clear. */
+  const [legendCover, setLegendCover] = useState(0);
 
   const [hover, setHover] = useState<{ kind: "node" | "edge"; id: string; pos: Pos } | null>(null);
   // `locale` is a dependency so an open tooltip is re-translated.
@@ -240,9 +242,10 @@ export function AddressGraph() {
         onDragEnd={onDragEnd}
         onReady={onReady}
         onHover={setHover}
+        fitInsetLeft={legendCover}
       />
       {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
-      <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} />
+      <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
       <BatchBar />
       {hiddenOnCanvas > 0 && (
         <button
