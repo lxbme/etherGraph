@@ -20,6 +20,7 @@ export const qk = {
   graph: (centers: string[], filter: unknown) => ["graph", centers, filter],
   address: (a: string) => ["address", a],
   tx: (h: string) => ["tx", h],
+  txRaw: (h: string) => ["txRaw", h],
   transfers: (p: unknown) => ["transfers", p],
   labels: (a: string) => ["labels", a],
   status: () => ["status"],

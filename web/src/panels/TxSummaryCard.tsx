@@ -9,6 +9,17 @@ import { formatLocalTime, formatTime } from "../lib/format";
 import { AddressCell } from "../shell/AddressCell";
 import { useTabs } from "../shell/tabs";
 
+/** Success / Failed badge of a transaction. */
+export function TxStatusTag({ success }: { success: boolean }) {
+  const t = useT();
+  return (
+    <span className={`tag ${success ? "tag--ok" : "tag--warn"}`}>
+      {success ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
+      {success ? t("tx.success") : t("tx.failed")}
+    </span>
+  );
+}
+
 /** Right-panel summary of one transaction; "Open transaction" opens its tab. */
 export function TxSummaryCard({ hash }: { hash: string }) {
   const t = useT();
@@ -37,10 +48,7 @@ export function TxSummaryCard({ hash }: { hash: string }) {
   return (
     <div className="detail__section" data-testid="tx-summary">
       <h3 className="detail__title">
-        <span className={`tag ${tx.success ? "tag--ok" : "tag--warn"}`}>
-          {tx.success ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
-          {tx.success ? t("tx.success") : t("tx.failed")}
-        </span>{" "}
+        <TxStatusTag success={tx.success} />{" "}
         {tx.method ?? (tx.to ? (tx.selector ?? t("tx.transfer")) : t("tx.contractCreation"))}
       </h3>
       <dl className="kv">

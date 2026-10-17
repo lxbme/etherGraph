@@ -1,6 +1,9 @@
 import { create } from "zustand";
 
-export type Tab = { id: "graph" } | { id: string; kind: "tx"; hash: string };
+/** The detail section shown under a transaction's flow graph. */
+export type TxDetailTab = "overview" | "input" | "transfers" | "internal" | "logs" | "raw";
+
+export type Tab = { id: "graph" } | { id: string; kind: "tx"; hash: string; detailTab?: TxDetailTab };
 
 interface TabsState {
   tabs: Tab[];
@@ -8,6 +11,8 @@ interface TabsState {
   openTx(hash: string): void;
   close(id: string): void;
   activate(id: string): void;
+  /** Remembers a tx tab's detail section; no-op for unknown ids. */
+  setDetailTab(id: string, detailTab: TxDetailTab): void;
 }
 
 export const useTabs = create<TabsState>((set, get) => ({
@@ -30,5 +35,8 @@ export const useTabs = create<TabsState>((set, get) => ({
   },
   activate: (id) => {
     if (get().tabs.some((t) => t.id === id)) set({ active: id });
+  },
+  setDetailTab: (id, detailTab) => {
+    set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && "kind" in t ? { ...t, detailTab } : t)) }));
   },
 }));

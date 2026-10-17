@@ -815,19 +815,77 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .txview { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .txview__main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .txview__add { margin-top: var(--sp-3); }
-.txview__header { padding: var(--sp-2) var(--sp-3); background: var(--bg); border-bottom: 1px solid var(--line); font-size: var(--fs-13); }
-.txview__meta { display: flex; flex-wrap: wrap; gap: var(--sp-4); margin-top: var(--sp-1); color: var(--fg-muted); }
-.txview__ok, .txview__fail { display: inline-flex; align-items: center; gap: var(--sp-1); }
-.txview__ok { color: var(--pos); }
-.txview__fail { color: var(--neg); }
-.txview__muted { color: var(--fg-muted); }
 .txview__tag { padding: 0 var(--sp-2); font-size: var(--fs-11); color: var(--fg-muted); border: 1px solid var(--line); border-radius: var(--radius); }
 .txview__banner { padding: var(--sp-2) var(--sp-3); font-size: var(--fs-12); color: var(--fg-muted); background: var(--bg); border-bottom: 1px solid var(--line); }
 .txview__graph { flex: 1; min-height: var(--h-graph-min); position: relative; }
-.txview__tables { flex: none; max-height: var(--mh-tables); overflow: auto; background: var(--bg); border-top: 1px solid var(--line); font-size: var(--fs-12); }
-.txview__tabs { display: flex; padding: var(--sp-2) var(--sp-3); }
-.txview__tables .table td { white-space: normal; }
-.txview__arg { margin-right: var(--sp-3); }
+
+/* Transaction summary bar above the flow graph (views/txdetail/TxSummaryBar). */
+.txbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-13);
+}
+.txbar__method { display: inline-flex; align-items: center; gap: var(--sp-1); font-weight: 600; overflow-wrap: anywhere; }
+.txbar__parties { display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 0; }
+.txbar__arrow { flex: none; color: var(--fg-muted); }
+.txbar__item { color: var(--fg-muted); }
+.txbar__item .num { color: var(--fg); }
+
+/*
+ * Detail tabs under the flow graph (views/txdetail/TxDetailTabs): a fixed share of the height, so switching
+ * sections never resizes the graph; the tab strip stays put and the body scrolls.
+ */
+.txdetail {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  height: var(--mh-tables);
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-12);
+}
+.txdetail__tabs { flex: none; display: flex; padding: var(--sp-2) var(--sp-3); }
+.txdetail__body { flex: 1; min-height: 0; overflow: auto; container-type: inline-size; }
+.table td.txdetail__wrap { white-space: normal; }
+.txdetail__pane { display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-2); padding: 0 var(--sp-3) var(--sp-3); }
+.txdetail__line { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.txdetail__toggle { margin-left: auto; }
+.txdetail__note { margin: 0; padding: 0 var(--sp-3) var(--sp-2); color: var(--fg-muted); }
+.txdetail__addr { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); }
+.txdetail__status { display: inline-flex; align-items: center; gap: var(--sp-2); max-width: 100%; }
+.txdetail__status .detail__error { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.txdetail__hex, .txdetail__raw { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.txdetail__hexbar { display: flex; align-items: center; gap: var(--sp-2); }
+.txdetail__pre {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  overflow: auto;
+  background: var(--bg-subtle);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--fs-12);
+  white-space: pre;
+}
+/* Overview: values read left to right after their keys; two key/value columns when the panel is wide. */
+.txdetail__kv { align-items: center; padding: 0 var(--sp-3) var(--sp-3); }
+.txdetail__kv > :nth-child(even) { text-align: left; }
+.txdetail__kv .addr-cell { justify-content: flex-start; }
+@container (min-width: 960px) {
+  .txdetail__kv { grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); }
+  .txdetail__kv > dt:nth-child(4n + 3) { padding-left: var(--sp-6); }
+}
+.txdetail__logs { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); padding: 0 var(--sp-3) var(--sp-3); }
+.txlog { display: flex; flex-direction: column; gap: var(--sp-2); align-self: stretch; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--line); border-radius: var(--radius); }
+.txlog__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.txlog__toggle { margin-left: auto; }
+.txlog__raw { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.txlog__topics { display: flex; flex-direction: column; gap: var(--sp-1); margin: 0; padding: 0; list-style: none; }
 .main__tx { flex: 1; min-height: 0; display: flex; }
 .main__tx[hidden] { display: none; }
 

@@ -53,7 +53,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-test("each tx tab keeps its own selection and table tab across switches", async () => {
+test("each tx tab keeps its own selection and detail tab across switches", async () => {
   vi.spyOn(api, "tx").mockImplementation(async (hash) => (hash === H1 ? resp(A, B, H1) : resp(B, A, H2)));
   render(<App />);
   act(() => {
@@ -66,15 +66,17 @@ test("each tx tab keeps its own selection and table tab across switches", async 
   act(() => useTabs.getState().activate(H1));
   act(() => h.byFirst[A]!.onTapNode(B, { shift: false }));
   expect(screen.getByText(`detail:${B}`)).toBeInTheDocument();
-  fireEvent.click(screen.getAllByRole("button", { name: "Events", hidden: true })[0]!);
+  fireEvent.click(screen.getAllByRole("button", { name: "Logs", hidden: true })[0]!);
   act(() => useTabs.getState().activate(H2));
-  // tx B has no selection (the right panel shows its placeholder) and still shows the flows tab.
+  // tx B has no selection (the right panel shows its placeholder) and still shows the overview.
   expect(screen.queryByText(`detail:${B}`)).toBeNull();
   expect(screen.getByText("Select a node to see details")).toBeInTheDocument();
-  expect(screen.getAllByRole("button", { name: "Events", hidden: true })[1]).toHaveAttribute("aria-pressed", "false");
+  expect(screen.getAllByRole("button", { name: "Logs", hidden: true })[1]).toHaveAttribute("aria-pressed", "false");
+  expect(screen.getAllByRole("button", { name: "Overview", hidden: true })[1]).toHaveAttribute("aria-pressed", "true");
   act(() => useTabs.getState().activate(H1));
   expect(screen.getByText(`detail:${B}`).closest("[hidden]")).toBeNull();
-  expect(screen.getAllByRole("button", { name: "Events", hidden: true })[0]).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getAllByRole("button", { name: "Logs", hidden: true })[0]).toHaveAttribute("aria-pressed", "true");
+  expect(useTabs.getState().tabs.find((t) => t.id === H1)).toMatchObject({ detailTab: "logs" });
 });
 
 test("on a tx tab the right panel shows only that tab's detail, never the graph's as well", async () => {
