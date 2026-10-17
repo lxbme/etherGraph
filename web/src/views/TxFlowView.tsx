@@ -77,31 +77,48 @@ function Tables({ flow, onPick }: { flow: TxFlowDto; onPick(addr: string): void 
   return (
     <div className="txview__tables">
       <div className="txview__tabs">
-        <button aria-pressed={tab === "flows"} onClick={() => setTab("flows")}>{t("tx.tab.flows")}</button>
-        <button aria-pressed={tab === "events"} onClick={() => setTab("events")}>{t("tx.tab.events")}</button>
+        <div className="seg" role="group">
+          <button type="button" className="seg__item" aria-pressed={tab === "flows"} onClick={() => setTab("flows")}>{t("tx.tab.flows")}</button>
+          <button type="button" className="seg__item" aria-pressed={tab === "events"} onClick={() => setTab("events")}>{t("tx.tab.events")}</button>
+        </div>
       </div>
       {tab === "flows" ? (
-        <table>
-          <thead><tr><th>#</th><th>From</th><th>To</th><th>{t("transfers.col.amount")}</th><th>{t("transfers.col.type")}</th></tr></thead>
+        <table className="table">
+          <thead>
+            <tr>
+              <th className="table__num">{t("tx.col.seq")}</th>
+              <th>{t("tx.col.from")}</th>
+              <th>{t("tx.col.to")}</th>
+              <th className="table__num">{t("transfers.col.amount")}</th>
+              <th>{t("transfers.col.type")}</th>
+            </tr>
+          </thead>
           <tbody>
             {[...flow.flows].sort((a, b) => a.seq - b.seq).map((f, i) => (
               <tr key={`${f.seq}-${i}`}>
-                <td>{f.seq}</td>
+                <td className="num table__num">{f.seq}</td>
                 <td>{addr(f.from)}</td>
                 <td>{addr(f.to)}</td>
-                <td>{`${flowAmountText(f)} ${flowSymbol(f)}`}</td>
+                <td className="num table__num">{`${flowAmountText(f)} ${flowSymbol(f)}`}</td>
                 <td>{className(assetClass(f.asset, f.kind))}</td>
               </tr>
             ))}
           </tbody>
         </table>
       ) : (
-        <table>
-          <thead><tr><th>log</th><th>{t("tx.col.contract")}</th><th>{t("tx.col.event")}</th><th>{t("tx.col.args")}</th></tr></thead>
+        <table className="table">
+          <thead>
+            <tr>
+              <th className="table__num">{t("tx.col.log")}</th>
+              <th>{t("tx.col.contract")}</th>
+              <th>{t("tx.col.event")}</th>
+              <th>{t("tx.col.args")}</th>
+            </tr>
+          </thead>
           <tbody>
             {flow.events.map((e) => (
               <tr key={e.log_index}>
-                <td>{e.log_index}</td>
+                <td className="num table__num">{e.log_index}</td>
                 <td>{addr(e.address)}</td>
                 {e.name ? (
                   <>
@@ -147,7 +164,8 @@ export function TxNodeDetail({ hash }: { hash: string }) {
     <div className="detail">
       <NodeDetail key={selected} address={selected} onNavigate={(a) => selectTx(hash, a)} />
       <button
-        className="txview__add"
+        type="button"
+        className="btn txview__add"
         onClick={() => {
           addCenter(selected);
           toast(t("tx.added"));
@@ -189,7 +207,10 @@ export function TxFlowView({ hash }: { hash: string }) {
   if (q.isError) {
     return (
       <div className="placeholder" role="alert">
-        {messageFor(q.error)} <button onClick={() => void q.refetch()}>{t("common.retry")}</button>
+        {messageFor(q.error)}{" "}
+        <button type="button" className="btn btn--compact" onClick={() => void q.refetch()}>
+          {t("common.retry")}
+        </button>
       </div>
     );
   }
@@ -198,6 +219,8 @@ export function TxFlowView({ hash }: { hash: string }) {
       <div className="placeholder" role="alert">
         {t("events.txFetchFailed", { reason: job.error ?? t("events.unknownReason") })}{" "}
         <button
+          type="button"
+          className="btn btn--compact"
           onClick={() => {
             useJobProgress.getState().remove([job.job_id]);
             void q.refetch();

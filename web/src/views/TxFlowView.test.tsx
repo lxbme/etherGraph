@@ -7,6 +7,7 @@ import type { TxFlowDto } from "../api/generated/TxFlowDto";
 import type { TxResponseDto } from "../api/generated/TxResponseDto";
 import type { CytoscapeViewProps } from "../graph/CytoscapeView";
 import { useGraph } from "../graph/store";
+import { useLocale } from "../i18n";
 import { useJobProgress } from "../shell/statusStore";
 import { useTabs } from "../shell/tabs";
 import { useUi } from "../panels/uiStore";
@@ -75,7 +76,10 @@ beforeEach(() => {
   useTabs.setState({ active: HASH });
   useUi.setState({ txSelection: {}, labelEditorFor: null });
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  act(() => useLocale.getState().setLocale("en"));
+});
 
 test("pending shows loading and ready renders header with fee and banner", async () => {
   vi.spyOn(api, "tx").mockResolvedValue({ status: "pending", flow: null, job_id: 7 });
@@ -190,4 +194,28 @@ test("pending refetches every 5s and stops once ready", async () => {
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("tables use the shared table, segmented tabs and button styles with localized headers", async () => {
+  vi.spyOn(api, "tx").mockResolvedValue(ready());
+  renderView();
+  const amount = await screen.findByText("12.5 USDT");
+  expect(amount.closest("table")).toHaveClass("table");
+  expect(amount).toHaveClass("num", "table__num");
+  const heads = screen.getAllByRole("columnheader").map((th) => th.textContent);
+  expect(heads).toEqual(["#", "From", "To", "Amount", "Type"]);
+  expect(screen.getByRole("columnheader", { name: "Amount" })).toHaveClass("table__num");
+  const flows = screen.getByRole("button", { name: "Fund flows" });
+  expect(flows).toHaveClass("seg__item");
+  expect(flows.parentElement).toHaveClass("seg");
+
+  act(() => useLocale.getState().setLocale("zh"));
+  expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["#", "发送方", "接收方", "金额", "类别"]);
+  fireEvent.click(screen.getByRole("button", { name: "事件" }));
+  expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual(["日志", "合约", "事件", "参数"]);
+  act(() => useLocale.getState().setLocale("en"));
+  expect(screen.getAllByRole("columnheader")[0]).toHaveTextContent("Log");
+
+  act(() => h.props!.onTapNode(B, { shift: false }));
+  expect(screen.getByRole("button", { name: "Add to graph" })).toHaveClass("btn");
 });
