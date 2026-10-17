@@ -9,6 +9,7 @@ import { CytoscapeView } from "../graph/CytoscapeView";
 import { isMoreId, MORE_PREFIX, toElements } from "../graph/elements";
 import { useCanvasMetrics } from "../graph/canvasMetrics";
 import { legendFor } from "../graph/legend";
+import { edgeTooltip, moreTooltip, nodeTooltip, type TooltipLine } from "../graph/tooltip";
 import { useShortcuts } from "../graph/useShortcuts";
 import { BatchBar } from "../panels/BatchBar";
 import { ContextMenu } from "../panels/ContextMenu";
@@ -23,6 +24,7 @@ import { deriveVisualEdges } from "../graph/visualEdges";
 import { shortAddr } from "../lib/address";
 import { toast } from "../shell/Toasts";
 import { useTheme } from "../shell/theme";
+import { GraphTooltip } from "./GraphTooltip";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
 
 /** A second tap on the same "+N more" node within this window is part of a double-click. */
@@ -83,6 +85,27 @@ export function AddressGraph() {
     [data, visual, ui, centers, selection, highlightTransfer, limits],
   );
   const legend = useMemo(() => legendFor(elements, theme), [elements, theme]);
+
+  const [hover, setHover] = useState<{ kind: "node" | "edge"; id: string; pos: Pos } | null>(null);
+  // `locale` is a dependency so an open tooltip is re-translated.
+  const tooltipLines = useMemo((): TooltipLine[] | null => {
+    if (!hover || !data) return null;
+    if (hover.id.startsWith(MORE_PREFIX)) return moreTooltip(data.omitted[hover.id.slice(MORE_PREFIX.length)] ?? 0);
+    if (isMoreId(hover.id)) return null;
+    if (hover.kind === "edge") {
+      const v = visual.find((e) => e.id === hover.id);
+      return v ? edgeTooltip(v) : null;
+    }
+    const a = lc(hover.id);
+    const n = data.nodes.find((x) => lc(x.address) === a);
+    if (!n) return null;
+    const neighbours = new Set<string>();
+    for (const v of visual) {
+      if (v.from === a) neighbours.add(v.to);
+      else if (v.to === a) neighbours.add(v.from);
+    }
+    return nodeTooltip(n, { coverage: data.coverage[a] ?? data.coverage[n.address], omitted: data.omitted[a], degree: neighbours.size });
+  }, [hover, data, visual, locale]);
 
   const cyRef = useRef<cytoscape.Core | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -206,7 +229,9 @@ export function AddressGraph() {
         }}
         onDragEnd={onDragEnd}
         onReady={onReady}
+        onHover={setHover}
       />
+      {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
       <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} />
       <BatchBar />
       {hiddenOnCanvas > 0 && (

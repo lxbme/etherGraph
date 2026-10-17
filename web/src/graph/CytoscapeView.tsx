@@ -4,6 +4,9 @@ import { createRefitGuard, fitClamped } from "./refit";
 import { runDagreLayout, runIncrementalLayout } from "./layout";
 
 type Pos = { x: number; y: number };
+/** How long the pointer rests on an element before its explanation shows. */
+export const HOVER_DELAY_MS = 300;
+
 /** Definition positions applied at the last sync, keyed by node id. */
 export type AppliedPositions = Map<string, Pos | undefined>;
 
@@ -22,6 +25,8 @@ export interface CytoscapeViewProps {
   onTapBackground?(): void;
   onDragEnd(positions: Record<string, Pos>): void;
   onReady?(cy: cytoscape.Core): void;
+  /** Hover for 300 ms over a node / edge → its id and rendered position; `null` as soon as it should go away. */
+  onHover?(t: { kind: "node" | "edge"; id: string; pos: Pos } | null): void;
   /**
    * A change starts a new canvas (new/opened workspace): positions of nodes from before it are not
    * remembered, so they are laid out afresh if they show up again.
@@ -152,6 +157,25 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       p().onCxtNode(e.target.id(), { x: rp.x, y: rp.y });
     });
 
+    let hoverTimer: ReturnType<typeof setTimeout> | undefined;
+    const hideHover = () => {
+      if (hoverTimer !== undefined) clearTimeout(hoverTimer);
+      hoverTimer = undefined;
+      p().onHover?.(null);
+    };
+    cy.on("mouseover", "node, edge", (e) => {
+      if (hoverTimer !== undefined) clearTimeout(hoverTimer);
+      const target = e.target;
+      const rp = e.renderedPosition ?? (target.isNode() ? target.renderedPosition() : { x: 0, y: 0 });
+      const pos = { x: rp.x, y: rp.y };
+      hoverTimer = setTimeout(() => {
+        hoverTimer = undefined;
+        if (alive) p().onHover?.({ kind: target.isNode() ? "node" : "edge", id: target.id(), pos });
+      }, HOVER_DELAY_MS);
+    });
+    cy.on("mouseout", "node, edge", hideHover);
+    cy.on("viewport grab drag tapstart", hideHover);
+
     // A multi-node drag emits one `dragfree` per node in the same tick; report them together.
     let dragged: Record<string, Pos> | null = null;
     cy.on("dragfree", "node", (e) => {
@@ -220,6 +244,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
     propsRef.current.onReady?.(cy);
     return () => {
       alive = false;
+      if (hoverTimer !== undefined) clearTimeout(hoverTimer);
       ro?.disconnect();
       container.removeEventListener("wheel", onUserViewport);
       container.removeEventListener("pointerdown", onPointerDown);

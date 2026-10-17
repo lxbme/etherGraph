@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
@@ -7,6 +7,7 @@ import { qk } from "../api/queryClient";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { exposeTxCy } from "../graph/cyRegistry";
 import { txLegendFor } from "../graph/legend";
+import { callTooltip, nodeTooltip, type TooltipLine } from "../graph/tooltip";
 import { addToGraph } from "../graph/nodeActions";
 import { txFlowStylesheet } from "../graph/styles";
 import { NodeDetail } from "../panels/NodeDetail";
@@ -14,6 +15,7 @@ import { useUi } from "../panels/uiStore";
 import { useJobProgress } from "../shell/statusStore";
 import { useTabs } from "../shell/tabs";
 import { useTheme } from "../shell/theme";
+import { GraphTooltip } from "./GraphTooltip";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
 import { txElements } from "./txElements";
 import { TxDetailTabs } from "./txdetail/TxDetailTabs";
@@ -77,6 +79,13 @@ export function TxFlowView({ hash }: { hash: string }) {
     [flow, selected, highlightedSeq, locale], // labels are translated when built
   );
   const legend = useMemo(() => txLegendFor(elements, theme), [elements, theme]);
+  const [hover, setHover] = useState<{ kind: "node" | "edge"; id: string; pos: { x: number; y: number } } | null>(null);
+  const tooltipLines = useMemo((): TooltipLine[] | null => {
+    if (!hover || !flow) return null;
+    if (hover.kind === "edge") return hover.id === "call" ? callTooltip() : null;
+    const n = flow.nodes.find((x) => x.address.toLowerCase() === hover.id);
+    return n ? nodeTooltip(n, {}) : null;
+  }, [hover, flow, locale]);
   useEffect(
     () => () => {
       exposeTxCy(hash, null);
@@ -133,7 +142,9 @@ export function TxFlowView({ hash }: { hash: string }) {
             onBoxSelect={NOOP}
             onDragEnd={NOOP}
             onReady={(cy) => exposeTxCy(hash, cy)}
+            onHover={setHover}
           />
+          {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
           <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} />
         </div>
         <TxDetailTabs flow={flow} />

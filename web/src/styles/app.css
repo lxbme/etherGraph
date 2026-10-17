@@ -685,6 +685,25 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 @keyframes address-graph-pulse { from { opacity: 0.25; } to { opacity: 0.8; } }
 @media (prefers-reduced-motion: reduce) { .address-graph__refreshing { animation: none; } }
 
+/* Hover explanation over the canvas; never takes the pointer. */
+.graph-tooltip {
+  position: absolute;
+  z-index: 6;
+  max-width: 280px;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-pop);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  box-shadow: var(--shadow-pop);
+  color: var(--fg);
+  font-size: var(--fs-12);
+  pointer-events: none;
+}
+.graph-tooltip__line { display: flex; gap: var(--sp-2); }
+.graph-tooltip__label { flex: none; color: var(--fg-muted); }
+.graph-tooltip__value { min-width: 0; overflow-wrap: anywhere; }
+.graph-tooltip__value--mono { font-family: var(--font-mono); }
+
 /* Canvas legend: bottom-left over the canvas; only its own box takes pointer events. */
 .legend {
   padding: var(--sp-3);
