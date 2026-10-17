@@ -234,8 +234,8 @@ async fn token_meta_batches_by_third(pool: PgPool) {
         s2.lock().unwrap().push(n);
         Ok(agg_ret(vec![(false, vec![]); n]))
     });
-    let toks: Vec<String> = (1..=20u8).map(|i| format!("{:#x}", a(i))).collect();
-    // 50 / 3 = 16 tokens per call -> 16 + 4
+    let toks: Vec<String> = (1..=40u8).map(|i| format!("{:#x}", a(i))).collect();
+    // 100 / 3 = 33 tokens per call -> 33 + 7
     run(
         &e,
         &TokenMetaHandler,
@@ -244,7 +244,7 @@ async fn token_meta_batches_by_third(pool: PgPool) {
     )
     .await
     .unwrap();
-    assert_eq!(*sizes.lock().unwrap(), vec![48, 12]);
+    assert_eq!(*sizes.lock().unwrap(), vec![99, 21]);
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
