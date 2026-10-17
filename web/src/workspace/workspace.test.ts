@@ -309,11 +309,11 @@ describe("limits", () => {
     g().raiseLimit(A, 5);
     g().removeCenter(B);
     const s = serialize(g(), VP);
-    expect(s.limits).toEqual({ [A]: 64 });
+    expect(s.limits).toEqual({ [A]: 34 });
     g().reset();
     m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(s)) }));
     await expect(loadWorkspace(7)).resolves.toBe(true);
-    expect(g().limits).toEqual({ [A]: 64 });
+    expect(g().limits).toEqual({ [A]: 34 });
   });
 
   test("an old state without limits loads and every center gets a first batch", async () => {
@@ -321,10 +321,16 @@ describe("limits", () => {
     const { limits: _omit, ...legacy } = serialize(g(), VP);
     g().reset();
     const r = deserialize(JSON.parse(JSON.stringify(legacy)), 1);
-    expect(r.ok && r.state.limits).toEqual({ [A]: 59, [B]: 59 });
+    expect(r.ok && r.state.limits).toEqual({ [A]: 29, [B]: 29 });
     m.workspace.mockResolvedValue(dto({ state: legacy as never }));
     await expect(loadWorkspace(7)).resolves.toBe(true);
-    expect(g().limits).toEqual({ [A]: 59, [B]: 59 });
+    expect(g().limits).toEqual({ [A]: 29, [B]: 29 });
+  });
+
+  test("legacy centers share the budget over an empty canvas, ignoring the nodes now visible (R12)", () => {
+    useCanvasMetrics.getState().set({ visible: 40 });
+    const r = deserialize({ ...serialize((g().setCenters([A, B]), g()), VP), limits: undefined }, 1);
+    expect(r.ok && r.state.limits).toEqual({ [A]: 29, [B]: 29 }); // (60 - 2) / 2, not (20 - 2) / 2
   });
 
   test("centers missing from limits get a first batch", () => {

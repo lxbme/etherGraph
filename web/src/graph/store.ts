@@ -109,8 +109,11 @@ const blankUi = (): NodeUi => ({ pinned: false, hidden: false, note: "" });
 /** Share of the window area taken as the canvas before the canvas was first measured (ruling R4). */
 const UNMEASURED_CANVAS_SHARE = 0.6;
 
-/** Neighbour limit of a new center: the per-center batch for one new center under the current node budget. */
-export function firstBatch(): number {
+/**
+ * Neighbour limit of each of `n` centers that receive a first batch at once: the node budget is shared
+ * between them (ruling R12). `fresh` ignores the nodes now on the canvas (it is being replaced).
+ */
+export function firstBatchFor(n: number, opts: { fresh?: boolean } = {}): number {
   const m = useCanvasMetrics.getState();
   const canvas =
     m.width > 0 && m.height > 0
@@ -119,14 +122,24 @@ export function firstBatch(): number {
         ? { width: 0, height: 0 }
         : // Scaling one side scales the area: 60% of innerWidth x innerHeight.
           { width: window.innerWidth * UNMEASURED_CANVAS_SHARE, height: window.innerHeight };
-  return perCenterBatch(nodeBudget(nodeCapacity(canvas), m.visible), 1, 1);
+  const count = Math.max(1, n);
+  return perCenterBatch(nodeBudget(nodeCapacity(canvas), opts.fresh ? 0 : m.visible), count, count);
+}
+
+/** Neighbour limit of a new center: the per-center batch for one new center under the current node budget. */
+export function firstBatch(): number {
+  return firstBatchFor(1);
 }
 
 /** `limits` with a first batch for each of `addrs` (lowercase) that has none; the same object when nothing is missing. */
-function withFirstBatch(limits: Record<string, number>, addrs: string[]): Record<string, number> {
-  const missing = addrs.filter((a) => limits[a] === undefined);
+export function withFirstBatch(
+  limits: Record<string, number>,
+  addrs: string[],
+  opts: { fresh?: boolean } = {},
+): Record<string, number> {
+  const missing = [...new Set(addrs.filter((a) => limits[a] === undefined))];
   if (missing.length === 0) return limits;
-  const k = firstBatch();
+  const k = firstBatchFor(missing.length, opts);
   const next = { ...limits };
   for (const a of missing) next[a] = k;
   return next;
@@ -363,7 +376,7 @@ export const useGraph = create<GraphState>()((set, get) => {
         ...initial(),
         epoch: get().epoch + 1,
         centers,
-        limits: withFirstBatch(limits, centers),
+        limits: withFirstBatch(limits, centers, { fresh: true }),
         filter: v.filter,
         sort: v.sort ?? "count",
         expandedPairs: new Set(v.expandedPairs),

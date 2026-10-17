@@ -1,6 +1,6 @@
 import { t } from "../i18n";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
-import { firstBatch, type GraphState, type Pos, type SortKey } from "../graph/store";
+import { withFirstBatch, type GraphState, type Pos, type SortKey } from "../graph/store";
 
 export interface WorkspaceStateV1 {
   nodes: { address: string; x?: number; y?: number; pinned: boolean; hidden: boolean; note: string }[];
@@ -103,9 +103,9 @@ export function deserialize(
     return bad(t("ws.err.field", { field: "limits" }));
   }
   // Centers saved without a limit (older states) get the first batch of a new center.
-  const limits: Record<string, number> = {};
-  for (const [k, n] of Object.entries((v.limits ?? {}) as Record<string, number>)) limits[lc(k)] = n;
-  let batch: number | undefined;
-  for (const c of centers.map(lc)) if (limits[c] === undefined) limits[c] = batch ??= firstBatch();
+  const stored: Record<string, number> = {};
+  for (const [k, n] of Object.entries((v.limits ?? {}) as Record<string, number>)) stored[lc(k)] = n;
+  // The batch is shared by all of them, over an empty canvas (ruling R12).
+  const limits = withFirstBatch(stored, centers.map(lc), { fresh: true });
   return { ok: true, state: { ...(v as unknown as WorkspaceStateV1), limits } };
 }

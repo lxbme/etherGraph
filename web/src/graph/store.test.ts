@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { useCanvasMetrics } from "./canvasMetrics";
 import { setHistoryEffectHandler, type ExpandEffect } from "./historyEffects";
-import { firstBatch, pairKey, useGraph } from "./store";
+import { firstBatch, firstBatchFor, pairKey, useGraph } from "./store";
 
 const A = "0x" + "a".repeat(40);
 const B = "0x" + "b".repeat(40);
@@ -188,6 +188,27 @@ describe("per-center limits", () => {
       Object.defineProperty(window, "innerWidth", { value: w, configurable: true, writable: true });
       Object.defineProperty(window, "innerHeight", { value: h, configurable: true, writable: true });
     }
+  });
+
+  test("firstBatchFor shares the budget between n centers; fresh ignores the visible nodes (R12)", () => {
+    useCanvasMetrics.getState().set({ visible: 20 });
+    expect(firstBatchFor(1)).toBe(firstBatch());
+    expect(firstBatchFor(4)).toBe(9); // (40 - 4) / 4
+    expect(firstBatchFor(4, { fresh: true })).toBe(14); // (60 - 4) / 4
+    expect(firstBatchFor(500)).toBe(3); // floor K_FLOOR
+  });
+
+  test("setCenters with several new centers shares the budget; loadSnapshot ignores the old canvas", () => {
+    useCanvasMetrics.getState().set({ visible: 20 });
+    g().setCenters([A, B, C, D]);
+    expect(g().limits).toEqual({ [A]: 9, [B]: 9, [C]: 9, [D]: 9 });
+    g().loadSnapshot({ centers: [A, B], ui: {}, filter: {}, expandedPairs: [] } as never);
+    expect(g().limits).toEqual({ [A]: 29, [B]: 29 }); // (60 - 2) / 2
+  });
+
+  test("a single revealCenter keeps the full single-center batch", () => {
+    g().revealCenter(A);
+    expect(g().limits[A]).toBe(59);
   });
 
   test("addCenter writes the first batch; an existing limit is kept", () => {
