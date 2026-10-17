@@ -108,6 +108,17 @@ test("AddressDataChanged invalidates related transfers queries only", () => {
   expect(qc.getQueryState(qk.transfers({ address: B }))?.isInvalidated).toBe(false);
 });
 
+test("AddressDataChanged invalidates that contract's counterparties lists only", () => {
+  useGraph.getState().addCenter(A);
+  mount();
+  qc.setQueryData(["counterparties", B, { sort: "count_desc" }], 1);
+  qc.setQueryData(["counterparties", C, { sort: "count_desc" }], 1);
+  send({ type: "AddressDataChanged", address: B });
+  advance(500);
+  expect(qc.getQueryState(["counterparties", B, { sort: "count_desc" }])?.isInvalidated).toBe(true);
+  expect(qc.getQueryState(["counterparties", C, { sort: "count_desc" }])?.isInvalidated).toBe(false);
+});
+
 test("events for addresses not on the canvas are ignored", () => {
   useGraph.getState().addCenter(A);
   const data: GraphResponseDto = { nodes: [node(A), node(B)], edges: [], omitted: {}, coverage: {} };

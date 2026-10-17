@@ -941,3 +941,8 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .addr-cell__select { padding: 0; color: inherit; background: none; border: 0; font: inherit; cursor: pointer; }
 .addr-cell__select.num { font-family: var(--font-mono); }
 .addr-cell__select:hover { color: var(--accent); text-decoration: underline; }
+
+/* Contract interactions dialog: filters above a scrolling pick list. */
+.dialog.interactions { width: min(760px, 92vw); }
+.interactions__filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.interactions__more { margin-left: var(--sp-1); }

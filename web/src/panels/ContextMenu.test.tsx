@@ -14,8 +14,8 @@ const node = (partial: boolean, kind: NodeSummaryDto["kind"] = "eoa"): NodeSumma
   partial, syncing: false, synced: true, hot: false, nonce: null, balance: null,
 });
 const data: GraphResponseDto = { nodes: [], edges: [], omitted: {}, coverage: {} };
-const menu = (partial: boolean, kind: NodeSummaryDto["kind"] = "eoa", onExpand = () => {}) => (
-  <ContextMenu x={1} y={2} node={node(partial, kind)} data={data} onExpand={onExpand} onClose={() => {}} />
+const menu = (partial: boolean, kind: NodeSummaryDto["kind"] = "eoa", onExpand = () => {}, onBrowse = () => {}) => (
+  <ContextMenu x={1} y={2} node={node(partial, kind)} data={data} onExpand={onExpand} onBrowse={onBrowse} onClose={() => {}} />
 );
 
 beforeEach(() => {
@@ -43,8 +43,16 @@ test("wallets and unknown nodes get one 'Expand neighbors…' item; contracts ge
     expect(onExpand).toHaveBeenCalledTimes(1);
     unmount();
   }
-  render(menu(false, "contract"));
+  const onBrowse = vi.fn();
+  render(menu(false, "contract", () => {}, onBrowse));
   expect(screen.queryByRole("menuitem", { name: "Expand neighbors…" })).toBeNull();
+  fireEvent.click(screen.getByRole("menuitem", { name: "Browse interactions…" }));
+  expect(onBrowse).toHaveBeenCalledTimes(1);
+});
+
+test("wallets have no 'Browse interactions…' item", () => {
+  render(menu(false, "eoa"));
+  expect(screen.queryByRole("menuitem", { name: "Browse interactions…" })).toBeNull();
 });
 
 test("'Remove as center' only shows for centers and removes the center", () => {

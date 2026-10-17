@@ -59,6 +59,11 @@ function onCanvas(qc: QueryClient, addr: string): boolean {
     .some(([, data]) => !!data?.nodes.some((n) => n.address.toLowerCase() === addr));
 }
 
+/** Whether an interactions list of `addr` is cached (it may be open for a node that is off the canvas). */
+function hasCounterparties(qc: QueryClient, addr: string): boolean {
+  return qc.getQueryCache().findAll({ queryKey: ["counterparties", addr] }).length > 0;
+}
+
 const TRANSFER_ADDR_FIELDS = ["address", "from", "to"];
 
 /** Whether a `qk.transfers(params)` key concerns one of `addrs`. */
@@ -86,6 +91,10 @@ export function useEvents(): void {
       invalidateAddresses(addrs);
       void qc.invalidateQueries({
         predicate: (q) => q.queryKey[0] === "transfers" && transfersTouch(q.queryKey[1], addrs),
+      });
+      // A contract's interactions list refetches once its sync lands.
+      void qc.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === "counterparties" && addrs.has(String(q.queryKey[1])),
       });
     }, graphBusy);
     const metaChanged = coalescer((addrs) => {
@@ -129,7 +138,7 @@ export function useEvents(): void {
       switch (e.type) {
         case "AddressDataChanged": {
           const a = e.address.toLowerCase();
-          if (onCanvas(qc, a)) dataChanged.add([a]);
+          if (onCanvas(qc, a) || hasCounterparties(qc, a)) dataChanged.add([a]);
           break;
         }
         case "NamesResolved":

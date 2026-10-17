@@ -15,6 +15,8 @@ export interface ContextMenuProps {
   data: GraphResponseDto;
   /** Opens the expansion dialog for `node` (wallets and unknown kinds only). */
   onExpand(): void;
+  /** Opens the interactions list of `node` (contracts only). */
+  onBrowse(): void;
   onClose(): void;
 }
 
@@ -69,9 +71,11 @@ export function ContextMenu(p: ContextMenuProps) {
       {node.partial && (
         <button role="menuitem" className="menu__item" onClick={run(() => syncNode(addr, "older"))}>{t("ctx.older")}</button>
       )}
-      {/* Contracts are never expanded from here (spec §5.9). */}
-      {node.kind !== "contract" && (
+      {/* Contracts are never expanded directly: their counterparties are picked from a list (spec §5.9). */}
+      {node.kind !== "contract" ? (
         <button role="menuitem" className="menu__item" onClick={run(p.onExpand)}>{t("ctx.expand")}</button>
+      ) : (
+        <button role="menuitem" className="menu__item" onClick={run(p.onBrowse)}>{t("ctx.browse")}</button>
       )}
       <button role="menuitem" className="menu__item" onClick={run(() => togglePin(addr))}>{pinned ? t("ctx.unpin") : t("ctx.pin")}</button>
       <button role="menuitem" className="menu__item" onClick={run(() => hideNode(addr))}>{t("ctx.hide")}</button>

@@ -12,6 +12,7 @@ import { useShortcuts } from "../graph/useShortcuts";
 import { BatchBar } from "../panels/BatchBar";
 import { ContextMenu } from "../panels/ContextMenu";
 import { ExpandDialog } from "../panels/expand/ExpandDialog";
+import { InteractionsDialog } from "../panels/expand/InteractionsDialog";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { revealBatch, useGraph, type Pos } from "../graph/store";
@@ -78,7 +79,9 @@ export function AddressGraph() {
   const [menu, setMenu] = useState<{ x: number; y: number; node: NodeSummaryDto } | null>(null);
   const [expanding, setExpanding] = useState<NodeSummaryDto | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
+  const [browsing, setBrowsing] = useState<NodeSummaryDto | null>(null);
   const closeExpand = useCallback(() => setExpanding(null), []);
+  const closeBrowse = useCallback(() => setBrowsing(null), []);
 
   const onCxtNode = (id: string, pos: Pos) => {
     const node = data?.nodes.find((n) => lc(n.address) === lc(id));
@@ -144,7 +147,7 @@ export function AddressGraph() {
     const n = data?.nodes.find((x) => lc(x.address) === a);
     if (!n || n.synced || n.syncing) return;
     api
-      .sync({ addresses: [a] })
+      .sync(n.kind === "contract" ? { addresses: [a], depth: "shallow" } : { addresses: [a] })
       .then(() => toast(t("sync.startedAddr", { addr: shortAddr(a) })))
       .catch((err) => toast(messageFor(err), "error"));
   };
@@ -206,10 +209,12 @@ export function AddressGraph() {
           node={menu.node}
           data={data}
           onExpand={() => setExpanding(menu.node)}
+          onBrowse={() => setBrowsing(menu.node)}
           onClose={closeMenu}
         />
       )}
       {expanding && <ExpandDialog node={expanding} onClose={closeExpand} />}
+      {browsing && <InteractionsDialog contract={browsing} onClose={closeBrowse} />}
       {centers.length === 0 && <div className="address-graph__empty">{tr("view.empty")}</div>}
       {centers.length > 0 && error != null && (
         <div className="address-graph__status address-graph__status--error" role="alert">{messageFor(error)}</div>

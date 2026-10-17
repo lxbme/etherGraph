@@ -136,6 +136,21 @@ test("double-clicking an unsynced node starts a sync and toasts", async () => {
   expect(await screen.findByText("Started syncing 0xbbbb…bbbb")).toBeInTheDocument();
 });
 
+test("double-clicking a contract never expands; it shallow-syncs only when unsynced", async () => {
+  const sync = vi.spyOn(api, "sync").mockResolvedValue({ jobs: [] } as never);
+  const contracts: GraphResponseDto = {
+    ...data,
+    nodes: [{ ...node(A, true), kind: "contract" }, { ...node(B, false), kind: "contract" }],
+  };
+  vi.spyOn(api, "graphEdges").mockResolvedValue(contracts);
+  await mountWithData();
+  act(() => props().onDblTapNode(A));
+  expect(sync).not.toHaveBeenCalled();
+  act(() => props().onDblTapNode(B));
+  expect(sync).toHaveBeenCalledWith({ addresses: [B], depth: "shallow" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+
 test("a failed sync shows the mapped error", async () => {
   vi.spyOn(api, "sync").mockRejectedValue(new ApiError("quota_exhausted", 429, "q"));
   await mountWithData();
