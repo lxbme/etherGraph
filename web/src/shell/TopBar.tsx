@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { FilterPanel } from "../panels/FilterPanel";
 import { SearchBox } from "../search/SearchBox";
 import { formatCount, formatTime } from "../lib/format";
+import { SettingsMenu } from "./SettingsMenu";
 import { useQuota } from "./statusStore";
 
 export interface TopBarProps {
@@ -27,6 +28,7 @@ export function TopBar({ search, filter, workspaceMenu, onToggleDetail }: TopBar
         额度 {quota ? `${formatCount(quota.used)}/${formatCount(quota.limit)}` : "—"}
       </span>
       {workspaceMenu ?? <button className="btn" disabled>画布 ▾</button>}
+      <SettingsMenu />
       <button className="btn topbar__detail-toggle" aria-label="详情栏" onClick={onToggleDetail}>▤</button>
     </header>
   );
