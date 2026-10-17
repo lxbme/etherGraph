@@ -1,15 +1,24 @@
 import { describe, expect, it } from "vitest";
 
-const SHEETS = import.meta.glob("./*.css", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
-const RESTRICTED = /^(font-size|padding(-[a-z]+)*|margin(-[a-z]+)*|gap|row-gap|column-gap|height|min-height|border-radius)$/;
+// vitest stubs CSS imports (even ?raw) to "", so read the files directly.
+// @ts-expect-error node builtins are untyped here (no @types/node); the module exists at runtime.
+import { readdirSync, readFileSync } from "node:fs";
+
+const DIR = "src/styles/"; // vitest runs from web/
+const SHEETS: Record<string, string> = Object.fromEntries(
+  (readdirSync(DIR) as string[])
+    .filter((f) => f.endsWith(".css"))
+    .map((f) => [`./${f}`, readFileSync(DIR + f, "utf8") as string]),
+);
+const RESTRICTED = /^(font-size|padding(-[a-z]+)*|margin(-[a-z]+)*|gap|row-gap|column-gap|height|min-height|max-height|border-radius)$/;
 const KEYWORDS = new Set(["0", "auto", "100%"]);
 
-/** A single value token is allowed if it is var(--…), 0, auto, 100%, or a calc() made only of var() and 0. */
+/** A single value token is allowed if it is var(--…), 0, auto, 100%, or a calc() made only of var(), 0 and 100% with +/-. */
 function tokenOk(tok: string): boolean {
   if (KEYWORDS.has(tok) || /^var\(--[\w-]+\)$/.test(tok)) return true;
   const calc = /^calc\((.*)\)$/.exec(tok);
   if (!calc) return false;
-  const rest = calc[1]!.replace(/var\(--[\w-]+\)/g, "").replace(/[\s0+\-*/()]/g, "");
+  const rest = calc[1]!.replace(/var\(--[\w-]+\)/g, "").replace(/100%|[\s0+\-()]/g, "");
   return rest === "";
 }
 
@@ -34,7 +43,10 @@ describe("stylesheets use spacing/size tokens", () => {
   const files = Object.keys(SHEETS)
     .map((p) => p.replace("./", ""))
     .filter((f) => f !== "tokens.css");
-  it("finds the stylesheets", () => expect(files).toContain("app.css"));
+  it("finds the stylesheets", () => {
+    expect(files).toContain("app.css");
+    expect(SHEETS["./app.css"]!.length).toBeGreaterThan(1000);
+  });
   for (const f of files) {
     it(`${f} has no raw sizes`, () => {
       const css = SHEETS[`./${f}`]!.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -48,4 +60,12 @@ describe("stylesheets use spacing/size tokens", () => {
       expect(bad).toEqual([]);
     });
   }
+});
+
+describe("tokens.css", () => {
+  it("sets native control color-scheme per theme", () => {
+    const css = SHEETS["./tokens.css"]!;
+    expect(css).toMatch(/:root\s*\{\s*color-scheme:\s*light;/);
+    expect(css).toMatch(/:root\[data-theme="dark"\]\s*\{\s*color-scheme:\s*dark;/);
+  });
 });

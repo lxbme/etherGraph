@@ -29,7 +29,7 @@ body,
 }
 /* Narrow screens: the search gets its own row and popovers span the top bar instead of overflowing. */
 @media (max-width: 599px) {
-  .topbar { gap: var(--sp-2) var(--sp-2); padding: var(--sp-2) var(--sp-2); }
+  .topbar { gap: var(--sp-2); padding: var(--sp-2); }
   .topbar .search { order: 10; flex-basis: 100%; max-width: none; }
   .topbar .filter { position: static; }
   .topbar .filter__popover { left: 8px; right: 8px; width: auto; }
@@ -150,7 +150,7 @@ body,
   touch-action: none;
 }
 .split__handle:hover, .split__handle:focus-visible { background: var(--accent); outline: none; }
-.split__bottom { flex: none; min-height: var(--h-pane-min); max-height: calc(100% - 120px); overflow: auto; background: var(--bg); }
+.split__bottom { flex: none; min-height: var(--h-pane-min); max-height: calc(100% - var(--h-pane-min)); overflow: auto; background: var(--bg); }
 
 .placeholder { padding: var(--sp-3); color: var(--fg-muted); }
 
@@ -295,7 +295,7 @@ body,
   flex-direction: column;
   gap: var(--sp-2);
   width: 320px;
-  max-height: 70vh;
+  max-height: var(--mh-popover);
   overflow-y: auto;
   padding: var(--sp-3);
   background: var(--bg);
@@ -308,7 +308,7 @@ body,
   flex-wrap: wrap;
   gap: var(--sp-1) var(--sp-3);
   margin: 0;
-  padding: var(--sp-2) var(--sp-2);
+  padding: var(--sp-2);
   border: 1px solid var(--line);
   border-radius: var(--radius);
 }
@@ -356,7 +356,7 @@ body,
   cursor: pointer;
 }
 .ctx-menu button:hover { background: var(--bg-subtle); }
-.ctx-menu__group { padding: var(--sp-1) var(--sp-3) var(--sp-1); font-size: var(--fs-11); color: var(--fg-muted); }
+.ctx-menu__group { padding: var(--sp-1) var(--sp-3); font-size: var(--fs-11); color: var(--fg-muted); }
 .ctx-menu__sub { padding-left: var(--sp-6) !important; }
 
 .batch-bar {
@@ -385,11 +385,11 @@ body,
 }
 .dialog {
   width: min(480px, 92vw);
-  max-height: 80vh;
+  max-height: var(--mh-dialog);
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  padding: var(--sp-4) var(--sp-4);
+  padding: var(--sp-4);
   background: var(--bg);
   color: var(--fg);
   border: 1px solid var(--line);
@@ -437,7 +437,7 @@ body,
 .txview__tag { padding: 0 var(--sp-2); font-size: var(--fs-11); color: var(--fg-muted); border: 1px solid var(--line); border-radius: var(--radius-pop); }
 .txview__banner { padding: var(--sp-2) var(--sp-3); font-size: var(--fs-12); color: var(--fg-muted); background: var(--bg); border-bottom: 1px solid var(--line); }
 .txview__graph { flex: 1; min-height: var(--h-graph-min); position: relative; }
-.txview__tables { flex: none; max-height: 40%; overflow: auto; background: var(--bg); border-top: 1px solid var(--line); font-size: var(--fs-12); }
+.txview__tables { flex: none; max-height: var(--mh-tables); overflow: auto; background: var(--bg); border-top: 1px solid var(--line); font-size: var(--fs-12); }
 .txview__tabs { display: flex; gap: var(--sp-1); padding: var(--sp-1) var(--sp-2); }
 .txview__tabs button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
 .txview__tables table { width: 100%; border-collapse: collapse; }
@@ -475,7 +475,7 @@ body,
   z-index: 50;
   width: 560px;
   max-width: calc(100vw - 24px);
-  max-height: 60vh;
+  max-height: var(--mh-jobs);
   overflow-y: auto;
   padding: var(--sp-2) var(--sp-3);
   color: var(--fg);

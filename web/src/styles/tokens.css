@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   /* surfaces */
   --bg: #ffffff;
   --bg-subtle: #f7f8fa;
@@ -42,6 +43,10 @@
   --h-compact: 28px;
   --h-pane-min: 120px;
   --h-graph-min: 200px;
+  --mh-popover: 70vh;
+  --mh-dialog: 80vh;
+  --mh-jobs: 60vh;
+  --mh-tables: 40%;
   --fs-11: 11px;
   --fs-12: 12px;
   --fs-13: 13px;
@@ -56,6 +61,7 @@
 }
 
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #14181d;
   --bg-subtle: #1b2128;
   --canvas: #10141a;
