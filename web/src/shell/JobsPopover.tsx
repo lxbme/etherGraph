@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/endpoints";
-import { messageFor } from "../api/errors";
+import { ApiError, messageFor } from "../api/errors";
 import { qk } from "../api/queryClient";
 import type { JobDto } from "../api/generated/JobDto";
 import { KIND_NAMES, STATUS_NAMES, targetText } from "./jobText";
@@ -78,7 +78,11 @@ export function JobsPopover({ activeCount }: { activeCount: number }) {
   });
   const cancel = useMutation({
     mutationFn: (id: number) => api.cancelJob(id),
-    onError: (e) => toast(messageFor(e), "error"),
+    // 404: the job finished (or was cancelled) before the click reached the server.
+    onError: (e) =>
+      e instanceof ApiError && e.code === "not_found"
+        ? toast("任务已结束，无需取消", "info")
+        : toast(messageFor(e), "error"),
     onSettled: () => qc.invalidateQueries({ queryKey: qk.jobs() }),
   });
 

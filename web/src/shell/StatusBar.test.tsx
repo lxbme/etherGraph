@@ -3,11 +3,13 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "../api/endpoints";
+import { ApiError } from "../api/errors";
 import { qk } from "../api/queryClient";
 import { statusQuery } from "../api/statusQuery";
 import type { JobDto } from "../api/generated/JobDto";
 import type { StatusDto } from "../api/generated/StatusDto";
 import { StatusBar } from "./StatusBar";
+import { Toasts } from "./Toasts";
 import { TopBar } from "./TopBar";
 import { useJobProgress, useQuota, type JobProgressEvent } from "./statusStore";
 
@@ -93,6 +95,24 @@ describe("jobs popover", () => {
     expect(row).toBeInTheDocument();
     await userEvent.click(within(dlg).getByRole("button", { name: "取消" }));
     expect(m.cancelJob).toHaveBeenCalledWith(1);
+    await waitFor(() => expect(within(dlg).queryByRole("button", { name: "取消" })).toBeNull());
+  });
+
+  test("cancelling a job that already finished says so instead of showing an error", async () => {
+    m.jobs.mockResolvedValueOnce([job()]).mockResolvedValue([]);
+    m.cancelJob.mockRejectedValue(new ApiError("not_found", 404, "job not found or already finished"));
+    wrap(
+      <>
+        <StatusBar />
+        <Toasts />
+      </>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /^任务/ }));
+    const dlg = await screen.findByRole("dialog", { name: "任务" });
+    await userEvent.click(await within(dlg).findByRole("button", { name: "取消" }));
+    const t = await screen.findByText("任务已结束，无需取消");
+    expect(t).toHaveClass("toast--info");
+    expect(screen.queryByText("未找到")).toBeNull();
     await waitFor(() => expect(within(dlg).queryByRole("button", { name: "取消" })).toBeNull());
   });
 

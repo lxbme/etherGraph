@@ -310,3 +310,12 @@ test("JobProgress for a job missing from the cached jobs list invalidates the li
   send(progress(2));
   expect(qc.getQueryState(qk.jobs())?.isInvalidated).toBe(true);
 });
+
+test("JobProgress with a finished status drops the job from the cached active list at once", async () => {
+  mount();
+  await act(async () => {});
+  qc.setQueryData(qk.jobs(), [job(1), job(2)]);
+  send({ ...progress(1), status: "done" as const });
+  expect(qc.getQueryData<JobDto[]>(qk.jobs())?.map((j) => j.id)).toEqual([2]);
+  expect(qc.getQueryState(qk.jobs())?.isInvalidated).toBe(false);
+});

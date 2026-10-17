@@ -145,6 +145,10 @@ export function useEvents(): void {
           // A job we have not listed yet: refresh the list so its target can be shown.
           if (ACTIVE_JOB_STATUSES.has(e.status) && !qc.getQueryData<JobDto[]>(qk.jobs())?.some((j) => j.id === e.job_id)) {
             void qc.invalidateQueries({ queryKey: qk.jobs() });
+          } else if (!ACTIVE_JOB_STATUSES.has(e.status)) {
+            // A finished job leaves the active list now, not at the next poll,
+            // so its cancel button cannot target a job that is already done.
+            qc.setQueryData<JobDto[]>(qk.jobs(), (jobs) => jobs?.filter((j) => j.id !== e.job_id));
           }
           if (e.status === "failed" && e.kind === "fetch_tx") {
             toast(`交易抓取失败：${e.error ?? "未知原因"}`, "error");
