@@ -702,6 +702,7 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .graph-tooltip__line { display: flex; gap: var(--sp-2); }
 .graph-tooltip__label { flex: none; color: var(--fg-muted); }
 .graph-tooltip__value { min-width: 0; overflow-wrap: anywhere; }
+.graph-tooltip__sub { color: var(--fg-muted); }
 .graph-tooltip__value--mono { font-family: var(--font-mono); }
 
 /* Canvas legend: bottom-left over the canvas; only its own box takes pointer events. */

@@ -7,7 +7,7 @@ import { qk } from "../api/queryClient";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { exposeTxCy } from "../graph/cyRegistry";
 import { txLegendFor } from "../graph/legend";
-import { callTooltip, nodeTooltip, type TooltipLine } from "../graph/tooltip";
+import { callTooltip, flowTooltip, nodeTooltip, type TooltipLine } from "../graph/tooltip";
 import { addToGraph } from "../graph/nodeActions";
 import { txFlowStylesheet } from "../graph/styles";
 import { NodeDetail } from "../panels/NodeDetail";
@@ -82,7 +82,14 @@ export function TxFlowView({ hash }: { hash: string }) {
   const [hover, setHover] = useState<{ kind: "node" | "edge"; id: string; pos: { x: number; y: number } } | null>(null);
   const tooltipLines = useMemo((): TooltipLine[] | null => {
     if (!hover || !flow) return null;
-    if (hover.kind === "edge") return hover.id === "call" ? callTooltip() : null;
+    if (hover.kind === "edge") {
+      if (hover.id === "call") return callTooltip();
+      const m = /^flow-\d+-(\d+)$/.exec(hover.id);
+      const f = m ? flow.flows[Number(m[1])] : undefined;
+      if (!f) return null;
+      const names = new Map(flow.nodes.flatMap((n) => (n.display_name ? [[n.address.toLowerCase(), n.display_name] as const] : [])));
+      return flowTooltip(f, names);
+    }
     const n = flow.nodes.find((x) => x.address.toLowerCase() === hover.id);
     return n ? nodeTooltip(n, {}) : null;
   }, [hover, flow, locale]);

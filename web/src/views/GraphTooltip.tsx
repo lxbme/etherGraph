@@ -31,8 +31,9 @@ export function GraphTooltip({ anchor, lines }: { anchor: { x: number; y: number
       {lines.map((l, i) => (
         <div key={i} className="graph-tooltip__line">
           {l.label && <span className="graph-tooltip__label">{l.label}</span>}
-          <span className={l.mono ? "graph-tooltip__value graph-tooltip__value--mono" : "graph-tooltip__value"} title={l.title}>
+          <span className={l.mono ? "graph-tooltip__value graph-tooltip__value--mono" : "graph-tooltip__value"}>
             {l.value}
+            {l.sub && <span className="graph-tooltip__sub"> · {l.sub}</span>}
           </span>
         </div>
       ))}
