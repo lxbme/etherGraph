@@ -102,6 +102,7 @@ button.chip:hover { color: var(--fg); }
 .tag--neutral { color: var(--fg-muted); background: var(--bg-subtle); box-shadow: inset 0 0 0 1px var(--line); }
 .tag--warn { --tag-hue: var(--warn); color: var(--fg); background: color-mix(in srgb, var(--warn) 18%, var(--bg)); }
 .tag--ok { --tag-hue: var(--pos); color: var(--fg); background: color-mix(in srgb, var(--pos) 18%, var(--bg)); }
+.tag--neg { --tag-hue: var(--neg); color: var(--fg); background: color-mix(in srgb, var(--neg) 18%, var(--bg)); }
 /* Label categories (see LabelEditor CATEGORIES); "other" and unknown ids use .tag--neutral. */
 .tag--exchange { --tag-hue: var(--cat-exchange); }
 .tag--defi { --tag-hue: var(--cat-defi); }

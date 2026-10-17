@@ -13,7 +13,7 @@ import { useTabs } from "../shell/tabs";
 export function TxStatusTag({ success }: { success: boolean }) {
   const t = useT();
   return (
-    <span className={`tag ${success ? "tag--ok" : "tag--warn"}`}>
+    <span className={`tag ${success ? "tag--ok" : "tag--neg"}`}>
       {success ? <CheckCircle2 size={12} /> : <XCircle size={12} />}
       {success ? t("tx.success") : t("tx.failed")}
     </span>
@@ -45,17 +45,35 @@ export function TxSummaryCard({ hash }: { hash: string }) {
   const nodeOf = (a: string) => nodes.find((n) => n.address.toLowerCase() === a.toLowerCase());
   const value = formatFixed(tx.value, 18, "eth");
   const fee = formatFixed(tx.fee, 18, "eth");
+  const name = flow.call?.name ?? tx.method;
+  // A reverted creation's receipt still names an address, but nothing was deployed there.
+  const created = !tx.to && tx.success ? (flow.detail.contract_created ?? null) : null;
   return (
     <div className="detail__section" data-testid="tx-summary">
       <h3 className="detail__title">
         <TxStatusTag success={tx.success} />{" "}
-        {tx.method ?? (tx.to ? (tx.selector ?? t("tx.transfer")) : t("tx.contractCreation"))}
+        {name ??
+          (tx.to && tx.selector ? (
+            <>
+              <span className="detail__mono">{tx.selector}</span> <span className="txview__tag">{t("tx.undecoded")}</span>
+            </>
+          ) : tx.to ? (
+            t("tx.transfer")
+          ) : (
+            t("tx.contractCreation")
+          ))}
       </h3>
       <dl className="kv">
         <dt>{t("tx.col.from")}</dt>
         <dd><AddressCell address={tx.from} node={nodeOf(tx.from)} /></dd>
         <dt>{t("tx.col.to")}</dt>
         <dd>{tx.to ? <AddressCell address={tx.to} node={nodeOf(tx.to)} /> : t("tx.contractCreation")}</dd>
+        {created && (
+          <>
+            <dt>{t("tx.ov.contractCreated")}</dt>
+            <dd><AddressCell address={created} node={nodeOf(created)} /></dd>
+          </>
+        )}
         <dt>{t("tx.value")}</dt>
         <dd className="num" title={value.full}>{value.text} ETH</dd>
         <dt>{t("tx.fee")}</dt>

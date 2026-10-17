@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { api } from "../api/endpoints";
 import type { TransferDto } from "../api/generated/TransferDto";
 import type { TxFlowDto } from "../api/generated/TxFlowDto";
@@ -72,4 +72,40 @@ test("pending shows fetching, then the method once ready", async () => {
     await qc.invalidateQueries({ queryKey: qk.tx(H) });
   });
   await waitFor(() => expect(screen.getByText("swapExactTokens")).toBeInTheDocument());
+});
+
+test("a failed, undecoded call: red Failed badge, the selector with an Undecoded tag", async () => {
+  const f = flow();
+  f.tx.success = false;
+  f.tx.method = null;
+  vi.spyOn(api, "tx").mockResolvedValue({ status: "ready", flow: f, job_id: null });
+  renderAll();
+  fireEvent.click(await screen.findByTestId("transfer-row"));
+  const card = await screen.findByTestId("tx-summary");
+  expect(within(card).getByText("Failed").closest(".tag")).toHaveClass("tag--neg");
+  expect(within(card).getByText("0x12345678")).toBeInTheDocument();
+  expect(within(card).getByText("Undecoded")).toBeInTheDocument();
+});
+
+test("a contract creation shows the created contract; a reverted one does not", async () => {
+  const C = "0x" + "cc".repeat(20);
+  const f = flow();
+  f.tx.to = null;
+  f.tx.method = null;
+  f.tx.selector = null;
+  f.detail = { contract_created: C } as TxFlowDto["detail"];
+  const spy = vi.spyOn(api, "tx").mockResolvedValue({ status: "ready", flow: f, job_id: null });
+  renderAll();
+  fireEvent.click(await screen.findByTestId("transfer-row"));
+  const card = await screen.findByTestId("tx-summary");
+  expect(within(card).getAllByText("Contract creation")).toHaveLength(2); // title and recipient
+  expect(within(card).getByText("Contract created")).toBeInTheDocument();
+  expect(within(card).getByTitle(C)).toBeInTheDocument();
+
+  spy.mockResolvedValue({ status: "ready", flow: { ...f, tx: { ...f.tx, success: false } }, job_id: null });
+  await act(async () => {
+    await qc.invalidateQueries({ queryKey: qk.tx(H) });
+  });
+  await waitFor(() => expect(within(card).queryByText("Contract created")).toBeNull());
+  expect(within(card).queryByTitle(C)).toBeNull();
 });
