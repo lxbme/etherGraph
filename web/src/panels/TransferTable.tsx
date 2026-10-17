@@ -6,6 +6,7 @@ import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
 import type { TransferDto } from "../api/generated/TransferDto";
 import { qk } from "../api/queryClient";
+import { useT } from "../i18n";
 import { useAssetRegistry } from "../graph/assetRegistry";
 import { useGraph } from "../graph/store";
 import { useGraphData } from "../graph/useGraphData";
@@ -41,12 +42,13 @@ function symbolOf(asset: string | null, symbol: string | null): string {
 }
 
 function Amount({ raw, decimals }: { raw: string; decimals: number | null }) {
+  const t = useT();
   const f = formatAmount(raw, decimals);
   return (
     <>
       {f.text}
       {f.unknownDecimals && (
-        <span className="transfers__warn" title="未知精度">
+        <span className="transfers__warn" title={t("transfers.unknownDecimals")}>
           {" "}
           ⚠
         </span>
@@ -59,6 +61,7 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
   const highlight = useGraph((s) => s.highlightTransfer);
   const setHighlight = useGraph((s) => s.setHighlightTransfer);
   const openTx = useTabs((s) => s.openTx);
+  const t = useT();
   const q = useInfiniteQuery({
     queryKey: qk.transfers(params),
     queryFn: ({ pageParam }) => api.transfers({ ...params, limit: PAGE_SIZE, cursor: pageParam }),
@@ -71,20 +74,20 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
       <div className="transfers__msg transfers__msg--error" role="alert">
         {messageFor(q.error)}{" "}
         <button type="button" className="btn" onClick={() => void q.refetch()}>
-          重试
+          {t("common.retry")}
         </button>
       </div>
     );
   }
-  if (q.isPending) return <div className="transfers__msg">加载中…</div>;
+  if (q.isPending) return <div className="transfers__msg">{t("common.loading")}</div>;
   const items: TransferDto[] = q.data.pages.flatMap((p) => p.items);
-  if (items.length === 0) return <div className="transfers__msg">没有符合条件的转账</div>;
+  if (items.length === 0) return <div className="transfers__msg">{t("transfers.empty")}</div>;
 
   const sel = selected.toLowerCase();
-  const onRow = (t: TransferDto) => {
-    const from = t.from.toLowerCase();
-    const to = t.to.toLowerCase();
-    const asset = t.asset === null ? null : t.asset.toLowerCase();
+  const onRow = (row: TransferDto) => {
+    const from = row.from.toLowerCase();
+    const to = row.to.toLowerCase();
+    const asset = row.asset === null ? null : row.asset.toLowerCase();
     const same = highlight && highlight.from === from && highlight.to === to && highlight.asset === asset;
     setHighlight(same ? null : { from, to, asset });
   };
@@ -94,47 +97,47 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
       <table className="transfers__table">
         <thead>
           <tr>
-            <th>时间</th>
-            <th>方向</th>
-            <th>对手方</th>
-            <th>金额</th>
-            <th>类别</th>
-            <th>交易哈希</th>
+            <th>{t("transfers.col.time")}</th>
+            <th>{t("transfers.col.direction")}</th>
+            <th>{t("transfers.col.counterparty")}</th>
+            <th>{t("transfers.col.amount")}</th>
+            <th>{t("transfers.col.type")}</th>
+            <th>{t("transfers.col.hash")}</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((t) => {
-            const from = t.from.toLowerCase();
-            const to = t.to.toLowerCase();
-            const asset = t.asset === null ? null : t.asset.toLowerCase();
-            const dir = from === sel && to === sel ? "自转" : to === sel ? "流入" : "流出";
-            const other = from === sel ? t.to : t.from;
+          {items.map((row) => {
+            const from = row.from.toLowerCase();
+            const to = row.to.toLowerCase();
+            const asset = row.asset === null ? null : row.asset.toLowerCase();
+            const dir = t(from === sel && to === sel ? "transfers.dir.self" : to === sel ? "transfers.dir.in" : "transfers.dir.out");
+            const other = from === sel ? row.to : row.from;
             const active = !!highlight && highlight.from === from && highlight.to === to && highlight.asset === asset;
             return (
               <tr
-                key={`${t.tx_hash}:${t.sub_id}:${t.kind}`}
+                key={`${row.tx_hash}:${row.sub_id}:${row.kind}`}
                 className={active ? "transfers__row transfers__row--active" : "transfers__row"}
                 data-testid="transfer-row"
-                onClick={() => onRow(t)}
+                onClick={() => onRow(row)}
               >
-                <td>{formatTime(t.ts)}</td>
+                <td>{formatTime(row.ts)}</td>
                 <td>{dir}</td>
                 <td title={other}>{shortAddr(other)}</td>
                 <td className="transfers__amount">
-                  <Amount raw={t.amount} decimals={t.decimals} /> {symbolOf(t.asset, t.symbol)}
+                  <Amount raw={row.amount} decimals={row.decimals} /> {symbolOf(row.asset, row.symbol)}
                 </td>
-                <td>{t.kind}</td>
+                <td>{row.kind}</td>
                 <td>
                   <button
                     type="button"
                     className="transfers__hash"
-                    title={t.tx_hash}
+                    title={row.tx_hash}
                     onClick={(e) => {
                       e.stopPropagation();
-                      openTx(t.tx_hash);
+                      openTx(row.tx_hash);
                     }}
                   >
-                    {shortAddr(t.tx_hash)}
+                    {shortAddr(row.tx_hash)}
                   </button>
                 </td>
               </tr>
@@ -144,7 +147,7 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
       </table>
       {q.hasNextPage && (
         <button type="button" className="btn transfers__more" disabled={q.isFetchingNextPage} onClick={() => void q.fetchNextPage()}>
-          {q.isFetchingNextPage ? "加载中…" : "加载更多"}
+          {q.isFetchingNextPage ? t("common.loading") : t("transfers.loadMore")}
         </button>
       )}
     </>
@@ -164,8 +167,15 @@ function GroupSection({
   filter: EdgeFilterDto;
   selected: string;
 }) {
+  const t = useT();
   const sum = formatAmount(group.sum, group.decimals);
-  const title = `${symbolOf(group.asset, group.symbol)} · ${shortAddr(group.from)}→${shortAddr(group.to)} · ${group.count} 笔 · Σ ${sum.text}`;
+  const title = t("transfers.group", {
+    symbol: symbolOf(group.asset, group.symbol),
+    from: shortAddr(group.from),
+    to: shortAddr(group.to),
+    count: group.count,
+    sum: sum.text,
+  });
   return (
     <section className="transfers__group" data-testid="transfer-group">
       <button type="button" className="transfers__group-head" aria-expanded={open} onClick={onToggle}>
@@ -192,8 +202,9 @@ function PairGroups({ a, b }: { a: string; b: string }) {
   const filter = useGraph((s) => s.filter);
   const { data } = useGraphData();
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const t = useT();
   const groups = groupsForPair(data?.edges ?? [], a, b);
-  if (groups.length === 0) return <div className="transfers__msg">没有符合条件的转账</div>;
+  if (groups.length === 0) return <div className="transfers__msg">{t("transfers.empty")}</div>;
   return (
     <>
       {groups.map((g, i) => (
@@ -276,10 +287,11 @@ export function TransferTable() {
   const filter = useGraph((s) => s.filter);
   const centers = useGraph((s) => s.centers);
   const { data } = useGraphData();
+  const t = useT();
 
   let body;
   if (!selection) {
-    body = <div className="transfers__msg">选择一个节点或一条边查看转账明细</div>;
+    body = <div className="transfers__msg">{t("transfers.select")}</div>;
   } else if (selection.kind === "node") {
     const n = filter.assets?.length ?? 0;
     const direction = nodeDirection(filter.direction, selection.address, centers, data?.edges ?? []);

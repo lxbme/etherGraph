@@ -4,27 +4,28 @@ import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
 import { ETH_KEY as ETH, assetKey, useAssetRegistry } from "../graph/assetRegistry";
 import { useGraph, type SortKey } from "../graph/store";
 import { useGraphData } from "../graph/useGraphData";
+import { type MsgKey, useT } from "../i18n";
 import { parseHumanAmount } from "../lib/amount";
 
 type Kind = NonNullable<EdgeFilterDto["kinds"]>[number];
 type Direction = NonNullable<EdgeFilterDto["direction"]>;
 
-const KINDS: { value: Kind; label: string }[] = [
-  { value: "native", label: "普通转账" },
-  { value: "internal", label: "内部交易" },
-  { value: "erc20", label: "ERC20" },
-  { value: "erc721", label: "ERC721" },
-  { value: "erc1155", label: "ERC1155" },
+const KINDS: { value: Kind; label: MsgKey | null }[] = [
+  { value: "native", label: "kind.native" },
+  { value: "internal", label: "kind.internal" },
+  { value: "erc20", label: null },
+  { value: "erc721", label: null },
+  { value: "erc1155", label: null },
 ];
-const DIRECTIONS: { value: Direction; label: string }[] = [
-  { value: "both", label: "双向" },
-  { value: "in", label: "流入" },
-  { value: "out", label: "流出" },
+const DIRECTIONS: { value: Direction; label: MsgKey }[] = [
+  { value: "both", label: "filter.dir.both" },
+  { value: "in", label: "filter.dir.in" },
+  { value: "out", label: "filter.dir.out" },
 ];
-const SORTS: { value: SortKey; label: string }[] = [
-  { value: "count", label: "按笔数" },
-  { value: "amount", label: "按金额" },
-  { value: "recent", label: "最近" },
+const SORTS: { value: SortKey; label: MsgKey }[] = [
+  { value: "count", label: "filter.sort.count" },
+  { value: "amount", label: "filter.sort.amount" },
+  { value: "recent", label: "filter.sort.recent" },
 ];
 
 
@@ -59,6 +60,7 @@ export function FilterPanel() {
   const [open, setOpen] = useState(false);
   const filter = useGraph((s) => s.filter);
   const rootRef = useRef<HTMLDivElement>(null);
+  const t = useT();
 
   useEffect(() => {
     if (!open) return;
@@ -79,8 +81,8 @@ export function FilterPanel() {
   return (
     <div className="filter" ref={rootRef}>
       <button className="btn" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        ⚙ 过滤 ▾
-        {hasFilter(filter) && <span className="filter__dot" data-testid="filter-active" aria-label="已启用过滤" />}
+        ⚙ {t("filter.button")} ▾
+        {hasFilter(filter) && <span className="filter__dot" data-testid="filter-active" aria-label={t("filter.active")} />}
       </button>
       {open && <FilterForm onClose={() => setOpen(false)} />}
     </div>
@@ -88,6 +90,7 @@ export function FilterPanel() {
 }
 
 function FilterForm({ onClose }: { onClose: () => void }) {
+  const t = useT();
   const store = useGraph.getState();
   const { data } = useGraphData();
   const init = useGraph.getState().filter;
@@ -161,43 +164,43 @@ function FilterForm({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="filter__popover" role="dialog" aria-label="过滤">
+    <div className="filter__popover" role="dialog" aria-label={t("filter.button")}>
       <fieldset className="filter__group">
-        <legend>时间范围</legend>
+        <legend>{t("filter.time")}</legend>
         <label>
-          开始时间
+          {t("filter.from")}
           <input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} />
         </label>
         <label>
-          结束时间
+          {t("filter.to")}
           <input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} />
         </label>
-        {timeInvalid && <span className="filter__error">开始时间晚于结束时间</span>}
+        {timeInvalid && <span className="filter__error">{t("filter.timeInvalid")}</span>}
       </fieldset>
 
       <fieldset className="filter__group">
-        <legend>类别</legend>
+        <legend>{t("filter.kinds")}</legend>
         {KINDS.map((k) => (
           <label key={k.value}>
             <input type="checkbox" checked={kinds.has(k.value)} onChange={() => setKinds(toggle(kinds, k.value))} />
-            {k.label}
+            {k.label ? t(k.label) : k.value.toUpperCase()}
           </label>
         ))}
       </fieldset>
 
       <fieldset className="filter__group">
-        <legend>方向</legend>
+        <legend>{t("filter.direction")}</legend>
         {DIRECTIONS.map((d) => (
           <label key={d.value}>
             <input type="radio" name="filter-direction" checked={direction === d.value} onChange={() => setDirection(d.value)} />
-            {d.label}
+            {t(d.label)}
           </label>
         ))}
       </fieldset>
 
       <fieldset className="filter__group">
-        <legend>资产</legend>
-        {options.length === 0 && <span className="filter__hint">暂无资产</span>}
+        <legend>{t("filter.assets")}</legend>
+        {options.length === 0 && <span className="filter__hint">{t("filter.noAssets")}</span>}
         {options.map((o) => {
           const checked = assets.has(o.key);
           const text = assets.get(o.key) ?? "";
@@ -221,15 +224,15 @@ function FilterForm({ onClose }: { onClose: () => void }) {
                 <>
                   <input
                     className={`filter__threshold${valid ? "" : " filter__threshold--invalid"}`}
-                    aria-label={`${o.label} 最小金额`}
+                    aria-label={t("filter.minAmountFor", { asset: o.label })}
                     aria-invalid={!valid}
-                    placeholder="最小金额"
+                    placeholder={t("filter.minAmount")}
                     inputMode="decimal"
                     disabled={!known}
                     value={text}
                     onChange={(e) => setAssets(new Map(assets).set(o.key, e.target.value))}
                   />
-                  {!known && <span className="filter__hint">未知精度，无法设阈值</span>}
+                  {!known && <span className="filter__hint">{t("filter.unknownDecimals")}</span>}
                 </>
               )}
             </div>
@@ -238,7 +241,7 @@ function FilterForm({ onClose }: { onClose: () => void }) {
       </fieldset>
 
       <fieldset className="filter__group">
-        <legend>排序</legend>
+        <legend>{t("filter.sort")}</legend>
         {SORTS.map((s) => (
           <label key={s.value}>
             <input
@@ -248,14 +251,14 @@ function FilterForm({ onClose }: { onClose: () => void }) {
               disabled={s.value === "amount" && !canAmountSort}
               onChange={() => setSort(s.value)}
             />
-            {s.label}
+            {t(s.label)}
           </label>
         ))}
       </fieldset>
 
       <div className="filter__actions">
-        <button className="btn" onClick={reset}>重置</button>
-        <button className="btn filter__apply" onClick={apply} disabled={anyInvalid || timeInvalid}>应用</button>
+        <button className="btn" onClick={reset}>{t("filter.reset")}</button>
+        <button className="btn filter__apply" onClick={apply} disabled={anyInvalid || timeInvalid}>{t("filter.apply")}</button>
       </div>
     </div>
   );

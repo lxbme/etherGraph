@@ -7,20 +7,21 @@ import { qk } from "../api/queryClient";
 import { useGraph } from "../graph/store";
 import { formatTime } from "../lib/format";
 import { shortAddr } from "../lib/address";
+import { type MsgKey, useT } from "../i18n";
 import { toast } from "../shell/Toasts";
 import { useTabs } from "../shell/tabs";
 import { LabelEditor, categoryName } from "./LabelEditor";
 import { useUi } from "./uiStore";
 
-const KINDS: { value: SyncStatusDto["kind"]; label: string }[] = [
-  { value: "native", label: "普通转账" },
-  { value: "internal", label: "内部交易" },
-  { value: "erc20", label: "ERC20" },
-  { value: "erc721", label: "ERC721" },
-  { value: "erc1155", label: "ERC1155" },
+const KINDS: { value: SyncStatusDto["kind"]; label: MsgKey | null }[] = [
+  { value: "native", label: "kind.native" },
+  { value: "internal", label: "kind.internal" },
+  { value: "erc20", label: null },
+  { value: "erc721", label: null },
+  { value: "erc1155", label: null },
 ];
-const STATES: Record<SyncStatusDto["state"], string> = { syncing: "同步中", ok: "已同步", failed: "失败" };
-const KIND_NAMES: Record<string, string> = { eoa: "外部账户", contract: "合约", unknown: "未知" };
+const STATE_KEYS: Record<SyncStatusDto["state"], MsgKey> = { syncing: "sync.syncing", ok: "sync.ok", failed: "sync.failed" };
+const KIND_KEYS: Record<string, MsgKey> = { eoa: "node.kind.eoa", contract: "node.kind.contract", unknown: "node.kind.unknown" };
 
 function AddrButton({ addr, onNavigate }: { addr: string; onNavigate?: (addr: string) => void }) {
   const addCenter = useGraph((s) => s.addCenter);
@@ -44,10 +45,11 @@ function Note({ address }: { address: string }) {
   const stored = useGraph((s) => s.ui[address]?.note ?? "");
   const setNote = useGraph((s) => s.setNote);
   const [draft, setDraft] = useState(stored);
+  const t = useT();
   useEffect(() => setDraft(stored), [stored]);
   return (
     <label className="detail__note">
-      备注
+      {t("node.note")}
       <textarea
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -61,7 +63,8 @@ function Note({ address }: { address: string }) {
 
 export function NodeDetail({ address, onNavigate }: { address: string; onNavigate?: (addr: string) => void }) {
   const qc = useQueryClient();
-  const openTx = useTabs((t) => t.openTx);
+  const openTx = useTabs((s) => s.openTx);
+  const t = useT();
   const editorFor = useUi((u) => u.labelEditorFor);
   const closeEditor = useUi((u) => u.closeLabelEditor);
   const openEditor = useUi((u) => u.openLabelEditor);
@@ -69,7 +72,7 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
 
   const sync = useMutation({
     mutationFn: (direction?: "older") => api.sync(direction ? { addresses: [address], direction } : { addresses: [address] }),
-    onSuccess: () => toast("已开始同步"),
+    onSuccess: () => toast(t("node.syncStarted")),
     onError: (e) => toast(messageFor(e), "error"),
   });
   const del = useMutation({
@@ -81,15 +84,15 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
       ]),
   });
 
-  if (q.isPending) return <div className="placeholder">加载中…</div>;
+  if (q.isPending) return <div className="placeholder">{t("common.loading")}</div>;
   if (q.isError) return <div className="placeholder detail__error" role="alert">{messageFor(q.error)}</div>;
   const p = q.data;
   const n = p.node;
   const coverage = new Map(p.coverage.map((c) => [c.kind, c]));
   const anyTruncated = p.coverage.some((c) => c.truncated);
   const copy = () => {
-    if (!navigator.clipboard) return toast("复制失败", "error");
-    navigator.clipboard.writeText(address).then(() => toast("已复制")).catch(() => toast("复制失败", "error"));
+    if (!navigator.clipboard) return toast(t("common.copyFailed"), "error");
+    navigator.clipboard.writeText(address).then(() => toast(t("common.copied"))).catch(() => toast(t("common.copyFailed"), "error"));
   };
 
   return (
@@ -97,22 +100,22 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
       <h3 className="detail__title">{n.display_name ?? shortAddr(address)}</h3>
       <div>
         <span className="detail__mono detail__addr">{address}</span>
-        <button onClick={copy}>复制</button>
+        <button onClick={copy}>{t("common.copy")}</button>
       </div>
       <dl className="detail__props">
-        <dt>类型</dt><dd>{KIND_NAMES[n.kind] ?? n.kind}</dd>
+        <dt>{t("node.type")}</dt><dd>{KIND_KEYS[n.kind] ? t(KIND_KEYS[n.kind]!) : n.kind}</dd>
         {n.ens && (<><dt>ENS</dt><dd>{n.ens}</dd></>)}
-        {n.contract_name && (<><dt>合约名</dt><dd>{n.contract_name}</dd></>)}
+        {n.contract_name && (<><dt>{t("node.contractName")}</dt><dd>{n.contract_name}</dd></>)}
         {p.is_proxy && (
           <>
-            <dt>代理</dt>
-            <dd>{p.implementation ? <AddrButton addr={p.implementation} onNavigate={onNavigate} /> : "是"}</dd>
+            <dt>{t("node.proxy")}</dt>
+            <dd>{p.implementation ? <AddrButton addr={p.implementation} onNavigate={onNavigate} /> : t("common.yes")}</dd>
           </>
         )}
-        {p.creator && (<><dt>部署者</dt><dd><AddrButton addr={p.creator} onNavigate={onNavigate} /></dd></>)}
+        {p.creator && (<><dt>{t("node.deployer")}</dt><dd><AddrButton addr={p.creator} onNavigate={onNavigate} /></dd></>)}
         {p.creation_tx && (
           <>
-            <dt>部署交易</dt>
+            <dt>{t("node.deployTx")}</dt>
             <dd>
               <button className="detail__link detail__mono" title={p.creation_tx} onClick={() => openTx(p.creation_tx!)}>
                 {shortAddr(p.creation_tx)}
@@ -120,38 +123,38 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
             </dd>
           </>
         )}
-        {p.first_seen && (<><dt>首次活跃</dt><dd>{formatTime(p.first_seen)}</dd></>)}
-        {p.last_seen && (<><dt>最后活跃</dt><dd>{formatTime(p.last_seen)}</dd></>)}
+        {p.first_seen && (<><dt>{t("node.firstSeen")}</dt><dd>{formatTime(p.first_seen)}</dd></>)}
+        {p.last_seen && (<><dt>{t("node.lastSeen")}</dt><dd>{formatTime(p.last_seen)}</dd></>)}
       </dl>
 
-      <h4>同步覆盖</h4>
+      <h4>{t("node.coverage")}</h4>
       <ul className="detail__list">
         {KINDS.map((k) => {
           const c = coverage.get(k.value);
           return (
             <li key={k.value}>
-              <span>{k.label}</span>
+              <span>{k.label ? t(k.label) : k.value.toUpperCase()}</span>
               {c ? (
                 <>
                   <span className="detail__mono">
                     {c.from_block === null || c.to_block === null ? "—" : `${c.from_block} – ${c.to_block}`}
                   </span>
-                  {c.truncated && <span className="detail__tag">已截断</span>}
-                  <span>{STATES[c.state]}</span>
+                  {c.truncated && <span className="detail__tag">{t("node.truncated")}</span>}
+                  <span>{t(STATE_KEYS[c.state])}</span>
                 </>
               ) : (
-                <span className="detail__muted">未同步</span>
+                <span className="detail__muted">{t("node.notSynced")}</span>
               )}
             </li>
           );
         })}
       </ul>
       <div className="detail__actions">
-        <button onClick={() => sync.mutate(undefined)}>同步/刷新</button>
-        {anyTruncated && <button onClick={() => sync.mutate("older")}>拉更早记录</button>}
+        <button onClick={() => sync.mutate(undefined)}>{t("node.syncRefresh")}</button>
+        {anyTruncated && <button onClick={() => sync.mutate("older")}>{t("node.fetchOlder")}</button>}
       </div>
 
-      <h4>标签</h4>
+      <h4>{t("node.labels")}</h4>
       <ul className="detail__list">
         {n.labels.map((l) => (
           <li key={l.id}>
@@ -160,7 +163,7 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
             {l.source.startsWith("import:") ? (
               <span className="detail__muted">{l.source.slice("import:".length)}</span>
             ) : (
-              <button aria-label="删除标签" onClick={() => del.mutate(l.id)}>×</button>
+              <button aria-label={t("label.delete")} onClick={() => del.mutate(l.id)}>×</button>
             )}
           </li>
         ))}
@@ -169,7 +172,7 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
       {editorFor === address ? (
         <LabelEditor address={address} onClose={closeEditor} />
       ) : (
-        <button onClick={() => openEditor(address)}>添加标签</button>
+        <button onClick={() => openEditor(address)}>{t("label.addButton")}</button>
       )}
 
       <Note address={address} />

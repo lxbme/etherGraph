@@ -3,6 +3,7 @@ import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { useGraph } from "../graph/store";
+import { useT } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { useQuota } from "../shell/statusStore";
 import { toast } from "../shell/Toasts";
@@ -30,8 +31,10 @@ export function ExpandDialog({ neighbors, preChecked, onClose }: ExpandDialogPro
   const [rate, setRate] = useState(FALLBACK_RATE);
   const [busy, setBusy] = useState(false);
   const quota = useQuota((s) => s.quota);
+  const t = useT();
 
-  const [error, setError] = useState<string | null>(null);
+  // The raw error, translated at render time so a language switch re-renders it.
+  const [error, setError] = useState<{ cause: unknown } | null>(null);
   const aliveRef = useRef(true);
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -47,7 +50,7 @@ export function ExpandDialog({ neighbors, preChecked, onClose }: ExpandDialogPro
         setPerAddress(per);
       })
       .catch((err) => {
-        if (aliveRef.current) setError(messageFor(err));
+        if (aliveRef.current) setError({ cause: err });
       });
   }, [neighbors]);
 
@@ -94,7 +97,7 @@ export function ExpandDialog({ neighbors, preChecked, onClose }: ExpandDialogPro
     try {
       await api.sync({ addresses });
       useGraph.getState().setCenters([...useGraph.getState().centers, ...addresses]);
-      toast(`已开始同步 ${addresses.length} 个地址`);
+      toast(t("expand.started", { count: addresses.length }));
       onClose();
     } catch (err) {
       toast(messageFor(err), "error");
@@ -104,8 +107,8 @@ export function ExpandDialog({ neighbors, preChecked, onClose }: ExpandDialogPro
 
   return (
     <div className="dialog-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-label="展开邻居" tabIndex={-1} ref={dialogRef}>
-        <h3 className="dialog__title">展开邻居（{neighbors.length}）</h3>
+      <div className="dialog" role="dialog" aria-modal="true" aria-label={t("expand.label")} tabIndex={-1} ref={dialogRef}>
+        <h3 className="dialog__title">{t("expand.title", { count: neighbors.length })}</h3>
         <ul className="dialog__list">
           {neighbors.map((n) => {
             const addr = lc(n.address);
@@ -115,9 +118,9 @@ export function ExpandDialog({ neighbors, preChecked, onClose }: ExpandDialogPro
                 <label className="dialog__row">
                   <input type="checkbox" checked={checked.has(addr)} onChange={() => toggle(addr)} />
                   <span className="dialog__name">{n.display_name ?? shortAddr(addr)}</span>
-                  {n.hot && <span className="dialog__tag">热门</span>}
+                  {n.hot && <span className="dialog__tag">{t("expand.hot")}</span>}
                   <span className="dialog__calls">
-                    {perAddress == null ? "…" : c === undefined ? "—" : c === 0 ? "已同步" : `${c} 次`}
+                    {perAddress == null ? "…" : c === undefined ? "—" : c === 0 ? t("expand.synced") : t("expand.calls", { count: c })}
                   </span>
                 </label>
               </li>
@@ -127,20 +130,21 @@ export function ExpandDialog({ neighbors, preChecked, onClose }: ExpandDialogPro
         <div className="dialog__summary">
           {error != null ? (
             <>
-              <span role="alert">{error}</span>{" "}
-              <button type="button" onClick={runDry}>重试</button>
+              <span role="alert">{messageFor(error.cause)}</span>{" "}
+              <button type="button" onClick={runDry}>{t("common.retry")}</button>
             </>
           ) : perAddress == null
-            ? "估算中…"
-            : `预计 ${calls} 次调用 · 约 ${seconds} 秒${remaining != null ? ` · 今日剩余额度 ${remaining}` : ""}`}
+            ? t("expand.estimating")
+            : t("expand.estimate", { count: calls, seconds }) +
+              (remaining != null ? t("expand.quotaLeft", { remaining }) : "")}
         </div>
         {/* A warning only: the sync still runs, pausing when the quota is used up. */}
         {error == null && perAddress != null && remaining != null && calls > remaining && (
-          <div className="dialog__warn" role="alert">预计调用超过今日剩余额度</div>
+          <div className="dialog__warn" role="alert">{t("expand.overQuota")}</div>
         )}
         <div className="dialog__actions">
-          <button type="button" onClick={onClose}>取消</button>
-          <button type="button" disabled={perAddress == null || error != null || checked.size === 0 || busy} onClick={confirm}>开始同步</button>
+          <button type="button" onClick={onClose}>{t("common.cancel")}</button>
+          <button type="button" disabled={perAddress == null || error != null || checked.size === 0 || busy} onClick={confirm}>{t("expand.start")}</button>
         </div>
       </div>
     </div>

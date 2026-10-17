@@ -35,9 +35,9 @@ function setup(edges: EdgeDto[] = [
       <FilterPanel />
     </QueryClientProvider>,
   );
-  fireEvent.click(screen.getByRole("button", { name: /过滤/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Filter/ }));
 }
-const apply = () => screen.getByRole("button", { name: "应用" });
+const apply = () => screen.getByRole("button", { name: "Apply" });
 
 beforeEach(() => {
   qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
@@ -47,12 +47,12 @@ beforeEach(() => {
 test("applying builds an EdgeFilterDto with kinds, direction, time and asset thresholds", () => {
   setup();
   fireEvent.click(screen.getByLabelText("ERC20"));
-  fireEvent.click(screen.getByLabelText("普通转账"));
-  fireEvent.click(screen.getByLabelText("流入"));
-  fireEvent.change(screen.getByLabelText("开始时间"), { target: { value: "2024-03-01T08:00" } });
+  fireEvent.click(screen.getByLabelText("Native transfers"));
+  fireEvent.click(screen.getByLabelText("Inbound"));
+  fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "2024-03-01T08:00" } });
   fireEvent.click(screen.getByLabelText("USDC"));
-  fireEvent.change(screen.getByLabelText("USDC 最小金额"), { target: { value: " 1,000.5 " } });
-  fireEvent.click(screen.getByLabelText("按笔数"));
+  fireEvent.change(screen.getByLabelText("USDC min amount"), { target: { value: " 1,000.5 " } });
+  fireEvent.click(screen.getByLabelText("By count"));
   fireEvent.click(apply());
 
   const s = useGraph.getState();
@@ -63,7 +63,7 @@ test("applying builds an EdgeFilterDto with kinds, direction, time and asset thr
     assets: [{ asset: USDC, min_amount: "1000.5" }],
   });
   expect(s.sort).toBe("count");
-  expect(screen.queryByRole("button", { name: "应用" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
 });
 
 test("empty form applies an empty filter without empty arrays", () => {
@@ -75,7 +75,7 @@ test("empty form applies an empty filter without empty arrays", () => {
 test("invalid threshold disables apply", () => {
   setup();
   fireEvent.click(screen.getByLabelText("USDC"));
-  const input = screen.getByLabelText("USDC 最小金额");
+  const input = screen.getByLabelText("USDC min amount");
   for (const bad of ["1.2.3", "-5", "1.1234567"]) {
     fireEvent.change(input, { target: { value: bad } });
     expect(apply()).toBeDisabled();
@@ -88,21 +88,21 @@ test("invalid threshold disables apply", () => {
 test("unknown-decimals assets cannot take a threshold", () => {
   setup();
   fireEvent.click(screen.getByLabelText("WEIRD"));
-  expect(screen.getByLabelText("WEIRD 最小金额")).toBeDisabled();
-  expect(screen.getByText("未知精度，无法设阈值")).toBeInTheDocument();
+  expect(screen.getByLabelText("WEIRD min amount")).toBeDisabled();
+  expect(screen.getByText("Unknown decimals; cannot set a threshold")).toBeInTheDocument();
 });
 
 test("from after to disables apply", () => {
   setup();
-  fireEvent.change(screen.getByLabelText("开始时间"), { target: { value: "2024-03-02T00:00" } });
-  fireEvent.change(screen.getByLabelText("结束时间"), { target: { value: "2024-03-01T00:00" } });
+  fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "2024-03-02T00:00" } });
+  fireEvent.change(screen.getByLabelText("End time"), { target: { value: "2024-03-01T00:00" } });
   expect(apply()).toBeDisabled();
-  expect(screen.getByText("开始时间晚于结束时间")).toBeInTheDocument();
+  expect(screen.getByText("Start time is after end time")).toBeInTheDocument();
 });
 
 test("amount sort is disabled unless exactly one asset is selected", () => {
   setup();
-  const amount = screen.getByLabelText("按金额");
+  const amount = screen.getByLabelText("By amount");
   expect(amount).toBeDisabled();
   fireEvent.click(screen.getByLabelText("USDC"));
   expect(amount).toBeEnabled();
@@ -117,7 +117,7 @@ test("reset clears the filter and sort", () => {
   setup();
   useGraph.getState().setFilter({ direction: "out" });
   useGraph.getState().setSort("recent");
-  fireEvent.click(screen.getByRole("button", { name: "重置" }));
+  fireEvent.click(screen.getByRole("button", { name: "Reset" }));
   expect(useGraph.getState().filter).toEqual({});
   expect(useGraph.getState().sort).toBe("count");
 });
@@ -126,23 +126,23 @@ test("form initializes from the store and Escape / outside click close without a
   useGraph.getState().setFilter({ kinds: ["erc721"], direction: "out", assets: [{ asset: null, min_amount: "2" }] });
   setup();
   expect(screen.getByLabelText("ERC721")).toBeChecked();
-  expect(screen.getByLabelText("流出")).toBeChecked();
-  expect(screen.getByLabelText("ETH 最小金额")).toHaveValue("2");
+  expect(screen.getByLabelText("Outbound")).toBeChecked();
+  expect(screen.getByLabelText("ETH min amount")).toHaveValue("2");
   fireEvent.click(screen.getByLabelText("ERC721"));
   fireEvent.keyDown(document, { key: "Escape" });
-  expect(screen.queryByRole("button", { name: "应用" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
   expect(useGraph.getState().filter.kinds).toEqual(["erc721"]);
 
-  fireEvent.click(screen.getByRole("button", { name: /过滤/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Filter/ }));
   expect(screen.getByLabelText("ERC721")).toBeChecked();
   fireEvent.mouseDown(document.body);
-  expect(screen.queryByRole("button", { name: "应用" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Apply" })).toBeNull();
 });
 
 test("filter button shows an indicator only when a filter is active", () => {
   setup();
   expect(screen.queryByTestId("filter-active")).toBeNull();
-  fireEvent.click(screen.getByLabelText("流出"));
+  fireEvent.click(screen.getByLabelText("Outbound"));
   fireEvent.click(apply());
   expect(screen.getByTestId("filter-active")).toBeInTheDocument();
 });
@@ -151,8 +151,8 @@ test("min_amount is normalized for the backend (.5 -> 0.5, 5. -> 5)", () => {
   setup();
   fireEvent.click(screen.getByLabelText("USDC"));
   fireEvent.click(screen.getByLabelText("ETH"));
-  fireEvent.change(screen.getByLabelText("USDC 最小金额"), { target: { value: ".5" } });
-  fireEvent.change(screen.getByLabelText("ETH 最小金额"), { target: { value: "5." } });
+  fireEvent.change(screen.getByLabelText("USDC min amount"), { target: { value: ".5" } });
+  fireEvent.change(screen.getByLabelText("ETH min amount"), { target: { value: "5." } });
   fireEvent.click(apply());
   expect(useGraph.getState().filter.assets).toEqual([
     { asset: null, min_amount: "5" },
@@ -175,15 +175,15 @@ test("assets seen earlier stay offered after a narrowing filter is applied", () 
       <FilterPanel />
     </QueryClientProvider>,
   );
-  fireEvent.click(screen.getByRole("button", { name: /过滤/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Filter/ }));
   expect(screen.getByLabelText("USDT")).toBeInTheDocument();
   expect(screen.getByLabelText("ETH")).toBeInTheDocument();
 });
 
 test("apply is one undo step restoring both filter and sort", () => {
   setup();
-  fireEvent.click(screen.getByLabelText("流出"));
-  fireEvent.click(screen.getByLabelText("最近"));
+  fireEvent.click(screen.getByLabelText("Outbound"));
+  fireEvent.click(screen.getByLabelText("Most recent"));
   fireEvent.click(apply());
   expect(useGraph.getState().sort).toBe("recent");
   useGraph.getState().undo();
@@ -194,7 +194,7 @@ test("apply is one undo step restoring both filter and sort", () => {
 test("form sort falls back to count when amount sort becomes unavailable", () => {
   setup();
   fireEvent.click(screen.getByLabelText("USDC"));
-  fireEvent.click(screen.getByLabelText("按金额"));
+  fireEvent.click(screen.getByLabelText("By amount"));
   fireEvent.click(screen.getByLabelText("USDC"));
-  expect(screen.getByLabelText("按笔数")).toBeChecked();
+  expect(screen.getByLabelText("By count")).toBeChecked();
 });

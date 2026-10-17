@@ -230,7 +230,7 @@ describe('final review fixes', () => {
     is_proxy: false, implementation: null, creator: null, creation_tx: null, coverage: [], first_seen: null, last_seen: null,
   })
 
-  it('on a tx tab exactly one 添加标签 button exists (the tx tab detail in the right panel)', async () => {
+  it('on a tx tab exactly one Add label button exists (the tx tab detail in the right panel)', async () => {
     const A2 = '0x' + '34'.repeat(20)
     vi.spyOn(api, 'address').mockImplementation(async (a) => profile(a))
     vi.spyOn(api, 'tx').mockResolvedValue({ status: 'pending', flow: null, job_id: null })
@@ -241,11 +241,11 @@ describe('final review fixes', () => {
       useUi.getState().selectTx(H1, A2)
     })
     expect(await screen.findByText(A2)).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: '添加标签', hidden: true })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Add label', hidden: true })).toHaveLength(1)
     expect(screen.getByRole('button', { name: '加入关系图' })).toBeInTheDocument()
     act(() => useTabs.getState().activate('graph'))
     expect(await screen.findByText(A1)).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: '添加标签', hidden: true })).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Add label', hidden: true })).toHaveLength(1)
     expect(screen.queryByRole('button', { name: '加入关系图' })).toBeNull()
   })
 
@@ -260,6 +260,6 @@ describe('final review fixes', () => {
       useUi.getState().openLabelEditor(A1)
     })
     expect(document.querySelector('.main__right')).not.toBeNull()
-    expect(await screen.findByText('标签文本')).toBeInTheDocument()
+    expect(await screen.findByText('Label text')).toBeInTheDocument()
   })
 })

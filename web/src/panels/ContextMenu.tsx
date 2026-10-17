@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { focusNode, hideNode, syncNode, togglePin } from "../graph/nodeActions";
 import { useGraph } from "../graph/store";
+import { useT } from "../i18n";
 import { toast } from "../shell/Toasts";
 import { TOP_K } from "../graph/neighbors";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
@@ -23,6 +24,7 @@ export interface ContextMenuProps {
 /** Right-click menu of a node (spec §6.4). Closes after any action, on Escape or on an outside press. */
 export function ContextMenu(p: ContextMenuProps) {
   const { node, onClose } = p;
+  const t = useT();
   const addr = node.address.toLowerCase();
   const pinned = useGraph((s) => !!s.ui[addr]?.pinned);
   const isCenter = useGraph((s) => s.centers.includes(addr));
@@ -55,39 +57,39 @@ export function ContextMenu(p: ContextMenuProps) {
   };
   const copy = () => {
     if (!navigator.clipboard) {
-      toast("复制失败", "error");
+      toast(t("common.copyFailed"), "error");
       return;
     }
     navigator.clipboard
       .writeText(addr)
-      .then(() => toast("已复制"))
-      .catch(() => toast("复制失败", "error"));
+      .then(() => toast(t("common.copied")))
+      .catch(() => toast(t("common.copyFailed"), "error"));
   };
 
   return (
     <div className="ctx-menu" role="menu" ref={ref} style={{ left: p.x, top: p.y }}>
-      <button role="menuitem" onClick={run(() => syncNode(addr))}>同步 / 刷新</button>
+      <button role="menuitem" onClick={run(() => syncNode(addr))}>{t("ctx.sync")}</button>
       {node.partial && (
-        <button role="menuitem" onClick={run(() => syncNode(addr, "older"))}>继续拉更早的记录</button>
+        <button role="menuitem" onClick={run(() => syncNode(addr, "older"))}>{t("ctx.older")}</button>
       )}
-      <div className="ctx-menu__group">展开邻居</div>
-      <button role="menuitem" className="ctx-menu__sub" onClick={run(p.onExpandSelect)}>选择…</button>
+      <div className="ctx-menu__group">{t("ctx.expandGroup")}</div>
+      <button role="menuitem" className="ctx-menu__sub" onClick={run(p.onExpandSelect)}>{t("ctx.select")}</button>
       <button role="menuitem" className="ctx-menu__sub" onClick={run(p.onExpandTop)}>
-        前 {TOP_K} 个（按{p.byAmount ? "金额" : "笔数"}）
+        {t(p.byAmount ? "ctx.topAmount" : "ctx.topCount", { k: TOP_K })}
       </button>
-      <button role="menuitem" onClick={run(() => togglePin(addr))}>{pinned ? "取消固定" : "固定"}</button>
-      <button role="menuitem" onClick={run(() => hideNode(addr))}>从画布隐藏</button>
+      <button role="menuitem" onClick={run(() => togglePin(addr))}>{pinned ? t("ctx.unpin") : t("ctx.pin")}</button>
+      <button role="menuitem" onClick={run(() => hideNode(addr))}>{t("ctx.hide")}</button>
       {isCenter && (
-        <button role="menuitem" onClick={run(() => useGraph.getState().removeCenter(addr))}>移出中心</button>
+        <button role="menuitem" onClick={run(() => useGraph.getState().removeCenter(addr))}>{t("ctx.removeCenter")}</button>
       )}
-      <button role="menuitem" onClick={run(() => focusNode(addr, p.data))}>只看这个节点的邻域</button>
-      <button role="menuitem" onClick={run(() => useUi.getState().openLabelEditor(addr))}>添加标签 / 备注</button>
-      <button role="menuitem" onClick={run(() => void copy())}>复制地址</button>
+      <button role="menuitem" onClick={run(() => focusNode(addr, p.data))}>{t("ctx.focus")}</button>
+      <button role="menuitem" onClick={run(() => useUi.getState().openLabelEditor(addr))}>{t("ctx.addLabel")}</button>
+      <button role="menuitem" onClick={run(() => void copy())}>{t("ctx.copyAddress")}</button>
       <button
         role="menuitem"
         onClick={run(() => window.open(`https://etherscan.io/address/${addr}`, "_blank", "noopener"))}
       >
-        在 Etherscan 打开
+        {t("ctx.openEtherscan")}
       </button>
     </div>
   );

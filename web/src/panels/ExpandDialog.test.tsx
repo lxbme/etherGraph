@@ -27,21 +27,21 @@ test("expand dialog unchecks hot neighbors by default and shows dry-run estimate
   });
   const ns = [node(1), node(2, { synced: true }), node(3, { hot: true })];
   render(<ExpandDialog neighbors={ns} onClose={() => {}} />);
-  expect(await screen.findByText("预计 4 次调用 · 约 2 秒 · 今日剩余额度 4900")).toBeInTheDocument();
+  expect(await screen.findByText("Estimated 4 calls · ~2 s · 4900 left in today's quota")).toBeInTheDocument();
   expect(sync).toHaveBeenCalledTimes(1);
   expect(sync).toHaveBeenCalledWith({ addresses: [addr(1), addr(2), addr(3)], dry_run: true });
   const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
   expect(boxes.map((b) => b.checked)).toEqual([true, true, false]);
-  expect(screen.getByText("热门")).toBeInTheDocument();
-  expect(screen.getByText("已同步")).toBeInTheDocument();
+  expect(screen.getByText("Hot")).toBeInTheDocument();
+  expect(screen.getByText("Synced")).toBeInTheDocument();
   // Toggling recomputes locally without another request.
   fireEvent.click(boxes[2]!);
-  expect(await screen.findByText("预计 9 次调用 · 约 5 秒 · 今日剩余额度 4900")).toBeInTheDocument();
+  expect(await screen.findByText("Estimated 9 calls · ~5 s · 4900 left in today's quota")).toBeInTheDocument();
   expect(sync).toHaveBeenCalledTimes(1);
   fireEvent.click(boxes[0]!);
   fireEvent.click(boxes[1]!);
   fireEvent.click(boxes[2]!);
-  expect(screen.getByRole("button", { name: "开始同步" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Start sync" })).toBeDisabled();
 });
 
 test("confirming expand syncs checked neighbors and adds them as centers", async () => {
@@ -50,11 +50,11 @@ test("confirming expand syncs checked neighbors and adds them as centers", async
     .mockResolvedValueOnce({ estimated_calls: null, estimated_seconds: null, per_address: null, jobs: [1] });
   const onClose = vi.fn();
   render(<><ExpandDialog neighbors={[node(1), node(3, { hot: true })]} onClose={onClose} /><Toasts /></>);
-  await screen.findByText(/预计 4 次调用/);
-  await act(async () => fireEvent.click(screen.getByRole("button", { name: "开始同步" })));
+  await screen.findByText(/Estimated 4 calls/);
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Start sync" })));
   expect(sync).toHaveBeenLastCalledWith({ addresses: [addr(1)] });
   await waitFor(() => expect(useGraph.getState().centers).toEqual([addr(1)]));
-  expect(await screen.findByText("已开始同步 1 个地址")).toBeInTheDocument();
+  expect(await screen.findByText("Started syncing 1 address")).toBeInTheDocument();
   expect(onClose).toHaveBeenCalled();
 });
 
@@ -84,7 +84,7 @@ import { ApiError } from "../api/errors";
 test("dry-run failure keeps confirm disabled, shows the error, never syncs for real; retry recovers", async () => {
   const sync = vi.spyOn(api, "sync").mockRejectedValueOnce(new ApiError("upstream_error", 502, "x"));
   render(<ExpandDialog neighbors={[node(1)]} onClose={() => {}} />);
-  const btn = screen.getByRole("button", { name: "开始同步" });
+  const btn = screen.getByRole("button", { name: "Start sync" });
   expect(btn).toBeDisabled(); // pending
   fireEvent.click(btn);
   expect(sync).toHaveBeenCalledTimes(1);
@@ -94,15 +94,15 @@ test("dry-run failure keeps confirm disabled, shows the error, never syncs for r
   expect(sync.mock.calls.every(([r]) => r.dry_run === true)).toBe(true);
 
   sync.mockResolvedValueOnce({ estimated_calls: 2, estimated_seconds: 1, jobs: null, per_address: { [addr(1)]: 2 } });
-  fireEvent.click(screen.getByRole("button", { name: "重试" }));
-  await screen.findByText(/预计 2 次调用/);
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByText(/Estimated 2 calls/);
   expect(btn).toBeEnabled();
 });
 
 test("a row without a per_address entry shows a dash", async () => {
   vi.spyOn(api, "sync").mockResolvedValue({ estimated_calls: 0, estimated_seconds: 0, jobs: null, per_address: {} });
   render(<ExpandDialog neighbors={[node(1)]} onClose={() => {}} />);
-  await screen.findByText(/预计 0 次调用/);
+  await screen.findByText(/Estimated 0 calls/);
   expect(screen.getByText("—")).toBeInTheDocument();
 });
 
@@ -125,8 +125,8 @@ test("warns (without blocking) when the estimate exceeds today's remaining quota
     estimated_calls: 9, estimated_seconds: 3, jobs: null, per_address: { [addr(1)]: 4, [addr(2)]: 5 },
   });
   render(<ExpandDialog neighbors={[node(1), node(2)]} onClose={() => {}} />);
-  expect(await screen.findByText("预计调用超过今日剩余额度")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "开始同步" })).toBeEnabled();
+  expect(await screen.findByText("Estimated calls exceed today's remaining quota")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Start sync" })).toBeEnabled();
   fireEvent.click(screen.getAllByRole("checkbox")[1]!); // 4 calls left: within the remaining 5
-  expect(screen.queryByText("预计调用超过今日剩余额度")).toBeNull();
+  expect(screen.queryByText("Estimated calls exceed today's remaining quota")).toBeNull();
 });

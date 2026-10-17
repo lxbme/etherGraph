@@ -192,14 +192,14 @@ test("loading text only before the first data; background refetches use a subtle
 test("batch bar appears for 2+ box-selected nodes; background/node tap clears it", async () => {
   await mountWithData();
   act(() => props().onBoxSelect([A, B]));
-  expect(screen.getByText("已选 2 个节点")).toBeInTheDocument();
+  expect(screen.getByText("2 nodes selected")).toBeInTheDocument();
   act(() => props().onTapBackground?.());
-  expect(screen.queryByText("已选 2 个节点")).toBeNull();
+  expect(screen.queryByText("2 nodes selected")).toBeNull();
   act(() => props().onBoxSelect([A, B]));
   act(() => props().onTapNode(A, { shift: false }));
   expect(useBoxSelection.getState().ids).toEqual([]);
   act(() => props().onBoxSelect([A, B]));
-  act(() => screen.getByRole("button", { name: "固定" }).click());
+  act(() => screen.getByRole("button", { name: "Pin" }).click());
   expect(useGraph.getState().ui[A]?.pinned).toBe(true);
   expect(useGraph.getState().ui[B]?.pinned).toBe(true);
 });
@@ -217,7 +217,7 @@ test("'older' menu item syncs with direction older", async () => {
   vi.spyOn(api, "graphEdges").mockResolvedValue({ ...data, nodes: [{ ...node(A, true), partial: true }, node(B, false)] });
   await mountWithData();
   act(() => props().onCxtNode(A, { x: 1, y: 1 }));
-  act(() => screen.getByText("继续拉更早的记录").click());
+  act(() => screen.getByText("Fetch older records").click());
   expect(sync).toHaveBeenCalledWith({ addresses: [A], direction: "older" });
   expect(screen.queryByRole("menu")).toBeNull();
 });
@@ -234,7 +234,7 @@ test("top-K item opens the dialog with exactly the top 10 pre-checked; hidden ne
   await mountWithData();
   act(() => useGraph.getState().setHidden([many[11]!], true)); // highest count, hidden
   act(() => props().onCxtNode(A, { x: 1, y: 1 }));
-  act(() => screen.getByText(/前 10 个/).click());
+  act(() => screen.getByText(/Top 10/).click());
   const boxes = (await screen.findAllByRole("checkbox")) as HTMLInputElement[];
   expect(boxes).toHaveLength(11);
   expect(boxes.filter((b) => b.checked)).toHaveLength(10);
@@ -245,11 +245,11 @@ test("expanding a node with no neighbours toasts", async () => {
   vi.spyOn(api, "graphEdges").mockResolvedValue({ ...data, edges: [] });
   await mountWithData();
   act(() => props().onCxtNode(A, { x: 1, y: 1 }));
-  act(() => screen.getByText("选择…").click());
+  act(() => screen.getByText("Select…").click());
   expect(await screen.findByText("没有可展开的邻居")).toBeInTheDocument();
 });
 
-test("right-clicking an unselected node selects it, so 添加标签 opens the editor for that node", async () => {
+test("right-clicking an unselected node selects it, so Add label opens the editor for that node", async () => {
   vi.spyOn(api, "address").mockImplementation(async (a) => ({
     node: node(a, true), is_proxy: false, implementation: null, creator: null, creation_tx: null, coverage: [],
     first_seen: null, last_seen: null,
@@ -266,11 +266,11 @@ test("right-clicking an unselected node selects it, so 添加标签 opens the ed
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   act(() => props().onCxtNode(B, { x: 1, y: 1 }));
   expect(useGraph.getState().selection).toEqual({ kind: "node", address: B });
-  act(() => screen.getByRole("menuitem", { name: /添加标签/ }).click());
+  act(() => screen.getByRole("menuitem", { name: /Add label/ }).click());
   expect(useUi.getState().labelEditorFor).toBe(B);
   expect(await screen.findByText(B)).toBeInTheDocument(); // the panel shows B…
-  expect(screen.getByRole("button", { name: "取消" })).toBeInTheDocument(); // …with its label editor open
-  expect(screen.queryByRole("button", { name: "添加标签" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument(); // …with its label editor open
+  expect(screen.queryByRole("button", { name: "Add label" })).toBeNull();
 });
 
 test("'显示隐藏节点 (N)' appears while nodes are hidden and unhides them all in one undo step", async () => {

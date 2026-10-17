@@ -59,7 +59,7 @@ test("groupsForPair returns both directions sorted by count", () => {
 
 test("shows empty hint when nothing is selected", () => {
   renderTable();
-  expect(screen.getByText("选择一个节点或一条边查看转账明细")).toBeInTheDocument();
+  expect(screen.getByText("Select a node or edge to see transfers")).toBeInTheDocument();
 });
 
 test("node selection lists transfers and loads more with cursor", async () => {
@@ -70,12 +70,12 @@ test("node selection lists transfers and loads more with cursor", async () => {
   );
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderTable();
-  await screen.findByText("流出");
+  await screen.findByText("Out");
   expect(spy).toHaveBeenCalledWith(expect.objectContaining({ address: A, limit: 50, cursor: undefined }));
-  fireEvent.click(screen.getByRole("button", { name: "加载更多" }));
-  await screen.findByText("流入");
+  fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+  await screen.findByText("In");
   expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ address: A, cursor: "c1" }));
-  expect(screen.queryByRole("button", { name: "加载更多" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
 });
 
 test("carries over kinds, time and the single asset threshold", async () => {
@@ -89,7 +89,7 @@ test("carries over kinds, time and the single asset threshold", async () => {
     useGraph.getState().select({ kind: "node", address: A });
   });
   renderTable();
-  await screen.findByText("没有符合条件的转账");
+  await screen.findByText("No matching transfers");
   expect(spy).toHaveBeenCalledWith(
     expect.objectContaining({
       address: A, asset: USDC, minAmount: "100", kinds: ["erc20", "native"],
@@ -109,11 +109,11 @@ describe("node scope direction (the filter's is relative to the centers)", () =>
     });
     seedGraph(edges);
     renderTable();
-    await screen.findByText("没有符合条件的转账");
+    await screen.findByText("No matching transfers");
     return spy.mock.calls[0]![0];
   }
 
-  test("a non-center node under 流入 is the sender: direction=out", async () => {
+  test("a non-center node under Inbound is the sender: direction=out", async () => {
     expect(await directionFor(D, [A], [edge({ from: D, to: A })])).toMatchObject({ address: D, direction: "out" });
   });
 
@@ -163,8 +163,8 @@ test("pair selection renders collapsible groups with header totals", async () =>
     edge({ from: B, to: A, asset: USDC, asset_kind: "erc20", count: 7, sum: "5000000", decimals: 6, symbol: "USDC" }),
   ]);
   renderTable();
-  const usdcHead = await screen.findByRole("button", { name: /USDC · 0xbbbb…bbbb→0xaaaa…aaaa · 7 笔 · Σ 5/ });
-  const ethHead = screen.getByRole("button", { name: /ETH · 0xaaaa…aaaa→0xbbbb…bbbb · 3 笔 · Σ 2.5/ });
+  const usdcHead = await screen.findByRole("button", { name: /USDC · 0xbbbb…bbbb→0xaaaa…aaaa · 7 transfers · Σ 5/ });
+  const ethHead = screen.getByRole("button", { name: /ETH · 0xaaaa…aaaa→0xbbbb…bbbb · 3 transfers · Σ 2.5/ });
   expect(usdcHead).toHaveAttribute("aria-expanded", "true");
   expect(ethHead).toHaveAttribute("aria-expanded", "false");
   await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
@@ -191,7 +191,7 @@ test("clicking a row sets highlightTransfer and clicking again clears it", async
   vi.spyOn(api, "transfers").mockResolvedValue({ items: [tr({ asset: USDC, kind: "erc20" })], next_cursor: null });
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderTable();
-  const row = (await screen.findByText("流出")).closest("tr")!;
+  const row = (await screen.findByText("Out")).closest("tr")!;
   fireEvent.click(row);
   expect(useGraph.getState().highlightTransfer).toEqual({ from: A, to: B, asset: USDC });
   fireEvent.click(row);
@@ -204,7 +204,7 @@ test("unknown decimals show the raw value with a warning", async () => {
   });
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderTable();
-  const w = await screen.findByTitle("未知精度");
+  const w = await screen.findByTitle("Unknown decimals");
   expect(w.closest("td")).toHaveTextContent("1,234,567");
 });
 
@@ -215,7 +215,7 @@ test("errors render inline with retry", async () => {
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderTable();
   await screen.findByText(/Internal server error/);
-  fireEvent.click(screen.getByRole("button", { name: "重试" }));
-  await screen.findByText("没有符合条件的转账");
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByText("No matching transfers");
   expect(spy).toHaveBeenCalledTimes(2);
 });

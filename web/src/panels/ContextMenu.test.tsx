@@ -28,19 +28,19 @@ afterEach(() => vi.restoreAllMocks());
 
 test("'older' item only appears for partial nodes", () => {
   const { unmount } = render(menu(false));
-  expect(screen.queryByText("继续拉更早的记录")).toBeNull();
+  expect(screen.queryByText("Fetch older records")).toBeNull();
   unmount();
   render(menu(true));
-  expect(screen.getByText("继续拉更早的记录")).toBeInTheDocument();
+  expect(screen.getByText("Fetch older records")).toBeInTheDocument();
 });
 
-test("'移出中心' only shows for centers and removes the center", () => {
+test("'Remove as center' only shows for centers and removes the center", () => {
   const { unmount } = render(menu(false));
-  expect(screen.queryByRole("menuitem", { name: "移出中心" })).toBeNull();
+  expect(screen.queryByRole("menuitem", { name: "Remove as center" })).toBeNull();
   unmount();
   act(() => useGraph.getState().addCenter(A));
   render(menu(false));
-  fireEvent.click(screen.getByRole("menuitem", { name: "移出中心" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Remove as center" }));
   expect(useGraph.getState().centers).toEqual([]);
 });
 

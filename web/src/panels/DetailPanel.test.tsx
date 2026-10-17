@@ -43,7 +43,7 @@ afterEach(() => vi.restoreAllMocks());
 
 test("nothing selected shows the hint", () => {
   renderPanel();
-  expect(screen.getByText("选择节点或边查看详情")).toBeInTheDocument();
+  expect(screen.getByText("Select a node or edge to see details")).toBeInTheDocument();
 });
 
 test("node detail shows coverage per kind with truncated marker", async () => {
@@ -52,15 +52,15 @@ test("node detail shows coverage per kind with truncated marker", async () => {
   renderPanel();
   expect(await screen.findByText("FooPool")).toBeInTheDocument();
   expect(spy).toHaveBeenCalledWith(A);
-  const native = screen.getByText("普通转账").closest("li")!;
+  const native = screen.getByText("Native transfers").closest("li")!;
   expect(within(native).getByText("100 – 200")).toBeInTheDocument();
-  expect(within(native).getByText("已截断")).toBeInTheDocument();
-  expect(within(native).getByText("已同步")).toBeInTheDocument();
+  expect(within(native).getByText("Truncated")).toBeInTheDocument();
+  expect(within(native).getByText("Synced")).toBeInTheDocument();
   const erc20 = screen.getByText("ERC20").closest("li")!;
-  expect(within(erc20).getByText("同步中")).toBeInTheDocument();
-  expect(within(erc20).queryByText("已截断")).toBeNull();
-  expect(within(screen.getByText("ERC721").closest("li")!).getByText("未同步")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "拉更早记录" })).toBeInTheDocument();
+  expect(within(erc20).getByText("Syncing")).toBeInTheDocument();
+  expect(within(erc20).queryByText("Truncated")).toBeNull();
+  expect(within(screen.getByText("ERC721").closest("li")!).getByText("Not synced")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Fetch older records" })).toBeInTheDocument();
 });
 
 test("sync buttons call api.sync", async () => {
@@ -70,9 +70,9 @@ test("sync buttons call api.sync", async () => {
   });
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderPanel();
-  fireEvent.click(await screen.findByRole("button", { name: "同步/刷新" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Sync / refresh" }));
   await waitFor(() => expect(sync).toHaveBeenCalledWith({ addresses: [A] }));
-  fireEvent.click(screen.getByRole("button", { name: "拉更早记录" }));
+  fireEvent.click(screen.getByRole("button", { name: "Fetch older records" }));
   await waitFor(() => expect(sync).toHaveBeenLastCalledWith({ addresses: [A], direction: "older" }));
 });
 
@@ -90,7 +90,7 @@ test("imported labels have no delete button; user labels do", async () => {
   expect(within(imported).queryByRole("button")).toBeNull();
   expect(within(imported).getByText("etherscan-labels")).toBeInTheDocument();
   const user = screen.getByText("mine").closest("li")!;
-  fireEvent.click(within(user).getByRole("button", { name: "删除标签" }));
+  fireEvent.click(within(user).getByRole("button", { name: "Delete label" }));
   await waitFor(() => expect(del).toHaveBeenCalledWith(2));
 });
 
@@ -98,7 +98,7 @@ test("note commits on blur only when changed", async () => {
   vi.spyOn(api, "address").mockResolvedValue(profile());
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderPanel();
-  const box = await screen.findByLabelText("备注");
+  const box = await screen.findByLabelText("Note");
   fireEvent.focus(box);
   fireEvent.blur(box);
   expect(useGraph.getState().canUndo()).toBe(false);
@@ -115,8 +115,8 @@ test("label editor enforces 64 characters counting code points", async () => {
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   act(() => useUi.getState().openLabelEditor(A));
   renderPanel();
-  const input = await screen.findByLabelText("标签文本");
-  const submit = screen.getByRole("button", { name: "添加" });
+  const input = await screen.findByLabelText("Label text");
+  const submit = screen.getByRole("button", { name: "Add" });
   expect(submit).toBeDisabled();
   fireEvent.change(input, { target: { value: "é".repeat(64) } });
   expect(screen.getByText("64/64")).toBeInTheDocument();
@@ -139,9 +139,9 @@ test("adding a label invalidates address and graph queries", async () => {
   renderPanel();
   qc.setQueryData(qk.graph([A], {}), { nodes: [], edges: [], omitted: {}, coverage: {} });
   const inv = vi.spyOn(qc, "invalidateQueries");
-  fireEvent.change(await screen.findByLabelText("标签文本"), { target: { value: " x " } });
-  fireEvent.change(screen.getByLabelText("类别"), { target: { value: "defi" } });
-  fireEvent.click(screen.getByRole("button", { name: "添加" }));
+  fireEvent.change(await screen.findByLabelText("Label text"), { target: { value: " x " } });
+  fireEvent.change(screen.getByLabelText("Category"), { target: { value: "defi" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
   await waitFor(() => expect(add).toHaveBeenCalledWith({ address: A, text: "x", category: "defi" }));
   await waitFor(() => {
     const keys = inv.mock.calls.map((c) => JSON.stringify(c[0]?.queryKey));
@@ -170,8 +170,8 @@ test("edge detail toggles the pair expansion", async () => {
   expect(within(eth).getByText("3")).toBeInTheDocument();
   expect(within(eth).getByText("1.5")).toBeInTheDocument();
   expect(screen.getByText("USDC").closest("li")).toHaveTextContent("2");
-  fireEvent.click(screen.getByRole("button", { name: "展开平行边" }));
+  fireEvent.click(screen.getByRole("button", { name: "Expand parallel edges" }));
   expect(useGraph.getState().expandedPairs.has(pairKey(A, B))).toBe(true);
-  fireEvent.click(screen.getByRole("button", { name: "收起平行边" }));
+  fireEvent.click(screen.getByRole("button", { name: "Collapse parallel edges" }));
   expect(useGraph.getState().expandedPairs.size).toBe(0);
 });
