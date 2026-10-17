@@ -71,4 +71,20 @@ describe("syncElements", () => {
     expect(r3.newNodeIds).toEqual(["d"]);
     expect(r3.structureChanged).toBe(true);
   });
+
+  test("a +N more proxy updates its label in place and is removed with its edge when nothing is omitted", () => {
+    const cy = cytoscape({ headless: true });
+    const more = (label: string) => [
+      { group: "nodes" as const, data: { id: "more:a", label, center: "a" }, classes: "more" },
+      { group: "edges" as const, data: { id: "more-edge:a", source: "a", target: "more:a" }, classes: "more" },
+    ];
+    const r1 = syncElements(cy, [n("a"), ...more("+12 more")], new Map());
+    expect(r1.newNodeIds).toEqual(["a", "more:a"]);
+    const r2 = syncElements(cy, [n("a"), ...more("+5 more")], r1.positions);
+    expect(cy.getElementById("more:a").data("label")).toBe("+5 more");
+    expect(r2.newNodeIds).toEqual([]);
+    syncElements(cy, [n("a")], r2.positions);
+    expect(cy.getElementById("more:a").empty()).toBe(true);
+    expect(cy.getElementById("more-edge:a").empty()).toBe(true);
+  });
 });

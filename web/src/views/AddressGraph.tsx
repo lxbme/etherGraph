@@ -23,6 +23,9 @@ import { shortAddr } from "../lib/address";
 import { toast } from "../shell/Toasts";
 import { useTheme } from "../shell/theme";
 
+/** A second tap on the same "+N more" node within this window is part of a double-click. */
+const REVEAL_DEBOUNCE_MS = 300;
+
 const lc = (s: string) => s.toLowerCase();
 
 /** The address relationship canvas: store + graph data → Cytoscape, and interactions back into the store/API. */
@@ -146,7 +149,13 @@ export function AddressGraph() {
   };
 
   /** A "+N more" node: raise its center's limit by one more per-center batch. */
+  const lastReveal = useRef<{ center: string; at: number } | null>(null);
   const revealMore = (center: string) => {
+    // A double-click taps twice: reveal one batch, not two.
+    const now = Date.now();
+    const last = lastReveal.current;
+    if (last && last.center === center && now - last.at < REVEAL_DEBOUNCE_MS) return;
+    lastReveal.current = { center, at: now };
     useGraph.getState().raiseLimit(center, revealBatch());
   };
 

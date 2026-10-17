@@ -297,16 +297,40 @@ test("a failing query after a success keeps the previous nodes and shows the err
 describe("+N more proxy", () => {
   const withOmitted = (n: number): GraphResponseDto => ({ ...data, omitted: { [A]: n } });
 
-  test("omitted neighbours show as a proxy node; clicking it raises the center's limit by a batch", async () => {
+  test("omitted neighbours show as a proxy node; clicking it raises the limit once, as one undoable step and one refetch", async () => {
     vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
     await mountWithData();
     await waitFor(() => expect(ids()).toContain(`more:${A}`));
     expect(props().elements.find((e) => e.data.id === `more:${A}`)?.data.label).toBe("+12 more");
-    const before = useGraph.getState().limits[A]!;
+    act(() => {
+      useGraph.getState().select({ kind: "node", address: B });
+      useBoxSelection.getState().set([A]);
+    });
     useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 20 });
+    const before = useGraph.getState().limits[A]!;
+    const calls = vi.mocked(api.graphEdges).mock.calls.length;
     act(() => props().onTapNode(`more:${A}`, { shift: false }));
     expect(useGraph.getState().limits[A]).toBe(before + 40); // capacity 60 - 20 visible, 1 center
-    expect(useGraph.getState().selection).toBeNull();
+    expect(useGraph.getState().selection).toEqual({ kind: "node", address: B });
+    expect(useBoxSelection.getState().ids).toEqual([A]);
+    await waitFor(() => expect(vi.mocked(api.graphEdges).mock.calls.length).toBe(calls + 1));
+    act(() => useGraph.getState().undo());
+    expect(useGraph.getState().limits[A]).toBe(before);
+  });
+
+  test("a double-click on the proxy reveals one batch; a later click reveals another", async () => {
+    vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
+    await mountWithData();
+    useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 20 });
+    const before = useGraph.getState().limits[A]!;
+    const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+    act(() => props().onTapNode(`more:${A}`, { shift: false }));
+    now.mockReturnValue(1100);
+    act(() => props().onTapNode(`more:${A}`, { shift: false }));
+    expect(useGraph.getState().limits[A]).toBe(before + 40);
+    now.mockReturnValue(1500);
+    act(() => props().onTapNode(`more:${A}`, { shift: false }));
+    expect(useGraph.getState().limits[A]).toBe(before + 80);
   });
 
   test("taps on the proxy edge neither select nor expand a pair", async () => {
