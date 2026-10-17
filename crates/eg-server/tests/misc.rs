@@ -668,3 +668,77 @@ async fn probe_rejects_more_than_20_addresses(pool: PgPool) {
     let (st, b) = post_json(&app, "/api/probe", &json!({"addresses": []})).await;
     assert_eq!((st, code(&b)), (StatusCode::BAD_REQUEST, "invalid_input"));
 }
+
+fn account_row(addr: Address, kind: eg_core::types::AccountKind) -> eg_store::AccountRow {
+    eg_store::AccountRow {
+        address: addr,
+        kind,
+        contract_name: Some("Named".into()),
+        is_proxy: true,
+        implementation: None,
+        creator: None,
+        creation_tx: None,
+        meta_fetched_at: ts(),
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn probe_known_contract_skips_tx_count_and_keeps_metadata(pool: PgPool) {
+    use eg_core::types::AccountKind;
+    let (app, state, fake) = test_app(pool);
+    state
+        .store
+        .upsert_accounts(&[
+            account_row(TOKEN, AccountKind::Contract),
+            account_row(OTHER, AccountKind::Unknown),
+        ])
+        .await
+        .unwrap();
+    fake.set_code(OTHER, Bytes::from(vec![0x60]));
+    let (st, b) = post_json(
+        &app,
+        "/api/probe",
+        &json!({"addresses": [format!("{TOKEN:#x}")]}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    // Known contract: no code, no tx_count; one balances call.
+    assert_eq!(b["calls"], 1);
+    assert!(b["items"][0]["nonce"].is_null());
+    assert_eq!(b["items"][0]["kind"], "contract");
+
+    let (_, b) = post_json(
+        &app,
+        "/api/probe",
+        &json!({"addresses": [format!("{OTHER:#x}")]}),
+    )
+    .await;
+    assert_eq!(b["items"][0]["kind"], "contract");
+    let rows = state.store.accounts(&[TOKEN, OTHER]).await.unwrap();
+    for r in rows {
+        assert_eq!(r.contract_name.as_deref(), Some("Named"));
+        assert!(r.is_proxy);
+        assert_eq!(r.meta_fetched_at, ts());
+        assert_eq!(r.kind, AccountKind::Contract);
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn probe_upstream_failure_writes_nothing(pool: PgPool) {
+    let (app, state, fake) = test_app(pool);
+    fake.fail_next(SourceError::QuotaExhausted);
+    let body = json!({"addresses": [format!("{FROM:#x}"), format!("{TO:#x}")]});
+    let (st, _) = post_json(&app, "/api/probe", &body).await;
+    assert_ne!(st, StatusCode::OK);
+    assert!(
+        state
+            .store
+            .account_stats(&[FROM, TO])
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(state.store.accounts(&[FROM, TO]).await.unwrap().is_empty());
+    let (st, b) = post_json(&app, "/api/probe", &body).await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+}

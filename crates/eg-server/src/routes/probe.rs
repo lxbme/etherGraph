@@ -1,12 +1,11 @@
 //! `POST /api/probe`: cached nonce, code and balance per address.
 
 use std::collections::HashMap;
-use std::time::SystemTime;
 
 use alloy_primitives::U256;
 use axum::Json;
 use axum::extract::State;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use eg_core::source::Priority;
 use eg_core::types::{AccountKind, Address, TransferKind};
 use eg_store::{AccountRow, StatsRow, SyncRow};
@@ -42,7 +41,7 @@ pub async fn probe(
 
     let (accounts, stats) =
         tokio::try_join!(s.store.accounts(&addrs), s.store.account_stats(&addrs))?;
-    let mut accounts: HashMap<Address, AccountRow> =
+    let accounts: HashMap<Address, AccountRow> =
         accounts.into_iter().map(|a| (a.address, a)).collect();
     let mut stats: HashMap<Address, StatsRow> = stats.into_iter().map(|r| (r.address, r)).collect();
 
@@ -106,8 +105,11 @@ pub async fn probe(
         for r in &mut fresh {
             r.balance = balances.get(&r.address).copied();
         }
+        // A balance the upstream did not return is not cached as fresh.
+        fresh.retain(|r| r.balance.is_some());
+        // Kinds first: a failing kind write must not leave is_contract cached without it.
+        s.store.set_kind_if_unknown(&new_kinds).await?;
         s.store.upsert_account_stats(&fresh).await?;
-        mark_kinds(&s, &new_kinds, &mut accounts).await?;
         for r in fresh {
             stats.insert(r.address, r);
         }
@@ -148,43 +150,4 @@ pub async fn probe(
         })
         .collect();
     Ok(Json(ProbeResponseDto { items, calls }))
-}
-
-/// Records the probed kind on accounts that are unknown or have no row yet
-/// (never overwrites a known kind). A new
-/// row gets the epoch as `meta_fetched_at` so the metadata job still runs.
-async fn mark_kinds(
-    s: &AppState,
-    found: &[(Address, AccountKind)],
-    accounts: &mut HashMap<Address, AccountRow>,
-) -> Result<(), ApiError> {
-    let mut rows = Vec::new();
-    for (a, kind) in found {
-        let row = match accounts.get(a) {
-            Some(r) if r.kind != AccountKind::Unknown => continue,
-            Some(r) => AccountRow {
-                kind: *kind,
-                ..r.clone()
-            },
-            None => AccountRow {
-                address: *a,
-                kind: *kind,
-                contract_name: None,
-                is_proxy: false,
-                implementation: None,
-                creator: None,
-                creation_tx: None,
-                meta_fetched_at: DateTime::<Utc>::from(SystemTime::UNIX_EPOCH),
-            },
-        };
-        rows.push(row);
-    }
-    if rows.is_empty() {
-        return Ok(());
-    }
-    s.store.upsert_accounts(&rows).await?;
-    for r in rows {
-        accounts.insert(r.address, r);
-    }
-    Ok(())
 }

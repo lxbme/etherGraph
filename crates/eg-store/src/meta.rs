@@ -157,6 +157,26 @@ impl Store {
         Ok(())
     }
 
+    /// Sets only `kind`, and only where the row is absent or its kind is unknown;
+    /// other columns of an existing row are left alone. A new row gets the epoch as
+    /// `meta_fetched_at` so the metadata job still runs for it.
+    pub async fn set_kind_if_unknown(&self, kinds: &[(Address, AccountKind)]) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        for (a, k) in kinds {
+            sqlx::query(
+                "INSERT INTO accounts (address, kind, meta_fetched_at) VALUES ($1, $2, to_timestamp(0)) \
+                 ON CONFLICT (address) DO UPDATE SET kind = EXCLUDED.kind \
+                 WHERE accounts.kind = 'unknown'",
+            )
+            .bind(addr_to_bytes(*a))
+            .bind(kind_str(*k))
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn accounts(&self, addrs: &[Address]) -> Result<Vec<AccountRow>> {
         let rows = sqlx::query("SELECT * FROM accounts WHERE address = ANY($1) ORDER BY address")
             .bind(keys(addrs))
@@ -356,6 +376,7 @@ impl Store {
 mod tests {
     use crate::*;
     use chrono::{Duration as CD, Utc};
+    use eg_core::types::AccountKind;
     use sqlx::PgPool;
     use std::time::Duration;
 
@@ -557,5 +578,51 @@ mod tests {
             store.addrs_needing_meta(&input, ttl).await.unwrap(),
             vec![a, c]
         );
+    }
+
+    #[sqlx::test]
+    async fn set_kind_if_unknown_touches_only_kind(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let a = Address::repeat_byte(1);
+        let b = Address::repeat_byte(2);
+        let c = Address::repeat_byte(3);
+        let now = Utc::now();
+        let row = |addr, kind| AccountRow {
+            address: addr,
+            kind,
+            contract_name: Some("Named".into()),
+            is_proxy: true,
+            implementation: None,
+            creator: None,
+            creation_tx: None,
+            meta_fetched_at: now,
+        };
+        s.upsert_accounts(&[row(a, AccountKind::Unknown), row(b, AccountKind::Contract)])
+            .await
+            .unwrap();
+        s.set_kind_if_unknown(&[
+            (a, AccountKind::Eoa),
+            (b, AccountKind::Eoa),
+            (c, AccountKind::Contract),
+        ])
+        .await
+        .unwrap();
+        let got: std::collections::HashMap<_, _> = s
+            .accounts(&[a, b, c])
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|r| (r.address, r))
+            .collect();
+        assert_eq!(got[&a].kind, AccountKind::Eoa);
+        assert_eq!(got[&a].contract_name.as_deref(), Some("Named"));
+        assert!(got[&a].is_proxy);
+        assert_eq!(
+            got[&a].meta_fetched_at.timestamp_micros(),
+            now.timestamp_micros()
+        );
+        assert_eq!(got[&b].kind, AccountKind::Contract);
+        assert_eq!(got[&c].kind, AccountKind::Contract);
+        assert_eq!(got[&c].meta_fetched_at.timestamp(), 0);
     }
 }
