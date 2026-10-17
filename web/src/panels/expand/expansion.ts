@@ -4,6 +4,7 @@ import { messageFor } from "../../api/errors";
 import { queryClient } from "../../api/queryClient";
 import { setHistoryEffectHandler, type ExpandEffect } from "../../graph/historyEffects";
 import { t } from "../../i18n";
+import { newBatchId } from "../../lib/batchId";
 import { toast } from "../../shell/Toasts";
 
 /** Most addresses one POST /api/sync accepts. */
@@ -26,7 +27,7 @@ function onUndo(e: ExpandEffect): void {
 function onRedo(e: ExpandEffect): ExpandEffect {
   const addresses = unsynced(e.addresses);
   if (addresses.length === 0) return e;
-  const batch = crypto.randomUUID();
+  const batch = newBatchId();
   const chunks: string[][] = [];
   for (let i = 0; i < addresses.length; i += SYNC_MAX) chunks.push(addresses.slice(i, i + SYNC_MAX));
   for (const c of chunks) {

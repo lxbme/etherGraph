@@ -23,6 +23,7 @@ import { useGraph } from "../../graph/store";
 import { graphQueryKey } from "../../graph/useGraphData";
 import { t as tr, useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
+import { newBatchId } from "../../lib/batchId";
 import { formatCount } from "../../lib/format";
 import { useQuota } from "../../shell/statusStore";
 import { dismissToast, toast } from "../../shell/Toasts";
@@ -309,7 +310,7 @@ export function ExpandDialog({ node, preset, onClose, onDone = onClose }: Expand
   const confirm = async () => {
     const addresses = selected.map((r) => r.address);
     if (addresses.length === 0 || submittingRef.current) return;
-    const batch = crypto.randomUUID();
+    const batch = newBatchId();
     submittingRef.current = true;
     setSubmitting(true);
     const chunks: string[][] = [];
