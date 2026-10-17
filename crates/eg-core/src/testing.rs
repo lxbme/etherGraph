@@ -27,6 +27,7 @@ pub struct FakeSource {
     latest: Mutex<u64>,
     eth_call: Mutex<Option<EthCallFn>>,
     fail: Mutex<Option<SourceError>>,
+    status_fail: Mutex<Option<SourceError>>,
     calls: AtomicU32,
     status_calls: AtomicU32,
 }
@@ -94,6 +95,11 @@ impl FakeSource {
     /// The next call of any kind returns this error.
     pub fn fail_next(&self, err: SourceError) {
         *self.fail.lock().unwrap() = Some(err);
+    }
+
+    /// The next `tx_status` call returns this error; other calls are unaffected.
+    pub fn fail_next_tx_status(&self, err: SourceError) {
+        *self.status_fail.lock().unwrap() = Some(err);
     }
 
     pub fn calls(&self) -> u32 {
@@ -195,6 +201,9 @@ impl ChainSource for FakeSource {
     async fn tx_status(&self, _p: Priority, hash: TxHash) -> Result<Option<String>, SourceError> {
         self.status_calls.fetch_add(1, Ordering::SeqCst);
         self.enter()?;
+        if let Some(e) = self.status_fail.lock().unwrap().take() {
+            return Err(e);
+        }
         Ok(self.statuses.lock().unwrap().get(&hash).cloned().flatten())
     }
 

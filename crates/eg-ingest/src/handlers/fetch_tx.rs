@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use eg_core::source::Priority;
+use eg_core::source::{Priority, SourceError};
 use eg_core::types::{Address, Transfer, TransferKind, TxHash, U256, assign_sub_ids};
 use eg_decode::decode_transfer_logs;
 use eg_store::{JobRow, JobStatus, TxRow};
@@ -28,6 +28,24 @@ fn gas_price_of(json: &serde_json::Value) -> U256 {
         .and_then(|v| v.as_str())
         .and_then(|s| U256::from_str_radix(s.trim_start_matches("0x"), 16).ok())
         .unwrap_or(U256::ZERO)
+}
+
+/// The revert reason is optional detail: a failed lookup leaves it unset
+/// instead of failing the fetch. Quota exhaustion and a rejected API key still
+/// propagate so the runner pauses the job or surfaces the bad key.
+async fn revert_reason(
+    ctx: &JobCtx,
+    p: Priority,
+    hash: TxHash,
+) -> Result<Option<String>, SourceError> {
+    match ctx.source.tx_status(p, hash).await {
+        Ok(reason) => Ok(reason),
+        Err(e @ (SourceError::QuotaExhausted | SourceError::InvalidKey)) => Err(e),
+        Err(e) => {
+            tracing::warn!(tx = %hash, error = %e, "revert reason lookup failed");
+            Ok(None)
+        }
+    }
 }
 
 #[async_trait]
@@ -55,7 +73,7 @@ impl JobHandler for FetchTxHandler {
         let revert_reason = if receipt.success {
             None
         } else {
-            ctx.source.tx_status(p, hash).await?
+            revert_reason(ctx, p, hash).await?
         };
         let internals = ctx.source.internal_txs(p, hash).await?;
 

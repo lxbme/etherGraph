@@ -94,6 +94,22 @@ impl Store {
         r.as_ref().map(tx_from_row).transpose()
     }
 
+    /// Hashes of the stored transactions mined in block `number`.
+    pub async fn tx_hashes_in_block(&self, number: u64) -> Result<Vec<TxHash>> {
+        let rows: Vec<Vec<u8>> = sqlx::query_scalar(
+            "SELECT hash FROM transactions WHERE block_number = $1 ORDER BY hash",
+        )
+        .bind(to_i64(number, "block_number")?)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|h| {
+                TxHash::try_from(h.as_slice())
+                    .map_err(|_| StoreError::Invalid(format!("hash of {} bytes", h.len())))
+            })
+            .collect()
+    }
+
     /// Transfers of one tx ordered by `log_index` (NULLs last), then `sub_id`.
     pub async fn transfers_of_tx(&self, hash: TxHash) -> Result<Vec<Transfer>> {
         let rows = sqlx::query(

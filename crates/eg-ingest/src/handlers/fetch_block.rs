@@ -1,5 +1,6 @@
 //! `FetchBlock`: backfills the header of a stored transaction fetched before
-//! block headers were kept, then announces the tx as updated.
+//! block headers were kept, then announces every stored tx of that block as
+//! updated.
 
 use async_trait::async_trait;
 use eg_core::source::Priority;
@@ -24,7 +25,13 @@ impl JobHandler for FetchBlockHandler {
             .map_err(|e| JobError::Invalid(format!("bad fetch_block params: {e}")))?;
         let block = ctx.source.block(Priority::Background, number).await?;
         ctx.store.upsert_block(&block).await?;
-        ctx.bus.publish(Event::TxReady { hash });
+        let mut hashes = ctx.store.tx_hashes_in_block(number).await?;
+        if !hashes.contains(&hash) {
+            hashes.push(hash);
+        }
+        for hash in hashes {
+            ctx.bus.publish(Event::TxReady { hash });
+        }
         Ok(())
     }
 }

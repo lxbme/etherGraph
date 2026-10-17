@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use alloy_primitives::{Address, B256, Bytes, U256, address};
 use chrono::{DateTime, TimeZone, Utc};
-use eg_core::source::{Priority, RawBlock, RawLog, RawReceipt, RawTx};
+use eg_core::source::{Priority, RawBlock, RawLog, RawReceipt, RawTx, SourceError};
 use eg_core::testing::FakeSource;
 use eg_core::types::{Transfer, TransferKind};
 use eg_ingest::config::IngestConfig;
 use eg_ingest::handlers::FetchTxHandler;
 use eg_ingest::{Event, EventBus, JobCtx, JobError, JobHandler, enqueue_fetch_block, load_tx_flow};
-use eg_store::{JobKind, NewJob, Store};
+use eg_store::{JobKind, NewJob, Store, TxRow};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokio::sync::Notify;
@@ -307,4 +307,90 @@ async fn fetch_block_handler_stores_header_and_announces(pool: PgPool) {
         .unwrap();
     assert_eq!(e.ctx.store.block(100).await.unwrap().unwrap(), header());
     assert!(matches!(rx.try_recv(), Ok(Event::TxReady { hash }) if hash == HASH));
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn tx_status_error_degrades_to_no_reason(pool: PgPool) {
+    let e = env(pool);
+    e.fake
+        .add_tx(raw_tx(None), receipt(false, 7, vec![]), vec![], ts());
+    e.fake.set_tx_status(HASH, Some("Reverted".into()));
+    e.fake
+        .fail_next_tx_status(SourceError::Upstream("getstatus failed".into()));
+    run(&e, &format!("{HASH:#x}")).await.unwrap();
+    assert_eq!(e.fake.tx_status_calls(), 1);
+    let row = e.ctx.store.transaction(HASH).await.unwrap().unwrap();
+    assert!(!row.success);
+    assert_eq!(row.revert_reason, None);
+}
+
+async fn tx_status_error_propagates(pool: PgPool, err: SourceError) {
+    let e = env(pool);
+    e.fake
+        .add_tx(raw_tx(None), receipt(false, 7, vec![]), vec![], ts());
+    e.fake.fail_next_tx_status(err.clone());
+    let got = run(&e, &format!("{HASH:#x}")).await.unwrap_err();
+    assert!(
+        matches!(got, JobError::Source(ref s) if *s == err),
+        "{got:?}"
+    );
+    assert!(e.ctx.store.transaction(HASH).await.unwrap().is_none());
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn tx_status_quota_exhausted_propagates(pool: PgPool) {
+    tx_status_error_propagates(pool, SourceError::QuotaExhausted).await;
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn tx_status_invalid_key_propagates(pool: PgPool) {
+    tx_status_error_propagates(pool, SourceError::InvalidKey).await;
+}
+
+fn stored_tx(hash: B256, block: u64) -> TxRow {
+    TxRow {
+        hash,
+        block_number: block,
+        ts: ts(),
+        from: FROM,
+        to: Some(TO),
+        value: U256::ZERO,
+        selector: None,
+        success: true,
+        gas_used: U256::from(21000u32),
+        fee: U256::ZERO,
+        raw_tx: json!({}),
+        raw_receipt: json!({}),
+        revert_reason: None,
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn fetch_block_announces_every_stored_tx_of_the_block(pool: PgPool) {
+    let e = env(pool);
+    let other = B256::repeat_byte(0x22);
+    let elsewhere = B256::repeat_byte(0x33);
+    for row in [
+        stored_tx(HASH, 100),
+        stored_tx(other, 100),
+        stored_tx(elsewhere, 101),
+    ] {
+        e.ctx.store.upsert_transaction(&row).await.unwrap();
+    }
+    e.fake.add_block(header());
+    let mut rx = e.ctx.bus.subscribe();
+    enqueue_fetch_block(&e.ctx, 100, HASH).await.unwrap();
+    let job = e.ctx.store.claim_next().await.unwrap().unwrap();
+    eg_ingest::handlers::FetchBlockHandler
+        .run(&job, &e.ctx)
+        .await
+        .unwrap();
+    let mut announced = Vec::new();
+    while let Ok(ev) = rx.try_recv() {
+        if let Event::TxReady { hash } = ev {
+            announced.push(hash);
+        }
+    }
+    announced.sort();
+    assert_eq!(announced, vec![HASH, other]);
 }
