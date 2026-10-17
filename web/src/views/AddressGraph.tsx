@@ -8,6 +8,7 @@ import { useBoxSelection } from "../graph/boxSelection";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { toElements } from "../graph/elements";
 import { neighborsOf, topNeighbors } from "../graph/neighbors";
+import { useCanvasMetrics } from "../graph/canvasMetrics";
 import { useShortcuts } from "../graph/useShortcuts";
 import { BatchBar } from "../panels/BatchBar";
 import { ContextMenu } from "../panels/ContextMenu";
@@ -117,6 +118,22 @@ export function AddressGraph() {
   }, [selection]);
 
   useEffect(() => () => setMainCy(null), []);
+
+  // Canvas size and on-canvas node count feed the expansion budget.
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([entry]) => {
+      const r = entry?.contentRect;
+      if (r) useCanvasMetrics.getState().set({ width: r.width, height: r.height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => {
+    const visible = elements.filter((e) => e.group === "nodes" && !String(e.classes ?? "").split(" ").includes("more")).length;
+    useCanvasMetrics.getState().set({ visible });
+  }, [elements]);
 
   const onReady = (cy: cytoscape.Core) => {
     cyRef.current = cy;
