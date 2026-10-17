@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/endpoints";
 import { ApiError, messageFor } from "../api/errors";
-import { useT } from "../i18n";
+import { useT, type MsgKey } from "../i18n";
 import { qk, queryClient } from "../api/queryClient";
 import { useGraph } from "../graph/store";
 import { toast } from "../shell/Toasts";
@@ -11,7 +11,9 @@ import { classifyInput } from "./classify";
 export function SearchBox() {
   const t = useT();
   const [value, setValue] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  // Kept as a key or the raw error and translated at render, so a language switch updates it at once.
+  type SearchError = { key: MsgKey } | { err: unknown };
+  const [error, setError] = useState<SearchError | null>(null);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -43,7 +45,7 @@ export function SearchBox() {
     if (busy) return;
     const q = value.trim();
     if (classifyInput(q) === "invalid") {
-      setError(t("search.invalid"));
+      setError({ key: "search.invalid" });
       return;
     }
     setError(null);
@@ -54,12 +56,12 @@ export function SearchBox() {
       else if (r.resolved_address ?? (r.kind === "address" ? r.value : null)) {
         openAddress((r.resolved_address ?? r.value) as string);
       } else {
-        setError(t("search.notFound"));
+        setError({ key: "search.notFound" });
         return;
       }
       setValue("");
     } catch (e) {
-      setError(e instanceof ApiError && e.code === "not_found" ? t("search.notFound") : messageFor(e));
+      setError(e instanceof ApiError && e.code === "not_found" ? { key: "search.notFound" } : { err: e });
     } finally {
       setBusy(false);
     }
@@ -88,7 +90,7 @@ export function SearchBox() {
       {busy && <span className="search__busy">{t("search.busy")}</span>}
       {error && (
         <div className="search__error" role="alert">
-          {error}
+          {"key" in error ? t(error.key) : messageFor(error.err)}
         </div>
       )}
     </div>

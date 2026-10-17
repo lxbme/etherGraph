@@ -1,10 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api/endpoints'
 import { ApiError } from '../api/errors'
 import { useGraph } from '../graph/store'
 import { useTabs } from '../shell/tabs'
 import { qk, queryClient } from '../api/queryClient'
+import { useLocale } from '../i18n'
 import { SearchBox } from './SearchBox'
 
 const A = '0x' + 'ab'.repeat(20)
@@ -17,6 +18,17 @@ beforeEach(() => {
 })
 
 describe('SearchBox', () => {
+  afterEach(() => act(() => useLocale.getState().setLocale('en')))
+
+  it('an error shown inline switches language immediately', async () => {
+    vi.spyOn(api, 'search').mockRejectedValue(new ApiError('not_found', 404, 'nope'))
+    render(<SearchBox />)
+    await userEvent.type(screen.getByRole('searchbox'), 'zzz.eth{Enter}')
+    expect(await screen.findByText('No address or name found')).toBeInTheDocument()
+    act(() => useLocale.getState().setLocale('zh'))
+    expect(screen.getByText('未找到该名称或地址')).toBeInTheDocument()
+  })
+
   it('enter on address adds a center, selects it and triggers one auto sync', async () => {
     vi.spyOn(api, 'search').mockResolvedValue({ kind: 'address', value: A, resolved_address: null })
     const addr = vi.spyOn(api, 'address').mockResolvedValue({} as never)

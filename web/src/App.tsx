@@ -14,6 +14,7 @@ import { TxFlowView, TxNodeDetail } from "./views/TxFlowView";
 import { useUi } from "./panels/uiStore";
 import { useTabs, type Tab } from "./shell/tabs";
 import { WorkspaceMenu } from "./shell/WorkspaceMenu";
+import { useLocale } from "./i18n";
 import { saveStatusLabel, useUnsavedChangesPrompt, useWorkspace } from "./workspace/useWorkspace";
 import { AddressGraph } from "./views/AddressGraph";
 
@@ -32,7 +33,10 @@ function Shell() {
   const { tabs, active } = useTabs();
   const detailOpen = useUi((s) => s.detailOpen);
   const toggleDetail = useUi((s) => s.toggleDetail);
-  const wsStatus = useWorkspace((s) => saveStatusLabel(s));
+  useLocale((s) => s.locale); // re-render on language switch so the label below is re-translated
+  const wsId = useWorkspace((s) => s.id);
+  const wsDirty = useWorkspace((s) => s.dirty);
+  const wsStatus = saveStatusLabel({ id: wsId, dirty: wsDirty });
   const tx = tabs.find((t): t is Extract<Tab, { kind: "tx" }> => t.id === active && "kind" in t);
 
   return (
