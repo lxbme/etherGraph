@@ -333,6 +333,14 @@ describe("+N more proxy", () => {
     expect(useGraph.getState().limits[A]).toBe(before + 80);
   });
 
+  test("a center at the server's maximum limit shows no proxy", async () => {
+    vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
+    await mountWithData();
+    expect(ids()).toContain(`more:${A}`);
+    act(() => useGraph.getState().raiseLimit(A, 5000));
+    await waitFor(() => expect(ids()).not.toContain(`more:${A}`));
+  });
+
   test("taps on the proxy edge neither select nor expand a pair", async () => {
     vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
     await mountWithData();

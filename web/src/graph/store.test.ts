@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { useCanvasMetrics } from "./canvasMetrics";
 import { setHistoryEffectHandler, type ExpandEffect } from "./historyEffects";
-import { firstBatch, firstBatchFor, pairKey, useGraph } from "./store";
+import { firstBatch, firstBatchFor, MAX_NEIGHBOUR_LIMIT, pairKey, useGraph } from "./store";
 
 const A = "0x" + "a".repeat(40);
 const B = "0x" + "b".repeat(40);
@@ -296,6 +296,16 @@ describe("per-center limits", () => {
     expect(onUndo).not.toHaveBeenCalled();
     g().redo();
     expect(g().limits.a).toBe(12);
+  });
+
+  test("raiseLimit stops at the server's per-center maximum", () => {
+    g().expand(["a"], "b1", 990);
+    g().raiseLimit("a", 50);
+    expect(g().limits.a).toBe(MAX_NEIGHBOUR_LIMIT);
+    const steps = g()._past.length;
+    g().raiseLimit("a", 50);
+    expect(g().limits.a).toBe(MAX_NEIGHBOUR_LIMIT);
+    expect(g()._past.length).toBe(steps); // nothing to raise: no history step
   });
 
   test("loadSnapshot keeps given limits and gives centers without one a first batch", () => {

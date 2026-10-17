@@ -108,6 +108,8 @@ const blankUi = (): NodeUi => ({ pinned: false, hidden: false, note: "" });
 
 /** Share of the window area taken as the canvas before the canvas was first measured (ruling R4). */
 const UNMEASURED_CANVAS_SHARE = 0.6;
+/** Highest neighbour limit the server accepts per center (POST /api/graph/edges clamps to it). */
+export const MAX_NEIGHBOUR_LIMIT = 1000;
 
 /**
  * Neighbour limit of each of `n` centers that receive a first batch at once: the node budget is shared
@@ -289,7 +291,9 @@ export const useGraph = create<GraphState>()((set, get) => {
     raiseLimit: (center, by) => {
       if (!(Number.isFinite(by) && by > 0)) return;
       const a = lc(center);
-      tracked((s) => ({ limits: { ...s.limits, [a]: (s.limits[a] ?? firstBatch()) + by } }));
+      const cur = get().limits[a] ?? firstBatch();
+      if (cur >= MAX_NEIGHBOUR_LIMIT) return;
+      tracked((s) => ({ limits: { ...s.limits, [a]: Math.min(MAX_NEIGHBOUR_LIMIT, (s.limits[a] ?? cur) + by) } }));
     },
     setFilter: (f) => tracked(() => ({ filter: f })),
     setSort: (sort) => tracked(() => ({ sort })),

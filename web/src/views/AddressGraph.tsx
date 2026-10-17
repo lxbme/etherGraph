@@ -15,7 +15,7 @@ import { ExpandDialog } from "../panels/expand/ExpandDialog";
 import { InteractionsDialog } from "../panels/expand/InteractionsDialog";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
-import { revealBatch, useGraph, type Pos } from "../graph/store";
+import { MAX_NEIGHBOUR_LIMIT, revealBatch, useGraph, type Pos } from "../graph/store";
 import { graphStylesheet } from "../graph/styles";
 import { useGraphData } from "../graph/useGraphData";
 import { deriveVisualEdges } from "../graph/visualEdges";
@@ -41,6 +41,18 @@ export function AddressGraph() {
   const ui = useGraph((s) => s.ui);
   const selection = useGraph((s) => s.selection);
   const highlightTransfer = useGraph((s) => s.highlightTransfer);
+  // Only the centers at the server's maximum limit matter here (they get no "+N more"); keyed so a raised
+  // limit below it does not re-derive the elements.
+  const maxedKey = useGraph((s) =>
+    Object.keys(s.limits)
+      .filter((c) => (s.limits[c] ?? 0) >= MAX_NEIGHBOUR_LIMIT)
+      .sort()
+      .join(","),
+  );
+  const limits = useMemo(
+    () => Object.fromEntries((maxedKey ? maxedKey.split(",") : []).map((c) => [c, MAX_NEIGHBOUR_LIMIT])),
+    [maxedKey],
+  );
   const epoch = useGraph((s) => s.epoch);
 
   const theme = useTheme((s) => s.resolved);
@@ -65,8 +77,8 @@ export function AddressGraph() {
     [data, expandedPairs, hidden, locale],
   );
   const elements = useMemo(
-    () => (data ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer }, data.omitted) : []),
-    [data, visual, ui, centers, selection, highlightTransfer],
+    () => (data ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer, limits }, data.omitted) : []),
+    [data, visual, ui, centers, selection, highlightTransfer, limits],
   );
 
   const cyRef = useRef<cytoscape.Core | null>(null);

@@ -2,7 +2,7 @@ import type cytoscape from "cytoscape";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { t } from "../i18n";
 import { shortAddr } from "../lib/address";
-import { graphSelection, type GraphSelection, type GraphState, type NodeUi } from "./store";
+import { graphSelection, MAX_NEIGHBOUR_LIMIT, type GraphSelection, type GraphState, type NodeUi } from "./store";
 import { edgeWidth, type VisualEdge } from "./visualEdges";
 
 const lc = (s: string) => s.toLowerCase();
@@ -83,7 +83,7 @@ export function edgeElement(v: VisualEdge, highlighted: boolean): cytoscape.Elem
   };
 }
 
-type ViewState = Pick<GraphState, "ui" | "centers" | "selection" | "highlightTransfer">;
+type ViewState = Pick<GraphState, "ui" | "centers" | "selection" | "highlightTransfer"> & Partial<Pick<GraphState, "limits">>;
 
 function isHighlighted(v: VisualEdge, h: ViewState["highlightTransfer"]): boolean {
   if (!h || lc(v.from) !== lc(h.from) || lc(v.to) !== lc(h.to)) return false;
@@ -124,7 +124,8 @@ export function toElements(
   const proxies: cytoscape.ElementDefinition[] = [];
   for (const c of state.centers.map(lc)) {
     const count = omitted[c] ?? 0;
-    if (count > 0 && present.has(c)) proxies.push(...moreElements(c, count));
+    // At the server's maximum limit a click could reveal nothing more.
+    if (count > 0 && present.has(c) && (state.limits?.[c] ?? 0) < MAX_NEIGHBOUR_LIMIT) proxies.push(...moreElements(c, count));
   }
   out.push(...proxies.filter((e) => e.group === "nodes"));
   for (const v of visual) {

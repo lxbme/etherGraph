@@ -3,7 +3,7 @@ import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { shortAddr } from "../lib/address";
 import { edgeElement, nodeElement, toElements } from "./elements";
-import type { GraphState, NodeUi } from "./store";
+import { MAX_NEIGHBOUR_LIMIT, type GraphState, type NodeUi } from "./store";
 import { edgeWidth, type VisualEdge } from "./visualEdges";
 
 const A = "0x" + "a".repeat(40);
@@ -162,6 +162,13 @@ describe("toElements", () => {
     expect(none.some((e) => String(e.data.id).startsWith("more"))).toBe(false);
     const notCenter = toElements(nodes, [], state({ centers: [A] }), { [B]: 3 });
     expect(notCenter.some((e) => String(e.data.id).startsWith("more"))).toBe(false);
+  });
+
+  test("no proxy once the center's limit is at the server's maximum (it could reveal nothing more)", () => {
+    const atMax = toElements(nodes, [], { ...state({ centers: [A] }), limits: { [A]: MAX_NEIGHBOUR_LIMIT } }, { [A]: 12 });
+    expect(atMax.some((e) => String(e.data.id).startsWith("more"))).toBe(false);
+    const below = toElements(nodes, [], { ...state({ centers: [A] }), limits: { [A]: MAX_NEIGHBOUR_LIMIT - 1 } }, { [A]: 12 });
+    expect(below.some((e) => e.data.id === `more:${A}`)).toBe(true);
   });
 
   test("selected pair marks edges in both directions", () => {
