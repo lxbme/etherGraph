@@ -1,5 +1,6 @@
 pub mod address;
 pub mod batches;
+pub mod counterparties;
 pub mod events;
 pub mod graph;
 pub mod jobs;

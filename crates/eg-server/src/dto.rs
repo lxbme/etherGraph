@@ -420,6 +420,34 @@ pub struct TransferPageDto {
     pub next_cursor: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AssetRefDto {
+    /// Token address; null for ETH.
+    pub asset: Option<String>,
+    pub symbol: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CounterpartyDto {
+    pub node: NodeSummaryDto,
+    /// Transfers exchanged with the queried address.
+    #[ts(type = "number")]
+    pub count: u64,
+    pub last_ts: String,
+    pub assets: Vec<AssetRefDto>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CounterpartyPageDto {
+    pub items: Vec<CounterpartyDto>,
+    /// Counterparties matching the filters, before paging.
+    #[ts(type = "number")]
+    pub total: u64,
+}
+
 pub fn hex_addr(a: Address) -> String {
     format!("{a:#x}")
 }

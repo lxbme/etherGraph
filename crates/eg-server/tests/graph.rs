@@ -1141,3 +1141,102 @@ async fn transfers_min_amount_matches_edge_threshold(pool: PgPool) {
         assert_invalid(s, &b);
     }
 }
+
+// ------------------------------------------------------- counterparties
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn counterparties_sort_page_kind_and_limits(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let d = Address::repeat_byte(0xd1);
+    token(&state, USDT, "USDT", Some(6)).await;
+    // A: 3 transfers (latest at 30), B: 1 (at 40), D: 2 (at 20, a contract).
+    seed(
+        &state,
+        vec![
+            tr(1, C, A, None, U256::from(1), 10),
+            tr(2, A, C, Some(USDT), U256::from(2), 20),
+            tr(3, C, A, None, U256::from(3), 30),
+            tr(4, C, B, None, U256::from(4), 40),
+            tr(5, C, d, None, U256::from(5), 15),
+            tr(6, d, C, None, U256::from(6), 20),
+        ],
+    )
+    .await;
+    state
+        .store
+        .upsert_accounts(&[AccountRow {
+            address: d,
+            kind: AccountKind::Contract,
+            contract_name: None,
+            is_proxy: false,
+            implementation: None,
+            creator: None,
+            creation_tx: None,
+            meta_fetched_at: Utc::now(),
+        }])
+        .await
+        .unwrap();
+    let base = format!("/api/address/{}/counterparties", hex(C));
+    let order = |b: &Value| -> Vec<String> {
+        b["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["node"]["address"].as_str().unwrap().to_owned())
+            .collect()
+    };
+
+    let (s, b) = get(&app, &format!("{base}?sort=count_desc")).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["total"], 3);
+    assert_eq!(order(&b), vec![hex(A), hex(d), hex(B)]);
+    assert_eq!(b["items"][0]["count"], 3);
+    assert_eq!(b["items"][0]["node"]["kind"], "unknown");
+    assert_eq!(b["items"][1]["node"]["kind"], "contract");
+    assert!(b["items"][0]["last_ts"].as_str().unwrap().ends_with('Z'));
+    let assets = b["items"][0]["assets"].as_array().unwrap();
+    assert!(assets.contains(&json!({"asset": null, "symbol": "ETH"})));
+    assert!(assets.contains(&json!({"asset": hex(USDT), "symbol": "USDT"})));
+
+    let (_, b) = get(&app, &format!("{base}?sort=count_asc&limit=2&offset=1")).await;
+    assert_eq!(b["total"], 3);
+    assert_eq!(order(&b), vec![hex(d), hex(A)]);
+    let (_, b) = get(&app, &format!("{base}?sort=recent")).await;
+    assert_eq!(order(&b), vec![hex(B), hex(A), hex(d)]);
+
+    // Default sort and kind=all work; kind narrows; unknown counts as eoa.
+    let (s, b) = get(&app, &format!("{base}?kind=all")).await;
+    assert_eq!((s, b["total"].clone()), (StatusCode::OK, json!(3)));
+    let (_, b) = get(&app, &format!("{base}?kind=contract")).await;
+    assert_eq!((order(&b), b["total"].clone()), (vec![hex(d)], json!(1)));
+    let (_, b) = get(&app, &format!("{base}?kind=eoa&sort=count_desc")).await;
+    assert_eq!(order(&b), vec![hex(A), hex(B)]);
+
+    // Time window.
+    let from = at(25).to_rfc3339();
+    let (_, b) = get(
+        &app,
+        &format!("{base}?sort=count_desc&from={}", from.replace('+', "%2B")),
+    )
+    .await;
+    assert_eq!(order(&b), vec![hex(A), hex(B)]);
+    assert_eq!(b["items"][0]["count"], 1);
+
+    // Validation.
+    for q in [
+        "limit=1001",
+        "limit=abc",
+        "limit=0",
+        "sort=bogus",
+        "kind=bogus",
+        "from=yesterday",
+        "offset=-1",
+    ] {
+        let (s, b) = get(&app, &format!("{base}?{q}")).await;
+        assert_invalid(s, &b);
+    }
+    let (s, _) = get(&app, &format!("{base}?limit=1000")).await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, b) = get(&app, "/api/address/0x12/counterparties").await;
+    assert_invalid(s, &b);
+}
