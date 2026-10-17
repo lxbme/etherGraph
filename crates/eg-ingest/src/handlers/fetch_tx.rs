@@ -73,9 +73,15 @@ impl JobHandler for FetchTxHandler {
             .receipt(p, hash)
             .await?
             .ok_or_else(|| JobError::Invalid("receipt not found".into()))?;
-        let header = ctx.source.block(p, block).await?;
-        let ts = header.ts;
-        ctx.store.upsert_block(&header).await?;
+        // A block is fetched once: a stored header (from an earlier tx of the same block) is reused.
+        let ts = match ctx.store.block(block).await? {
+            Some(stored) => stored.ts,
+            None => {
+                let header = ctx.source.block(p, block).await?;
+                ctx.store.upsert_block(&header).await?;
+                header.ts
+            }
+        };
         let revert_reason = if receipt.success {
             None
         } else {

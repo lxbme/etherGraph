@@ -263,6 +263,28 @@ async fn fetch_tx_stores_block(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
+async fn second_tx_in_a_stored_block_skips_the_block_call(pool: PgPool) {
+    let e = env(pool);
+    e.fake
+        .add_tx(raw_tx(None), receipt(true, 7, vec![]), vec![], ts());
+    e.fake.add_block(header());
+    run(&e, &format!("{HASH:#x}")).await.unwrap();
+    // tx, receipt, block, internal transfers.
+    assert_eq!(e.fake.calls(), 4);
+
+    let other = B256::repeat_byte(0x22);
+    let mut tx = raw_tx(None);
+    tx.hash = other;
+    tx.json["hash"] = json!(format!("{other:#x}"));
+    e.fake.add_tx(tx, receipt(true, 7, vec![]), vec![], ts());
+    run(&e, &format!("{other:#x}")).await.unwrap();
+    // Same block 100: tx, receipt, internal transfers only.
+    assert_eq!(e.fake.calls(), 4 + 3);
+    let row = e.ctx.store.transaction(other).await.unwrap().unwrap();
+    assert_eq!(row.ts, header().ts);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
 async fn failed_tx_stores_revert_reason(pool: PgPool) {
     let e = env(pool);
     e.fake
