@@ -273,7 +273,8 @@ test("Logs show decoded cards that switch to raw topics and data, capped at 200 
   const last = cards()[250]!;
   expect(within(last).getByText("Undecoded")).toBeInTheDocument();
   expect(within(last).getByText(ev.topics[0]!)).toBeInTheDocument();
-});
+  // Renders 200 and then 251 log cards (~1.3 s alone); under a loaded parallel run that passed the 5 s default.
+}, 20_000);
 
 test("Raw loads the tx and receipt JSON only when first opened", async () => {
   const spy = vi.spyOn(api, "txRaw").mockResolvedValue({ tx: { nonce: "0xc" }, receipt: { status: "0x1" } });

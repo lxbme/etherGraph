@@ -110,3 +110,18 @@ export async function tapEdge(page: Page, source: string, target: string): Promi
   );
   expect(ok, `edge ${source}→${target} exists`).toBe(true);
 }
+
+/** Page (viewport) coordinates of a node's centre on the address graph. */
+export async function nodeScreenPos(page: Page, id: string): Promise<{ x: number; y: number }> {
+  const pos = await page.evaluate((id) => {
+    type Core = import("cytoscape").Core;
+    const cy = (window as unknown as { __etherGraphCy?: Core | null }).__etherGraphCy;
+    const n = cy?.$id(id);
+    if (!cy || !n || n.empty()) return null;
+    const r = cy.container()!.getBoundingClientRect();
+    const p = n.renderedPosition();
+    return { x: r.left + p.x, y: r.top + p.y };
+  }, id);
+  expect(pos, `node ${id} exists`).not.toBeNull();
+  return pos!;
+}

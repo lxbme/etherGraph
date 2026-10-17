@@ -10,7 +10,7 @@ const SIZES = [
 ] as const;
 
 /** Elements that must not overflow: topbar / statusbar / right panel (and its scrolling bodies) / transfers / jobs popover / kv keys. */
-const CONTAINERS = [".topbar", ".statusbar", ".main__right", ".main__right-body", ".detail", ".transfers", ".jobs__popover", ".kv > dt", ".txbar", ".txdetail__tabs", ".txdetail__tabs .seg", ".txdetail__body", ".txdetail__overview", ".txdetail__kv"];
+const CONTAINERS = [".topbar", ".statusbar", ".main__right", ".main__right-body", ".detail", ".transfers", ".jobs__popover", ".kv > dt", ".txbar", ".txdetail__tabs", ".txdetail__tabs .seg", ".txdetail__body", ".txdetail__overview", ".txdetail__kv", ".legend", ".legend__body", ".drawer", ".drawer__body", ".help__keys"];
 /** Checked too, but an intentional ellipsis (overflow hidden + title) is allowed: buttons, key/value values, job cells. */
 const ELLIPSIS_OK = [".btn", ".kv > dd", ".jobs__popover td"];
 
@@ -136,6 +136,24 @@ for (const theme of THEMES) {
         // Transaction tab, Overview active: summary bar, tab group and kv grid.
         await page.keyboard.press("Escape");
         await page.locator(".settings").waitFor({ state: "hidden" }).catch(() => {});
+
+        // Legend expanded (the default) over the address graph.
+        const legend = page.getByTestId("legend");
+        await expect(legend).toBeVisible();
+        await expect(legend.getByRole("button", { name: /Collapse legend|收起图例/ })).toBeVisible();
+        await expectNoOverflow(page, "legend expanded");
+        await page.screenshot({ path: `test-results/visual/legend-${theme}-${locale}-${size.width}.png` });
+
+        // Help drawer open.
+        await page.locator("#eg-help-button").click();
+        const drawer = page.locator("#eg-help");
+        await expect(drawer).toBeVisible();
+        await expect(drawer.locator(".help__keys")).toBeVisible();
+        await expectNoOverflow(page, "help drawer");
+        await page.screenshot({ path: `test-results/visual/help-${theme}-${locale}-${size.width}.png` });
+        await page.keyboard.press("Escape");
+        await expect(drawer).toBeHidden();
+
         await search.fill(TX);
         await search.press("Enter");
         const txView = page.getByTestId("tx-view");

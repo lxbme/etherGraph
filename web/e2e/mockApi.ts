@@ -163,14 +163,14 @@ export interface MockApi {
  * per-route request recording. `/api/events` requests are held open (EventSource stays
  * "connecting", so no disconnect banner) until a test pushes events.
  */
-export async function installMockApi(page: Page): Promise<MockApi> {
+export async function installMockApi(page: Page, opts: { tourDone?: boolean } = {}): Promise<MockApi> {
   const handlers = defaultHandlers();
   const seen = new Map<RouteKey, Request[]>();
   const holds = new Map<RouteKey, Promise<void>>();
   const sse: Route[] = [];
   const unhandled: string[] = [];
   // The first-run tour would cover the page under test.
-  await page.addInitScript(() => localStorage.setItem("eg.tour.done", "1"));
+  if (opts.tourDone !== false) await page.addInitScript(() => localStorage.setItem("eg.tour.done", "1"));
 
   await page.route("**/api/**", async (route) => {
     const req = route.request();
@@ -236,9 +236,11 @@ async function expectSoon(cond: () => boolean, message: string, timeoutMs = 5000
 }
 
 /** `test` with a `mock` fixture: the API is mocked before the page loads. */
-export const test = base.extend<{ mock: MockApi }>({
-  mock: async ({ page }, use) => {
-    const mock = await installMockApi(page);
+export const test = base.extend<{ mock: MockApi; tourDone: boolean }>({
+  /** Set false (`test.use({ tourDone: false })`) to let the first-run tour show. */
+  tourDone: [true, { option: true }],
+  mock: async ({ page, tourDone }, use) => {
+    const mock = await installMockApi(page, { tourDone });
     await use(mock);
     await mock.dispose();
     // Close while still routed, so an EventSource reconnect never reaches the network.

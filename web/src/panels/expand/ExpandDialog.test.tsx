@@ -292,7 +292,7 @@ test("with several sync requests, the batch is cancelled only after all of them 
   const cancel = vi.spyOn(api, "cancelBatch").mockResolvedValue({ cancelled: [] });
   mockCounterparties(range(1, 60).map((n) => cp(n)));
   mount();
-  await waitFor(() => expect(checkedAddrs()).toHaveLength(60));
+  await waitFor(() => expect(checkedAddrs()).toHaveLength(60), { timeout: 5000 }); // probed chunk by chunk (20, 40, 60): waitFor's 1 s default expired mid-way under load
   await act(async () => fireEvent.click(expandBtn()));
   expect(sync).toHaveBeenCalledTimes(2);
   expect(cancel).not.toHaveBeenCalled();
