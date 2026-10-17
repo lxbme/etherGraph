@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { useTheme, type ThemePref } from "./theme";
 import { LOCALES, LOCALE_NAMES, useLocale, useT, type MsgKey } from "../i18n";
 
-const THEMES: { value: string; label: MsgKey }[] = [
+const THEMES: { value: ThemePref; label: MsgKey }[] = [
   { value: "light", label: "settings.theme.light" },
   { value: "dark", label: "settings.theme.dark" },
   { value: "system", label: "settings.theme.system" },
@@ -12,7 +13,8 @@ export function SettingsMenu() {
   const locale = useLocale((s) => s.locale);
   const setLocale = useLocale((s) => s.setLocale);
   const [open, setOpen] = useState(false);
-  const [theme, setTheme] = useState("light"); // not wired yet
+  const pref = useTheme((s) => s.pref);
+  const setPref = useTheme((s) => s.setPref);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,7 +53,7 @@ export function SettingsMenu() {
             <div>{t("settings.theme")}</div>
             {THEMES.map((o) => (
               <label key={o.value}>
-                <input type="radio" name="eg-theme" checked={theme === o.value} onChange={() => setTheme(o.value)} />
+                <input type="radio" name="eg-theme" checked={pref === o.value} onChange={() => setPref(o.value)} />
                 {t(o.label)}
               </label>
             ))}

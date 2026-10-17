@@ -16,7 +16,7 @@ import { NodeDetail } from "../panels/NodeDetail";
 import { useUi } from "../panels/uiStore";
 import { useJobProgress } from "../shell/statusStore";
 import { toast } from "../shell/Toasts";
-import { useColorScheme } from "./AddressGraph";
+import { useTheme } from "../shell/theme";
 import { flowAmountText, flowSymbol, txElements } from "./txElements";
 import type { TxFlowDto } from "../api/generated/TxFlowDto";
 
@@ -184,7 +184,7 @@ export function TxFlowView({ hash }: { hash: string }) {
   });
   const jobId = q.data?.job_id ?? null;
   const job = useJobProgress((s) => (jobId === null ? undefined : s.byId[jobId]));
-  const theme = useColorScheme();
+  const theme = useTheme((s) => s.resolved);
   const t = useT();
   const locale = useLocale((s) => s.locale);
   const stylesheet = useMemo(() => txStylesheet(theme), [theme]);

@@ -20,21 +20,7 @@ import { useGraphData } from "../graph/useGraphData";
 import { deriveVisualEdges } from "../graph/visualEdges";
 import { shortAddr } from "../lib/address";
 import { toast } from "../shell/Toasts";
-
-const DARK_QUERY = "(prefers-color-scheme: dark)";
-const hasMatchMedia = () => typeof window !== "undefined" && typeof window.matchMedia === "function";
-
-export function useColorScheme(): "light" | "dark" {
-  const [dark, setDark] = useState(() => hasMatchMedia() && window.matchMedia(DARK_QUERY).matches);
-  useEffect(() => {
-    if (!hasMatchMedia()) return;
-    const mq = window.matchMedia(DARK_QUERY);
-    const onChange = (e: MediaQueryListEvent) => setDark(e.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return dark ? "dark" : "light";
-}
+import { useTheme } from "../shell/theme";
 
 const lc = (s: string) => s.toLowerCase();
 
@@ -53,7 +39,7 @@ export function AddressGraph() {
   const highlightTransfer = useGraph((s) => s.highlightTransfer);
   const epoch = useGraph((s) => s.epoch);
 
-  const theme = useColorScheme();
+  const theme = useTheme((s) => s.resolved);
   const tr = useT();
   const locale = useLocale((s) => s.locale);
   const stylesheet = useMemo(() => graphStylesheet(theme), [theme]);
