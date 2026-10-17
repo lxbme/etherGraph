@@ -212,10 +212,8 @@ impl Store {
                 return Ok((id, false));
             }
         }
-        Err(StoreError::Invalid(format!(
-            "enqueue of key {} kept racing with job completion",
-            j.key
-        )))
+        // A transient race, not an invalid value: the caller may retry.
+        Err(StoreError::Conflict)
     }
 
     /// Claims the most urgent, oldest pending job and marks it running. A job

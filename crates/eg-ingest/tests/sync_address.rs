@@ -788,3 +788,32 @@ async fn enqueue_sync_never_joins_a_job_cancelled_under_it(pool: PgPool) {
     assert_eq!(owners(&e, second).await, vec![Some("b2".to_string())]);
     assert!(owners(&e, first).await.is_empty());
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn enqueue_sync_reports_a_conflict_when_joining_keeps_racing(pool: PgPool) {
+    use eg_ingest::{SyncDirection, enqueue_sync};
+    use eg_store::StoreError;
+    let e = env(pool.clone(), 10_000);
+    // Every owner insert sees its job cancelled under it (then rolled back with
+    // it), so each attempt finds the same job and fails to join it.
+    sqlx::raw_sql(
+        "CREATE FUNCTION cancel_owned() RETURNS trigger LANGUAGE plpgsql AS $$ \
+         BEGIN UPDATE jobs SET status = 'cancelled' WHERE id = NEW.job_id; RETURN NEW; END $$; \
+         CREATE TRIGGER cancel_owned BEFORE INSERT ON job_owners \
+         FOR EACH ROW EXECUTE FUNCTION cancel_owned();",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let err = enqueue_sync(
+        &e.ctx,
+        ADDR,
+        SyncDirection::Latest,
+        Priority::Background,
+        None,
+        Some("b1"),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, StoreError::Conflict), "{err:?}");
+}

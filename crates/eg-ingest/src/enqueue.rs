@@ -75,10 +75,9 @@ pub async fn enqueue_sync(
             return Ok(id);
         }
     }
-    Err(StoreError::Invalid(format!(
-        "enqueue of key {} kept racing with job cancellation",
-        job.key
-    )))
+    // A transient race, not bad input: the caller may simply retry.
+    tracing::warn!(key = %job.key, "enqueue kept racing with job cancellation");
+    Err(StoreError::Conflict)
 }
 
 pub async fn enqueue_fetch_tx(ctx: &JobCtx, hash: TxHash) -> Result<i64, StoreError> {

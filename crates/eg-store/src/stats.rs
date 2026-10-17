@@ -517,6 +517,31 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn cancel_background_flags_running_and_cancels_paused(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let running = job(&s, "running", Priority::Background).await;
+        let paused = job(&s, "paused", Priority::Low).await;
+        assert_eq!(s.claim_next().await.unwrap().unwrap().id, running);
+        assert_eq!(s.claim_next().await.unwrap().unwrap().id, paused);
+        s.pause_job_quota(paused).await.unwrap();
+
+        let got = s.cancel_background().await.unwrap();
+        assert_eq!(
+            got,
+            vec![
+                // A running job only gets the flag; its worker stops it.
+                (running, JobKind::SyncAddress, JobStatus::Running),
+                (paused, JobKind::SyncAddress, JobStatus::Cancelled),
+            ]
+        );
+        assert!(s.cancel_requested(running).await.unwrap());
+        assert_eq!(
+            s.job(paused).await.unwrap().unwrap().status,
+            JobStatus::Cancelled
+        );
+    }
+
+    #[sqlx::test]
     async fn counterparties_sorts_and_pages(pool: PgPool) {
         let s = Store::from_pool(pool);
         let me = a(1);
