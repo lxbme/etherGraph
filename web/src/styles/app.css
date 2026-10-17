@@ -689,6 +689,8 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .graph-tooltip {
   position: absolute;
   z-index: 6;
+  /* Natural width (not shrunk against the container edge), so the flip measures the real size. */
+  width: max-content;
   max-width: 280px;
   padding: var(--sp-2) var(--sp-3);
   border-radius: var(--radius-pop);

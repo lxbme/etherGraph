@@ -1,4 +1,4 @@
-import { expectLaidOut, nodeScreenPos } from "./cy";
+import { expectLaidOut, nodeScreenPos, snapshot } from "./cy";
 import { A, B, C, D, expect, fixtures, test } from "./mockApi";
 import graphFiltered from "./fixtures/graph-filtered.json" with { type: "json" };
 
@@ -54,6 +54,47 @@ test("hovering a node shows its tooltip; moving away hides it", async ({ page, m
   await expect(tip).toContainText("Neighbours");
   await page.mouse.move(2, 2, { steps: 15 });
   await expect(tip).toHaveCount(0);
+  expect(mock.unhandled).toEqual([]);
+});
+
+test("a tooltip at the right edge flips left: inside the canvas and clear of the pointer", async ({ page, mock }) => {
+  await openGraph(page);
+  const tip = page.getByTestId("graph-tooltip");
+  // The right-most node, once the layout stopped moving.
+  const rightmost = async () => {
+    const s = (await snapshot(page, "main"))!;
+    return s.nodes.reduce((a, b) => (b.x2 > a.x2 ? b : a));
+  };
+  let last = await rightmost();
+  await expect(async () => {
+    await page.waitForTimeout(250);
+    const cur = await rightmost();
+    const same = cur.id === last.id && cur.x2 === last.x2 && cur.y1 === last.y1;
+    last = cur;
+    expect(same, "layout settled").toBe(true);
+  }).toPass({ timeout: 5000 });
+  // Pan it to 16px from the canvas's right edge (a fit centres small graphs).
+  await page.evaluate((id) => {
+    type Core = import("cytoscape").Core;
+    const cy = (window as unknown as { __etherGraphCy: Core }).__etherGraphCy;
+    const b = cy.$id(id).renderedBoundingBox({ includeLabels: false });
+    cy.panBy({ x: cy.width() - 16 - b.x2, y: 0 });
+  }, last.id);
+  last = (await snapshot(page, "main"))!.nodes.find((n) => n.id === last.id)!;
+  const box = (await page.locator(".address-graph .cy-view").boundingBox())!;
+  // Its right-hand side (edges come in from the left), entered straight from the empty space below.
+  const anchor = { x: box.x + last.x2 - 3, y: box.y + (last.y1 + last.y2) / 2 };
+  await page.mouse.move(anchor.x, anchor.y + 60);
+  await page.mouse.move(anchor.x, anchor.y);
+  await expect(tip).toBeVisible();
+  const t = (await tip.boundingBox())!;
+  expect(t.x + t.width, "tooltip right edge inside the canvas").toBeLessThanOrEqual(box.x + box.width + 0.5);
+  expect(t.x, "tooltip left edge inside the canvas").toBeGreaterThanOrEqual(box.x - 0.5);
+  // Flipped at its natural width, not squeezed into the strip right of the pointer.
+  expect(t.x + t.width, "tooltip flipped left of the pointer").toBeLessThanOrEqual(anchor.x);
+  expect(t.width, "tooltip keeps its natural width").toBeGreaterThan(100);
+  const covers = anchor.x >= t.x && anchor.x <= t.x + t.width && anchor.y >= t.y && anchor.y <= t.y + t.height;
+  expect(covers, "tooltip does not cover the pointer").toBe(false);
   expect(mock.unhandled).toEqual([]);
 });
 

@@ -96,3 +96,12 @@ describe("app.css semantic colours", () => {
     expect(ruleBody(css, selector)).toMatch(/border-radius:\s*var\(--radius\)/);
   });
 });
+
+describe("app.css layout rules", () => {
+  const css = SHEETS["./app.css"]!;
+  it("the graph tooltip keeps its natural width (the edge flip measures it) up to 280px", () => {
+    const body = ruleBody(css, ".graph-tooltip");
+    expect(body).toMatch(/(^|[\s;])width:\s*max-content/);
+    expect(body).toMatch(/max-width:\s*280px/);
+  });
+});

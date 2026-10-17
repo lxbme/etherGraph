@@ -66,7 +66,7 @@ test("mouseout hides at once and cancels a pending show", () => {
   expect(onHover.mock.calls.filter((c) => c[0] !== null)).toHaveLength(0);
 });
 
-test.each(["viewport", "grab", "tapstart"])("%s hides a shown tooltip", (ev) => {
+test.each(["viewport", "grab", "tapstart", "cxttapstart"])("%s hides a shown tooltip", (ev) => {
   const onHover = vi.fn<HoverFn>();
   const { cy } = mount(onHover);
   cy.getElementById("a").emit("mouseover");
@@ -82,4 +82,19 @@ test("unmount cancels a pending show", () => {
   view.unmount();
   vi.advanceTimersByTime(500);
   expect(onHover).not.toHaveBeenCalled();
+});
+
+test("the pointer leaving the canvas hides at once and cancels a pending show", () => {
+  const onHover = vi.fn<HoverFn>();
+  const { cy, view } = mount(onHover);
+  const container = view.container.querySelector(".cy-view")!;
+  cy.getElementById("a").emit("mouseover");
+  vi.advanceTimersByTime(300);
+  act(() => { container.dispatchEvent(new Event("pointerleave")); });
+  expect(onHover).toHaveBeenLastCalledWith(null);
+  cy.getElementById("b").emit("mouseover");
+  vi.advanceTimersByTime(100);
+  act(() => { container.dispatchEvent(new Event("pointerleave")); });
+  vi.advanceTimersByTime(500);
+  expect(onHover).toHaveBeenLastCalledWith(null);
 });

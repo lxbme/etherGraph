@@ -174,7 +174,9 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       }, HOVER_DELAY_MS);
     });
     cy.on("mouseout", "node, edge", hideHover);
-    cy.on("viewport grab drag tapstart", hideHover);
+    cy.on("viewport grab drag tapstart cxttapstart", hideHover);
+    // A fast exit off the canvas edge may never reach Cytoscape's mouseout.
+    container.addEventListener("pointerleave", hideHover);
 
     // A multi-node drag emits one `dragfree` per node in the same tick; report them together.
     let dragged: Record<string, Pos> | null = null;
@@ -246,6 +248,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       alive = false;
       if (hoverTimer !== undefined) clearTimeout(hoverTimer);
       ro?.disconnect();
+      container.removeEventListener("pointerleave", hideHover);
       container.removeEventListener("wheel", onUserViewport);
       container.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("pointerup", onPointerUp, true);
