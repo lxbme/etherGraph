@@ -328,18 +328,18 @@ function placeProxies(cy: cytoscape.Core, centers: Set<string>, k: Axes): void {
   }
 }
 
-/** Centers of the proxies among `fresh`, plus fresh nodes' anchors that have a proxy. */
-function proxyCenters(fresh: cytoscape.NodeCollection): Set<string> {
+/** Centers of the proxies among `fresh`, plus fresh nodes' neighbours that have a proxy. */
+function proxyCenters(cy: cytoscape.Core, fresh: cytoscape.NodeCollection): Set<string> {
   const out = new Set<string>();
   fresh.forEach((n) => {
-    if (isMoreId(n.id())) {
-      n.neighborhood("node").forEach((c) => {
-        out.add(c.id());
-      });
+    const id = n.id();
+    if (isMoreId(id)) {
+      out.add(id.slice(MORE_PREFIX.length));
       return;
     }
     n.neighborhood("node").forEach((a) => {
-      if (!isMoreId(a.id()) && a.neighborhood("node").filter((m) => isMoreId(m.id())).nonempty()) out.add(a.id());
+      const aid = a.id();
+      if (!out.has(aid) && !isMoreId(aid) && cy.getElementById(`${MORE_PREFIX}${aid}`).nonempty()) out.add(aid);
     });
   });
   return out;
@@ -349,19 +349,37 @@ function proxyCenters(fresh: cytoscape.NodeCollection): Set<string> {
 const realNeighbours = (n: cytoscape.NodeSingular) =>
   n.neighborhood("node").nodes().filter((m) => !isMoreId(m.id())).nodes();
 
-/** A node whose only neighbour has others: it belongs on that anchor's rings. */
-function isLeaf(n: cytoscape.NodeSingular): boolean {
-  const a = realNeighbours(n);
-  return a.length === 1 && realNeighbours(a.first()).length > 1;
+/**
+ * The leaves among `nodes` (proxies excluded): nodes whose only neighbour has others, so they belong on that
+ * anchor's rings. Returns each leaf's anchor; the leaves' collection is in `nodes` order.
+ */
+function splitLeaves(nodes: cytoscape.NodeCollection): { leaves: cytoscape.NodeCollection; anchorOf: Map<string, cytoscape.NodeSingular> } {
+  const degree = new Map<string, number>();
+  const realDegree = (n: cytoscape.NodeSingular) => {
+    let d = degree.get(n.id());
+    if (d === undefined) {
+      d = realNeighbours(n).length;
+      degree.set(n.id(), d);
+    }
+    return d;
+  };
+  const anchorOf = new Map<string, cytoscape.NodeSingular>();
+  const leaves = nodes
+    .filter((n) => {
+      if (isMoreId(n.id())) return false;
+      const a = realNeighbours(n as cytoscape.NodeSingular);
+      if (a.length !== 1 || realDegree(a.first()) < 2) return false;
+      anchorOf.set(n.id(), a.first());
+      return true;
+    })
+    .nodes();
+  return { leaves, anchorOf };
 }
 
 /** Leaves per anchor id (a leaf's ring group key). */
-function leafCounts(leaves: cytoscape.NodeCollection): Map<string, number> {
+function leafCounts(anchorOf: Map<string, cytoscape.NodeSingular>): Map<string, number> {
   const out = new Map<string, number>();
-  leaves.forEach((l) => {
-    const a = realNeighbours(l).first().id();
-    out.set(a, (out.get(a) ?? 0) + 1);
-  });
+  for (const a of anchorOf.values()) out.set(a.id(), (out.get(a.id()) ?? 0) + 1);
   return out;
 }
 
@@ -382,10 +400,10 @@ const MAX_CORE_SCALE = 6;
  */
 function ringLeaves(cy: cytoscape.Core, k: Axes): void {
   const real = cy.nodes().filter((n) => !isMoreId(n.id())).nodes();
-  const leaves = real.filter((n) => isLeaf(n as cytoscape.NodeSingular)).nodes();
+  const { leaves, anchorOf } = splitLeaves(real);
   if (leaves.empty()) return;
   const core = real.difference(leaves).nodes();
-  const count = leafCounts(leaves);
+  const count = leafCounts(anchorOf);
   const big = [...count]
     .filter(([, m]) => m > ringCapacity(NEIGHBOR_RADIUS, k))
     .map(([id, m]) => ({ p: cy.getElementById(id).position(), r: ringsRadius(m, k) }));
@@ -477,15 +495,15 @@ export function runIncrementalLayout(cy: cytoscape.Core, newIds: string[], opts:
       padding: FIT_PADDING,
     });
     for (const [id, p] of spread) cy.getElementById(id).position(p);
-    placeProxies(cy, proxyCenters(fresh), k);
+    placeProxies(cy, proxyCenters(cy, fresh), k);
     fitClamped(cy, FIT_PADDING);
     if (!big && shouldAnimate(cy, total, opts)) glide(cy, fresh, from);
     return;
   }
 
-  const proxies = proxyCenters(fresh);
+  const proxies = proxyCenters(cy, fresh);
   const real = fresh.filter((n) => !isMoreId(n.id())).nodes();
-  const leaves = real.filter((n) => isLeaf(n as cytoscape.NodeSingular)).nodes();
+  const { leaves, anchorOf } = splitLeaves(real);
   const others = real.difference(leaves).nodes();
   // Animation starts: the others glide from their ring seeds, leaves bloom out of their anchor.
   const start = new Map<string, Pos>();
@@ -493,16 +511,16 @@ export function runIncrementalLayout(cy: cytoscape.Core, newIds: string[], opts:
     const fixOverlaps = placeOnRings(others, existing, k);
     const seeds = positionsOf(others);
     for (const [id, p] of seeds) start.set(id, p);
-    if (others.length <= FCOSE_NEW_LIMIT) {
-      refine(others, existing, seeds);
+    // Nodes without any neighbour stay on their ring: there is nothing to pull them toward.
+    const linked = others.filter((n) => n.degree(false) > 0).nodes();
+    if (linked.nonempty() && others.length <= FCOSE_NEW_LIMIT) {
+      refine(linked, existing, seeds);
       fixOverlaps();
     }
   }
   // Leaves last, on rings around their anchors' final positions (fcose would crowd them back in).
-  leaves.forEach((l) => {
-    start.set(l.id(), { ...realNeighbours(l).first().position() });
-  });
-  placeOnRings(leaves, existing.union(others).nodes(), k, leafCounts(leaves));
+  for (const [id, a] of anchorOf) start.set(id, { ...a.position() });
+  placeOnRings(leaves, existing.union(others).nodes(), k, leafCounts(anchorOf));
   placeProxies(cy, proxies, k);
   if (fresh.length <= FCOSE_NEW_LIMIT && shouldAnimate(cy, fresh.length, opts)) glide(cy, fresh, start);
 }
