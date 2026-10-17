@@ -7,17 +7,12 @@ import { useGraph, type SortKey } from "../graph/store";
 import { useGraphData } from "../graph/useGraphData";
 import { type MsgKey, useT } from "../i18n";
 import { parseHumanAmount } from "../lib/amount";
+import { TRANSFER_KINDS, transferKindName } from "../lib/transferKinds";
 
 type Kind = NonNullable<EdgeFilterDto["kinds"]>[number];
 type Direction = NonNullable<EdgeFilterDto["direction"]>;
 
-const KINDS: { value: Kind; label: MsgKey | null }[] = [
-  { value: "native", label: "kind.native" },
-  { value: "internal", label: "kind.internal" },
-  { value: "erc20", label: null },
-  { value: "erc721", label: null },
-  { value: "erc1155", label: null },
-];
+const KINDS = TRANSFER_KINDS;
 const DIRECTIONS: { value: Direction; label: MsgKey }[] = [
   { value: "both", label: "filter.dir.both" },
   { value: "in", label: "filter.dir.in" },
@@ -209,7 +204,7 @@ function FilterForm({ onClose }: { onClose: () => void }) {
           {KINDS.map((k) => (
             <label key={k.value} className={`chip chip--toggle${kinds.has(k.value) ? " chip--active" : ""}`}>
               <input type="checkbox" checked={kinds.has(k.value)} onChange={() => setKinds(toggle(kinds, k.value))} />
-              {k.label ? t(k.label) : k.value.toUpperCase()}
+              {transferKindName(k.value, t)}
             </label>
           ))}
         </div>

@@ -249,3 +249,16 @@ test("times render in UTC with the local time as title", async () => {
   expect(cell).toHaveAttribute("title", formatLocalTime("2026-10-16T04:11:07Z"));
   expect(screen.getByRole("columnheader", { name: "Time (UTC)" })).toBeInTheDocument();
 });
+
+test("the type column uses the same labels as the kind filter", async () => {
+  vi.spyOn(api, "transfers").mockResolvedValue({
+    items: [tr({}), tr({ sub_id: "1", kind: "internal" }), tr({ sub_id: "2", asset: USDC, kind: "erc20", decimals: 6 })],
+    next_cursor: null,
+  });
+  act(() => useGraph.getState().select({ kind: "node", address: A }));
+  renderTable();
+  expect(await screen.findByText("Native transfers")).toHaveClass("transfers__muted");
+  expect(screen.getByText("Internal transactions")).toBeInTheDocument();
+  expect(screen.getByText("ERC20")).toBeInTheDocument();
+  expect(screen.queryByText("native")).toBeNull();
+});

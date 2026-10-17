@@ -16,10 +16,10 @@ export function CopyButton({ value, label }: { value: string; label?: string }) 
   }, [copied]);
 
   const copy = () => {
-    if (!navigator.clipboard) return toast(t("copy.failed"), "error");
+    if (!navigator.clipboard) return toast(t("common.copyFailed"), "error");
     navigator.clipboard.writeText(value).then(
       () => setCopied(true),
-      () => toast(t("copy.failed"), "error"),
+      () => toast(t("common.copyFailed"), "error"),
     );
   };
   const name = copied ? t("common.copied") : (label ?? t("common.copy"));

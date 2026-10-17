@@ -11,6 +11,7 @@ import { useGraph } from "../graph/store";
 import { useGraphData } from "../graph/useGraphData";
 import { formatCount, formatLocalTime, formatTime } from "../lib/format";
 import { shortAddr } from "../lib/address";
+import { TRANSFER_KINDS, transferKindName } from "../lib/transferKinds";
 import { type MsgKey, useT } from "../i18n";
 import { CopyButton } from "../shell/CopyButton";
 import { toast } from "../shell/Toasts";
@@ -18,13 +19,7 @@ import { useTabs } from "../shell/tabs";
 import { LabelEditor, categoryName } from "./LabelEditor";
 import { useUi } from "./uiStore";
 
-const KINDS: { value: SyncStatusDto["kind"]; label: MsgKey | null }[] = [
-  { value: "native", label: "kind.native" },
-  { value: "internal", label: "kind.internal" },
-  { value: "erc20", label: null },
-  { value: "erc721", label: null },
-  { value: "erc1155", label: null },
-];
+const KINDS = TRANSFER_KINDS;
 const STATE_KEYS: Record<SyncStatusDto["state"], MsgKey> = { syncing: "sync.syncing", ok: "sync.ok", failed: "sync.failed" };
 const KIND_KEYS: Record<string, MsgKey> = { eoa: "node.kind.eoa", contract: "node.kind.contract", unknown: "node.kind.unknown" };
 /** Categories with their own hue; anything else uses the neutral tag. */
@@ -214,7 +209,7 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
           const c = coverage.get(k.value);
           return (
             <li key={k.value}>
-              <span>{k.label ? t(k.label) : k.value.toUpperCase()}</span>
+              <span>{transferKindName(k.value, t)}</span>
               {c ? (
                 <>
                   <span className="detail__state">

@@ -5,7 +5,8 @@ const sources = import.meta.glob<string>(
   { query: "?raw", import: "default", eager: true },
 );
 
-const CJK = /[一-鿿]/;
+// Ideographs, CJK punctuation and kana (U+3000–30FF), fullwidth forms (U+FF00–FFEF).
+const CJK = /[\u3000-\u30ff\u4e00-\u9fff\uff00-\uffef]/;
 
 /** Drops block and line comments, keeping line numbers intact; "://" in URLs is not a comment. */
 function stripComments(src: string): string[] {
@@ -14,6 +15,11 @@ function stripComments(src: string): string[] {
 }
 
 describe("no hard-coded CJK copy outside the dictionaries", () => {
+  it("the pattern covers ideographs, CJK punctuation, kana and fullwidth forms", () => {
+    for (const ch of ["中", "。", "、", "「", "カ", "ひ", "：", "（", "！"]) expect(CJK.test(ch), ch).toBe(true);
+    for (const ch of ["a", "…", "—", "→", "Σ", "·"]) expect(CJK.test(ch), ch).toBe(false);
+  });
+
   it("scans the source tree", () => {
     expect(Object.keys(sources).length).toBeGreaterThan(50);
   });

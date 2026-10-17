@@ -128,7 +128,7 @@ describe('banners', () => {
   it('quota paused shows the reset time banner', () => {
     useQuota.setState({ quota: { used: 100, limit: 100, paused: true, reset_at: '2026-10-18T00:00:00Z' } })
     render(<App />)
-    const text = screen.getByText('Etherscan quota used up for today; resets at 2026-10-18 00:00:00')
+    const text = screen.getByText('Etherscan quota used up for today; resets at 2026-10-18 00:00:00 UTC')
     expect(text).toHaveAttribute('title', formatLocalTime('2026-10-18T00:00:00Z'))
     expect(document.querySelector('.topbar__quota')).toHaveAttribute(
       'title',

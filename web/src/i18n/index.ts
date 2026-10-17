@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { formatCount } from "../lib/format";
 import { en, type MsgKey } from "./en";
 import { zh } from "./zh";
 
@@ -21,19 +22,28 @@ function readLocale(): Locale {
   }
 }
 
+/** Keeps `<html lang>` in step with the UI language (screen readers, hyphenation, font fallback). */
+function applyLang(l: Locale) {
+  if (typeof document !== "undefined") document.documentElement.lang = l === "zh" ? "zh-CN" : "en";
+}
+
 interface LocaleState {
   locale: Locale;
   setLocale(l: Locale): void;
 }
 
+const initialLocale = readLocale();
+applyLang(initialLocale);
+
 export const useLocale = create<LocaleState>((set) => ({
-  locale: readLocale(),
+  locale: initialLocale,
   setLocale(l) {
     try {
       localStorage.setItem(STORAGE_KEY, l);
     } catch {
       /* storage unavailable: keep the choice for this session only */
     }
+    applyLang(l);
     set({ locale: l });
   },
 }));
@@ -52,7 +62,9 @@ function translate(locale: Locale, key: MsgKey, params?: Params): string {
   }
   return text.replace(/\{(\w+)\}/g, (m, name: string) => {
     const v = params?.[name];
-    return v === undefined ? m : String(v);
+    if (v === undefined) return m;
+    // Numbers are grouped en-US style in every locale; plural selection above used the raw value.
+    return typeof v === "number" ? formatCount(v) : v;
   });
 }
 

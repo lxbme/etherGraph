@@ -1,19 +1,34 @@
 import type { JobDto } from "../api/generated/JobDto";
-import { t } from "../i18n";
+import { type MsgKey, t } from "../i18n";
 import { shortAddr } from "../lib/address";
-import { formatCount } from "../lib/format";
 import type { JobProgressEvent } from "./statusStore";
 
-const KINDS: ReadonlySet<string> = new Set(["sync_address", "fetch_tx", "contract_meta", "resolve_names", "token_meta"]);
-const STATUSES: ReadonlySet<string> = new Set(["pending", "running", "paused_quota", "done", "failed", "cancelled"]);
+// Typed against the DTO unions, so a new kind/status from the server fails to compile until it has a key.
+const KINDS: Record<JobDto["kind"], MsgKey> = {
+  sync_address: "job.kind.sync_address",
+  fetch_tx: "job.kind.fetch_tx",
+  contract_meta: "job.kind.contract_meta",
+  resolve_names: "job.kind.resolve_names",
+  token_meta: "job.kind.token_meta",
+};
+const STATUSES: Record<JobDto["status"], MsgKey> = {
+  pending: "job.status.pending",
+  running: "job.status.running",
+  paused_quota: "job.status.paused_quota",
+  done: "job.status.done",
+  failed: "job.status.failed",
+  cancelled: "job.status.cancelled",
+};
 
-/** Localised job kind; an unknown kind from a newer server is shown as-is. */
+/** Localised job kind; a value outside the DTO union (a newer server at runtime) is shown as-is. */
 export function kindName(kind: JobDto["kind"]): string {
-  return KINDS.has(kind) ? t(`job.kind.${kind}`) : kind;
+  const key = Object.hasOwn(KINDS, kind) ? KINDS[kind] : undefined;
+  return key ? t(key) : kind;
 }
 
 export function statusName(status: JobDto["status"]): string {
-  return STATUSES.has(status) ? t(`job.status.${status}`) : status;
+  const key = Object.hasOwn(STATUSES, status) ? STATUSES[status] : undefined;
+  return key ? t(key) : status;
 }
 
 /** Human-readable target of a job; params are read defensively (unknown shape gives "—"). */
@@ -34,7 +49,7 @@ export function progressText(e: JobProgressEvent, job?: Pick<JobDto, "kind" | "p
   const kind = kindName(e.kind);
   if (e.kind === "sync_address") {
     const target = job ? ` ${targetText(job)}` : "";
-    return `${kind}${target} · ${t("job.fetched", { count: formatCount(e.fetched) })}`;
+    return `${kind}${target} · ${t("job.fetched", { count: e.fetched })}`;
   }
   return `${kind} · ${statusName(e.status)}`;
 }

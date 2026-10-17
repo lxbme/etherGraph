@@ -27,7 +27,7 @@ test("expand dialog unchecks hot neighbors by default and shows dry-run estimate
   });
   const ns = [node(1), node(2, { synced: true }), node(3, { hot: true })];
   render(<ExpandDialog neighbors={ns} onClose={() => {}} />);
-  expect(await screen.findByText("Estimated 4 calls · ~2 s · 4900 left in today's quota")).toBeInTheDocument();
+  expect(await screen.findByText("Estimated 4 calls · ~2 s · 4,900 left in today's quota")).toBeInTheDocument();
   expect(sync).toHaveBeenCalledTimes(1);
   expect(sync).toHaveBeenCalledWith({ addresses: [addr(1), addr(2), addr(3)], dry_run: true });
   const boxes = screen.getAllByRole("checkbox") as HTMLInputElement[];
@@ -36,7 +36,7 @@ test("expand dialog unchecks hot neighbors by default and shows dry-run estimate
   expect(screen.getByText("Synced")).toBeInTheDocument();
   // Toggling recomputes locally without another request.
   fireEvent.click(boxes[2]!);
-  expect(await screen.findByText("Estimated 9 calls · ~5 s · 4900 left in today's quota")).toBeInTheDocument();
+  expect(await screen.findByText("Estimated 9 calls · ~5 s · 4,900 left in today's quota")).toBeInTheDocument();
   expect(sync).toHaveBeenCalledTimes(1);
   fireEvent.click(boxes[0]!);
   fireEvent.click(boxes[1]!);

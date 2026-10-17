@@ -15,6 +15,7 @@ import { shortAddr } from "../lib/address";
 import { formatFixed } from "../lib/amount";
 import { assetClass } from "../lib/assets";
 import { formatLocalTime, formatTime } from "../lib/format";
+import { transferKindName } from "../lib/transferKinds";
 import { useTabs } from "../shell/tabs";
 import { groupsForPair, type TransferGroup } from "./transferGroups";
 
@@ -132,7 +133,7 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
                 <td className="num" title={other}>{shortAddr(other)}</td>
                 <AmountCell row={row} />
                 <td>{symbolOf(row.asset, row.symbol)}</td>
-                <td className="transfers__muted">{row.kind}</td>
+                <td className="transfers__muted">{transferKindName(row.kind, t)}</td>
                 <td>
                   <button
                     type="button"

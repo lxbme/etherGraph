@@ -24,8 +24,34 @@ describe("t()", () => {
     expect(t("test.items", { count: 1 })).toBe("1 item");
     expect(t("test.items", { count: 3 })).toBe("3 items");
   });
+  it("groups numeric params en-US style in every locale, plural from the raw number", () => {
+    expect(t("test.items", { count: 1234 })).toBe("1,234 items");
+    expect(t("test.hello", { name: 1234567 })).toBe("Hello, 1,234,567");
+    act(() => useLocale.getState().setLocale("zh"));
+    expect(t("test.hello", { name: 1234 })).toBe("你好，1,234");
+  });
+  it("leaves string params untouched", () => {
+    expect(t("test.hello", { name: "1234" })).toBe("Hello, 1234");
+  });
   it("keeps placeholders when params are missing", () => {
     expect(t("test.hello")).toBe("Hello, {name}");
+  });
+});
+
+describe("document language", () => {
+  it("follows the locale", () => {
+    expect(document.documentElement.lang).toBe("en");
+    act(() => useLocale.getState().setLocale("zh"));
+    expect(document.documentElement.lang).toBe("zh-CN");
+    act(() => useLocale.getState().setLocale("en"));
+    expect(document.documentElement.lang).toBe("en");
+  });
+  it("is set from the stored locale at init", async () => {
+    document.documentElement.lang = "";
+    localStorage.setItem("eg.locale", "zh");
+    vi.resetModules();
+    await import("./index");
+    expect(document.documentElement.lang).toBe("zh-CN");
   });
 });
 

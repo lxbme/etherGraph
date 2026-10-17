@@ -89,7 +89,7 @@ function NameDialog({ initial, onSubmit, onCancel }: { initial: string; onSubmit
       />
       {error && <div className="dialog__error" role="alert">{error}</div>}
       <div className="dialog__actions">
-        <button className="btn" onClick={onCancel}>{t("ws.cancel")}</button>
+        <button className="btn" onClick={onCancel}>{t("common.cancel")}</button>
         <button className="btn btn--primary" onClick={submit}>{t("ws.ok")}</button>
       </div>
     </Modal>
@@ -128,7 +128,7 @@ function OpenDialog({ onPick, onCancel }: { onPick(id: number): void; onCancel()
     <Modal label={t("ws.openTitle")}>
       <h3 className="dialog__title">{t("ws.openTitle")}</h3>
       {error && <div className="dialog__error" role="alert">{error}</div>}
-      {!items && !error && <div className="dialog__summary">{t("ws.loading")}</div>}
+      {!items && !error && <div className="dialog__summary">{t("common.loading")}</div>}
       {items && items.length === 0 && <div className="dialog__summary">{t("ws.none")}</div>}
       <ul className="dialog__list">
         {items?.map((w) => (
@@ -146,7 +146,7 @@ function OpenDialog({ onPick, onCancel }: { onPick(id: number): void; onCancel()
         <Modal label={t("ws.confirmDelete")}>
           <p>{t("ws.confirmDeleteText", { name: pendingDelete.name })}</p>
           <div className="dialog__actions">
-            <button className="btn" onClick={() => setPendingDelete(null)}>{t("ws.cancel")}</button>
+            <button className="btn" onClick={() => setPendingDelete(null)}>{t("common.cancel")}</button>
             <button
               className="btn btn--primary"
               onClick={() => {
@@ -212,7 +212,7 @@ export function WorkspaceMenu() {
     run(async () => {
       if (useWorkspace.getState().id == null) return setDialog({ kind: "name", purpose: "save" });
       if ((await saveCurrent()) === "conflict") setDialog({ kind: "conflict" });
-      else toast(t("ws.saved"));
+      else toast(t("ws.status.saved"));
     });
   const submitName = (purpose: "save" | "saveAs" | "rename", n: string) => {
     setDialog(null);
@@ -222,7 +222,7 @@ export function WorkspaceMenu() {
         return;
       }
       await (purpose === "save" ? saveNew : saveAs)(n);
-      toast(t("ws.saved"));
+      toast(t("ws.status.saved"));
     });
   };
   const onDelete = () => {
@@ -288,7 +288,7 @@ export function WorkspaceMenu() {
         <Modal label={t("ws.confirm")}>
           <p>{dialog.text}</p>
           <div className="dialog__actions">
-            <button className="btn" onClick={() => setDialog(null)}>{t("ws.cancel")}</button>
+            <button className="btn" onClick={() => setDialog(null)}>{t("common.cancel")}</button>
             <button
               className="btn btn--primary"
               onClick={() => {
@@ -307,7 +307,7 @@ export function WorkspaceMenu() {
           <h3 className="dialog__title">{t("ws.conflictTitle")}</h3>
           <p>{t("ws.conflictBody")}</p>
           <div className="dialog__actions">
-            <button className="btn" onClick={() => setDialog(null)}>{t("ws.cancel")}</button>
+            <button className="btn" onClick={() => setDialog(null)}>{t("common.cancel")}</button>
             <button
               className="btn"
               onClick={() => {
@@ -324,7 +324,7 @@ export function WorkspaceMenu() {
                 setDialog(null);
                 void run(async () => {
                   await overwriteCurrent();
-                  toast(t("ws.saved"));
+                  toast(t("ws.status.saved"));
                 });
               }}
             >
