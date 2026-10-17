@@ -1,4 +1,5 @@
 //! eg-store: Postgres persistence.
+mod blocks;
 pub mod convert;
 mod edges;
 mod jobs;
@@ -9,6 +10,7 @@ mod transfers;
 mod txs;
 mod workspaces;
 
+pub use blocks::BlockRow;
 pub use edges::{TransferCursor, TransferQuery, TransferScope};
 pub use jobs::{JobKind, JobRow, JobStatus, NewJob};
 pub use labels::LabelRow;

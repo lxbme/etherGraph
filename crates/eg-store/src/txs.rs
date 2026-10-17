@@ -23,6 +23,7 @@ pub struct TxRow {
     pub fee: U256,
     pub raw_tx: serde_json::Value,
     pub raw_receipt: serde_json::Value,
+    pub revert_reason: Option<String>,
 }
 
 fn tx_from_row(r: &sqlx::postgres::PgRow) -> Result<TxRow> {
@@ -50,6 +51,7 @@ fn tx_from_row(r: &sqlx::postgres::PgRow) -> Result<TxRow> {
         fee: bd_to_u256(&r.try_get("fee")?)?,
         raw_tx: r.try_get("raw_tx")?,
         raw_receipt: r.try_get("raw_receipt")?,
+        revert_reason: r.try_get("revert_reason")?,
     })
 }
 
@@ -57,13 +59,14 @@ impl Store {
     pub async fn upsert_transaction(&self, row: &TxRow) -> Result<()> {
         sqlx::query(
             "INSERT INTO transactions (hash, block_number, ts, from_addr, to_addr, value, selector, \
-             success, gas_used, fee, raw_tx, raw_receipt) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) \
+             success, gas_used, fee, raw_tx, raw_receipt, revert_reason) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) \
              ON CONFLICT (hash) DO UPDATE SET block_number = EXCLUDED.block_number, \
              ts = EXCLUDED.ts, from_addr = EXCLUDED.from_addr, to_addr = EXCLUDED.to_addr, \
              value = EXCLUDED.value, selector = EXCLUDED.selector, success = EXCLUDED.success, \
              gas_used = EXCLUDED.gas_used, fee = EXCLUDED.fee, raw_tx = EXCLUDED.raw_tx, \
-             raw_receipt = EXCLUDED.raw_receipt",
+             raw_receipt = EXCLUDED.raw_receipt, \
+             revert_reason = EXCLUDED.revert_reason",
         )
         .bind(row.hash.as_slice().to_vec())
         .bind(to_i64(row.block_number, "block_number")?)
@@ -77,6 +80,7 @@ impl Store {
         .bind(u256_to_bd(row.fee))
         .bind(&row.raw_tx)
         .bind(&row.raw_receipt)
+        .bind(&row.revert_reason)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -125,6 +129,7 @@ mod tests {
             fee: U256::from(12345678901234567890u128),
             raw_tx: json!({"a": 1}),
             raw_receipt: json!({"b": [2]}),
+            revert_reason: Some("Reverted".into()),
         };
         assert!(store.transaction(row.hash).await.unwrap().is_none());
         store.upsert_transaction(&row).await.unwrap();

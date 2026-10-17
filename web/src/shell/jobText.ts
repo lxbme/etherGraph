@@ -10,6 +10,7 @@ const KINDS: Record<JobDto["kind"], MsgKey> = {
   contract_meta: "job.kind.contract_meta",
   resolve_names: "job.kind.resolve_names",
   token_meta: "job.kind.token_meta",
+  fetch_block: "job.kind.fetch_block",
 };
 const STATUSES: Record<JobDto["status"], MsgKey> = {
   pending: "job.status.pending",

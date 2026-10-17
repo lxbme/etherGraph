@@ -49,7 +49,14 @@ impl JobHandler for FetchTxHandler {
             .receipt(p, hash)
             .await?
             .ok_or_else(|| JobError::Invalid("receipt not found".into()))?;
-        let ts = ctx.source.block_timestamp(p, block).await?;
+        let header = ctx.source.block(p, block).await?;
+        let ts = header.ts;
+        ctx.store.upsert_block(&header).await?;
+        let revert_reason = if receipt.success {
+            None
+        } else {
+            ctx.source.tx_status(p, hash).await?
+        };
         let internals = ctx.source.internal_txs(p, hash).await?;
 
         let mut transfers = Vec::new();
@@ -104,6 +111,7 @@ impl JobHandler for FetchTxHandler {
                 fee: receipt.gas_used.saturating_mul(price),
                 raw_tx: tx.json.clone(),
                 raw_receipt: receipt.json.clone(),
+                revert_reason,
             })
             .await?;
 

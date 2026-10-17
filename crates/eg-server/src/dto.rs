@@ -53,7 +53,7 @@ pub struct JobDto {
     pub id: i64,
     pub key: String,
     #[ts(
-        type = r#""sync_address" | "fetch_tx" | "contract_meta" | "resolve_names" | "token_meta""#
+        type = r#""sync_address" | "fetch_tx" | "contract_meta" | "resolve_names" | "token_meta" | "fetch_block""#
     )]
     pub kind: String,
     #[ts(type = r#""pending" | "running" | "paused_quota" | "done" | "failed" | "cancelled""#)]

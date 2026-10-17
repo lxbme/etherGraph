@@ -25,6 +25,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "job.kind.contract_meta": "合约信息",
   "job.kind.resolve_names": "ENS 解析",
   "job.kind.token_meta": "代币信息",
+  "job.kind.fetch_block": "抓取区块",
   "job.status.pending": "排队中",
   "job.status.running": "进行中",
   "job.status.paused_quota": "额度暂停",

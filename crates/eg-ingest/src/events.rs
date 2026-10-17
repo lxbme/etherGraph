@@ -179,7 +179,7 @@ mod tests {
         assert!(item.contains("name: string | null"), "{item}");
         assert_eq!(
             JobKind::inline(&cfg),
-            r#""sync_address" | "fetch_tx" | "contract_meta" | "resolve_names" | "token_meta""#
+            r#""sync_address" | "fetch_tx" | "contract_meta" | "resolve_names" | "token_meta" | "fetch_block""#
         );
         assert_eq!(
             JobStatus::inline(&cfg),

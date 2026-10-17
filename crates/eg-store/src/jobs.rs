@@ -16,6 +16,7 @@ pub enum JobKind {
     ContractMeta,
     ResolveNames,
     TokenMeta,
+    FetchBlock,
 }
 
 impl JobKind {
@@ -26,6 +27,7 @@ impl JobKind {
             JobKind::ContractMeta => "contract_meta",
             JobKind::ResolveNames => "resolve_names",
             JobKind::TokenMeta => "token_meta",
+            JobKind::FetchBlock => "fetch_block",
         }
     }
 
@@ -36,6 +38,7 @@ impl JobKind {
             "contract_meta" => JobKind::ContractMeta,
             "resolve_names" => JobKind::ResolveNames,
             "token_meta" => JobKind::TokenMeta,
+            "fetch_block" => JobKind::FetchBlock,
             _ => return Err(StoreError::Invalid(format!("unknown job kind {s}"))),
         })
     }

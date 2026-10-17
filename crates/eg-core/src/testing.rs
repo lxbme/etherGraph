@@ -28,6 +28,7 @@ pub struct FakeSource {
     eth_call: Mutex<Option<EthCallFn>>,
     fail: Mutex<Option<SourceError>>,
     calls: AtomicU32,
+    status_calls: AtomicU32,
 }
 
 impl FakeSource {
@@ -97,6 +98,11 @@ impl FakeSource {
 
     pub fn calls(&self) -> u32 {
         self.calls.load(Ordering::SeqCst)
+    }
+
+    /// How many `tx_status` calls were made.
+    pub fn tx_status_calls(&self) -> u32 {
+        self.status_calls.load(Ordering::SeqCst)
     }
 
     fn enter(&self) -> Result<(), SourceError> {
@@ -187,6 +193,7 @@ impl ChainSource for FakeSource {
     }
 
     async fn tx_status(&self, _p: Priority, hash: TxHash) -> Result<Option<String>, SourceError> {
+        self.status_calls.fetch_add(1, Ordering::SeqCst);
         self.enter()?;
         Ok(self.statuses.lock().unwrap().get(&hash).cloned().flatten())
     }

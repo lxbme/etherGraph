@@ -236,6 +236,7 @@ mod tests {
             fee: U256::ZERO,
             raw_tx: json!({"input": input}),
             raw_receipt: receipt,
+            revert_reason: None,
         }
     }
 

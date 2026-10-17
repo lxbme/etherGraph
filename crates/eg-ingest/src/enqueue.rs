@@ -72,6 +72,23 @@ pub async fn enqueue_fetch_tx(ctx: &JobCtx, hash: TxHash) -> Result<i64, StoreEr
     .await
 }
 
+pub async fn enqueue_fetch_block(
+    ctx: &JobCtx,
+    number: u64,
+    hash: TxHash,
+) -> Result<i64, StoreError> {
+    enqueue_one(
+        ctx,
+        NewJob {
+            key: format!("block:{number}"),
+            kind: JobKind::FetchBlock,
+            params: json!({"number": number, "hash": format!("{hash:#x}")}),
+            priority: Priority::Background,
+        },
+    )
+    .await
+}
+
 fn sorted_unique(addrs: &[Address]) -> Vec<Address> {
     let mut v = addrs.to_vec();
     v.sort();

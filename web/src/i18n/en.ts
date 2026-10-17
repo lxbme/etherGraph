@@ -23,6 +23,7 @@ export const en = {
   "job.kind.contract_meta": "Contract info",
   "job.kind.resolve_names": "ENS resolve",
   "job.kind.token_meta": "Token info",
+  "job.kind.fetch_block": "Fetch block",
   "job.status.pending": "Pending",
   "job.status.running": "Running",
   "job.status.paused_quota": "Quota paused",
