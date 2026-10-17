@@ -8,7 +8,8 @@ use crate::classify::classify;
 
 #[async_trait]
 pub trait Transport: Send + Sync {
-    /// Perform a GET with the given query params; returns the raw response body.
+    /// Send one API request with the given params (`eth_call` goes as a form
+    /// POST, everything else as a GET query); returns the raw response body.
     async fn get(&self, params: &[(String, String)]) -> Result<String, SourceError>;
 }
 

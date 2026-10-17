@@ -7,3 +7,4 @@
 .env
 /web/test-results
 /web/playwright-report
+/fixtures/

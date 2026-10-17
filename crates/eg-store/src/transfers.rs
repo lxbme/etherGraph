@@ -65,7 +65,7 @@ pub(crate) async fn upsert_transfers_conn(conn: &mut PgConnection, ts: &[Transfe
              from_addr = EXCLUDED.from_addr, to_addr = EXCLUDED.to_addr, \
              asset = EXCLUDED.asset, amount = EXCLUDED.amount, token_id = EXCLUDED.token_id, \
              trace_id = COALESCE(EXCLUDED.trace_id, transfers.trace_id), \
-             log_index = EXCLUDED.log_index, \
+             log_index = COALESCE(EXCLUDED.log_index, transfers.log_index), \
              call_index = COALESCE(EXCLUDED.call_index, transfers.call_index)",
         );
         qb.build().execute(&mut *conn).await?;

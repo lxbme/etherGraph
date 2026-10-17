@@ -358,6 +358,23 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn upsert_keeps_log_index_when_later_null(pool: PgPool) {
+        let store = Store::from_pool(pool.clone());
+        let mut first = tr(1, TransferKind::Erc20, U256::from(5));
+        first.log_index = Some(7);
+        let mut v = vec![first];
+        assign_sub_ids(&mut v);
+        store.upsert_transfers(&v).await.unwrap();
+
+        let mut v2 = vec![tr(1, TransferKind::Erc20, U256::from(5))];
+        assign_sub_ids(&mut v2);
+        store.upsert_transfers(&v2).await.unwrap();
+
+        let got = store.transfers_of_tx(B256::repeat_byte(1)).await.unwrap();
+        assert_eq!(got[0].log_index, Some(7));
+    }
+
+    #[sqlx::test]
     async fn identical_transfers_both_kept_and_refetch_dedupes(pool: PgPool) {
         let store = Store::from_pool(pool.clone());
         let mut v = vec![
