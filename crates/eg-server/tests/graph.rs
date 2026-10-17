@@ -566,7 +566,7 @@ async fn sync_dry_run_estimates(pool: PgPool) {
     // eth_blockNumber + 5 first pages for each never-synced address.
     assert_eq!(b["estimated_calls"], 12);
     let secs = b["estimated_seconds"].as_f64().unwrap();
-    assert!((secs - 12.0 / 2.8).abs() < 1e-9, "{secs}");
+    assert!((secs - 12.0 / 2.5).abs() < 1e-9, "{secs}");
     assert_eq!(b["per_address"], json!({hex(A): 6, hex(B): 0, hex(C): 6}));
     assert_eq!(b["jobs"], Value::Null);
     assert!(state.store.active_jobs().await.unwrap().is_empty());
