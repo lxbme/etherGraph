@@ -877,13 +877,25 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
   font-size: var(--fs-12);
   white-space: pre;
 }
-/* Overview: values read left to right after their keys; two key/value columns when the panel is wide. */
-.txdetail__kv { align-items: center; padding: 0 var(--sp-3) var(--sp-3); }
+/*
+ * Overview: values read left to right after their keys, one row rhythm throughout. Hash and status span the
+ * width; the identity / parties / value group and the gas / fees group sit side by side when the panel is wide.
+ */
+.txdetail__overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0 var(--sp-6);
+  align-items: start;
+  padding: 0 var(--sp-3) var(--sp-3);
+}
+.txdetail__kv { grid-template-columns: minmax(max-content, 11em) minmax(0, 1fr); row-gap: 0; }
+.txdetail__kv > * { display: flex; align-items: center; min-height: var(--h-compact); }
+.txdetail__kv > dd > * { min-width: 0; }
 .txdetail__kv > :nth-child(even) { text-align: left; }
 .txdetail__kv .addr-cell { justify-content: flex-start; }
-@container (min-width: 960px) {
-  .txdetail__kv { grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr); }
-  .txdetail__kv > dt:nth-child(4n + 3) { padding-left: var(--sp-6); }
+@container (min-width: 800px) {
+  .txdetail__overview { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .txdetail__kv--head { grid-column: 1 / -1; }
 }
 .txdetail__logs { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-2); padding: 0 var(--sp-3) var(--sp-3); }
 .txlog { display: flex; flex-direction: column; gap: var(--sp-2); align-self: stretch; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--line); border-radius: var(--radius); }

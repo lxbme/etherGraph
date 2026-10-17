@@ -285,6 +285,7 @@ export const en = {
   "tx.type.4": "EIP-7702",
   "tx.type.other": "Type {type}",
   "tx.gwei": "{value} Gwei",
+  "tx.wei": "{value} wei",
   "tx.input.selector": "Selector",
   "tx.input.rawHex": "Raw hex",
   "tx.input.creation": { one: "Contract creation · {count} byte", other: "Contract creation · {count} bytes" },

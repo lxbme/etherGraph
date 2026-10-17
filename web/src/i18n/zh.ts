@@ -287,6 +287,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "tx.type.4": "EIP-7702",
   "tx.type.other": "类型 {type}",
   "tx.gwei": "{value} Gwei",
+  "tx.wei": "{value} wei",
   "tx.input.selector": "选择器",
   "tx.input.rawHex": "原始十六进制",
   "tx.input.creation": { one: "合约创建 · {count} 字节", other: "合约创建 · {count} 字节" },

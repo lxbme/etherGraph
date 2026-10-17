@@ -84,10 +84,12 @@ afterEach(() => {
 test("opens on Overview with the fee breakdown, gas usage and Gwei prices", () => {
   renderTabs(base());
   expect(tab("Overview")).toHaveAttribute("aria-pressed", "true");
-  expect(valueOf("Base fee")).toHaveTextContent("<0.000001 ETH (19 Gwei)");
+  // Per-gas prices lead with Gwei; the exact wei and ETH values are the title.
+  expect(valueOf("Base fee")).toHaveTextContent(/^19 Gwei$/);
+  expect(within(valueOf("Base fee")).getByText("19 Gwei")).toHaveAttribute("title", "19,000,000,000 wei = 0.000000019 ETH");
   expect(valueOf("Burnt fees")).toHaveTextContent("0.002888 ETH");
   expect(valueOf("Savings")).toHaveTextContent("0.001520 ETH");
-  expect(valueOf("Max priority fee")).toHaveTextContent("(1 Gwei)");
+  expect(valueOf("Max priority fee")).toHaveTextContent(/^1 Gwei$/);
   expect(valueOf("Gas used")).toHaveTextContent("152,000 (76.0%)");
   expect(valueOf("Gas limit")).toHaveTextContent("200,000");
   expect(valueOf("Transaction type")).toHaveTextContent("EIP-1559");
@@ -107,6 +109,20 @@ test("opens on Overview with the fee breakdown, gas usage and Gwei prices", () =
   expect(screen.queryByText("Etherscan omits zero-value calls.")).toBeNull();
 });
 
+test("Overview groups its rows: hash and status, then identity / parties / value, then gas and fees", () => {
+  renderTabs(base());
+  const groups = within(screen.getByTestId("tx-overview")).getAllByRole("term").reduce<string[][]>((acc, dt) => {
+    const dl = dt.parentElement!;
+    const i = [...dl.parentElement!.children].indexOf(dl);
+    (acc[i] ??= []).push(dt.textContent!);
+    return acc;
+  }, []);
+  expect(groups[0]).toEqual(["Transaction hash", "Status"]);
+  expect(groups[1]).toEqual(expect.arrayContaining(["Block", "From", "To", "Value", "Nonce"]));
+  expect(groups[2]).toEqual(expect.arrayContaining(["Gas limit", "Gas used", "Base fee", "Burnt fees", "Transaction fee"]));
+  expect(groups[1]).not.toContain("Gas used");
+});
+
 test("a legacy pre-London transaction shows a dash for base fee, burnt and savings and hides other absent fields", () => {
   const f = base();
   Object.assign(f.detail, {
@@ -118,7 +134,7 @@ test("a legacy pre-London transaction shows a dash for base fee, burnt and savin
   expect(valueOf("Base fee")).toHaveTextContent(/^—$/);
   expect(valueOf("Burnt fees")).toHaveTextContent(/^—$/);
   expect(valueOf("Savings")).toHaveTextContent(/^—$/);
-  expect(valueOf("Gas price")).toHaveTextContent("(20 Gwei)");
+  expect(valueOf("Gas price")).toHaveTextContent(/^20 Gwei$/);
   expect(valueOf("Confirmations")).toHaveTextContent("1,234");
   for (const gone of ["Max fee", "Max priority fee", "Access list entries", "Position in block"]) {
     expect(screen.queryByText(gone)).toBeNull();
@@ -127,12 +143,13 @@ test("a legacy pre-London transaction shows a dash for base fee, burnt and savin
 
 test("blob fields, the revert reason and a created contract appear when present", () => {
   const f = creation();
-  Object.assign(f.detail, { tx_type: 3, blob_gas_used: "131072", blob_gas_price: "1000000000", revert_reason: "Too little received" });
+  Object.assign(f.detail, { tx_type: 3, blob_gas_used: "131072", blob_gas_price: "7", revert_reason: "Too little received" });
   f.tx.success = false;
   renderTabs(f);
   expect(valueOf("Transaction type")).toHaveTextContent("EIP-4844");
   expect(valueOf("Blob gas used")).toHaveTextContent("131,072");
-  expect(valueOf("Blob gas price")).toHaveTextContent("(1 Gwei)");
+  // Under 1 Gwei a price reads in wei.
+  expect(valueOf("Blob gas price")).toHaveTextContent(/^7 wei$/);
   expect(valueOf("Status")).toHaveTextContent("Failed");
   expect(valueOf("Status")).toHaveTextContent("Too little received");
   expect(valueOf("To")).toHaveTextContent("Contract creation");
@@ -273,5 +290,5 @@ test("tab names and overview keys are translated", () => {
   act(() => useLocale.getState().setLocale("zh"));
   renderTabs(base());
   expect(tab("概览")).toHaveAttribute("aria-pressed", "true");
-  expect(valueOf("基础费")).toHaveTextContent("(19 Gwei)");
+  expect(valueOf("基础费")).toHaveTextContent(/^19 Gwei$/);
 });
