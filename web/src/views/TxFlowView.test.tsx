@@ -80,17 +80,17 @@ afterEach(() => vi.restoreAllMocks());
 test("pending shows loading and ready renders header with fee and banner", async () => {
   vi.spyOn(api, "tx").mockResolvedValue({ status: "pending", flow: null, job_id: 7 });
   renderView();
-  expect(await screen.findByText(/正在获取交易/)).toBeInTheDocument();
+  expect(await screen.findByText(/Fetching transaction/)).toBeInTheDocument();
   expect(screen.queryByTestId("cy")).toBeNull();
   vi.mocked(api.tx).mockResolvedValue(ready());
   await act(() => qc.invalidateQueries({ queryKey: ["tx", HASH] }));
-  expect(await screen.findByText("✓ 成功")).toBeInTheDocument();
+  expect(await screen.findByText("✓ Success")).toBeInTheDocument();
   expect(screen.getByText(/swap\(uint256,address\)/)).toBeInTheDocument();
   expect(screen.getByText(/Router/)).toBeInTheDocument();
   expect(screen.getByText("19000000")).toBeInTheDocument();
   expect(screen.getByText("0.0015 ETH")).toBeInTheDocument();
   expect(
-    screen.getByText("这是资金流图，不是完整调用树：数据来自 Etherscan 的内部交易和事件日志，不包含不带 ETH 的调用和 delegatecall 的层级。"),
+    screen.getByText("This is a fund-flow graph, not a full call tree: data comes from Etherscan internal transactions and event logs, and omits zero-ETH calls and delegatecall nesting."),
   ).toBeInTheDocument();
   expect(screen.getByTestId("cy")).toBeInTheDocument();
   expect(h.props!.layout).toBe("dagre-lr");
@@ -102,33 +102,33 @@ test("undecoded call shows the raw selector and no banner for full traces", asyn
   vi.spyOn(api, "tx").mockResolvedValue(r);
   renderView();
   expect(await screen.findByText("0x12345678")).toBeInTheDocument();
-  expect(screen.getAllByText("未解码").length).toBeGreaterThan(0);
-  expect(screen.getByText("✗ 失败")).toBeInTheDocument();
-  expect(screen.queryByText(/这是资金流图/)).toBeNull();
+  expect(screen.getAllByText("Undecoded").length).toBeGreaterThan(0);
+  expect(screen.getByText("✗ Failed")).toBeInTheDocument();
+  expect(screen.queryByText(/This is a fund-flow graph/)).toBeNull();
 });
 
 test("tables switch between flows and events", async () => {
   vi.spyOn(api, "tx").mockResolvedValue(ready());
   renderView();
   expect(await screen.findByText("12.5 USDT")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "事件" }));
+  fireEvent.click(screen.getByRole("button", { name: "Events" }));
   expect(screen.getByText("Swap")).toBeInTheDocument();
   expect(screen.getByText("amount0=9")).toBeInTheDocument();
   expect(screen.getByText("0xeeee…eeee")).toBeInTheDocument();
-  expect(screen.getByText("未解码")).toBeInTheDocument();
+  expect(screen.getByText("Undecoded")).toBeInTheDocument();
 });
 
 test("add to graph adds the address as a center without leaving the tab", async () => {
   vi.spyOn(api, "tx").mockResolvedValue(ready());
   renderView();
   await screen.findByTestId("cy");
-  expect(screen.getByText("选择节点查看详情")).toBeInTheDocument();
+  expect(screen.getByText("Select a node to see details")).toBeInTheDocument();
   act(() => h.props!.onTapNode(B, { shift: false }));
   // The detail is rendered by the app-level panel, not inside the tx view (whose canvas keeps its width).
   expect(screen.getByTestId("aside")).toHaveTextContent(`detail:${B}`);
   expect(screen.getByTestId("tx-view")).not.toHaveTextContent(`detail:${B}`);
   expect(screen.getByTestId("tx-view").querySelector("aside")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "加入关系图" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add to graph" }));
   expect(useGraph.getState().centers).toContain(B);
   expect(useGraph.getState().selection).toBeNull();
   expect(useTabs.getState().active).toBe(HASH);
@@ -137,17 +137,17 @@ test("add to graph adds the address as a center without leaving the tab", async 
 test("failed job shows the error and retry refetches", async () => {
   const spy = vi.spyOn(api, "tx").mockResolvedValue({ status: "pending", flow: null, job_id: 9 });
   renderView();
-  await screen.findByText(/正在获取交易/);
+  await screen.findByText(/Fetching transaction/);
   act(() =>
     useJobProgress.getState().upsert({
       type: "JobProgress", job_id: 9, kind: "fetch_tx", fetched: 0, cursor_block: null, status: "failed", error: "boom",
     }),
   );
-  expect(await screen.findByText("交易抓取失败：boom")).toBeInTheDocument();
+  expect(await screen.findByText("Transaction fetch failed: boom")).toBeInTheDocument();
   spy.mockResolvedValue(ready());
-  fireEvent.click(screen.getByRole("button", { name: "重试" }));
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
-  expect(await screen.findByText("✓ 成功")).toBeInTheDocument();
+  expect(await screen.findByText("✓ Success")).toBeInTheDocument();
 });
 
 test("NodeDetail address links select locally and leave the main graph untouched", async () => {
@@ -161,7 +161,7 @@ test("NodeDetail address links select locally and leave the main graph untouched
   expect(useGraph.getState().selection).toBeNull();
 });
 
-test("flows table is sorted by seq and a missing recipient shows 合约创建", async () => {
+test("flows table is sorted by seq and a missing recipient shows Contract creation", async () => {
   const r = ready({ flows: [{ ...flow, seq: 2, amount: "2000000" }, { ...flow, seq: 1, amount: "1000000" }] });
   r.flow!.tx.to = null;
   vi.spyOn(api, "tx").mockResolvedValue(r);
@@ -170,7 +170,7 @@ test("flows table is sorted by seq and a missing recipient shows 合约创建", 
   const rows = screen.getAllByRole("row").slice(1);
   expect(rows[0]).toHaveTextContent("1 USDT");
   expect(rows[1]).toHaveTextContent("2 USDT");
-  expect(screen.getByText(/合约创建 · swap/)).toBeInTheDocument();
+  expect(screen.getByText(/Contract creation · swap/)).toBeInTheDocument();
 });
 
 test("pending refetches every 5s and stops once ready", async () => {
@@ -178,11 +178,11 @@ test("pending refetches every 5s and stops once ready", async () => {
   try {
     const spy = vi.spyOn(api, "tx").mockResolvedValue({ status: "pending", flow: null, job_id: 7 });
     renderView();
-    await screen.findByText(/正在获取交易/);
+    await screen.findByText(/Fetching transaction/);
     expect(spy).toHaveBeenCalledTimes(1);
     spy.mockResolvedValue(ready());
     await act(() => vi.advanceTimersByTimeAsync(5100));
-    await screen.findByText("✓ 成功");
+    await screen.findByText("✓ Success");
     expect(spy).toHaveBeenCalledTimes(2);
     await act(() => vi.advanceTimersByTimeAsync(15000));
     expect(spy).toHaveBeenCalledTimes(2);

@@ -38,9 +38,9 @@ test("call edge is skipped without a recipient and falls back to selector or gen
   const base = dto();
   expect(txElements({ ...base, tx: { ...base.tx, to: null } }).some((e) => e.classes === "call")).toBe(false);
   const undecoded = txElements({ ...base, call: null });
-  expect(undecoded.find((e) => e.classes === "call")!.data.label).toBe("0x12345678（未解码）");
+  expect(undecoded.find((e) => e.classes === "call")!.data.label).toBe("0x12345678 (undecoded)");
   const plain = txElements({ ...base, call: null, tx: { ...base.tx, selector: null } });
-  expect(plain.find((e) => e.classes === "call")!.data.label).toBe("调用");
+  expect(plain.find((e) => e.classes === "call")!.data.label).toBe("Call");
 });
 
 test("seq labels use circled digits up to 20", () => {

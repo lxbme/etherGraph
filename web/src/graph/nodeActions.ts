@@ -1,6 +1,7 @@
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
+import { t } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { toast } from "../shell/Toasts";
 import { neighborsOf } from "./neighbors";
@@ -13,7 +14,7 @@ export function syncNode(addr: string, direction?: "older"): void {
   const a = lc(addr);
   api
     .sync(direction ? { addresses: [a], direction } : { addresses: [a] })
-    .then(() => toast(direction ? `已开始拉取更早的记录 ${shortAddr(a)}` : `已开始同步 ${shortAddr(a)}`))
+    .then(() => toast(t(direction ? "sync.startedOlder" : "sync.startedAddr", { addr: shortAddr(a) })))
     .catch((err) => toast(messageFor(err), "error"));
 }
 

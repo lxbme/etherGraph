@@ -63,7 +63,7 @@ describe('hash routing', () => {
     render(<App />)
     expect(useTabs.getState().active).toBe(H1)
     expect(screen.getAllByText(/Tx 0xabab/).length).toBeGreaterThan(0)
-    expect(screen.getByText(/正在获取交易/)).toBeInTheDocument()
+    expect(screen.getByText(/Fetching transaction/)).toBeInTheDocument()
   })
 
   it('#/address/<addr> adds a center and activates graph', () => {
@@ -216,10 +216,10 @@ describe('fix round 1', () => {
 
   it('graph content stays mounted while a tx tab is active', () => {
     render(<App />)
-    const before = screen.getByText('输入地址、交易哈希或 ENS 开始探索')
+    const before = screen.getByText('Enter an address, tx hash or ENS name to start exploring')
     act(() => useTabs.getState().openTx(H1))
     act(() => useTabs.getState().activate('graph'))
-    expect(screen.getByText('输入地址、交易哈希或 ENS 开始探索')).toBe(before)
+    expect(screen.getByText('Enter an address, tx hash or ENS name to start exploring')).toBe(before)
     expect(before.closest('.main__graph')).not.toHaveAttribute('hidden')
   })
 })
@@ -242,11 +242,11 @@ describe('final review fixes', () => {
     })
     expect(await screen.findByText(A2)).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Add label', hidden: true })).toHaveLength(1)
-    expect(screen.getByRole('button', { name: '加入关系图' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add to graph' })).toBeInTheDocument()
     act(() => useTabs.getState().activate('graph'))
     expect(await screen.findByText(A1)).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Add label', hidden: true })).toHaveLength(1)
-    expect(screen.queryByRole('button', { name: '加入关系图' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Add to graph' })).toBeNull()
   })
 
   it('the detail toggle and the label editor request drive the shared detailOpen state', async () => {

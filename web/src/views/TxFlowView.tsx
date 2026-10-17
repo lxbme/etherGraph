@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
+import { useLocale, useT } from "../i18n";
 import { qk } from "../api/queryClient";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { exposeTxCy } from "../graph/cyRegistry";
@@ -19,8 +20,6 @@ import { useColorScheme } from "./AddressGraph";
 import { flowAmountText, flowSymbol, txElements } from "./txElements";
 import type { TxFlowDto } from "../api/generated/TxFlowDto";
 
-const BANNER = "这是资金流图，不是完整调用树：数据来自 Etherscan 的内部交易和事件日志，不包含不带 ETH 的调用和 delegatecall 的层级。";
-const CLASS_NAMES = { eth: "ETH", stable: "稳定币", erc20: "ERC20", nft: "NFT" } as const;
 const NOOP = () => {};
 
 /** Edge labels and the dashed call edge on top of the shared graph stylesheet. */
@@ -44,6 +43,7 @@ function txStylesheet(theme: "light" | "dark") {
 
 function Header({ flow }: { flow: TxFlowDto }) {
   const { tx, call, nodes } = flow;
+  const t = useT();
   const target = tx.to ? nodes.find((n) => n.address.toLowerCase() === tx.to!.toLowerCase()) : undefined;
   const targetName = target?.contract_name ?? target?.display_name ?? (tx.to ? shortAddr(tx.to) : "");
   return (
@@ -51,10 +51,10 @@ function Header({ flow }: { flow: TxFlowDto }) {
       <div className="txview__call">
         {call ? (
           <>
-            <span>{tx.to ? targetName : "合约创建"} · {call.signature}</span>
+            <span>{tx.to ? targetName : t("tx.contractCreation")} · {call.signature}</span>
             {call.args.length > 0 && (
               <details>
-                <summary>参数（{call.args.length}）</summary>
+                <summary>{t("tx.args", { count: call.args.length })}</summary>
                 <ul>
                   {call.args.map((a, i) => (
                     <li key={i} className="detail__mono">{a.name || `#${i}`} <span className="txview__muted">({a.ty})</span> = {a.value}</li>
@@ -65,17 +65,17 @@ function Header({ flow }: { flow: TxFlowDto }) {
           </>
         ) : tx.selector ? (
           <>
-            <span className="detail__mono">{tx.selector}</span> <span className="txview__tag">未解码</span>
+            <span className="detail__mono">{tx.selector}</span> <span className="txview__tag">{t("tx.undecoded")}</span>
           </>
         ) : (
-          <span>{tx.to ? "转账" : "合约创建"}</span>
+          <span>{tx.to ? t("tx.transfer") : t("tx.contractCreation")}</span>
         )}
       </div>
       <div className="txview__meta">
-        <span className={tx.success ? "txview__ok" : "txview__fail"}>{tx.success ? "✓ 成功" : "✗ 失败"}</span>
-        <span>区块 <b>{tx.block_number}</b></span>
+        <span className={tx.success ? "txview__ok" : "txview__fail"}>{tx.success ? t("tx.success") : t("tx.failed")}</span>
+        <span>{t("tx.block")} <b>{tx.block_number}</b></span>
         <span>{formatTime(tx.ts)}</span>
-        <span>手续费 <b>{formatAmount(tx.fee, 18).text} ETH</b></span>
+        <span>{t("tx.fee")} <b>{formatAmount(tx.fee, 18).text} ETH</b></span>
       </div>
     </div>
   );
@@ -83,18 +83,21 @@ function Header({ flow }: { flow: TxFlowDto }) {
 
 function Tables({ flow, onPick }: { flow: TxFlowDto; onPick(addr: string): void }) {
   const [tab, setTab] = useState<"flows" | "events">("flows");
+  const t = useT();
+  const className = (c: ReturnType<typeof assetClass>) =>
+    c === "stable" ? t("tx.class.stable") : c === "eth" ? "ETH" : c === "erc20" ? "ERC20" : "NFT";
   const addr = (a: string) => (
     <button className="detail__link detail__mono" title={a} onClick={() => onPick(a.toLowerCase())}>{shortAddr(a)}</button>
   );
   return (
     <div className="txview__tables">
       <div className="txview__tabs">
-        <button aria-pressed={tab === "flows"} onClick={() => setTab("flows")}>资金流动</button>
-        <button aria-pressed={tab === "events"} onClick={() => setTab("events")}>事件</button>
+        <button aria-pressed={tab === "flows"} onClick={() => setTab("flows")}>{t("tx.tab.flows")}</button>
+        <button aria-pressed={tab === "events"} onClick={() => setTab("events")}>{t("tx.tab.events")}</button>
       </div>
       {tab === "flows" ? (
         <table>
-          <thead><tr><th>#</th><th>From</th><th>To</th><th>金额</th><th>类别</th></tr></thead>
+          <thead><tr><th>#</th><th>From</th><th>To</th><th>{t("transfers.col.amount")}</th><th>{t("transfers.col.type")}</th></tr></thead>
           <tbody>
             {[...flow.flows].sort((a, b) => a.seq - b.seq).map((f, i) => (
               <tr key={`${f.seq}-${i}`}>
@@ -102,14 +105,14 @@ function Tables({ flow, onPick }: { flow: TxFlowDto; onPick(addr: string): void 
                 <td>{addr(f.from)}</td>
                 <td>{addr(f.to)}</td>
                 <td>{`${flowAmountText(f)} ${flowSymbol(f)}`}</td>
-                <td>{CLASS_NAMES[assetClass(f.asset, f.kind)]}</td>
+                <td>{className(assetClass(f.asset, f.kind))}</td>
               </tr>
             ))}
           </tbody>
         </table>
       ) : (
         <table>
-          <thead><tr><th>log</th><th>合约</th><th>事件</th><th>参数</th></tr></thead>
+          <thead><tr><th>log</th><th>{t("tx.col.contract")}</th><th>{t("tx.col.event")}</th><th>{t("tx.col.args")}</th></tr></thead>
           <tbody>
             {flow.events.map((e) => (
               <tr key={e.log_index}>
@@ -127,7 +130,7 @@ function Tables({ flow, onPick }: { flow: TxFlowDto; onPick(addr: string): void 
                 ) : (
                   <>
                     <td className="detail__mono">{e.topics[0] ? shortAddr(e.topics[0]) : "—"}</td>
-                    <td><span className="txview__tag">未解码</span></td>
+                    <td><span className="txview__tag">{t("tx.undecoded")}</span></td>
                   </>
                 )}
               </tr>
@@ -141,16 +144,17 @@ function Tables({ flow, onPick }: { flow: TxFlowDto; onPick(addr: string): void 
 
 /**
  * The active tx tab's node detail, shown in the app's right panel (so the flow canvas keeps its width):
- * the tab's own selection with "加入关系图".
+ * the tab's own selection with "Add to graph".
  */
 export function TxNodeDetail({ hash }: { hash: string }) {
   const selected = useUi((s) => s.txSelection[hash.toLowerCase()] ?? null);
   const selectTx = useUi((s) => s.selectTx);
   const addCenter = useGraph((s) => s.addCenter);
+  const t = useT();
   if (!selected) {
     return (
       <div className="detail">
-        <div className="placeholder">选择节点查看详情</div>
+        <div className="placeholder">{t("tx.selectNode")}</div>
       </div>
     );
   }
@@ -161,10 +165,10 @@ export function TxNodeDetail({ hash }: { hash: string }) {
         className="txview__add"
         onClick={() => {
           addCenter(selected);
-          toast("已加入关系图");
+          toast(t("tx.added"));
         }}
       >
-        加入关系图
+        {t("tx.addToGraph")}
       </button>
     </div>
   );
@@ -181,12 +185,14 @@ export function TxFlowView({ hash }: { hash: string }) {
   const jobId = q.data?.job_id ?? null;
   const job = useJobProgress((s) => (jobId === null ? undefined : s.byId[jobId]));
   const theme = useColorScheme();
+  const t = useT();
+  const locale = useLocale((s) => s.locale);
   const stylesheet = useMemo(() => txStylesheet(theme), [theme]);
   const selected = useUi((s) => s.txSelection[hash.toLowerCase()] ?? null);
   const selectTx = useUi((s) => s.selectTx);
   const setSelected = useCallback((a: string | null) => selectTx(hash, a), [selectTx, hash]);
   const flow = q.data?.status === "ready" ? q.data.flow : null;
-  const elements = useMemo(() => (flow ? txElements(flow, selected) : []), [flow, selected]);
+  const elements = useMemo(() => (flow ? txElements(flow, selected) : []), [flow, selected, locale]); // labels are translated when built
   useEffect(
     () => () => {
       exposeTxCy(hash, null);
@@ -198,32 +204,32 @@ export function TxFlowView({ hash }: { hash: string }) {
   if (q.isError) {
     return (
       <div className="placeholder" role="alert">
-        {messageFor(q.error)} <button onClick={() => void q.refetch()}>重试</button>
+        {messageFor(q.error)} <button onClick={() => void q.refetch()}>{t("common.retry")}</button>
       </div>
     );
   }
   if (!flow && job?.status === "failed") {
     return (
       <div className="placeholder" role="alert">
-        交易抓取失败：{job.error ?? "未知错误"}{" "}
+        {t("events.txFetchFailed", { reason: job.error ?? t("events.unknownReason") })}{" "}
         <button
           onClick={() => {
             useJobProgress.getState().remove([job.job_id]);
             void q.refetch();
           }}
         >
-          重试
+          {t("common.retry")}
         </button>
       </div>
     );
   }
-  if (!flow) return <div className="placeholder">正在获取交易…</div>;
+  if (!flow) return <div className="placeholder">{t("tx.loading")}</div>;
 
   return (
     <div className="txview" data-testid="tx-view">
       <div className="txview__main">
         <Header flow={flow} />
-        {flow.completeness === "fund_flow" && <div className="txview__banner">{BANNER}</div>}
+        {flow.completeness === "fund_flow" && <div className="txview__banner">{t("tx.banner")}</div>}
         <div className="txview__graph">
           <CytoscapeView
             elements={elements}

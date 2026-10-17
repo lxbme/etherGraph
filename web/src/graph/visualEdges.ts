@@ -1,4 +1,5 @@
 import type { EdgeDto } from "../api/generated/EdgeDto";
+import { t } from "../i18n";
 import { assetClass, type AssetClass } from "../lib/assets";
 import { pairKey } from "./pairKey";
 
@@ -101,7 +102,7 @@ export function deriveVisualEdges(
         color: "other",
         count: rest.reduce((n, g) => n + g.count, 0),
         assets: rest.flatMap((g) => g.list).sort(byCountDesc),
-        badge: `其它 ${rest.length} 种`,
+        badge: t("edge.otherAssets", { count: rest.length }),
         expanded: true,
       });
     }

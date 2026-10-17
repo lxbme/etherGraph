@@ -87,7 +87,7 @@ afterEach(() => vi.restoreAllMocks());
 
 test("empty canvas shows the guide text and no elements", () => {
   mount();
-  expect(screen.getByText("输入地址、交易哈希或 ENS 开始探索")).toBeInTheDocument();
+  expect(screen.getByText("Enter an address, tx hash or ENS name to start exploring")).toBeInTheDocument();
   expect(props().elements).toEqual([]);
   expect(props().layout).toBe("incremental");
   expect(api.graphEdges).not.toHaveBeenCalled();
@@ -95,7 +95,7 @@ test("empty canvas shows the guide text and no elements", () => {
 
 test("graph data flows into elements; elements and stylesheet are memoized", async () => {
   const { rerender, tree } = await mountWithData();
-  expect(screen.queryByText("输入地址、交易哈希或 ENS 开始探索")).toBeNull();
+  expect(screen.queryByText("Enter an address, tx hash or ENS name to start exploring")).toBeNull();
   expect(ids()).toEqual([A, B, `c:${A}>${B}`]);
   const { elements, stylesheet } = props();
   const before = h.renders;
@@ -132,7 +132,7 @@ test("double-clicking an unsynced node starts a sync and toasts", async () => {
   expect(sync).not.toHaveBeenCalled();
   act(() => props().onDblTapNode(B));
   expect(sync).toHaveBeenCalledWith({ addresses: [B] });
-  expect(await screen.findByText("已开始同步 0xbbbb…bbbb")).toBeInTheDocument();
+  expect(await screen.findByText("Started syncing 0xbbbb…bbbb")).toBeInTheDocument();
 });
 
 test("a failed sync shows the mapped error", async () => {
@@ -175,18 +175,18 @@ test("loading text only before the first data; background refetches use a subtle
   vi.mocked(api.graphEdges).mockImplementation(() => new Promise((r) => { release = () => r(data); }));
   useGraph.getState().addCenter(A);
   mount();
-  expect(await screen.findByText("加载中…")).toBeInTheDocument();
+  expect(await screen.findByText("Loading…")).toBeInTheDocument();
   act(() => release());
   await waitFor(() => expect(ids()).toContain(A));
-  expect(screen.queryByText("加载中…")).toBeNull();
-  expect(screen.queryByLabelText("更新中")).toBeNull();
+  expect(screen.queryByText("Loading…")).toBeNull();
+  expect(screen.queryByLabelText("Updating")).toBeNull();
 
   act(() => useGraph.getState().setSort("recent")); // new key: previous data kept while it loads
-  expect(await screen.findByLabelText("更新中")).toBeInTheDocument();
-  expect(screen.queryByText("加载中…")).toBeNull();
+  expect(await screen.findByLabelText("Updating")).toBeInTheDocument();
+  expect(screen.queryByText("Loading…")).toBeNull();
   expect(ids()).toContain(A);
   act(() => release());
-  await waitFor(() => expect(screen.queryByLabelText("更新中")).toBeNull());
+  await waitFor(() => expect(screen.queryByLabelText("Updating")).toBeNull());
 });
 
 test("batch bar appears for 2+ box-selected nodes; background/node tap clears it", async () => {
@@ -246,7 +246,7 @@ test("expanding a node with no neighbours toasts", async () => {
   await mountWithData();
   act(() => props().onCxtNode(A, { x: 1, y: 1 }));
   act(() => screen.getByText("Select…").click());
-  expect(await screen.findByText("没有可展开的邻居")).toBeInTheDocument();
+  expect(await screen.findByText("No neighbors to expand")).toBeInTheDocument();
 });
 
 test("right-clicking an unselected node selects it, so Add label opens the editor for that node", async () => {
@@ -273,14 +273,14 @@ test("right-clicking an unselected node selects it, so Add label opens the edito
   expect(screen.queryByRole("button", { name: "Add label" })).toBeNull();
 });
 
-test("'显示隐藏节点 (N)' appears while nodes are hidden and unhides them all in one undo step", async () => {
+test("'Show hidden nodes (N)' appears while nodes are hidden and unhides them all in one undo step", async () => {
   await mountWithData();
-  expect(screen.queryByRole("button", { name: /显示隐藏节点/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Show hidden nodes/ })).toBeNull();
   act(() => useGraph.getState().setHidden([B], true));
   act(() => useGraph.getState().setHidden(["0x" + "cc".repeat(20)], true)); // not on the canvas: not counted
-  act(() => screen.getByRole("button", { name: "显示隐藏节点 (1)" }).click());
+  act(() => screen.getByRole("button", { name: "Show hidden nodes (1)" }).click());
   expect(ids()).toEqual([A, B, `c:${A}>${B}`]);
-  expect(screen.queryByRole("button", { name: /显示隐藏节点/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Show hidden nodes/ })).toBeNull();
   act(() => useGraph.getState().undo());
   expect(ids()).toEqual([A]);
 });

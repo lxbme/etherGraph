@@ -34,8 +34,8 @@ async function settledPos(page: Page, id: string): Promise<{ x: number; y: numbe
 
 async function searchAddress(page: Page, mock: MockApi, addr: string) {
   await page.goto("/?e2e=1");
-  await page.getByRole("searchbox", { name: "搜索" }).fill(addr);
-  await page.getByRole("searchbox", { name: "搜索" }).press("Enter");
+  await page.getByRole("searchbox", { name: "Search" }).fill(addr);
+  await page.getByRole("searchbox", { name: "Search" }).press("Enter");
   await expect.poll(() => mock.count(GRAPH)).toBe(1);
 }
 
@@ -55,7 +55,7 @@ test("search → edge → transfers → tx tab → back → filter → save", as
   await tapEdge(page, A, B);
   const groups = page.getByTestId("transfer-group");
   await expect(groups).toHaveCount(2);
-  await expect(groups.nth(0)).toContainText("3 笔");
+  await expect(groups.nth(0)).toContainText("3 transfers");
   await expect(groups.nth(1)).toContainText("USDT");
   const rows = page.getByTestId("transfer-row");
   await expect(rows).toHaveCount(3);
@@ -64,26 +64,26 @@ test("search → edge → transfers → tx tab → back → filter → save", as
 
   // Click a tx hash: a tx tab opens with the fund-flow graph and its banner.
   await rows.first().getByRole("button", { name: /0x7e57/ }).click();
-  const txTab = page.getByRole("tab", { name: /^交易 0x7e57/ });
+  const txTab = page.getByRole("tab", { name: /^Tx 0x7e57/ });
   await expect(txTab).toHaveAttribute("aria-selected", "true");
   const txView = page.getByTestId("tx-view");
-  await expect(txView.getByText("这是资金流图，不是完整调用树", { exact: false })).toBeVisible();
+  await expect(txView.getByText("This is a fund-flow graph, not a full call tree", { exact: false })).toBeVisible();
   await expectLaidOut(page, { tx: TX }, 3);
   await expect(graph).toBeHidden();
 
   // (2) Back to the graph: still visible and correctly sized, not a zero-size/tiny graph.
-  await page.getByRole("tab", { name: "关系图" }).click();
+  await page.getByRole("tab", { name: "Graph" }).click();
   await expect(graph).toBeVisible();
   const back = await expectLaidOut(page, "main", 4);
   expect(back.zoom).toBeCloseTo(first.zoom, 5);
 
   // Filter: ETH only, at least 1 ETH.
-  await page.getByRole("button", { name: /过滤/ }).click();
-  const dialog = page.getByRole("dialog", { name: "过滤" });
+  await page.getByRole("button", { name: /Filter/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Filter" });
   await dialog.getByLabel("ETH", { exact: true }).check();
-  await dialog.getByLabel("ETH 最小金额").fill("1");
+  await dialog.getByLabel("ETH min amount").fill("1");
   mock.on(GRAPH, () => ({ json: graphFiltered }));
-  await dialog.getByRole("button", { name: "应用" }).click();
+  await dialog.getByRole("button", { name: "Apply" }).click();
   await expect.poll(() => mock.count(GRAPH)).toBe(2);
   expect(mock.requests(GRAPH)[1]!.postDataJSON()).toMatchObject({
     addresses: [A],
@@ -94,15 +94,15 @@ test("search → edge → transfers → tx tab → back → filter → save", as
   await expectLaidOut(page, "main", 3);
 
   // Save the canvas.
-  await page.getByRole("button", { name: "画布菜单" }).click();
-  await page.getByRole("menuitem", { name: "保存" }).click();
-  await page.getByRole("textbox", { name: "画布名称" }).fill("e2e 画布");
-  await page.getByRole("button", { name: "确定" }).click();
-  await expect(page.getByText("画布: 已保存")).toBeVisible();
+  await page.getByRole("button", { name: "Workspace menu" }).click();
+  await page.getByRole("menuitem", { name: "Save", exact: true }).click();
+  await page.getByRole("textbox", { name: "Workspace name" }).fill("e2e workspace");
+  await page.getByRole("button", { name: "OK" }).click();
+  await expect(page.getByText("Workspace: Saved")).toBeVisible();
   const saved = mock.requests("POST /api/workspaces");
   expect(saved).toHaveLength(1);
   const body = saved[0]!.postDataJSON() as { name: string; state: { centers: string[]; filter: unknown; nodes: { address: string }[] } };
-  expect(body.name).toBe("e2e 画布");
+  expect(body.name).toBe("e2e workspace");
   expect(body.state.centers).toEqual([A]);
   expect(body.state.filter).toEqual({ assets: [{ asset: null, min_amount: "1" }] });
   expect(body.state.nodes.map((n) => n.address).sort()).toEqual([A, B, D].sort());
@@ -114,7 +114,7 @@ test("AddressDataChanged over SSE refreshes the graph exactly once", async ({ pa
   await searchAddress(page, mock, A);
   await expectLaidOut(page, "main", 4);
   // Let the initial load settle (no fetch in flight that the refresh would be deferred behind).
-  await expect(page.getByRole("status", { name: "更新中" })).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "Updating" })).toHaveCount(0);
 
   mock.on(GRAPH, () => ({ json: graphRefreshed }));
   const unrelated = "0x9999999999999999999999999999999999999999";
@@ -143,10 +143,10 @@ test("a node dropped by a filter returns to its previous position on undo", asyn
   const before = await settledPos(page, C);
 
   mock.on(GRAPH, () => ({ json: graphFiltered }));
-  await page.getByRole("button", { name: /过滤/ }).click();
-  const dialog = page.getByRole("dialog", { name: "过滤" });
+  await page.getByRole("button", { name: /Filter/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Filter" });
   await dialog.getByLabel("ETH", { exact: true }).check();
-  await dialog.getByRole("button", { name: "应用" }).click();
+  await dialog.getByRole("button", { name: "Apply" }).click();
   await expect.poll(async () => (await snapshot(page, "main"))?.nodes.map((n) => n.id).sort()).toEqual([A, B, D].sort());
 
   await page.keyboard.press("Control+z");
@@ -157,13 +157,13 @@ test("a node dropped by a filter returns to its previous position on undo", asyn
   expect(mock.unhandled).toEqual([]);
 });
 
-test("under 流入 the node transfer table asks for the side the canvas shows", async ({ page, mock }) => {
+test("under Inbound the node transfer table asks for the side the canvas shows", async ({ page, mock }) => {
   await searchAddress(page, mock, A);
   await expectLaidOut(page, "main", 4);
-  await page.getByRole("button", { name: /过滤/ }).click();
-  const dialog = page.getByRole("dialog", { name: "过滤" });
-  await dialog.getByLabel("流入", { exact: true }).check();
-  await dialog.getByRole("button", { name: "应用" }).click();
+  await page.getByRole("button", { name: /Filter/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Filter" });
+  await dialog.getByLabel("Inbound", { exact: true }).check();
+  await dialog.getByRole("button", { name: "Apply" }).click();
   await expect.poll(() => mock.count(GRAPH)).toBe(2);
 
   const asked = () =>
@@ -183,13 +183,13 @@ test("under 流入 the node transfer table asks for the side the canvas shows", 
 for (const query of ["", "?e2e=0"]) {
   test(`the cytoscape e2e hook is inert without ?e2e=1 (url "/${query}")`, async ({ page, mock }) => {
     await page.goto(`/${query}`);
-    await page.getByRole("searchbox", { name: "搜索" }).fill(A);
-    await page.getByRole("searchbox", { name: "搜索" }).press("Enter");
+    await page.getByRole("searchbox", { name: "Search" }).fill(A);
+    await page.getByRole("searchbox", { name: "Search" }).press("Enter");
     await expect.poll(() => mock.count(GRAPH)).toBe(1);
     await expect(page.getByTestId("address-graph").locator("canvas").first()).toBeVisible();
     // Also mount a tx graph, the other registration point.
-    await page.getByRole("searchbox", { name: "搜索" }).fill(TX);
-    await page.getByRole("searchbox", { name: "搜索" }).press("Enter");
+    await page.getByRole("searchbox", { name: "Search" }).fill(TX);
+    await page.getByRole("searchbox", { name: "Search" }).press("Enter");
     await expect(page.getByTestId("tx-view").locator("canvas").first()).toBeVisible();
     const exposed = await page.evaluate(() => {
       const w = window as unknown as Record<string, unknown>;

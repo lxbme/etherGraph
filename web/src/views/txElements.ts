@@ -2,6 +2,7 @@ import type cytoscape from "cytoscape";
 import type { FlowDto } from "../api/generated/FlowDto";
 import type { TxFlowDto } from "../api/generated/TxFlowDto";
 import { nodeElement } from "../graph/elements";
+import { t } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { assetClass } from "../lib/assets";
 import { formatAmount } from "../lib/amount";
@@ -30,7 +31,7 @@ export function flowLabel(f: FlowDto): string {
 }
 
 export function callLabel(flow: TxFlowDto): string {
-  return flow.call?.name ?? (flow.tx.selector ? `${flow.tx.selector}（未解码）` : "调用");
+  return flow.call?.name ?? (flow.tx.selector ? t("tx.undecodedSelector", { selector: flow.tx.selector }) : t("tx.call"));
 }
 
 /** Nodes, a dashed call edge (tx.from → tx.to) and one solid edge per flow; edges to unknown nodes are skipped. */

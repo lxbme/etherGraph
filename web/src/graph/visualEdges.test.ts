@@ -69,7 +69,7 @@ describe("deriveVisualEdges", () => {
     expect(v.slice(0, 5).every((e) => e.expanded && e.badge === null)).toBe(true);
     expect(v[0]!.id).toBe(`e:${A}>${B}:${tok(1)}`);
     const rest = v.find((e) => e.id === `r:${A}>${B}`)!;
-    expect(rest).toMatchObject({ color: "other", badge: "其它 3 种", count: 95 + 94 + 93 });
+    expect(rest).toMatchObject({ color: "other", badge: "3 other assets", count: 95 + 94 + 93 });
     expect(rest.assets).toHaveLength(3);
   });
 

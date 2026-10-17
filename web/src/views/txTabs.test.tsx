@@ -60,15 +60,15 @@ test("each tx tab keeps its own selection and table tab across switches", async 
   act(() => useTabs.getState().activate(H1));
   act(() => h.byFirst[A]!.onTapNode(B, { shift: false }));
   expect(screen.getByText(`detail:${B}`)).toBeInTheDocument();
-  fireEvent.click(screen.getAllByRole("button", { name: "事件", hidden: true })[0]!);
+  fireEvent.click(screen.getAllByRole("button", { name: "Events", hidden: true })[0]!);
   act(() => useTabs.getState().activate(H2));
   // tx B has no selection (the right panel shows its placeholder) and still shows the flows tab.
   expect(screen.queryByText(`detail:${B}`)).toBeNull();
-  expect(screen.getByText("选择节点查看详情")).toBeInTheDocument();
-  expect(screen.getAllByRole("button", { name: "事件", hidden: true })[1]).toHaveAttribute("aria-pressed", "false");
+  expect(screen.getByText("Select a node to see details")).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "Events", hidden: true })[1]).toHaveAttribute("aria-pressed", "false");
   act(() => useTabs.getState().activate(H1));
   expect(screen.getByText(`detail:${B}`).closest("[hidden]")).toBeNull();
-  expect(screen.getAllByRole("button", { name: "事件", hidden: true })[0]).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getAllByRole("button", { name: "Events", hidden: true })[0]).toHaveAttribute("aria-pressed", "true");
 });
 
 test("on a tx tab the right panel shows only that tab's detail, never the graph's as well", async () => {

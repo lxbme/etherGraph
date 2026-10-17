@@ -1,6 +1,7 @@
 import type cytoscape from "cytoscape";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/endpoints";
+import { t, useLocale, useT } from "../i18n";
 import { messageFor } from "../api/errors";
 import { setMainCy } from "../graph/cyRegistry";
 import { useBoxSelection } from "../graph/boxSelection";
@@ -53,6 +54,8 @@ export function AddressGraph() {
   const epoch = useGraph((s) => s.epoch);
 
   const theme = useColorScheme();
+  const tr = useT();
+  const locale = useLocale((s) => s.locale);
   const stylesheet = useMemo(() => graphStylesheet(theme), [theme]);
 
   // Keyed by content so position-only ui updates don't re-derive the edges.
@@ -66,9 +69,10 @@ export function AddressGraph() {
     () => (data ? data.nodes.filter((n) => hidden.has(lc(n.address))).length : 0),
     [data, hidden],
   );
+  // `locale` is a dependency only because the edge badges are translated when derived.
   const visual = useMemo(
     () => (data ? deriveVisualEdges(data.edges, expandedPairs, hidden) : []),
-    [data, expandedPairs, hidden],
+    [data, expandedPairs, hidden, locale],
   );
   const elements = useMemo(
     () => (data ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer }, data.omitted) : []),
@@ -97,7 +101,7 @@ export function AddressGraph() {
       .map((a) => byAddr.get(a))
       .filter((n): n is NodeSummaryDto => !!n);
     if (neighbors.length === 0) {
-      toast("没有可展开的邻居");
+      toast(t("view.noNeighbors"));
       return;
     }
     setExpand({
@@ -144,7 +148,7 @@ export function AddressGraph() {
     if (!n || n.synced || n.syncing) return;
     api
       .sync({ addresses: [a] })
-      .then(() => toast(`已开始同步 ${shortAddr(a)}`))
+      .then(() => toast(t("sync.startedAddr", { addr: shortAddr(a) })))
       .catch((err) => toast(messageFor(err), "error"));
   };
 
@@ -191,7 +195,7 @@ export function AddressGraph() {
           className="btn address-graph__unhide"
           onClick={() => useGraph.getState().setHidden([...hidden], false)}
         >
-          显示隐藏节点 ({hiddenOnCanvas})
+          {tr("view.showHidden", { count: hiddenOnCanvas })}
         </button>
       )}
       {menu && data && (
@@ -207,13 +211,13 @@ export function AddressGraph() {
         />
       )}
       {expand && <ExpandDialog neighbors={expand.neighbors} preChecked={expand.preChecked} onClose={closeExpand} />}
-      {centers.length === 0 && <div className="address-graph__empty">输入地址、交易哈希或 ENS 开始探索</div>}
+      {centers.length === 0 && <div className="address-graph__empty">{tr("view.empty")}</div>}
       {centers.length > 0 && error != null && (
         <div className="address-graph__status address-graph__status--error" role="alert">{messageFor(error)}</div>
       )}
-      {centers.length > 0 && error == null && isFetching && !data && <div className="address-graph__status">加载中…</div>}
+      {centers.length > 0 && error == null && isFetching && !data && <div className="address-graph__status">{tr("common.loading")}</div>}
       {/* Background refetch (data already shown): a small non-blocking dot. */}
-      {data && isFetching && <div className="address-graph__refreshing" role="status" aria-label="更新中" />}
+      {data && isFetching && <div className="address-graph__refreshing" role="status" aria-label={tr("view.updating")} />}
     </div>
   );
 }
