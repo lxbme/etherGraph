@@ -743,6 +743,42 @@ async fn probe_upstream_failure_writes_nothing(pool: PgPool) {
     assert_eq!(st, StatusCode::OK, "{b}");
 }
 
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn probe_failure_keeps_what_was_already_fetched(pool: PgPool) {
+    use eg_core::types::AccountKind;
+    let (app, state, fake) = test_app(pool);
+    fake.set_nonce(FROM, 7);
+    fake.set_nonce(TO, 3);
+    // code(FROM), tx_count(FROM), code(TO), then tx_count(TO) fails.
+    fake.fail_at(4, SourceError::QuotaExhausted);
+    let body = json!({"addresses": [format!("{FROM:#x}"), format!("{TO:#x}")]});
+    let (st, _) = post_json(&app, "/api/probe", &body).await;
+    assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(fake.calls(), 4);
+    let stats = state.store.account_stats(&[FROM, TO]).await.unwrap();
+    assert_eq!(stats.len(), 1);
+    assert_eq!(stats[0].address, FROM);
+    assert_eq!(stats[0].nonce, Some(7));
+    assert_eq!(stats[0].balance, None);
+    let kinds: Vec<_> = state
+        .store
+        .accounts(&[FROM, TO])
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| r.kind)
+        .collect();
+    assert_eq!(kinds, [AccountKind::Eoa, AccountKind::Eoa]);
+
+    // The retry only spends what is missing: TO's nonce and the balances.
+    let (st, b) = post_json(&app, "/api/probe", &body).await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    assert_eq!(b["calls"], 2);
+    assert_eq!(b["items"][0]["nonce"], 7);
+    assert_eq!(b["items"][0]["balance"], "0");
+    assert_eq!(b["items"][1]["nonce"], 3);
+}
+
 // ------------------------------------------------------------------ batches
 
 async fn active_job(app: &axum::Router, id: i64) -> Option<Value> {

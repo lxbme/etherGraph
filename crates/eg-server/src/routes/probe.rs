@@ -47,69 +47,93 @@ pub async fn probe(
 
     let now = Utc::now();
     let ttl = chrono::Duration::from_std(s.ctx.cfg.stale_after).unwrap_or(chrono::Duration::MAX);
+    let fresh_row = |r: &StatsRow| now - r.probed_at < ttl;
+    // A row cached without a balance (an earlier probe failed or the upstream
+    // skipped it) is re-probed; its fresh nonce is reused.
     let stale: Vec<Address> = addrs
         .iter()
         .copied()
-        .filter(|a| stats.get(a).is_none_or(|r| now - r.probed_at >= ttl))
+        .filter(|a| {
+            stats
+                .get(a)
+                .is_none_or(|r| !fresh_row(r) || r.balance.is_none())
+        })
         .collect();
 
     let mut calls = 0u32;
     if !stale.is_empty() {
         let mut fresh: Vec<StatsRow> = Vec::with_capacity(stale.len());
         let mut new_kinds: Vec<(Address, AccountKind)> = Vec::new();
-        for a in &stale {
-            let known_kind = accounts
-                .get(a)
-                .map(|r| r.kind)
-                .filter(|k| *k != AccountKind::Unknown);
-            let cached = stats.get(a).and_then(|r| r.is_contract);
-            let is_contract = match (known_kind, cached) {
-                (Some(k), _) => Some(k == AccountKind::Contract),
-                (None, Some(c)) => Some(c),
-                (None, None) => {
-                    calls += 1;
-                    let c = !s.ctx.source.code(prio, *a).await?.is_empty();
-                    new_kinds.push((
-                        *a,
-                        if c {
-                            AccountKind::Contract
-                        } else {
-                            AccountKind::Eoa
-                        },
-                    ));
-                    Some(c)
-                }
-            };
-            let nonce = if is_contract == Some(true) {
-                None
-            } else {
-                calls += 1;
-                Some(s.ctx.source.tx_count(prio, *a).await?)
-            };
-            fresh.push(StatsRow {
-                address: *a,
-                nonce,
-                balance: None,
-                is_contract,
-                probed_at: now,
-            });
+        let mut balances: HashMap<Address, U256> = HashMap::new();
+        let fetched: Result<(), ApiError> = async {
+            for a in &stale {
+                let known_kind = accounts
+                    .get(a)
+                    .map(|r| r.kind)
+                    .filter(|k| *k != AccountKind::Unknown);
+                let cached = stats.get(a);
+                let is_contract = match (known_kind, cached.and_then(|r| r.is_contract)) {
+                    (Some(k), _) => Some(k == AccountKind::Contract),
+                    (None, Some(c)) => Some(c),
+                    (None, None) => {
+                        calls += 1;
+                        let c = !s.ctx.source.code(prio, *a).await?.is_empty();
+                        new_kinds.push((
+                            *a,
+                            if c {
+                                AccountKind::Contract
+                            } else {
+                                AccountKind::Eoa
+                            },
+                        ));
+                        Some(c)
+                    }
+                };
+                let reuse = cached.filter(|r| fresh_row(r)).and_then(|r| r.nonce);
+                let (nonce, probed_at) = match (is_contract, reuse) {
+                    (Some(true), _) => (None, now),
+                    // Keep the nonce's own timestamp so it still expires on time.
+                    (_, Some(n)) => (Some(n), cached.map_or(now, |r| r.probed_at)),
+                    _ => {
+                        calls += 1;
+                        (Some(s.ctx.source.tx_count(prio, *a).await?), now)
+                    }
+                };
+                fresh.push(StatsRow {
+                    address: *a,
+                    nonce,
+                    balance: None,
+                    is_contract,
+                    probed_at,
+                });
+            }
+            calls += 1;
+            balances = s
+                .ctx
+                .source
+                .balances(prio, &stale)
+                .await?
+                .into_iter()
+                .collect();
+            Ok(())
         }
-        calls += 1;
-        let balances: HashMap<Address, U256> = s
-            .ctx
-            .source
-            .balances(prio, &stale)
-            .await?
-            .into_iter()
-            .collect();
+        .await;
         for r in &mut fresh {
             r.balance = balances.get(&r.address).copied();
         }
-        // A balance the upstream did not return is not cached as fresh.
-        fresh.retain(|r| r.balance.is_some());
+        // What was fetched before a failure is cached too, so a retry does not pay
+        // for it again; rows without a balance stay stale (see above).
         // Kinds first: a failing kind write must not leave is_contract cached without it.
         s.store.set_kind_if_unknown(&new_kinds).await?;
         s.store.upsert_account_stats(&fresh).await?;
+        if let Err(e) = fetched {
+            tracing::warn!(
+                calls,
+                cached = fresh.len(),
+                "probe failed upstream after partial fetch"
+            );
+            return Err(e);
+        }
         for r in fresh {
             stats.insert(r.address, r);
         }

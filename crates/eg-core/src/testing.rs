@@ -30,6 +30,7 @@ pub struct FakeSource {
     balances: Mutex<HashMap<Address, U256>>,
     eth_call: Mutex<Option<EthCallFn>>,
     fail: Mutex<Option<SourceError>>,
+    fail_at: Mutex<Option<(u32, SourceError)>>,
     status_fail: Mutex<Option<SourceError>>,
     calls: AtomicU32,
     status_calls: AtomicU32,
@@ -112,6 +113,11 @@ impl FakeSource {
         *self.fail.lock().unwrap() = Some(err);
     }
 
+    /// The `n`-th call of any kind (counted as [`FakeSource::calls`] counts) returns this error.
+    pub fn fail_at(&self, n: u32, err: SourceError) {
+        *self.fail_at.lock().unwrap() = Some((n, err));
+    }
+
     /// The next `tx_status` call returns this error; other calls are unaffected.
     pub fn fail_next_tx_status(&self, err: SourceError) {
         *self.status_fail.lock().unwrap() = Some(err);
@@ -127,7 +133,13 @@ impl FakeSource {
     }
 
     fn enter(&self) -> Result<(), SourceError> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
+        let n = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+        {
+            let mut at = self.fail_at.lock().unwrap();
+            if at.as_ref().is_some_and(|(k, _)| *k == n) {
+                return Err(at.take().unwrap().1);
+            }
+        }
         match self.fail.lock().unwrap().take() {
             Some(e) => Err(e),
             None => Ok(()),
