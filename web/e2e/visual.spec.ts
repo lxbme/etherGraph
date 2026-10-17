@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expectLaidOut, tapNode } from "./cy";
-import { A, B, expect, test } from "./mockApi";
+import { A, B, C, D, expect, fixtures, type MockApi, test } from "./mockApi";
 
 const THEMES = ["light", "dark"] as const;
 const LOCALES = ["en", "zh"] as const;
@@ -9,12 +9,14 @@ const SIZES = [
   { width: 1920, height: 1080 },
 ] as const;
 
-/** Elements that must not overflow: real selectors for topbar / statusbar / right panel / transfers, plus every .btn. */
-const CONTAINERS = [".topbar", ".statusbar", ".main__right", ".transfers"];
+/** Elements that must not overflow: topbar / statusbar / right panel (and its scrolling bodies) / transfers / jobs popover / kv keys. */
+const CONTAINERS = [".topbar", ".statusbar", ".main__right", ".main__right-body", ".detail", ".transfers", ".jobs__popover", ".kv > dt"];
+/** Checked too, but an intentional ellipsis (overflow hidden + title) is allowed: buttons, key/value values, job cells. */
+const ELLIPSIS_OK = [".btn", ".kv > dd", ".jobs__popover td"];
 
-/** Names of elements whose content is wider than their box (1px tolerance). Intentional ellipsis (overflow hidden + title) is skipped for buttons. */
+/** Names of elements whose content is wider than their box (1px tolerance). */
 function findOverflows(page: Page): Promise<string[]> {
-  return page.evaluate((containers) => {
+  return page.evaluate(([containers, ellipsisOk]) => {
     const out: string[] = [];
     const name = (el: Element) => `${el.tagName.toLowerCase()}.${(el.className as string).toString().trim().replace(/\s+/g, ".")}[${(el.textContent ?? "").trim().slice(0, 30)}]`;
     const check = (el: Element, skipEllipsis: boolean) => {
@@ -27,9 +29,28 @@ function findOverflows(page: Page): Promise<string[]> {
       if (h.scrollWidth > h.clientWidth + 1) out.push(`${name(h)} scrollWidth=${h.scrollWidth} clientWidth=${h.clientWidth}`);
     };
     for (const sel of containers) document.querySelectorAll(sel).forEach((el) => check(el, false));
-    document.querySelectorAll(".btn").forEach((el) => check(el, true));
+    for (const sel of ellipsisOk) document.querySelectorAll(sel).forEach((el) => check(el, true));
     return out;
-  }, CONTAINERS);
+  }, [CONTAINERS, ELLIPSIS_OK] as const);
+}
+
+/**
+ * Long strings (40-char ENS on B, long contract name on C, long invalid_input error for D, a recent
+ * job with a long error) served instead of the plain fixtures.
+ */
+function serveLongText(mock: MockApi) {
+  const lt = fixtures.longText;
+  const nodes = fixtures.graph.nodes.map((n) =>
+    n.address === B ? { ...n, ens: lt.ens } : n.address === C ? { ...n, display_name: lt.contractName, contract_name: lt.contractName } : n,
+  );
+  mock.on("POST /api/graph/edges", () => ({ json: { ...fixtures.graph, nodes } }));
+  mock.on("GET /api/address/*", (_req, url) => {
+    const addr = decodeURIComponent(url.pathname.split("/").pop() ?? "").toLowerCase();
+    if (addr === D) return { status: 400, json: { error: { code: "invalid_input", message: lt.invalidInput } } };
+    const node = nodes.find((n) => n.address === addr);
+    return node ? { json: { ...fixtures.address, node } } : { status: 404, json: { error: { code: "not_found", message: addr } } };
+  });
+  mock.on("GET /api/jobs", (_req, url) => ({ json: url.searchParams.get("active") === "false" ? [lt.job] : [] }));
 }
 
 /** Vertical centres of the visible top-bar controls (popover contents excluded). */
@@ -63,6 +84,7 @@ for (const theme of THEMES) {
   for (const locale of LOCALES) {
     for (const size of SIZES) {
       test(`visual ${theme}-${locale}-${size.width}`, async ({ page, mock }) => {
+        serveLongText(mock);
         await page.setViewportSize(size);
         await page.addInitScript(
           ([th, lo]) => {
@@ -76,7 +98,22 @@ for (const theme of THEMES) {
         await search.fill(A);
         await search.press("Enter");
         await expectLaidOut(page, "main", 4);
+        const right = page.locator(".main__right");
+
+        // Long contract name (title + key/value row).
+        await tapNode(page, "main", C);
+        await expect(right.locator(".detail__title")).toHaveText(fixtures.longText.contractName);
+        await expectNoOverflow(page, "long contract name");
+
+        // Long invalid_input error in the panel.
+        await tapNode(page, "main", D);
+        await expect(right.getByRole("alert")).toContainText(fixtures.longText.invalidInput.slice(0, 20));
+        await expectNoOverflow(page, "long error");
+
+        // 40-char ENS in the key/value grid; the key column keeps its width.
         await tapNode(page, "main", B);
+        const ens = right.locator(".kv dd", { hasText: fixtures.longText.ens });
+        await expect(ens).toHaveAttribute("title", fixtures.longText.ens);
         await expect(page.locator(".main__right").getByText(B, { exact: true })).toBeVisible();
         await expect(page.getByTestId("transfer-row").first()).toBeVisible();
         await expectNoOverflow(page, "node selected");
@@ -85,6 +122,7 @@ for (const theme of THEMES) {
         // Jobs popover.
         await page.locator(".statusbar__jobs").click();
         await expect(page.locator(".jobs__popover")).toBeVisible();
+        await expect(page.locator(".jobs__err")).toHaveAttribute("title", fixtures.longText.job.error!);
         await expectNoOverflow(page, "jobs popover");
         await page.locator(".statusbar__jobs").click();
 

@@ -2,6 +2,7 @@ import { test as base, type Page, type Request, type Route } from "@playwright/t
 import type { AddressProfileDto } from "../src/api/generated/AddressProfileDto";
 import type { Event } from "../src/api/generated/Event";
 import type { GraphResponseDto } from "../src/api/generated/GraphResponseDto";
+import type { JobDto } from "../src/api/generated/JobDto";
 import type { SearchResultDto } from "../src/api/generated/SearchResultDto";
 import type { StatusDto } from "../src/api/generated/StatusDto";
 import type { TransferPageDto } from "../src/api/generated/TransferPageDto";
@@ -9,6 +10,7 @@ import type { TxResponseDto } from "../src/api/generated/TxResponseDto";
 import type { WorkspaceDto } from "../src/api/generated/WorkspaceDto";
 import addressJson from "./fixtures/address.json" with { type: "json" };
 import graphJson from "./fixtures/graph.json" with { type: "json" };
+import longTextJson from "./fixtures/long-text.json" with { type: "json" };
 import statusJson from "./fixtures/status.json" with { type: "json" };
 import transfersJson from "./fixtures/transfers.json" with { type: "json" };
 import txJson from "./fixtures/tx.json" with { type: "json" };
@@ -26,6 +28,8 @@ export const fixtures = {
   status: statusJson as StatusDto,
   transfers: transfersJson as TransferPageDto,
   tx: txJson as TxResponseDto,
+  /** Long ENS / contract name / error strings for the overflow checks. */
+  longText: longTextJson as { ens: string; contractName: string; invalidInput: string; job: JobDto },
 };
 
 export interface Reply {

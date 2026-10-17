@@ -116,3 +116,11 @@ test("copy writes the full address and shows a check", async () => {
   await screen.findByRole("button", { name: "Copied" });
   Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
 });
+
+test("free-text key/value cells carry the full value as title (they ellipsize in the panel)", async () => {
+  const ens = "the-quick-brown-fox-jumps-over-lazys.eth";
+  renderDetail(undefined, { ...profile, node: { ...profile.node, ens, contract_name: "AVeryLongContractNameThatWillNotFit" } });
+  const kv = await screen.findByTestId("node-kv");
+  expect(within(kv).getByText(ens)).toHaveAttribute("title", ens);
+  expect(within(kv).getByText("AVeryLongContractNameThatWillNotFit")).toHaveAttribute("title", "AVeryLongContractNameThatWillNotFit");
+});

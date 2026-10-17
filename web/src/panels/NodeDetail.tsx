@@ -176,8 +176,8 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
         <dd className="num" title={t("node.canvasCount")}>{stats ? formatCount(stats.neighbours) : "—"}</dd>
         <dt>{t("node.coverageShort")}</dt>
         <dd className="num">{`${covered} / ${KINDS.length}`}</dd>
-        {n.ens && (<><dt>ENS</dt><dd>{n.ens}</dd></>)}
-        {n.contract_name && (<><dt>{t("node.contractName")}</dt><dd>{n.contract_name}</dd></>)}
+        {n.ens && (<><dt>ENS</dt><dd title={n.ens}>{n.ens}</dd></>)}
+        {n.contract_name && (<><dt>{t("node.contractName")}</dt><dd title={n.contract_name}>{n.contract_name}</dd></>)}
         {p.is_proxy && (
           <>
             <dt>{t("node.proxy")}</dt>
