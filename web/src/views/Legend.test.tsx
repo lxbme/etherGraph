@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { fullLegendGroups, legendFor } from "../graph/legend";
-import { categoryColors } from "../graph/styles";
+import { categoryColors, stateColors } from "../graph/styles";
 import { Legend } from "./Legend";
 
 const KEY = "eg.legend.collapsed";
@@ -25,7 +25,7 @@ test("lists each entry with a 16px swatch and its label", () => {
   render(<Legend groups={groups} collapsedKey={KEY} />);
   expect(screen.getByText("Legend")).toBeInTheDocument();
   expect(screen.getByText("Exchange")).toBeInTheDocument();
-  expect(screen.getByText("No label")).toBeInTheDocument();
+  expect(screen.getByText("No category")).toBeInTheDocument();
   expect(screen.getByText("Width = number of transfers (log scale)")).toBeInTheDocument();
   const swatch = screen.getByText("Exchange").closest("li")!.querySelector("svg")!;
   expect(swatch.getAttribute("width")).toBe("16");
@@ -82,4 +82,14 @@ test("without a collapse key it renders every group inline, with no toggle", () 
   expect(screen.queryByTestId("legend")).not.toBeInTheDocument();
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
   expect(screen.getByText("①②③ = order of transfers")).toBeInTheDocument();
+});
+
+test("the +N more swatch is a wide dashed pill with a +, outlined in the canvas pill's colour", () => {
+  render(<Legend groups={fullLegendGroups("light")} />);
+  const svg = screen.getByText("+N more: hidden neighbours, click to show").closest("li")!.querySelector("svg")!;
+  const rect = svg.querySelector("rect")!;
+  expect(Number(rect.getAttribute("width"))).toBeGreaterThan(Number(rect.getAttribute("height")));
+  expect(rect.getAttribute("stroke")).toBe(stateColors("light").more.stroke);
+  expect(rect.getAttribute("stroke-dasharray")).toBeTruthy();
+  expect(svg.querySelector("text")?.textContent).toBe("+");
 });

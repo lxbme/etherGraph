@@ -7,6 +7,8 @@ export type LegendGroupId = "shape" | "category" | "state" | "asset" | "edge" | 
 export type Swatch =
   | { kind: "node"; shape: string; fill: string; stroke: string; dashed?: boolean; ring?: string }
   | { kind: "edge"; color: string; width?: number; dashed?: boolean; badge?: string }
+  /** The "+N more" placeholder: a dashed pill with `text` inside. */
+  | { kind: "pill"; fill: string; stroke: string; text: string }
   | { kind: "icon"; svg: string };
 export type LegendItem = { id: string; swatch: Swatch; label: MsgKey };
 export type LegendGroup = { id: LegendGroupId; items: LegendItem[] };
@@ -43,7 +45,7 @@ function catalogue(theme: Theme): Record<LegendGroupId, LegendItem[]> {
     pinned: { kind: "icon", svg: icon.pin },
     syncing: { kind: "icon", svg: icon.syncing },
     partial: { kind: "icon", svg: icon.partial },
-    more: { kind: "node", shape: "round-rectangle", fill: state.more.fill, stroke: state.more.stroke, dashed: true },
+    more: { kind: "pill", fill: state.more.fill, stroke: state.more.stroke, text: "+" },
   };
   return {
     shape: KINDS.map((k) => ({ id: k, swatch: { ...plain, shape: NODE_SHAPE[k] }, label: `legend.shape.${k}` })),
@@ -73,6 +75,12 @@ function assemble(all: Record<LegendGroupId, LegendItem[]>, keep: (group: Legend
   return ORDER.map((id) => ({ id, items: all[id].filter((it) => keep(id, it.id)) })).filter((g) => g.items.length > 0);
 }
 
+/** The legend row a node's category is drawn as: sanctioned shares the scam hue; untinted ones are "none". */
+function legendCategory(c: string): (typeof CATEGORIES)[number] {
+  if (c === "sanctioned") return "scam";
+  return (CATEGORIES as readonly string[]).includes(c) ? (c as (typeof CATEGORIES)[number]) : "none";
+}
+
 /** The encodings present in `els`, as "group/id" keys. */
 function present(els: cytoscape.ElementDefinition[]): Set<string> {
   const out = new Set<string>();
@@ -87,8 +95,8 @@ function present(els: cytoscape.ElementDefinition[]): Set<string> {
       for (const c of cls) {
         if (c.startsWith("kind-")) out.add(`shape/${c.slice(5)}`);
         if (STATES.includes(c as never)) out.add(`state/${c}`);
-        // The center is drawn in the accent whatever its category.
-        if (c.startsWith("cat-") && !cls.has("center")) categories.add(c === "cat-sanctioned" ? "scam" : c.slice(4));
+        // The center is drawn in the accent whatever its category; one the stylesheet does not tint ("other", …) is plain.
+        if (c.startsWith("cat-") && !cls.has("center")) categories.add(legendCategory(c.slice(4)));
       }
     } else if (!cls.has("more")) {
       out.add("edge/width");

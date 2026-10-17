@@ -26,12 +26,11 @@ const CAT_HEX: Record<Theme, Record<CatToken, string>> = {
   dark: { exchange: "#6ea3f0", defi: "#a98bf0", bridge: "#4cc2c2", mixer: "#f08a4b", scam: "#f0645a", none: "#98a3b0" },
 };
 
-const ASSET_HEX: Record<Theme, Record<AssetClass, string>> = {
-  light: { eth: "#5b5bd6", stable: "#0f9d58", erc20: "#b7791f", nft: "#6b7280" },
-  dark: { eth: "#9a9aff", stable: "#34c37a", erc20: "#e0a030", nft: "#98a3b0" },
+/** Edge hue per asset class; "other" (unknown class, and tx call edges) is the one neutral grey. */
+const ASSET_HEX: Record<Theme, Record<AssetClass | "other", string>> = {
+  light: { eth: "#5b5bd6", stable: "#0f9d58", erc20: "#b7791f", nft: "#b8327f", other: "#868d98" },
+  dark: { eth: "#9a9aff", stable: "#34c37a", erc20: "#e0a030", nft: "#e879c6", other: "#6b7280" },
 };
-/** Edges whose asset class is unknown (and tx call edges): a neutral grey with no token of its own. */
-const OTHER_EDGE: Record<Theme, string> = { light: "#9ca3af", dark: "#6b7280" };
 
 /** Share of the hue in a category tint; the rest is the node surface (white in light, the dark surface in dark). */
 const TINT_WEIGHT: Record<Theme, number> = { light: 0.15, dark: 0.28 };
@@ -145,8 +144,8 @@ export function categoryColors(theme: Theme): Record<CategoryId, CategoryColor> 
 
 /** Edge colour per asset class. */
 export function assetColors(theme: Theme): Record<AssetClass | "other", string> {
-  const asset = (k: AssetClass) => cssVar(`--asset-${k}`, ASSET_HEX[theme][k]);
-  return { eth: asset("eth"), stable: asset("stable"), erc20: asset("erc20"), nft: asset("nft"), other: OTHER_EDGE[theme] };
+  const asset = (k: AssetClass | "other") => cssVar(`--asset-${k}`, ASSET_HEX[theme][k]);
+  return { eth: asset("eth"), stable: asset("stable"), erc20: asset("erc20"), nft: asset("nft"), other: asset("other") };
 }
 
 /** Fills and strokes of the state encodings that are not a category or an icon. */
@@ -156,7 +155,8 @@ export function stateColors(theme: Theme): { center: CategoryColor; selectedRing
   return {
     center: { fill: accent, stroke: CENTER_RING },
     selectedRing: accent,
-    more: { fill: cssVar("--canvas", t.canvas), stroke: cssVar("--line", t.line) },
+    // --fg-muted, not --line: the dashed outline must read on the canvas.
+    more: { fill: cssVar("--canvas", t.canvas), stroke: cssVar("--fg-muted", t.fgMuted) },
   };
 }
 

@@ -380,7 +380,7 @@ export const en = {
   "legend.cat.bridge": "Bridge",
   "legend.cat.mixer": "Mixer",
   "legend.cat.scam": "Scam / sanctioned",
-  "legend.cat.none": "No label",
+  "legend.cat.none": "No category",
   "legend.state.center": "Center (address being explored)",
   "legend.state.unsynced": "Not synced (dashed outline)",
   "legend.state.selected": "Selected",

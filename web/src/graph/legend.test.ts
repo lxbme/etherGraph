@@ -1,6 +1,6 @@
 import type cytoscape from "cytoscape";
 import { fullLegendGroups, legendFor, txLegendFor, type LegendGroup } from "./legend";
-import { NODE_SHAPE, assetColors, categoryColors, iconSvgs } from "./styles";
+import { NODE_SHAPE, assetColors, categoryColors, iconSvgs, stateColors } from "./styles";
 
 const node = (id: string, classes: string): cytoscape.ElementDefinition => ({ group: "nodes", data: { id }, classes });
 const edge = (id: string, classes: string, data: Record<string, unknown> = {}): cytoscape.ElementDefinition => ({
@@ -39,6 +39,13 @@ describe("legendFor", () => {
     expect(item(g, "asset", "eth").swatch).toMatchObject({ kind: "edge", color: assetColors("light").eth });
   });
 
+  test("cat-other and categories the legend does not list count as no category", () => {
+    expect(ids(legendFor([...base, node("o", "kind-eoa cat-other")], "light")).category).toBeUndefined();
+    expect(ids(legendFor([...base, node("o", "kind-eoa cat-whatever")], "light")).category).toBeUndefined();
+    const g = legendFor([node("o", "kind-eoa cat-other"), node("x", "kind-eoa cat-mixer")], "light");
+    expect(ids(g).category).toEqual(["mixer", "none"]);
+  });
+
   test("categories count only non-center nodes; sanctioned shows as scam", () => {
     const g = legendFor([node("c", "kind-eoa cat-exchange center"), node("s", "kind-eoa cat-sanctioned")], "light");
     expect(ids(g).category).toEqual(["scam"]);
@@ -47,6 +54,11 @@ describe("legendFor", () => {
   test("a more node lists +N more in the state group", () => {
     const g = legendFor([...base, node("more:a", "more"), edge("more-edge:a", "more")], "light");
     expect(ids(g).state).toEqual(["more"]);
+    // A pill with "+", outlined like the canvas pill.
+    expect(item(g, "state", "more").swatch).toEqual({
+      kind: "pill", fill: stateColors("light").more.fill, stroke: stateColors("light").more.stroke, text: "+",
+    });
+    expect(stateColors("light").more.stroke).toBe("#6b7280");
   });
 
   test("state lists center, unsynced, selected, label, pinned, syncing and partial only when present", () => {

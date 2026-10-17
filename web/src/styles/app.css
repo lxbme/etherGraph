@@ -737,6 +737,8 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .legend__swatch { flex: none; }
 /* Edge badges and sequence numbers: a canvas-coloured halo, as on the canvas. */
 .legend__badge { fill: var(--fg); stroke: var(--canvas); stroke-width: 3px; paint-order: stroke; font-size: var(--fs-11); font-weight: 600; }
+/* The "+" inside the "+N more" pill swatch, in the pill label's colour. */
+.legend__pill-text { fill: var(--fg-muted); font-size: var(--fs-11); font-weight: 600; }
 
 .transfers { font-size: var(--fs-12); }
 .transfers__msg { padding: var(--sp-3); color: var(--fg-muted); }

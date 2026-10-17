@@ -1,4 +1,6 @@
 import cytoscape from "cytoscape";
+// @ts-expect-error node builtins are untyped here (no @types/node); the module exists at runtime.
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   NODE_SHAPE,
@@ -64,7 +66,8 @@ describe("graphStylesheet", () => {
 
   test("the +N more pill is a dashed round-rectangle on the canvas colour with a dashed thin edge, warning-free", () => {
     const more = styleOf(sheet(), "node.more");
-    expect(more).toMatchObject({ shape: "round-rectangle", "background-color": "#fbfcfd", "border-style": "dashed", "font-size": 11, color: "#6b7280" });
+    // The outline in --fg-muted: --line is too faint on the canvas.
+    expect(more).toMatchObject({ shape: "round-rectangle", "background-color": "#fbfcfd", "border-color": "#6b7280", "border-style": "dashed", "font-size": 11, color: "#6b7280" });
     expect(styleOf(sheet(), "edge.more")).toMatchObject({ "line-style": "dashed", width: 1, "target-arrow-shape": "none" });
     withCy(
       sheet(),
@@ -221,12 +224,57 @@ describe("graphStylesheet", () => {
   test("edge colours follow the asset class", () => {
     const s = sheet();
     const a = assetColors("light");
-    expect(a).toEqual({ eth: "#5b5bd6", stable: "#0f9d58", erc20: "#b7791f", nft: "#6b7280", other: "#9ca3af" });
+    expect(a).toEqual({ eth: "#5b5bd6", stable: "#0f9d58", erc20: "#b7791f", nft: "#b8327f", other: "#868d98" });
     for (const k of ["eth", "stable", "erc20", "nft", "other"] as const) {
       expect(styleOf(s, `edge.asset-${k}`)["line-color"]).toBe(a[k]);
     }
     expect(assetColors("dark").eth).toBe("#9a9aff");
     expect(styleOf(s, "edge").width).toBe("data(width)");
+  });
+
+  test("every asset colour has its own hue and reads on the canvas (3:1) in both themes", () => {
+    const hex = (c: string) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16) / 255) as [number, number, number];
+    const lum = (c: string) => {
+      const [r, g, b] = hex(c).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)) as [number, number, number];
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const contrast = (a: string, b: string) => {
+      const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x) as [number, number];
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    /** Hue in degrees, or null for a grey. */
+    const hue = (c: string) => {
+      const [r, g, b] = hex(c);
+      const max = Math.max(r, g, b);
+      const d = max - Math.min(r, g, b);
+      if (d < 0.12) return null;
+      const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      return (h * 60 + 360) % 360;
+    };
+    for (const theme of ["light", "dark"] as const) {
+      const canvas = theme === "light" ? "#fbfcfd" : "#10141a";
+      const a = assetColors(theme);
+      for (const c of Object.values(a)) expect(contrast(c, canvas), `${theme} ${c}`).toBeGreaterThanOrEqual(3);
+      // Only "other" is a grey; the named classes are hues at least 30° apart.
+      expect(hue(a.other)).toBeNull();
+      const hues = (["eth", "stable", "erc20", "nft"] as const).map((k) => hue(a[k]));
+      for (const h of hues) expect(h).not.toBeNull();
+      for (let i = 0; i < hues.length; i++)
+        for (let j = i + 1; j < hues.length; j++) {
+          const dh = Math.abs(hues[i]! - hues[j]!);
+          expect(Math.min(dh, 360 - dh), `${theme} hues ${i}/${j}`).toBeGreaterThanOrEqual(30);
+        }
+    }
+  });
+
+  test("the asset fallbacks match tokens.css in both themes", () => {
+    const css = readFileSync("src/styles/tokens.css", "utf8") as string;
+    const [light, dark] = css.split(':root[data-theme="dark"]') as [string, string];
+    const token = (block: string, name: string) => new RegExp(`--${name}:\\s*(#[0-9a-f]{6})`, "i").exec(block)?.[1]?.toLowerCase();
+    for (const [theme, block] of [["light", light], ["dark", dark]] as const) {
+      const a = assetColors(theme);
+      for (const k of ["eth", "stable", "erc20", "nft", "other"] as const) expect(token(block, `asset-${k}`), `${theme} ${k}`).toBe(a[k]);
+    }
   });
 
   test("reads colors from CSS variables when they are set", () => {

@@ -98,6 +98,15 @@ function SwatchSvg({ swatch }: { swatch: Swatch }) {
         )}
       </>
     );
+  } else if (swatch.kind === "pill") {
+    body = (
+      <>
+        <rect x={0.75} y={3.5} width={14.5} height={9} rx={4.5} fill={swatch.fill} stroke={swatch.stroke} strokeWidth={1} strokeDasharray="2.5 1.5" />
+        <text className="legend__pill-text" x={8} y={8} textAnchor="middle" dominantBaseline="central">
+          {swatch.text}
+        </text>
+      </>
+    );
   } else {
     body = <image href={swatch.svg} x={1} y={1} width={14} height={14} />;
   }
