@@ -8,6 +8,7 @@ import { useGraph } from "../graph/store";
 import { useWorkspace } from "../workspace/useWorkspace";
 import { serialize } from "../workspace/serialize";
 import { WorkspaceMenu, safeFileName } from "./WorkspaceMenu";
+import { formatLocalTime } from "../lib/format";
 
 vi.mock("../api/endpoints", () => ({
   api: { createWorkspace: vi.fn(), updateWorkspace: vi.fn(), workspace: vi.fn(), workspaces: vi.fn(), deleteWorkspace: vi.fn() },
@@ -179,6 +180,8 @@ describe("WorkspaceMenu", () => {
     m.deleteWorkspace.mockResolvedValue(undefined);
     render(<WorkspaceMenu />);
     await pick("Open…");
+    const updated = await screen.findByText("2026-01-01 00:00:00");
+    expect(updated).toHaveAttribute("title", formatLocalTime("2026-01-01T00:00:00Z"));
     await userEvent.click(await screen.findByRole("button", { name: "Delete old" }));
     expect(m.deleteWorkspace).not.toHaveBeenCalled();
     expect(screen.getByText("Delete workspace “old”?")).toBeInTheDocument();

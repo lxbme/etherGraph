@@ -49,7 +49,7 @@ test("applying builds an EdgeFilterDto with kinds, direction, time and asset thr
   fireEvent.click(screen.getByLabelText("ERC20"));
   fireEvent.click(screen.getByLabelText("Native transfers"));
   fireEvent.click(screen.getByLabelText("Inbound"));
-  fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "2024-03-01T08:00" } });
+  fireEvent.change(screen.getByLabelText("Start time (local)"), { target: { value: "2024-03-01T08:00" } });
   fireEvent.click(screen.getByLabelText("USDC"));
   fireEvent.change(screen.getByLabelText("USDC min amount"), { target: { value: " 1,000.5 " } });
   fireEvent.click(screen.getByLabelText("By count"));
@@ -94,8 +94,8 @@ test("unknown-decimals assets cannot take a threshold", () => {
 
 test("from after to disables apply", () => {
   setup();
-  fireEvent.change(screen.getByLabelText("Start time"), { target: { value: "2024-03-02T00:00" } });
-  fireEvent.change(screen.getByLabelText("End time"), { target: { value: "2024-03-01T00:00" } });
+  fireEvent.change(screen.getByLabelText("Start time (local)"), { target: { value: "2024-03-02T00:00" } });
+  fireEvent.change(screen.getByLabelText("End time (local)"), { target: { value: "2024-03-01T00:00" } });
   expect(apply()).toBeDisabled();
   expect(screen.getByText("Start time is after end time")).toBeInTheDocument();
 });

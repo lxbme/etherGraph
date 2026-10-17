@@ -130,6 +130,10 @@ describe('banners', () => {
     render(<App />)
     const text = screen.getByText('Etherscan quota used up for today; resets at 2026-10-18 00:00:00')
     expect(text).toHaveAttribute('title', formatLocalTime('2026-10-18T00:00:00Z'))
+    expect(document.querySelector('.topbar__quota')).toHaveAttribute(
+      'title',
+      `Resets at 2026-10-18 00:00:00 UTC (local ${formatLocalTime('2026-10-18T00:00:00Z')})`,
+    )
   })
 
   it('invalid_key degraded shows the fatal banner', () => {

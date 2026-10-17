@@ -205,7 +205,7 @@ test("unknown decimals show the raw value with a warning", async () => {
   });
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderTable();
-  const w = await screen.findByTitle("Unknown decimals");
+  const w = await screen.findByRole("img", { name: "Unknown decimals" });
   expect(w.closest("td")).toHaveTextContent("1,234,567");
 });
 

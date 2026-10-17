@@ -46,7 +46,7 @@ function symbolOf(asset: string | null, symbol: string | null): string {
 function UnknownDecimals() {
   const t = useT();
   return (
-    <span className="transfers__warn" title={t("transfers.unknownDecimals")}>
+    <span className="transfers__warn" role="img" aria-label={t("transfers.unknownDecimals")} title={t("transfers.unknownDecimals")}>
       <AlertTriangle size={12} aria-hidden="true" />
     </span>
   );

@@ -5,6 +5,7 @@ import { messageFor } from "../api/errors";
 import type { WorkspaceMetaDto } from "../api/generated/WorkspaceMetaDto";
 import { t, useT } from "../i18n";
 import { getMainCy } from "../graph/cyRegistry";
+import { formatLocalTime, formatTime } from "../lib/format";
 import { SCHEMA_VERSION } from "../workspace/serialize";
 import {
   captureState,
@@ -133,7 +134,7 @@ function OpenDialog({ onPick, onCancel }: { onPick(id: number): void; onCancel()
         {items?.map((w) => (
           <li key={w.id} className="dialog__row">
             <button className="btn btn--ghost dialog__name" title={w.name} onClick={() => onPick(w.id)}>{w.name}</button>
-            <span className="dialog__calls num">{new Date(w.updated_at).toLocaleString()}</span>
+            <span className="dialog__calls num" title={formatLocalTime(w.updated_at)}>{formatTime(w.updated_at)}</span>
             <button className="btn btn--compact" aria-label={t("ws.deleteNamed", { name: w.name })} disabled={busy === w.id} onClick={() => setPendingDelete(w)}>{t("ws.delete")}</button>
           </li>
         ))}

@@ -3,7 +3,7 @@ import { ChevronDown, PanelRight } from "lucide-react";
 import { FilterPanel } from "../panels/FilterPanel";
 import { SearchBox } from "../search/SearchBox";
 import { useT } from "../i18n";
-import { formatCount, formatTime } from "../lib/format";
+import { formatCount, formatLocalTime, formatTime } from "../lib/format";
 import { SettingsMenu } from "./SettingsMenu";
 import { useQuota } from "./statusStore";
 
@@ -35,7 +35,7 @@ export function TopBar({ search, filter, workspaceMenu, onToggleDetail, detailOp
       <span className="topbar__spacer" />
       <span
         className={`chip num topbar__quota${quotaClass}`}
-        title={quota ? t("topbar.quotaReset", { time: formatTime(quota.reset_at) }) : undefined}
+        title={quota ? t("topbar.quotaReset", { time: formatTime(quota.reset_at), local: formatLocalTime(quota.reset_at) }) : undefined}
       >
         {t("topbar.quota", { value: quota ? `${formatCount(quota.used)}/${formatCount(quota.limit)}` : "—" })}
       </span>
