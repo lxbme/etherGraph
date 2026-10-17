@@ -56,7 +56,7 @@ const TRANSFER_COLS: &str = "tx_hash, sub_id, kind, block_number, ts, from_addr,
                              amount, token_id, trace_id, log_index, call_index";
 
 /// Appends ` AND ...` conditions for the time range, kinds and per-asset thresholds.
-fn push_filter(qb: &mut QueryBuilder<Postgres>, f: &EdgeFilter) {
+pub(crate) fn push_filter(qb: &mut QueryBuilder<Postgres>, f: &EdgeFilter) {
     if let Some(from) = f.time.from {
         qb.push(" AND ts >= ").push_bind(from);
     }

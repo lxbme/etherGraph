@@ -268,6 +268,25 @@ impl Store {
             .transpose()
     }
 
+    /// [`Store::cancel_job`] applied to every active job that is not
+    /// Interactive; returns each affected job's id, kind and resulting status.
+    pub async fn cancel_background(&self) -> Result<Vec<(i64, JobKind, JobStatus)>> {
+        let rows: Vec<(i64, String, String)> = sqlx::query_as(
+            "UPDATE jobs SET updated_at = now(), \
+             status = CASE WHEN status IN ('pending', 'paused_quota') THEN 'cancelled' \
+             ELSE status END, \
+             cancel_requested = (status = 'running') OR cancel_requested \
+             WHERE priority > $1 AND status IN ('pending', 'running', 'paused_quota') \
+             RETURNING id, kind, status",
+        )
+        .bind(Priority::Interactive.as_i16())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|(id, k, st)| Ok((id, JobKind::parse(&k)?, JobStatus::parse(&st)?)))
+            .collect()
+    }
+
     pub async fn cancel_requested(&self, id: i64) -> Result<bool> {
         sqlx::query_scalar("SELECT cancel_requested FROM jobs WHERE id = $1")
             .bind(id)

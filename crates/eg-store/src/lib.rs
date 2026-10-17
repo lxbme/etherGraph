@@ -6,6 +6,7 @@ mod jobs;
 mod labels;
 mod meta;
 mod quota;
+mod stats;
 mod transfers;
 mod txs;
 mod workspaces;
@@ -15,6 +16,7 @@ pub use edges::{TransferCursor, TransferQuery, TransferScope};
 pub use jobs::{JobKind, JobRow, JobStatus, NewJob};
 pub use labels::LabelRow;
 pub use meta::{AccountRow, EnsRow, EnsStatus};
+pub use stats::{AccountKindFilter, CounterpartyRow, CounterpartySort, StatsRow};
 pub use txs::TxRow;
 pub use workspaces::{WorkspaceMeta, WorkspaceRow};
 
