@@ -169,6 +169,22 @@ pub async fn enqueue_missing_meta(s: &AppState, addrs: &[Address], tokens: &[Add
     }
 }
 
+/// Enqueues Low-priority ENS resolution only (no contract or token metadata),
+/// for callers that list many addresses at once. Failures are logged.
+pub async fn enqueue_missing_names(s: &AppState, addrs: &[Address]) {
+    let result: Result<(), StoreError> = async {
+        let names = s.store.addrs_needing_ens(addrs, s.ctx.cfg.ens_ttl).await?;
+        if !names.is_empty() {
+            enqueue_names(&s.ctx, &names).await?;
+        }
+        Ok(())
+    }
+    .await;
+    if let Err(e) = result {
+        tracing::warn!(error = %e, "enqueueing ENS jobs failed");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

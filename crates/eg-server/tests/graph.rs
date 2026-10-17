@@ -1240,3 +1240,32 @@ async fn counterparties_sort_page_kind_and_limits(pool: PgPool) {
     let (s, b) = get(&app, "/api/address/0x12/counterparties").await;
     assert_invalid(s, &b);
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn counterparties_enqueue_only_bounded_name_jobs(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    token(&state, USDT, "USDT", Some(6)).await;
+    let mut v = Vec::new();
+    for i in 0..150u8 {
+        let mut peer = Address::repeat_byte(0x10);
+        peer.0[19] = i;
+        let asset = (i % 2 == 0).then_some(USDT);
+        v.push(tr(i, C, peer, asset, U256::from(1), i64::from(i)));
+    }
+    seed(&state, v).await;
+    let (s, b) = get(
+        &app,
+        &format!("/api/address/{}/counterparties?limit=1000", hex(C)),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["items"].as_array().unwrap().len(), 150);
+    assert!(jobs_of(&state, JobKind::ContractMeta).await.is_empty());
+    assert!(jobs_of(&state, JobKind::TokenMeta).await.is_empty());
+    let named: usize = jobs_of(&state, JobKind::ResolveNames)
+        .await
+        .iter()
+        .map(|j| j.params["addresses"].as_array().unwrap().len())
+        .sum();
+    assert!((1..=100).contains(&named), "named {named}");
+}

@@ -14,13 +14,15 @@ use crate::dto::{
     AssetRefDto, CounterpartyDto, CounterpartyPageDto, asset_meta, hex_addr, rfc3339,
 };
 use crate::error::{ApiError, invalid};
-use crate::nodes::{enqueue_missing_meta, load_nodes, token_map};
+use crate::nodes::{enqueue_missing_names, load_nodes, token_map};
 use crate::parse::{parse_address, parse_time};
 use crate::routes::{ApiPath, ApiQuery};
 use crate::state::AppState;
 
 const DEFAULT_LIMIT: u32 = 200;
 const MAX_LIMIT: u32 = 1000;
+/// Most rows of one page whose ENS names are queued for resolution.
+const NAME_LOOKUPS: usize = 100;
 
 /// All fields are strings so malformed values get the JSON error body.
 #[derive(Deserialize)]
@@ -110,7 +112,9 @@ pub async fn list(
     )
     .await?
     .nodes;
-    enqueue_missing_meta(&s, &addrs, &assets).await;
+    // Candidate kinds come from the probe; only cheap, batched ENS lookups for
+    // the head of the page, never contract or token metadata.
+    enqueue_missing_names(&s, &addrs[..addrs.len().min(NAME_LOOKUPS)]).await;
     let items = rows
         .iter()
         .zip(nodes)
