@@ -1,11 +1,15 @@
 import { request } from "./client";
 import type { AddressProfileDto } from "./generated/AddressProfileDto";
+import type { CancelledDto } from "./generated/CancelledDto";
+import type { CounterpartyPageDto } from "./generated/CounterpartyPageDto";
 import type { GraphRequestDto } from "./generated/GraphRequestDto";
 import type { GraphResponseDto } from "./generated/GraphResponseDto";
 import type { JobDto } from "./generated/JobDto";
 import type { LabelDto } from "./generated/LabelDto";
 import type { NewLabelDto } from "./generated/NewLabelDto";
 import type { NewWorkspaceDto } from "./generated/NewWorkspaceDto";
+import type { ProbeRequestDto } from "./generated/ProbeRequestDto";
+import type { ProbeResponseDto } from "./generated/ProbeResponseDto";
 import type { SearchResultDto } from "./generated/SearchResultDto";
 import type { StatusDto } from "./generated/StatusDto";
 import type { SyncRequestDto } from "./generated/SyncRequestDto";
@@ -31,6 +35,21 @@ export interface TransfersParams {
   cursor?: string;
   limit?: number;
 }
+
+export interface CounterpartiesParams {
+  /** Server default: count_desc. */
+  sort?: "count_asc" | "count_desc" | "recent";
+  /** 1 to 1000; server default 200. */
+  limit?: number;
+  offset?: number;
+  /** "eoa" includes unknown kinds; server default all. */
+  kind?: "eoa" | "contract" | "all";
+  /** RFC 3339 time range bounds. */
+  from?: string;
+  to?: string;
+}
+
+const num = (n: number | undefined) => (n === undefined ? undefined : String(n));
 
 export const api = {
   search: (q: string) => request<SearchResultDto>("GET", "/api/search", { query: { q } }),
@@ -74,4 +93,13 @@ export const api = {
   jobs: () => request<JobDto[]>("GET", "/api/jobs", { query: { active: "true" } }),
   cancelJob: (id: number) => request<void>("DELETE", `/api/jobs/${id}`),
   status: () => request<StatusDto>("GET", "/api/status"),
+  probe: (req: ProbeRequestDto) => request<ProbeResponseDto>("POST", "/api/probe", { body: req }),
+  counterparties: (addr: string, p: CounterpartiesParams = {}) =>
+    request<CounterpartyPageDto>("GET", `/api/address/${encodeURIComponent(addr)}/counterparties`, {
+      query: { sort: p.sort, limit: num(p.limit), offset: num(p.offset), kind: p.kind, from: p.from, to: p.to },
+    }),
+  /** Releases a batch's jobs; only jobs left without any other owner are cancelled. */
+  cancelBatch: (id: string) => request<CancelledDto>("DELETE", `/api/batches/${encodeURIComponent(id)}`),
+  /** Cancels every active job that is not interactive. */
+  cancelBackground: () => request<CancelledDto>("DELETE", "/api/jobs", { query: { scope: "background" } }),
 };

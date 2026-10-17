@@ -282,15 +282,6 @@ button.chip:hover { color: var(--fg); }
 .menu__item:hover:not(:disabled),
 .menu__item:focus-visible { background: var(--bg-subtle); outline: none; }
 .menu__item:disabled { color: var(--fg-muted); cursor: default; }
-.menu__item--sub { padding-left: calc(var(--sp-2) + var(--sp-4)); }
-.menu__group {
-  padding: var(--sp-2) var(--sp-2) var(--sp-1);
-  color: var(--fg-muted);
-  font-size: var(--fs-11);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
 
 /* Segmented radio group: the native radio stays focusable but is visually hidden. */
 .seg {
@@ -636,6 +627,7 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .toast__icon { flex: none; color: var(--accent); }
 .toast--error .toast__icon { color: var(--neg); }
 .toast__msg { min-width: 0; overflow-wrap: anywhere; }
+.toast__action { flex: none; margin-left: auto; color: var(--accent); }
 
 /* ---------- Node context menu ---------- */
 
@@ -768,6 +760,40 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .dialog__calls { color: var(--fg-muted); font-size: var(--fs-12); }
 .dialog__summary { font-size: var(--fs-12); color: var(--fg-muted); }
 .dialog__warn { font-size: var(--fs-12); color: color-mix(in srgb, var(--warn) 70%, var(--fg)); }
+
+/* Expansion dialog: budget meters, candidate tables, probe footer (spec §5.3–5.5). */
+.dialog.expand { width: min(680px, 92vw); }
+.expand__budget {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-12);
+}
+.expand__meter-label { color: var(--fg-muted); }
+.expand__meter-value { font-size: var(--fs-12); text-align: right; }
+.expand__meter-value--over { color: color-mix(in srgb, var(--warn) 70%, var(--fg)); }
+/* A horizontal meter: the in-budget part in the accent, the part over budget in the warning colour. */
+.meter {
+  display: flex;
+  height: var(--sp-2);
+  overflow: hidden;
+  background: var(--bg-subtle);
+  border-radius: var(--radius);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.meter__fill { background: var(--accent); }
+.meter__over { background: var(--warn); }
+.expand__list { display: flex; flex-direction: column; gap: var(--sp-2); min-height: 0; overflow-y: auto; }
+.expand__caption { padding: var(--sp-1) 0; color: var(--fg-muted); font-size: var(--fs-11); font-weight: 600; text-align: left; }
+.expand__name { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.expand__est { margin-right: var(--sp-1); }
+.expand__group { display: flex; flex-direction: column; gap: var(--sp-1); }
+.expand__group-head { display: flex; align-items: center; gap: var(--sp-2); }
+.expand__hint { color: var(--fg-muted); font-size: var(--fs-11); }
+.expand__footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); color: var(--fg-muted); font-size: var(--fs-12); }
+.expand__warnings { display: flex; flex-direction: column; gap: var(--sp-1); }
+.expand__warnings:empty { display: none; }
 
 /* Right panel: kind caption, address, tags, key/value grid, actions (spec §3.2), 16px inset. */
 .detail { height: 100%; padding: var(--sp-4); overflow: auto; font-size: var(--fs-13); }

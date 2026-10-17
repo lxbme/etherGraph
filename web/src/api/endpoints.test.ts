@@ -60,3 +60,29 @@ test("labels uses the addr query", async () => {
   await api.labels("0xabc");
   expect(f.mock.calls[0]![0]).toBe("/api/labels?addr=0xabc");
 });
+
+test("probe posts the addresses and priority", async () => {
+  const f = stub();
+  await api.probe({ addresses: ["0x1", "0x2"], priority: "background" });
+  expect(f.mock.calls[0]![0]).toBe("/api/probe");
+  expect(f.mock.calls[0]![1].method).toBe("POST");
+  expect(JSON.parse(f.mock.calls[0]![1].body)).toEqual({ addresses: ["0x1", "0x2"], priority: "background" });
+});
+
+test("counterparties maps sort/limit/kind and omits the rest", async () => {
+  const f = stub();
+  await api.counterparties("0xabc", { sort: "count_asc", limit: 1000, kind: "all" });
+  expect(f.mock.calls[0]![0]).toBe("/api/address/0xabc/counterparties?sort=count_asc&limit=1000&kind=all");
+  await api.counterparties("0xabc", { offset: 100, from: "2026-01-01T00:00:00Z" });
+  expect(f.mock.calls[1]![0]).toBe("/api/address/0xabc/counterparties?offset=100&from=2026-01-01T00%3A00%3A00Z");
+});
+
+test("cancelBatch and cancelBackground use DELETE", async () => {
+  const f = stub();
+  await api.cancelBatch("b-1");
+  await api.cancelBackground();
+  expect(f.mock.calls[0]![0]).toBe("/api/batches/b-1");
+  expect(f.mock.calls[0]![1].method).toBe("DELETE");
+  expect(f.mock.calls[1]![0]).toBe("/api/jobs?scope=background");
+  expect(f.mock.calls[1]![1].method).toBe("DELETE");
+});

@@ -7,12 +7,11 @@ import { setMainCy } from "../graph/cyRegistry";
 import { useBoxSelection } from "../graph/boxSelection";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { isMoreId, MORE_PREFIX, toElements } from "../graph/elements";
-import { neighborsOf, topNeighbors } from "../graph/neighbors";
 import { useCanvasMetrics } from "../graph/canvasMetrics";
 import { useShortcuts } from "../graph/useShortcuts";
 import { BatchBar } from "../panels/BatchBar";
 import { ContextMenu } from "../panels/ContextMenu";
-import { ExpandDialog } from "../panels/ExpandDialog";
+import { ExpandDialog } from "../panels/expand/ExpandDialog";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { revealBatch, useGraph, type Pos } from "../graph/store";
@@ -76,29 +75,10 @@ export function AddressGraph() {
   const getData = useCallback(() => dataRef.current, []);
   useShortcuts(getData);
 
-  const filter = useGraph((s) => s.filter);
   const [menu, setMenu] = useState<{ x: number; y: number; node: NodeSummaryDto } | null>(null);
-  const [expand, setExpand] = useState<{ neighbors: NodeSummaryDto[]; preChecked?: string[] } | null>(null);
+  const [expanding, setExpanding] = useState<NodeSummaryDto | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
-  const closeExpand = useCallback(() => setExpand(null), []);
-
-  const openExpand = (node: NodeSummaryDto, top: boolean) => {
-    if (!data) return;
-    const addrs = neighborsOf(node.address, data.edges);
-    const byAddr = new Map(data.nodes.map((n) => [lc(n.address), n]));
-    const neighbors = addrs
-      .filter((a) => !ui[a]?.hidden)
-      .map((a) => byAddr.get(a))
-      .filter((n): n is NodeSummaryDto => !!n);
-    if (neighbors.length === 0) {
-      toast(t("view.noNeighbors"));
-      return;
-    }
-    setExpand({
-      neighbors,
-      preChecked: top ? topNeighbors(node.address, data.nodes, data.edges.filter((e) => !ui[lc(e.from)]?.hidden && !ui[lc(e.to)]?.hidden), filter) : undefined,
-    });
-  };
+  const closeExpand = useCallback(() => setExpanding(null), []);
 
   const onCxtNode = (id: string, pos: Pos) => {
     const node = data?.nodes.find((n) => lc(n.address) === lc(id));
@@ -225,13 +205,11 @@ export function AddressGraph() {
           y={menu.y}
           node={menu.node}
           data={data}
-          byAmount={filter.assets?.length === 1}
-          onExpandSelect={() => openExpand(menu.node, false)}
-          onExpandTop={() => openExpand(menu.node, true)}
+          onExpand={() => setExpanding(menu.node)}
           onClose={closeMenu}
         />
       )}
-      {expand && <ExpandDialog neighbors={expand.neighbors} preChecked={expand.preChecked} onClose={closeExpand} />}
+      {expanding && <ExpandDialog node={expanding} onClose={closeExpand} />}
       {centers.length === 0 && <div className="address-graph__empty">{tr("view.empty")}</div>}
       {centers.length > 0 && error != null && (
         <div className="address-graph__status address-graph__status--error" role="alert">{messageFor(error)}</div>

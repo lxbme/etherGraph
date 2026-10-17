@@ -9,14 +9,13 @@ import { ContextMenu } from "./ContextMenu";
 import { useUi } from "./uiStore";
 
 const A = "0x" + "aa".repeat(20);
-const node = (partial: boolean): NodeSummaryDto => ({
-  address: A, kind: "eoa", display_name: null, ens: null, contract_name: null, labels: [],
+const node = (partial: boolean, kind: NodeSummaryDto["kind"] = "eoa"): NodeSummaryDto => ({
+  address: A, kind, display_name: null, ens: null, contract_name: null, labels: [],
   partial, syncing: false, synced: true, hot: false, nonce: null, balance: null,
 });
 const data: GraphResponseDto = { nodes: [], edges: [], omitted: {}, coverage: {} };
-const menu = (partial: boolean) => (
-  <ContextMenu x={1} y={2} node={node(partial)} data={data} byAmount={false}
-    onExpandSelect={() => {}} onExpandTop={() => {}} onClose={() => {}} />
+const menu = (partial: boolean, kind: NodeSummaryDto["kind"] = "eoa", onExpand = () => {}) => (
+  <ContextMenu x={1} y={2} node={node(partial, kind)} data={data} onExpand={onExpand} onClose={() => {}} />
 );
 
 beforeEach(() => {
@@ -32,6 +31,20 @@ test("'older' item only appears for partial nodes", () => {
   unmount();
   render(menu(true));
   expect(screen.getByText("Fetch older records")).toBeInTheDocument();
+});
+
+test("wallets and unknown nodes get one 'Expand neighbours…' item; contracts get none", () => {
+  for (const kind of ["eoa", "unknown"] as const) {
+    const onExpand = vi.fn();
+    const { unmount } = render(menu(false, kind, onExpand));
+    expect(screen.queryByText("Select…")).toBeNull();
+    expect(screen.queryByText(/^Top /)).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Expand neighbours…" }));
+    expect(onExpand).toHaveBeenCalledTimes(1);
+    unmount();
+  }
+  render(menu(false, "contract"));
+  expect(screen.queryByRole("menuitem", { name: "Expand neighbours…" })).toBeNull();
 });
 
 test("'Remove as center' only shows for centers and removes the center", () => {

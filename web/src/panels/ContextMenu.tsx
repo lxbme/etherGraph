@@ -4,7 +4,6 @@ import { focusNode, hideNode, syncNode, togglePin } from "../graph/nodeActions";
 import { useGraph } from "../graph/store";
 import { useT } from "../i18n";
 import { toast } from "../shell/Toasts";
-import { TOP_K } from "../graph/neighbors";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import { useUi } from "./uiStore";
 
@@ -14,10 +13,8 @@ export interface ContextMenuProps {
   y: number;
   node: NodeSummaryDto;
   data: GraphResponseDto;
-  /** True when the filter has exactly one asset, so top-K ranks by amount. */
-  byAmount: boolean;
-  onExpandSelect(): void;
-  onExpandTop(): void;
+  /** Opens the expansion dialog for `node` (wallets and unknown kinds only). */
+  onExpand(): void;
   onClose(): void;
 }
 
@@ -72,11 +69,10 @@ export function ContextMenu(p: ContextMenuProps) {
       {node.partial && (
         <button role="menuitem" className="menu__item" onClick={run(() => syncNode(addr, "older"))}>{t("ctx.older")}</button>
       )}
-      <div className="menu__group">{t("ctx.expandGroup")}</div>
-      <button role="menuitem" className="menu__item menu__item--sub" onClick={run(p.onExpandSelect)}>{t("ctx.select")}</button>
-      <button role="menuitem" className="menu__item menu__item--sub" onClick={run(p.onExpandTop)}>
-        {t(p.byAmount ? "ctx.topAmount" : "ctx.topCount", { k: TOP_K })}
-      </button>
+      {/* Contracts are never expanded from here (spec §5.9). */}
+      {node.kind !== "contract" && (
+        <button role="menuitem" className="menu__item" onClick={run(p.onExpand)}>{t("ctx.expand")}</button>
+      )}
       <button role="menuitem" className="menu__item" onClick={run(() => togglePin(addr))}>{pinned ? t("ctx.unpin") : t("ctx.pin")}</button>
       <button role="menuitem" className="menu__item" onClick={run(() => hideNode(addr))}>{t("ctx.hide")}</button>
       {isCenter && (

@@ -223,31 +223,16 @@ test("'older' menu item syncs with direction older", async () => {
   expect(screen.queryByRole("menu")).toBeNull();
 });
 
-test("top-K item opens the dialog with exactly the top 10 pre-checked; hidden neighbours are excluded", async () => {
-  const x = (i: number) => "0x" + i.toString(16).padStart(40, "1");
-  const many = Array.from({ length: 12 }, (_, i) => x(i + 1));
-  vi.spyOn(api, "sync").mockResolvedValue({ estimated_calls: 0, estimated_seconds: 0, jobs: null, per_address: {} });
-  vi.spyOn(api, "status").mockResolvedValue({ rate: 2 } as never);
-  vi.spyOn(api, "graphEdges").mockResolvedValue({
-    ...data, nodes: [node(A, true), ...many.map((m) => node(m, true))],
-    edges: many.map((m, i) => ({ ...edge, to: m, count: i + 1 })),
-  });
-  await mountWithData();
-  act(() => useGraph.getState().setHidden([many[11]!], true)); // highest count, hidden
-  act(() => props().onCxtNode(A, { x: 1, y: 1 }));
-  act(() => screen.getByText(/Top 10/).click());
-  const boxes = (await screen.findAllByRole("checkbox")) as HTMLInputElement[];
-  expect(boxes).toHaveLength(11);
-  expect(boxes.filter((b) => b.checked)).toHaveLength(10);
-  expect(boxes.filter((b) => !b.checked)).toHaveLength(1); // the lowest-count one
-});
-
-test("expanding a node with no neighbours toasts", async () => {
-  vi.spyOn(api, "graphEdges").mockResolvedValue({ ...data, edges: [] });
+test("'Expand neighbours…' opens the expansion dialog for that node", async () => {
+  const counterparties = vi.spyOn(api, "counterparties").mockResolvedValue({ items: [], total: 0 });
+  vi.spyOn(api, "status").mockReturnValue(new Promise(() => {}));
   await mountWithData();
   act(() => props().onCxtNode(A, { x: 1, y: 1 }));
-  act(() => screen.getByText("Select…").click());
-  expect(await screen.findByText("No neighbors to expand")).toBeInTheDocument();
+  act(() => screen.getByRole("menuitem", { name: "Expand neighbours…" }).click());
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(screen.getByRole("dialog", { name: "Expand neighbours of " + A.slice(0, 6) + "…" + A.slice(-4) })).toBeInTheDocument();
+  expect(counterparties).toHaveBeenCalledWith(A, { sort: "count_asc", limit: 1000, kind: "all" });
+  expect(await screen.findByText("No stored counterparties yet. Sync this address first.")).toBeInTheDocument();
 });
 
 test("right-clicking an unselected node selects it, so Add label opens the editor for that node", async () => {
