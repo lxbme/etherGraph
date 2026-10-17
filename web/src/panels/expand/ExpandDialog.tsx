@@ -50,7 +50,8 @@ export interface ExpandDialogProps {
 interface Source {
   address: string;
   summary: NodeSummaryDto;
-  count: number;
+  /** Null when unknown (preset candidates). */
+  count: number | null;
 }
 
 /** A summary for an address the cached graph does not know (preset candidates). */
@@ -96,7 +97,7 @@ function toRow(
       hot: s.summary.hot,
       onCanvas,
       calls: syncCalls(synced, partial, coverage),
-      weight: weight({ nonce, localTransfers: probe?.local_transfers ?? s.count }),
+      weight: weight({ nonce, localTransfers: probe?.local_transfers ?? s.count ?? 0 }),
     },
   };
 }
@@ -140,7 +141,7 @@ function BudgetBar({ label, used, budget }: { label: string; used: number; budge
         role="meter"
         aria-label={label}
         aria-valuemin={0}
-        aria-valuemax={budget}
+        aria-valuemax={Math.max(used, budget)}
         aria-valuenow={used}
         aria-valuetext={`${formatCount(used)} / ${formatCount(budget)}`}
       >
@@ -178,7 +179,7 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
 
   const [sources, setSources] = useState<Source[] | null>(() =>
     preset
-      ? [...new Set(preset.map(lc))].map((a) => ({ address: a, summary: shown.summaries.get(a) ?? placeholder(a), count: 0 }))
+      ? [...new Set(preset.map(lc))].map((a) => ({ address: a, summary: shown.summaries.get(a) ?? placeholder(a), count: null }))
       : null,
   );
   // The raw error, translated at render time so a language switch re-renders it.
@@ -188,6 +189,8 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
   // Collapsed by default; open for a preset, whose contracts were picked by hand and start checked.
   const [contractsOpen, setContractsOpen] = useState(!!preset);
   const alive = useRef(true);
+  /** A confirm is in flight: no second submit, and the dialog cannot be closed until it settles. */
+  const submittingRef = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
@@ -213,7 +216,7 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
     alive.current = true;
     if (!preset) load();
     dialogRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !submittingRef.current && onClose();
     window.addEventListener("keydown", onKey);
     return () => {
       alive.current = false;
@@ -248,13 +251,27 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
     const base = (sources ?? []).map((s) =>
       toRow(s, probe.items.get(s.address), shown.onCanvas.has(s.address), shown.coverage.get(s.address)),
     );
-    const heavy = heavySet(new Map(base.map((r) => [r.address, r.cand.weight.value])));
+    // Heavy is judged among measured weights only: count-based estimates are on another scale (ruling R14).
+    const heavy = heavySet(new Map(base.filter((r) => !r.cand.weight.estimated).map((r) => [r.address, r.cand.weight.value])));
     return base.map((r): CandidateRow => ({ ...r, heavy: heavy.has(r.address) }));
   }, [sources, probe.items, shown]);
   const wallets = useMemo(() => rows.filter((r) => r.cand.kind !== "contract").sort(byWeight), [rows]);
   const contracts = useMemo(() => rows.filter((r) => r.cand.kind === "contract"), [rows]);
 
-  const defaults = useMemo(() => new Set(defaultSelection(rows.map((r) => r.cand), budget).selected), [rows, budget]);
+  // Defaults come from measured weights only (probe or cached nonce): an estimate from the transfer count with
+  // the center is not comparable with log(nonce) and could pick an unprobed exchange (ruling R14). Estimated
+  // rows are unprobed ones (only contracts lack a nonce after probing, and those are never defaults).
+  const measured = useMemo(() => rows.filter((r) => !r.cand.weight.estimated), [rows]);
+  const defaults = useMemo(
+    () => new Set(defaultSelection(measured.map((r) => r.cand), budget).selected),
+    [measured, budget],
+  );
+  // Would an estimated wallet make the selection if its estimate held? Then it must be probed first.
+  const estimateRanksIn = useMemo(() => {
+    const estimated = new Set(rows.filter((r) => r.cand.weight.estimated).map((r) => r.address));
+    if (estimated.size === 0) return false;
+    return defaultSelection(rows.map((r) => r.cand), budget).selected.some((a) => estimated.has(a));
+  }, [rows, budget]);
   // Until the user changes a box, the checks follow the default selection as probe results arrive.
   const checked = manual ?? defaults;
   const toggle = (a: string) => {
@@ -263,13 +280,11 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
     setManual(next);
   };
 
-  // Probe on while the default selection takes every eligible probed wallet: the budget is not filled by known weights yet.
+  // Probe on while the defaults are starved (they take every eligible measured wallet, so the budget is not
+  // filled yet) or an estimated wallet would rank within the selection. A failed chunk waits for "Probe more".
   const eligible = (r: CandidateRow) => r.cand.kind !== "contract" && !r.cand.hot && !r.heavy;
-  const needMore =
-    !preset &&
-    probe.remaining > 0 &&
-    probe.error == null &&
-    rows.filter((r) => probe.items.has(r.address) && eligible(r)).every((r) => defaults.has(r.address));
+  const starved = measured.filter(eligible).every((r) => defaults.has(r.address));
+  const needMore = !preset && probe.remaining > 0 && probe.error == null && (starved || estimateRanksIn);
   const { busy: probing, more, items: probedItems } = probe;
   // `probedItems`: a whole chunk can land within one render, leaving the other inputs unchanged.
   useEffect(() => {
@@ -286,17 +301,19 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
 
   const confirm = async () => {
     const addresses = selected.map((r) => r.address);
-    if (addresses.length === 0) return;
+    if (addresses.length === 0 || submittingRef.current) return;
     const batch = crypto.randomUUID();
+    submittingRef.current = true;
     setSubmitting(true);
-    try {
-      const chunks: string[][] = [];
-      for (let i = 0; i < addresses.length; i += SYNC_MAX) chunks.push(addresses.slice(i, i + SYNC_MAX));
-      await Promise.all(chunks.map((c) => api.sync({ addresses: c, batch, depth: "shallow" })));
-    } catch (err) {
-      // Jobs an earlier chunk started belong to the batch: release them, the expansion did not happen.
+    const chunks: string[][] = [];
+    for (let i = 0; i < addresses.length; i += SYNC_MAX) chunks.push(addresses.slice(i, i + SYNC_MAX));
+    const results = await Promise.allSettled(chunks.map((c) => api.sync({ addresses: c, batch, depth: "shallow" })));
+    const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failed) {
+      // Every request has settled, so all jobs the others started belong to the batch: release them.
       api.cancelBatch(batch).catch(() => {});
-      toast(messageFor(err), "error");
+      toast(messageFor(failed.reason), "error");
+      submittingRef.current = false;
       if (alive.current) setSubmitting(false);
       return;
     }
@@ -307,7 +324,7 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
   };
 
   return (
-    <div className="dialog-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="dialog-backdrop" onClick={(e) => e.target === e.currentTarget && !submittingRef.current && onClose()}>
       <div className="dialog expand" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={dialogRef}>
         <h3 className="dialog__title">{title}</h3>
         <div className="expand__budget">
@@ -356,7 +373,7 @@ export function ExpandDialog({ node, preset, onClose }: ExpandDialogProps) {
           {noDefaults && <div className="dialog__warn">{t("expand.none")}</div>}
         </div>
         <div className="dialog__actions">
-          <button type="button" className="btn" onClick={onClose}>{t("common.cancel")}</button>
+          <button type="button" className="btn" disabled={submitting} onClick={onClose}>{t("common.cancel")}</button>
           <button type="button" className="btn btn--primary" disabled={checked.size === 0 || submitting} onClick={confirm}>
             {t("expand.confirm")}
           </button>

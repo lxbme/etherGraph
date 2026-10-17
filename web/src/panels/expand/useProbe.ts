@@ -12,10 +12,10 @@ export interface ProbeState {
   remaining: number;
   /** Upstream calls the probes made (cache hits cost none). */
   calls: number;
-  /** Probes the next chunk (background priority); a no-op while one is in flight or nothing is left. */
+  /** Probes the next chunk (background priority; after a failure, the failed one again); a no-op while one is in flight or nothing is left. */
   more(): void;
   busy: boolean;
-  /** The last failed chunk's error, cleared by the next success. */
+  /** The last failed chunk's error, cleared by the next success. A failed chunk is not retried by itself. */
   error: unknown;
 }
 
@@ -72,7 +72,11 @@ export function useProbe(addresses: string[]): ProbeState {
         setError(null);
       })
       .catch((err: unknown) => {
-        if (alive.current) setError(err);
+        // Put the chunk back (it is the last one sent: one request at a time), so `more()` re-sends it.
+        sentRef.current -= chunk.length;
+        if (!alive.current) return;
+        setSent(sentRef.current);
+        setError(err);
       })
       .finally(() => {
         inFlight.current = false;

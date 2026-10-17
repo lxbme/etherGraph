@@ -87,13 +87,12 @@ describe("app.css semantic colours", () => {
   it.each([
     [".address-graph__status--error", "--neg"],
     [".dialog__warn", "--warn"],
-    [".dialog__tag", "--warn"],
   ])("%s uses %s, not a label category hue", (selector, token) => {
     const body = ruleBody(css, selector);
     expect(body).toContain(`var(${token})`);
     expect(body).not.toMatch(/--cat-/);
   });
-  it.each([".dialog__tag", ".txview__tag"])("%s uses the control radius", (selector) => {
+  it.each([".txview__tag"])("%s uses the control radius", (selector) => {
     expect(ruleBody(css, selector)).toMatch(/border-radius:\s*var\(--radius\)/);
   });
 });

@@ -756,7 +756,6 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .dialog__list { margin: 0; padding: 0; list-style: none; overflow-y: auto; }
 .dialog__row { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) 0; cursor: pointer; }
 .dialog__name { flex: 1; font-family: var(--font-mono); font-size: var(--fs-12); }
-.dialog__tag { padding: 0 var(--sp-2); font-size: var(--fs-11); color: var(--fg); background: color-mix(in srgb, var(--warn) 18%, var(--bg)); border-radius: var(--radius); }
 .dialog__calls { color: var(--fg-muted); font-size: var(--fs-12); }
 .dialog__summary { font-size: var(--fs-12); color: var(--fg-muted); }
 .dialog__warn { font-size: var(--fs-12); color: color-mix(in srgb, var(--warn) 70%, var(--fg)); }

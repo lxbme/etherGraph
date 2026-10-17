@@ -45,15 +45,17 @@ test("an empty list probes nothing; a list arriving later starts the first chunk
   expect(probe).toHaveBeenCalledTimes(1);
 });
 
-test("a failed chunk reports the error; more() goes on with the next chunk and clears it", async () => {
+test("a failed chunk reports the error and is put back: more() re-sends the same addresses and clears it", async () => {
   const probe = vi.spyOn(api, "probe").mockRejectedValueOnce(new ApiError("upstream_error", 502, "x"));
   probe.mockImplementation(async (r) => answer(r.addresses));
   const addrs = list(30);
   const { result } = renderHook(() => useProbe(addrs));
   await waitFor(() => expect(result.current.error).toBeInstanceOf(ApiError));
   expect(probe).toHaveBeenCalledTimes(1);
+  expect(result.current.remaining).toBe(30);
   act(() => result.current.more());
-  await waitFor(() => expect(result.current.probed).toBe(10));
+  await waitFor(() => expect(result.current.probed).toBe(20));
+  expect(probe.mock.calls[1]![0].addresses).toEqual(addrs.slice(0, 20));
   expect(result.current.error).toBeNull();
 });
 

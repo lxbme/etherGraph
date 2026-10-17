@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { api } from "../../api/endpoints";
+import { ApiError, messageFor } from "../../api/errors";
 import type { CounterpartyDto } from "../../api/generated/CounterpartyDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import type { ProbeResponseDto } from "../../api/generated/ProbeResponseDto";
@@ -103,8 +104,13 @@ test("the lightest non-heavy wallets are checked by default; checking a Heavy on
   fireEvent.click(box(5));
   expect(box(5).checked).toBe(true);
   expect(screen.getByText("6 nodes over the canvas budget")).toBeInTheDocument();
+  // The meter's scale grows with the overrun; the text keeps used / budget.
+  expect(nodes).toHaveAttribute("aria-valuenow", "66");
+  expect(nodes).toHaveAttribute("aria-valuemax", "66");
+  expect(nodes).toHaveAttribute("aria-valuetext", "66 / 60");
   expect(expandBtn()).toBeEnabled();
-  // Rows show the probed facts.
+  // Rows show the local transfer count with the center and the probed facts.
+  expect(within(heavyRow).getByText("5")).toBeInTheDocument();
   expect(within(heavyRow).getByText("100,000")).toBeInTheDocument();
   expect(within(heavyRow).getByText("1.500000 ETH")).toBeInTheDocument();
 });
@@ -170,6 +176,38 @@ test("with room left after the first chunk, the next chunk is probed in the back
   expect(vi.mocked(api.probe).mock.calls[1]![0]).toEqual({ addresses: range(21, 30).map(addr), priority: "background" });
 });
 
+test("estimated wallets are never defaults while unprobed ones remain; probing goes on until the defaults rest on probed weights", async () => {
+  for (const n of range(1, 30)) nonces[addr(n)] = 1000 * n; // real weights far above the count-based estimates
+  let releaseSecond: () => void = () => {};
+  vi.mocked(api.probe)
+    .mockImplementationOnce(async (r) => probeAnswer(r.addresses))
+    .mockImplementationOnce((r) => new Promise((res) => { releaseSecond = () => res(probeAnswer(r.addresses)); }));
+  mockCounterparties(range(1, 30).map((n) => cp(n)));
+  mount();
+  await waitFor(() => expect(api.probe).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(api.probe).mock.calls[1]![0]).toEqual({ addresses: range(21, 30).map(addr), priority: "background" });
+  // While chunk 2 is out: only probed wallets are checked (the 10 lightest probed ones).
+  expect(checkedAddrs()).toEqual(range(1, 10).map(addr));
+  await act(async () => releaseSecond());
+  await screen.findByText("Probed 30 / 30");
+  expect(checkedAddrs()).toEqual(range(1, 10).map(addr));
+  for (const n of range(1, 10)) expect(within(box(n).closest("tr")!).queryByText("est.")).toBeNull();
+  expect(api.probe).toHaveBeenCalledTimes(2);
+});
+
+test("a failed probe chunk shows the error, is not retried by itself, and 'Probe more' re-sends the same addresses", async () => {
+  vi.mocked(api.probe).mockRejectedValueOnce(new ApiError("upstream_error", 502, "boom"));
+  mockCounterparties(range(1, 30).map((n) => cp(n)));
+  mount();
+  expect(await screen.findByText(messageFor(new ApiError("upstream_error", 502, "boom")))).toBeInTheDocument();
+  await new Promise((r) => setTimeout(r, 20));
+  expect(api.probe).toHaveBeenCalledTimes(1);
+  expect(checkedAddrs()).toEqual([]); // nothing probed: no estimated defaults
+  fireEvent.click(screen.getByRole("button", { name: "Probe more" }));
+  await screen.findByText("Probed 20 / 30");
+  expect(vi.mocked(api.probe).mock.calls[1]![0].addresses).toEqual(range(1, 20).map(addr));
+});
+
 test("confirming syncs shallow under a new batch, expands, and offers Undo until the next history step", async () => {
   const sync = vi.spyOn(api, "sync").mockResolvedValue({ estimated_calls: null, estimated_seconds: null, per_address: null, jobs: [1] });
   mockCounterparties(range(1, 3).map((n) => cp(n)));
@@ -202,8 +240,7 @@ test("the toast's Undo undoes the expansion", async () => {
   expect(screen.queryByText("Expanded 1 address")).toBeNull();
 });
 
-test("a failed sync keeps the dialog open, expands nothing and cancels the batch", async () => {
-  const { ApiError } = await import("../../api/errors");
+test("a failed sync keeps the dialog open, expands nothing, cancels the batch and toasts the error", async () => {
   vi.spyOn(api, "sync").mockRejectedValue(new ApiError("upstream_error", 502, "boom"));
   const cancel = vi.spyOn(api, "cancelBatch").mockResolvedValue({ cancelled: [] });
   mockCounterparties([cp(1)]);
@@ -214,6 +251,45 @@ test("a failed sync keeps the dialog open, expands nothing and cancels the batch
   expect(onClose).not.toHaveBeenCalled();
   expect(cancel).toHaveBeenCalledWith(vi.mocked(api.sync).mock.calls[0]![0].batch);
   expect(expandBtn()).toBeEnabled();
+  expect(await screen.findByText(messageFor(new ApiError("upstream_error", 502, "boom")))).toBeInTheDocument();
+});
+
+test("with several sync requests, the batch is cancelled only after all of them settled", async () => {
+  useCanvasMetrics.setState({ width: 4000, height: 4000 });
+  vi.mocked(api.status).mockResolvedValue(status({ rate: 10 }));
+  let releaseFirst: () => void = () => {};
+  const sync = vi.spyOn(api, "sync")
+    .mockImplementationOnce(() => new Promise((r) => { releaseFirst = () => r({ estimated_calls: null, estimated_seconds: null, per_address: null, jobs: [1] }); }))
+    .mockRejectedValueOnce(new ApiError("upstream_error", 502, "boom"));
+  const cancel = vi.spyOn(api, "cancelBatch").mockResolvedValue({ cancelled: [] });
+  mockCounterparties(range(1, 60).map((n) => cp(n)));
+  mount();
+  await waitFor(() => expect(checkedAddrs()).toHaveLength(60));
+  await act(async () => fireEvent.click(expandBtn()));
+  expect(sync).toHaveBeenCalledTimes(2);
+  expect(cancel).not.toHaveBeenCalled();
+  await act(async () => releaseFirst());
+  expect(cancel).toHaveBeenCalledTimes(1);
+  expect(useGraph.getState().centers).toEqual([]);
+});
+
+test("while a confirm is in flight: no double submit, Cancel disabled, Escape and backdrop ignored", async () => {
+  let release: () => void = () => {};
+  const sync = vi.spyOn(api, "sync").mockImplementation(
+    () => new Promise((r) => { release = () => r({ estimated_calls: null, estimated_seconds: null, per_address: null, jobs: [1] }); }),
+  );
+  mockCounterparties([cp(1)]);
+  const { onClose, container } = mount();
+  await waitFor(() => expect(checkedAddrs()).toHaveLength(1));
+  fireEvent.click(expandBtn());
+  fireEvent.click(expandBtn());
+  expect(sync).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+  fireEvent.keyDown(window, { key: "Escape" });
+  fireEvent.click(container.querySelector(".dialog-backdrop")!);
+  expect(onClose).not.toHaveBeenCalled();
+  await act(async () => release());
+  expect(onClose).toHaveBeenCalledTimes(1);
 });
 
 test("more than 50 checked addresses are synced in requests of at most 50 under one batch", async () => {
@@ -241,6 +317,7 @@ test("preset candidates skip counterparties, resolve names from the cached graph
   expect(counterparties).not.toHaveBeenCalled();
   expect(screen.getByRole("checkbox", { name: "alice.eth" })).toBeChecked();
   expect(box(8)).toBeChecked();
+  expect(within(box(8).closest("tr")!).getByText("—")).toBeInTheDocument(); // transfers with the center: unknown
   // Hand-picked contracts are shown (group open) and checked too.
   expect(screen.getByRole("button", { name: /Contracts \(1\)/ })).toHaveAttribute("aria-expanded", "true");
   expect(box(9)).toBeChecked();
@@ -252,7 +329,9 @@ test("a busy queue zeroes the call budget and says so", async () => {
   mockCounterparties(range(1, 3).map((n) => cp(n)));
   mount();
   expect(await screen.findByText("Queue is busy — new work will wait behind 300 calls.")).toBeInTheDocument();
-  expect(screen.getByRole("meter", { name: "Calls" })).toHaveAttribute("aria-valuemax", "0");
+  // Budget 0, the lightest probed wallet still checked: the scale is the usage.
+  await waitFor(() => expect(screen.getByRole("meter", { name: "Calls" })).toHaveAttribute("aria-valuetext", "6 / 0"));
+  expect(screen.getByRole("meter", { name: "Calls" })).toHaveAttribute("aria-valuemax", "6");
 });
 
 test("the probe cost is its own line; only checked calls are compared with the remaining quota", async () => {
@@ -308,4 +387,8 @@ test("Escape and the backdrop close; shortcuts are suppressed while open", async
   expect(useGraph.getState().ui[addr(5)]?.pinned).toBe(true);
   fireEvent.keyDown(window, { key: "Escape" });
   expect(onClose).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("dialog")); // inside: stays open
+  expect(onClose).toHaveBeenCalledTimes(1);
+  fireEvent.click(document.querySelector(".dialog-backdrop")!);
+  expect(onClose).toHaveBeenCalledTimes(2);
 });

@@ -10,8 +10,8 @@ export interface CandidateRow {
   /** Lowercase. */
   address: string;
   displayName: string | null;
-  /** Transfers with the expanded address (0 when unknown, e.g. preset candidates). */
-  count: number;
+  /** Stored transfers with the expanded address; null when unknown (preset candidates). */
+  count: number | null;
   /** Outgoing transactions (probe, or the probe cache via the node summary); null when unknown. */
   nonce: number | null;
   /** Wei, decimal; null when unknown. */
@@ -42,6 +42,8 @@ function Check({ row, checked, onToggle }: { row: CandidateRow; checked: boolean
   );
 }
 
+const countText = (n: number | null) => (n != null ? formatCount(n) : "—");
+
 function Name({ row }: { row: CandidateRow }) {
   const t = useT();
   return (
@@ -69,6 +71,7 @@ export function CandidateList(p: CandidateListProps) {
             <tr>
               <th />
               <th>{t("expand.col.address")}</th>
+              <th className="table__num">{t("expand.col.transfers")}</th>
               <th className="table__num">{t("expand.col.weight")}</th>
               <th className="table__num">{t("expand.col.nonce")}</th>
               <th className="table__num">{t("expand.col.balance")}</th>
@@ -81,6 +84,7 @@ export function CandidateList(p: CandidateListProps) {
                 <tr key={r.address}>
                   <Check row={r} checked={p.checked.has(r.address)} onToggle={p.onToggle} />
                   <Name row={r} />
+                  <td className="table__num num">{countText(r.count)}</td>
                   <td className="table__num num">
                     {r.cand.weight.estimated && (
                       <span className="tag tag--neutral expand__est" title={t("expand.estTitle")}>{t("expand.est")}</span>
@@ -118,7 +122,7 @@ export function CandidateList(p: CandidateListProps) {
                   <tr key={r.address}>
                     <Check row={r} checked={p.checked.has(r.address)} onToggle={p.onToggle} />
                     <Name row={r} />
-                    <td className="table__num num">{formatCount(r.count)}</td>
+                    <td className="table__num num">{countText(r.count)}</td>
                   </tr>
                 ))}
               </tbody>
