@@ -62,6 +62,24 @@ describe("graphStylesheet", () => {
     expect(styleOf(sheet(), "edge[badge]")["text-background-color"]).toBe("#fbfcfd");
   });
 
+  test("the +N more pill is a dashed round-rectangle on the canvas colour with a dashed thin edge, warning-free", () => {
+    const more = styleOf(sheet(), "node.more");
+    expect(more).toMatchObject({ shape: "round-rectangle", "background-color": "#fbfcfd", "border-style": "dashed", "font-size": 11, color: "#6b7280" });
+    expect(styleOf(sheet(), "edge.more")).toMatchObject({ "line-style": "dashed", width: 1, "target-arrow-shape": "none" });
+    withCy(
+      sheet(),
+      [
+        { group: "nodes", data: { id: "a" } },
+        { group: "nodes", data: { id: "more:a", label: "+12 more" }, classes: "more" },
+        { group: "edges", data: { id: "e", source: "a", target: "more:a" }, classes: "more" },
+      ],
+      (cy) => {
+        expect(ps(cy.getElementById("more:a") as never, "width").pfValue).toBeGreaterThan(40);
+        expect(ps(cy.getElementById("e") as never, "line-style").strValue).toBe("dashed");
+      },
+    );
+  });
+
   test("edge badges use the smallest type-scale size (11px)", () => {
     expect(styleOf(sheet(), "edge")["font-size"]).toBe(11);
   });

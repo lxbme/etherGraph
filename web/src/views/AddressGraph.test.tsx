@@ -6,6 +6,7 @@ import { ApiError } from "../api/errors";
 import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
+import { useCanvasMetrics } from "../graph/canvasMetrics";
 import { useBoxSelection } from "../graph/boxSelection";
 import type { CytoscapeViewProps } from "../graph/CytoscapeView";
 import { pairKey, useGraph } from "../graph/store";
@@ -291,4 +292,29 @@ test("a failing query after a success keeps the previous nodes and shows the err
   act(() => useGraph.getState().setSort("recent"));
   expect(await screen.findByRole("alert")).toBeInTheDocument();
   expect(ids()).toEqual([A, B, `c:${A}>${B}`]);
+});
+
+describe("+N more proxy", () => {
+  const withOmitted = (n: number): GraphResponseDto => ({ ...data, omitted: { [A]: n } });
+
+  test("omitted neighbours show as a proxy node; clicking it raises the center's limit by a batch", async () => {
+    vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
+    await mountWithData();
+    await waitFor(() => expect(ids()).toContain(`more:${A}`));
+    expect(props().elements.find((e) => e.data.id === `more:${A}`)?.data.label).toBe("+12 more");
+    const before = useGraph.getState().limits[A]!;
+    useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 20 });
+    act(() => props().onTapNode(`more:${A}`, { shift: false }));
+    expect(useGraph.getState().limits[A]).toBe(before + 40); // capacity 60 - 20 visible, 1 center
+    expect(useGraph.getState().selection).toBeNull();
+  });
+
+  test("taps on the proxy edge neither select nor expand a pair", async () => {
+    vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
+    await mountWithData();
+    act(() => props().onTapEdge(A, `more:${A}`));
+    act(() => props().onDblTapEdge(A, `more:${A}`));
+    expect(useGraph.getState().selection).toBeNull();
+    expect(useGraph.getState().expandedPairs.size).toBe(0);
+  });
 });

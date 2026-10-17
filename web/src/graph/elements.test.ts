@@ -96,7 +96,7 @@ describe("nodeElement", () => {
       { ...ctx, omitted: 1834 },
     );
     expect(el.data.omitted).toBe(1834);
-    expect(el.data.text).toBe(`Binance 14 (+1834)\n${shortAddr(A)}`);
+    expect(el.data.text).toBe(`Binance 14\n${shortAddr(A)}`);
     expect(el.data.text).not.toMatch(/[⚠⏳📌]/u);
     expect(classesOf(el)).toEqual(expect.arrayContaining(["partial", "syncing", "pinned"]));
   });
@@ -133,11 +133,35 @@ describe("toElements", () => {
       { [A]: 7 },
     );
     const ids = els.map((e) => e.data.id);
-    expect(ids).toEqual([A, B, `c:${A}>${B}`]);
+    expect(ids).toEqual([A, B, `more:${A}`, `c:${A}>${B}`, `more-edge:${A}`]);
     expect(classesOf(els[0]!)).toContain("center");
     expect(els[0]!.data.omitted).toBe(7);
     expect(classesOf(els[1]!)).toContain("selected");
     expect(classesOf(els[0]!)).not.toContain("selected");
+  });
+
+  test("a center with omitted neighbours gets a +N more proxy node and a dashed-style edge", () => {
+    const els = toElements(nodes, [vedge()], state({ centers: [A] }), { [A]: 12 });
+    const more = els.find((e) => e.data.id === `more:${A}`)!;
+    expect(more.data.label).toBe("+12 more");
+    expect(more.data.center).toBe(A);
+    expect(classesOf(more)).toEqual(["more"]);
+    expect(more.selectable).toBe(false);
+    expect(more.grabbable).toBe(false);
+    const edge = els.find((e) => e.data.id === `more-edge:${A}`)!;
+    expect(edge.group).toBe("edges");
+    expect(edge.data).toMatchObject({ source: A, target: `more:${A}` });
+    expect(els.filter((e) => String(e.data.id).startsWith("more")).length).toBe(2);
+    expect(els[0]!.data.text).not.toMatch(/\+12/);
+  });
+
+  test("no proxy when the center is hidden, nothing is omitted, or the address is not a center", () => {
+    const hiddenCenter = toElements(nodes, [], state({ centers: [A], ui: { [A]: ui({ hidden: true }) } }), { [A]: 12 });
+    expect(hiddenCenter.some((e) => String(e.data.id).startsWith("more"))).toBe(false);
+    const none = toElements(nodes, [], state({ centers: [A] }), { [A]: 0 });
+    expect(none.some((e) => String(e.data.id).startsWith("more"))).toBe(false);
+    const notCenter = toElements(nodes, [], state({ centers: [A] }), { [B]: 3 });
+    expect(notCenter.some((e) => String(e.data.id).startsWith("more"))).toBe(false);
   });
 
   test("selected pair marks edges in both directions", () => {

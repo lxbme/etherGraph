@@ -15,8 +15,8 @@ export const NODE_SHAPE: Record<NodeKind, string> = {
 
 /** Fallbacks for the tokens in styles/tokens.css (used when CSS variables are unavailable, e.g. jsdom). */
 const THEME_HEX = {
-  light: { fg: "#111827", fgMuted: "#6b7280", bg: "#ffffff", canvas: "#fbfcfd", accent: "#1f5eff" },
-  dark: { fg: "#e6e9ed", fgMuted: "#98a3b0", bg: "#14181d", canvas: "#10141a", accent: "#5b8cff" },
+  light: { fg: "#111827", fgMuted: "#6b7280", line: "#e3e6eb", bg: "#ffffff", canvas: "#fbfcfd", accent: "#1f5eff" },
+  dark: { fg: "#e6e9ed", fgMuted: "#98a3b0", line: "#323a44", bg: "#14181d", canvas: "#10141a", accent: "#5b8cff" },
 } as const;
 
 /** Category hues; "sanctioned" shares the scam hue. */
@@ -35,6 +35,9 @@ const OTHER_EDGE: Record<Theme, string> = { light: "#9ca3af", dark: "#6b7280" };
 
 /** Share of the hue in a category tint; the rest is the node surface (white in light, the dark surface in dark). */
 const TINT_WEIGHT: Record<Theme, number> = { light: 0.15, dark: 0.28 };
+/** Per-character width and horizontal padding of the "+N more" pill. */
+const MORE_CHAR_PX = 6.5;
+const MORE_PAD_PX = 18;
 /** The center node's ring stays white in both themes. */
 const CENTER_RING = "#ffffff";
 
@@ -168,6 +171,8 @@ function graphBlocks(theme: Theme): Block[] {
   const fg = cssVar("--fg", t.fg);
   const canvas = cssVar("--canvas", t.canvas);
   const accent = cssVar("--accent", t.accent);
+  const line = cssVar("--line", t.line);
+  const fgMuted = cssVar("--fg-muted", t.fgMuted);
   const font = cssVar("--font-sans", "Inter, system-ui, sans-serif");
   const cat = categoryColors(theme);
   const asset = assetColors(theme);
@@ -220,6 +225,26 @@ function graphBlocks(theme: Theme): Block[] {
     { selector: "node.unsynced", style: { "border-style": "dashed" } },
     // Corner icons for user label, pinned, syncing and partial; each block composes all of them.
     ...BADGES.map((b) => ({ selector: `node.${b.cls}`, style: BADGE_STYLE })),
+    // The "+N more" pill: canvas fill, dashed outline, the label inside; after the categories and states.
+    {
+      selector: "node.more",
+      style: {
+        shape: "round-rectangle",
+        // `width: "label"` is deprecated; an estimate from the text length (11px font) is close enough.
+        width: (ele) => String(ele.data("label") ?? "").length * MORE_CHAR_PX + MORE_PAD_PX,
+        height: 22,
+        "background-color": canvas,
+        "border-color": line,
+        "border-width": 1,
+        "border-style": "dashed",
+        label: "data(label)",
+        "text-valign": "center",
+        "text-margin-y": 0,
+        "text-outline-width": 0,
+        "font-size": 11,
+        color: fgMuted,
+      },
+    },
     {
       // A ring outside the border, so the selected node keeps its own fill and stroke (the center's white ring too).
       selector: "node.selected, node:selected",
@@ -249,6 +274,10 @@ function graphBlocks(theme: Theme): Block[] {
         "text-background-padding": "2px",
         "text-background-shape": "round-rectangle",
       },
+    },
+    {
+      selector: "edge.more",
+      style: { width: 1, "line-style": "dashed", "target-arrow-shape": "none", ...edgeColor(line), opacity: 1 },
     },
     { selector: "edge.asset-eth", style: edgeColor(asset.eth) },
     { selector: "edge.asset-stable", style: edgeColor(asset.stable) },

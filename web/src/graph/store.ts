@@ -114,6 +114,12 @@ const UNMEASURED_CANVAS_SHARE = 0.6;
  * between them (ruling R12). `fresh` ignores the nodes now on the canvas (it is being replaced).
  */
 export function firstBatchFor(n: number, opts: { fresh?: boolean } = {}): number {
+  const count = Math.max(1, n);
+  return perCenterBatch(currentNodeBudget(opts.fresh), count, count);
+}
+
+/** The node budget now: canvas capacity (60% of the window before the first measure, ruling R4) minus the shown nodes. */
+function currentNodeBudget(fresh = false): number {
   const m = useCanvasMetrics.getState();
   const canvas =
     m.width > 0 && m.height > 0
@@ -122,8 +128,12 @@ export function firstBatchFor(n: number, opts: { fresh?: boolean } = {}): number
         ? { width: 0, height: 0 }
         : // Scaling one side scales the area: 60% of innerWidth x innerHeight.
           { width: window.innerWidth * UNMEASURED_CANVAS_SHARE, height: window.innerHeight };
-  const count = Math.max(1, n);
-  return perCenterBatch(nodeBudget(nodeCapacity(canvas), opts.fresh ? 0 : m.visible), count, count);
+  return nodeBudget(nodeCapacity(canvas), fresh ? 0 : m.visible);
+}
+
+/** How many more neighbours one click on a "+N more" node reveals: a single center's share of the free budget. */
+export function revealBatch(): number {
+  return perCenterBatch(currentNodeBudget(), 1, 0);
 }
 
 /** Neighbour limit of a new center: the per-center batch for one new center under the current node budget. */

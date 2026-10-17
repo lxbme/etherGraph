@@ -228,6 +228,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "transfers.group": { one: "{symbol} · {from}→{to} · {count} 笔 · Σ {sum}", other: "{symbol} · {from}→{to} · {count} 笔 · Σ {sum}" },
   "view.empty": "输入地址、交易哈希或 ENS 开始探索",
   "view.updating": "更新中",
+  "graph.more": { one: "还有 {count} 个", other: "还有 {count} 个" },
   "view.noNeighbors": "没有可展开的邻居",
   "view.showHidden": "显示隐藏节点 ({count})",
   "sync.startedAddr": "已开始同步 {addr}",

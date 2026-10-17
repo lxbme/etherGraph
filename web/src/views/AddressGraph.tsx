@@ -6,7 +6,7 @@ import { messageFor } from "../api/errors";
 import { setMainCy } from "../graph/cyRegistry";
 import { useBoxSelection } from "../graph/boxSelection";
 import { CytoscapeView } from "../graph/CytoscapeView";
-import { toElements } from "../graph/elements";
+import { isMoreId, MORE_PREFIX, toElements } from "../graph/elements";
 import { neighborsOf, topNeighbors } from "../graph/neighbors";
 import { useCanvasMetrics } from "../graph/canvasMetrics";
 import { useShortcuts } from "../graph/useShortcuts";
@@ -15,7 +15,7 @@ import { ContextMenu } from "../panels/ContextMenu";
 import { ExpandDialog } from "../panels/ExpandDialog";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
-import { useGraph, type Pos } from "../graph/store";
+import { revealBatch, useGraph, type Pos } from "../graph/store";
 import { graphStylesheet } from "../graph/styles";
 import { useGraphData } from "../graph/useGraphData";
 import { deriveVisualEdges } from "../graph/visualEdges";
@@ -145,6 +145,11 @@ export function AddressGraph() {
     });
   };
 
+  /** A "+N more" node: raise its center's limit by one more per-center batch. */
+  const revealMore = (center: string) => {
+    useGraph.getState().raiseLimit(center, revealBatch());
+  };
+
   const onDblTapNode = (id: string) => {
     const a = lc(id);
     const n = data?.nodes.find((x) => lc(x.address) === a);
@@ -175,13 +180,17 @@ export function AddressGraph() {
         layout="incremental"
         positionsEpoch={epoch}
         onTapNode={(id) => {
+          if (id.startsWith(MORE_PREFIX)) {
+            revealMore(id.slice(MORE_PREFIX.length));
+            return;
+          }
           useBoxSelection.getState().clear();
           useGraph.getState().select({ kind: "node", address: lc(id) });
         }}
         onTapBackground={() => useBoxSelection.getState().clear()}
-        onTapEdge={(a, b) => useGraph.getState().select({ kind: "pair", a: lc(a), b: lc(b) })}
+        onTapEdge={(a, b) => !isMoreId(a) && !isMoreId(b) && useGraph.getState().select({ kind: "pair", a: lc(a), b: lc(b) })}
         onDblTapNode={onDblTapNode}
-        onDblTapEdge={(a, b) => useGraph.getState().togglePair(a, b)}
+        onDblTapEdge={(a, b) => !isMoreId(a) && !isMoreId(b) && useGraph.getState().togglePair(a, b)}
         onCxtNode={onCxtNode}
         onBoxSelect={(ids) => {
           if (ids.length === 0) return;

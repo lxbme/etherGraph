@@ -6,6 +6,7 @@ import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
 import type { JsonValue } from "../api/generated/serde_json/JsonValue";
 import { t } from "../i18n";
 import { getMainCy } from "../graph/cyRegistry";
+import { isMoreId } from "../graph/elements";
 import { pairKey, useGraph, type NodeUi, type Pos } from "../graph/store";
 import { useTabs } from "../shell/tabs";
 import { toast } from "../shell/Toasts";
@@ -78,6 +79,7 @@ export function captureState(): WorkspaceStateV1 {
   let viewport = DEFAULT_VIEWPORT;
   if (cy) {
     cy.nodes().forEach((n) => {
+      if (isMoreId(n.id())) return; // "+N more" proxies are not part of the workspace
       nodes.push(n.id());
       const p = n.position();
       positions[n.id()] = { x: p.x, y: p.y };

@@ -226,6 +226,7 @@ export const en = {
   "transfers.group": { one: "{symbol} · {from}→{to} · {count} transfer · Σ {sum}", other: "{symbol} · {from}→{to} · {count} transfers · Σ {sum}" },
   "view.empty": "Enter an address, tx hash or ENS name to start exploring",
   "view.updating": "Updating",
+  "graph.more": { one: "+{count} more", other: "+{count} more" },
   "view.noNeighbors": "No neighbors to expand",
   "view.showHidden": "Show hidden nodes ({count})",
   "sync.startedAddr": "Started syncing {addr}",

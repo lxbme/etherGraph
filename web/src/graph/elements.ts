@@ -1,18 +1,22 @@
 import type cytoscape from "cytoscape";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
+import { t } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { graphSelection, type GraphSelection, type GraphState, type NodeUi } from "./store";
 import { edgeWidth, type VisualEdge } from "./visualEdges";
 
 const lc = (s: string) => s.toLowerCase();
 
+/** Id prefix of the "+N more" proxy nodes (and of their edges, with `more-edge:`); never a real address. */
+export const MORE_PREFIX = "more:";
+export const isMoreId = (id: string): boolean => id.startsWith(MORE_PREFIX) || id.startsWith("more-edge:");
+
 /**
- * The label is the name plus " (+N)" omitted neighbours, with the short address on a second line when a
- * name exists. States (partial, syncing, pinned, user label) are classes the stylesheet draws as corner icons.
+ * The label is the name, with the short address on a second line when a name exists; omitted neighbours
+ * are a separate "+N more" node. States (partial, syncing, pinned, user label) are classes the stylesheet draws as corner icons.
  */
-function labelText(n: NodeSummaryDto, omitted: number, name: string, sub: string): string {
-  const first = omitted > 0 ? `${name} (+${omitted})` : name;
-  return n.display_name ? `${first}\n${sub}` : first;
+function labelText(n: NodeSummaryDto, name: string, sub: string): string {
+  return n.display_name ? `${name}\n${sub}` : name;
 }
 
 export function nodeElement(
@@ -37,11 +41,31 @@ export function nodeElement(
   ].filter(Boolean);
   const el: cytoscape.ElementDefinition = {
     group: "nodes",
-    data: { id, label, sub, text: labelText(n, ctx.omitted, label, sub), omitted: ctx.omitted },
+    data: { id, label, sub, text: labelText(n, label, sub), omitted: ctx.omitted },
     classes: classes.join(" "),
   };
   if (ui?.pos) el.position = { ...ui.pos };
   return el;
+}
+
+/** The placeholder for a center's omitted neighbours; clicking it reveals the next batch. Not selectable or draggable. */
+export function moreElements(center: string, count: number): cytoscape.ElementDefinition[] {
+  const id = `${MORE_PREFIX}${center}`;
+  return [
+    {
+      group: "nodes",
+      data: { id, label: t("graph.more", { count }), center },
+      classes: "more",
+      selectable: false,
+      grabbable: false,
+    },
+    {
+      group: "edges",
+      data: { id: `more-edge:${center}`, source: center, target: id },
+      classes: "more",
+      selectable: false,
+    },
+  ];
 }
 
 export function edgeElement(v: VisualEdge, highlighted: boolean): cytoscape.ElementDefinition {
@@ -97,11 +121,18 @@ export function toElements(
       }),
     );
   }
+  const proxies: cytoscape.ElementDefinition[] = [];
+  for (const c of state.centers.map(lc)) {
+    const count = omitted[c] ?? 0;
+    if (count > 0 && present.has(c)) proxies.push(...moreElements(c, count));
+  }
+  out.push(...proxies.filter((e) => e.group === "nodes"));
   for (const v of visual) {
     if (!present.has(lc(v.from)) || !present.has(lc(v.to))) continue;
     const el = edgeElement(v, isHighlighted(v, state.highlightTransfer));
     if (inSelectedPair(v, sel)) el.classes = `${el.classes} selected`;
     out.push(el);
   }
+  out.push(...proxies.filter((e) => e.group === "edges"));
   return out;
 }
