@@ -619,6 +619,15 @@ async fn import_labels_counts_and_is_idempotent(pool: PgPool) {
         .collect();
     assert_eq!(cats, [("A", "mixer"), ("B", "other")]);
 
+    // The pre-v3 "exchange" category is aliased to cex.
+    let csv = "address,text,category\n0x28c6c06298d514db089934071355e5743bf21d60,E,Exchange\n";
+    import_labels(&store, "old", csv.as_bytes()).await.unwrap();
+    let cat: String = sqlx::query_scalar("SELECT category FROM labels WHERE source = 'import:old'")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(cat, "cex");
+
     // Wrong header is an error, and leaves the dataset untouched.
     assert!(
         import_labels(&store, "sample", "a,b,c\n".as_bytes())

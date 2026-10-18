@@ -78,26 +78,39 @@ impl Store {
         dataset: &str,
         rows: &[(Address, String, String)],
     ) -> Result<u64> {
-        let source = format!("import:{dataset}");
+        Ok(self.replace_imports(&[(dataset, rows)]).await?[0])
+    }
+
+    /// Replaces the labels of several `import:<dataset>` sources in one
+    /// transaction (all or nothing); returns the number inserted per dataset.
+    pub async fn replace_imports(
+        &self,
+        sets: &[(&str, &[(Address, String, String)])],
+    ) -> Result<Vec<u64>> {
         let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM labels WHERE source = $1")
-            .bind(&source)
-            .execute(&mut *tx)
-            .await?;
-        let mut inserted = 0;
-        for chunk in rows.chunks(LABEL_CHUNK) {
-            let mut qb: QueryBuilder<Postgres> =
-                QueryBuilder::new("INSERT INTO labels (address, text, category, source) ");
-            qb.push_values(chunk, |mut b, (a, text, category)| {
-                b.push_bind(addr_to_bytes(*a))
-                    .push_bind(text)
-                    .push_bind(category)
-                    .push_bind(&source);
-            });
-            inserted += qb.build().execute(&mut *tx).await?.rows_affected();
+        let mut counts = Vec::with_capacity(sets.len());
+        for (dataset, rows) in sets {
+            let source = format!("import:{dataset}");
+            sqlx::query("DELETE FROM labels WHERE source = $1")
+                .bind(&source)
+                .execute(&mut *tx)
+                .await?;
+            let mut inserted = 0;
+            for chunk in rows.chunks(LABEL_CHUNK) {
+                let mut qb: QueryBuilder<Postgres> =
+                    QueryBuilder::new("INSERT INTO labels (address, text, category, source) ");
+                qb.push_values(chunk, |mut b, (a, text, category)| {
+                    b.push_bind(addr_to_bytes(*a))
+                        .push_bind(text)
+                        .push_bind(category)
+                        .push_bind(&source);
+                });
+                inserted += qb.build().execute(&mut *tx).await?.rows_affected();
+            }
+            counts.push(inserted);
         }
         tx.commit().await?;
-        Ok(inserted)
+        Ok(counts)
     }
 }
 
@@ -139,5 +152,39 @@ mod tests {
         assert_eq!(all.iter().filter(|l| l.source == "import:d").count(), 2);
         store.delete_user_label(u.id).await.unwrap();
         assert_eq!(store.labels(&[a]).await.unwrap().len(), 1);
+    }
+
+    #[sqlx::test]
+    async fn replace_imports_is_all_or_nothing(pool: PgPool) {
+        let store = Store::from_pool(pool);
+        let a = Address::repeat_byte(1);
+        let old = vec![(a, "Old".to_string(), "defi".to_string())];
+        store.replace_import("m", &old).await.unwrap();
+        store.replace_import("x", &old).await.unwrap();
+        let new = vec![(a, "New".to_string(), "cex".to_string())];
+        // NUL is rejected by Postgres text: the second dataset fails.
+        let bad = vec![(a, "a\0b".to_string(), "cex".to_string())];
+        assert!(
+            store
+                .replace_imports(&[("m", &new), ("x", &bad)])
+                .await
+                .is_err()
+        );
+        let got = store.labels(&[a]).await.unwrap();
+        assert_eq!(got.len(), 2);
+        assert!(got.iter().all(|l| l.text == "Old"));
+        let counts = store
+            .replace_imports(&[("m", &new), ("x", &new)])
+            .await
+            .unwrap();
+        assert_eq!(counts, [1, 1]);
+        assert!(
+            store
+                .labels(&[a])
+                .await
+                .unwrap()
+                .iter()
+                .all(|l| l.text == "New")
+        );
     }
 }

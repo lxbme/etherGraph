@@ -44,6 +44,12 @@ pub async fn import_labels(
                 return None;
             }
             let category = r.category.to_ascii_lowercase();
+            // Pre-v3 CSVs say "exchange".
+            let category = if category == "exchange" {
+                "cex".to_owned()
+            } else {
+                category
+            };
             let category = if LABEL_CATEGORIES.contains(&category.as_str()) {
                 category
             } else {

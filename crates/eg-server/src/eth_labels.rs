@@ -483,8 +483,21 @@ fn readable(slug: &str) -> String {
         .join(" ")
 }
 
+/// The dataset's placeholder spellings of "no name" count as empty.
+fn clean_tag(name_tag: &str) -> &str {
+    let tag = name_tag.trim();
+    if ["null", "undefined", "none"]
+        .iter()
+        .any(|p| tag.eq_ignore_ascii_case(p))
+    {
+        ""
+    } else {
+        tag
+    }
+}
+
 fn label_text(row: &EthLabelRow) -> String {
-    let tag = row.name_tag.trim();
+    let tag = clean_tag(&row.name_tag);
     let text = if tag.is_empty() {
         readable(row.label.trim())
     } else {
@@ -526,7 +539,7 @@ pub fn aggregate(rows: impl IntoIterator<Item = EthLabelRow>) -> (Out, Out, u64)
             continue;
         };
         let slug_cat = slug_category(row.label.trim());
-        let cat = match name_category(&row.name_tag) {
+        let cat = match name_category(clean_tag(&row.name_tag)) {
             Some(n) if category_rank(n) < category_rank(slug_cat) => n,
             _ => slug_cat,
         };
@@ -579,9 +592,10 @@ pub async fn import_eth_labels(
         }
     }
     let (mainnet, xchain, skipped) = aggregate(rows);
-    let m = store.replace_import(MAINNET_DATASET, &mainnet).await?;
-    let x = store.replace_import(XCHAIN_DATASET, &xchain).await?;
-    Ok((m, x, skipped + malformed))
+    let counts = store
+        .replace_imports(&[(MAINNET_DATASET, &mainnet), (XCHAIN_DATASET, &xchain)])
+        .await?;
+    Ok((counts[0], counts[1], skipped + malformed))
 }
 
 #[cfg(test)]
@@ -645,6 +659,23 @@ mod tests {
             (x[0].1.as_str(), x[0].2.as_str()),
             ("OKX: Hot Wallet 3", "cex")
         );
+    }
+
+    #[test]
+    fn placeholder_name_tags_count_as_empty() {
+        for tag in ["null", " NULL ", "undefined", "None"] {
+            let (main, _, skipped) = aggregate([row(A, 1, "blocked", tag)]);
+            assert_eq!(skipped, 0);
+            assert_eq!(
+                main,
+                [(
+                    parse_address(A).unwrap(),
+                    "Blocked".to_owned(),
+                    "sanctioned".to_owned()
+                )],
+                "{tag}"
+            );
+        }
     }
 
     #[test]
