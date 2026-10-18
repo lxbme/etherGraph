@@ -63,26 +63,34 @@ pub struct AuditFilter {
     pub to: Option<DateTime<Utc>>,
 }
 
+/// Appends `e` through `db` (the pool or a transaction); returns the row's id.
+pub(crate) async fn insert_audit<'c>(
+    db: impl sqlx::Executor<'c, Database = Postgres>,
+    e: &AuditEntry,
+) -> Result<i64> {
+    Ok(sqlx::query_scalar(
+        "INSERT INTO audit_log (actor, action, target, before, after, outcome, ip, \
+         user_agent, message, signature) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) \
+         RETURNING id",
+    )
+    .bind(&e.actor)
+    .bind(&e.action)
+    .bind(&e.target)
+    .bind(&e.before)
+    .bind(&e.after)
+    .bind(e.outcome.as_str())
+    .bind(&e.ip)
+    .bind(&e.user_agent)
+    .bind(&e.message)
+    .bind(&e.signature)
+    .fetch_one(db)
+    .await?)
+}
+
 impl Store {
     /// Returns the new row's id.
     pub async fn audit_append(&self, e: &AuditEntry) -> Result<i64> {
-        Ok(sqlx::query_scalar(
-            "INSERT INTO audit_log (actor, action, target, before, after, outcome, ip, \
-             user_agent, message, signature) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) \
-             RETURNING id",
-        )
-        .bind(&e.actor)
-        .bind(&e.action)
-        .bind(&e.target)
-        .bind(&e.before)
-        .bind(&e.after)
-        .bind(e.outcome.as_str())
-        .bind(&e.ip)
-        .bind(&e.user_agent)
-        .bind(&e.message)
-        .bind(&e.signature)
-        .fetch_one(&self.pool)
-        .await?)
+        insert_audit(&self.pool, e).await
     }
 
     /// Up to `limit` rows matching `filter`, newest first; `cursor` (the last

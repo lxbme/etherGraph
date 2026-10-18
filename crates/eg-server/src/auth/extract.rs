@@ -9,7 +9,7 @@ use axum::middleware::Next;
 use axum::response::Response;
 use eg_store::{SessionKind, UserRow};
 
-use super::{ADMIN_COOKIE, SESSION_COOKIE, client_ip, cookie, user_agent};
+use super::{ADMIN_COOKIE, SESSION_COOKIE, client_ip, cookie, rate_key, user_agent};
 use crate::error::ApiError;
 use crate::state::AppState;
 
@@ -106,9 +106,9 @@ pub struct ClientMeta {
 }
 
 impl ClientMeta {
-    /// The rate-limit key.
-    pub fn ip_key(&self) -> &str {
-        self.ip.as_deref().unwrap_or("unknown")
+    /// The rate-limit key (see [`rate_key`]).
+    pub fn ip_key(&self) -> String {
+        rate_key(self.ip.as_deref())
     }
 }
 
@@ -140,21 +140,22 @@ pub async fn require_user(
 }
 
 /// Middleware against cross-site request forgery: a state-changing request
-/// must carry `Origin` equal to the public origin (401 `bad_origin`).
+/// must carry `Origin` equal to the public origin (401 `bad_origin`). Login
+/// checks it itself, to audit the refusal.
 pub async fn require_origin(
     State(state): State<AppState>,
     req: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
     let safe = matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS);
-    if !safe {
-        let origin = req
-            .headers()
-            .get(header::ORIGIN)
-            .and_then(|v| v.to_str().ok());
-        if origin != Some(state.auth.origin.origin.as_str()) {
-            return Err(ApiError::unauthorized("bad_origin"));
-        }
+    if !safe && !origin_ok(&state, req.headers()) {
+        return Err(ApiError::unauthorized("bad_origin"));
     }
     Ok(next.run(req).await)
+}
+
+/// Whether the request's `Origin` is the public origin.
+pub fn origin_ok(state: &AppState, headers: &HeaderMap) -> bool {
+    let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
+    origin == Some(state.auth.origin.origin.as_str())
 }

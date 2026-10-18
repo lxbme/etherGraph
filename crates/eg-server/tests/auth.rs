@@ -439,9 +439,13 @@ async fn me_and_logout(pool: PgPool) {
         .unwrap();
     let (status, cookies, _) = send_full(&app, req).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    assert_eq!(cookies.len(), 1);
+    assert_eq!(cookies.len(), 2, "{cookies:?}");
     assert!(cookies[0].starts_with("eg_session=;"), "{}", cookies[0]);
+    assert!(cookies[0].contains("Path=/;"), "{}", cookies[0]);
     assert!(cookies[0].contains("Max-Age=0"), "{}", cookies[0]);
+    assert!(cookies[1].starts_with("eg_admin=;"), "{}", cookies[1]);
+    assert!(cookies[1].contains("Path=/api/admin;"), "{}", cookies[1]);
+    assert!(cookies[1].contains("Max-Age=0"), "{}", cookies[1]);
     assert_eq!(count(&pool, "sessions").await, 0);
     assert_eq!(
         get_as(&app, &cookie, "/api/auth/me").await.0,
@@ -461,6 +465,143 @@ async fn me_and_logout(pool: PgPool) {
     assert_eq!(status, StatusCode::NO_CONTENT);
     assert!(cookies[0].starts_with("eg_session=;"));
     assert_eq!(audit(&state.store, "logout").await.len(), 1);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn logout_ends_admin_mode_and_a_new_login_does_not_resume_it(pool: PgPool) {
+    let key = new_key();
+    let mut cfg = Config::default();
+    cfg.auth.admins = vec![format!("{:#x}", key_address(&key))];
+    let (app, state, _) = anon_app(pool, cfg);
+    let cookie = login_as(&app, &key).await;
+    let user = state
+        .store
+        .upsert_user_on_login(key_address(&key))
+        .await
+        .unwrap();
+    let admin = state
+        .store
+        .session_create(user.id, SessionKind::Admin, Duration::hours(1), None, None)
+        .await
+        .unwrap();
+    let both = |session: &str| format!("{session}; eg_admin={admin}");
+    let (_, me) = get_as(&app, &both(&cookie), "/api/auth/me").await;
+    assert_eq!(me["admin_mode"], true);
+
+    let req = Request::post("/api/auth/logout")
+        .header(header::COOKIE, &cookie)
+        .header(header::ORIGIN, ORIGIN)
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(send(&app, req).await.0, StatusCode::NO_CONTENT);
+    assert!(
+        state
+            .store
+            .session_lookup(&admin, SessionKind::Admin)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    // The browser may still hold the old eg_admin cookie.
+    let again = login_as(&app, &key).await;
+    let (status, me) = get_as(&app, &both(&again), "/api/auth/me").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(me["admin_mode"], false);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_login_whose_audit_row_fails_leaves_no_session(pool: PgPool) {
+    let (app, state, _) = anon_app(pool.clone(), Config::default());
+    let key = whitelisted_key(&state).await;
+    sqlx::query(
+        "CREATE FUNCTION reject_ok_audit() RETURNS trigger LANGUAGE plpgsql AS \
+         $$ BEGIN RAISE EXCEPTION 'audit down'; END; $$",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER reject_ok_audit BEFORE INSERT ON audit_log FOR EACH ROW \
+         WHEN (NEW.outcome = 'ok') EXECUTE FUNCTION reject_ok_audit()",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let fields = nonce_for(&app, key_address(&key)).await;
+    let message = message_for(&fields);
+    let (status, cookies, body) = post_login(&app, &message, &personal_sign(&key, &message)).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+    assert!(cookies.is_empty(), "{cookies:?}");
+    assert_eq!(count(&pool, "sessions").await, 0);
+    // The attempt is still on record, as failed.
+    let rows = audit(&state.store, "login").await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].entry.outcome, AuditOutcome::Failed);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn login_audit_rows_hold_the_payload_only_once_a_nonce_was_taken(pool: PgPool) {
+    let (app, state, _) = anon_app(pool, Config::default());
+    let key = whitelisted_key(&state).await;
+    let addr = format!("{:#x}", key_address(&key));
+    let latest = || async {
+        let rows = audit(&state.store, "login").await;
+        rows.into_iter().next().unwrap().entry
+    };
+
+    // Not a SIWE message: nothing of it is kept.
+    post_login(&app, "hello", &personal_sign(&key, "hello")).await;
+    let e = latest().await;
+    assert_eq!(e.after, Some(json!({"reason": "bad_message"})));
+    assert_eq!(
+        (e.actor.as_str(), &e.message, &e.signature),
+        ("unknown", &None, &None)
+    );
+
+    // A nonce the server never issued.
+    let mut forged = nonce_for(&app, key_address(&key)).await;
+    forged.nonce = "0123456789abcdef0123456789abcdef".into();
+    let message = message_for(&forged);
+    post_login(&app, &message, &personal_sign(&key, &message)).await;
+    let e = latest().await;
+    assert_eq!(e.after, Some(json!({"reason": "bad_nonce"})));
+    assert_eq!(
+        (e.actor.as_str(), &e.message, &e.signature),
+        (addr.as_str(), &None, &None)
+    );
+
+    // Cross-origin: refused before anything else, still audited.
+    let fields = nonce_for(&app, key_address(&key)).await;
+    let message = message_for(&fields);
+    let signature = personal_sign(&key, &message);
+    let body = json!({"message": message, "signature": signature});
+    let req = Request::post("/api/auth/login")
+        .header("content-type", "application/json")
+        .header(header::ORIGIN, "https://evil.example.org")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    assert_eq!(send(&app, req).await.0, StatusCode::UNAUTHORIZED);
+    let e = latest().await;
+    assert_eq!(e.after, Some(json!({"reason": "bad_origin"})));
+    assert_eq!(e.outcome, AuditOutcome::Denied);
+    assert_eq!((&e.message, &e.signature), (&None, &None));
+
+    // A body that is not a login request, from the right origin.
+    let req = Request::post("/api/auth/login")
+        .header("content-type", "application/json")
+        .header(header::ORIGIN, ORIGIN)
+        .body(Body::from("not json"))
+        .unwrap();
+    let (status, body) = send(&app, req).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"]["code"], "invalid_input");
+
+    // A taken nonce with a wrong signature: the payload is kept.
+    let (_, _, body) = post_login(&app, &message, &personal_sign(&new_key(), &message)).await;
+    assert_eq!(reason(&body), "bad_signature");
+    let e = latest().await;
+    assert_eq!(e.message.as_deref(), Some(message.as_str()));
+    assert!(e.signature.is_some());
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
@@ -738,6 +879,8 @@ async fn admin_mode_needs_both_sessions_of_a_configured_admin(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn client_ip_comes_from_x_forwarded_for_only_when_trusted(pool: PgPool) {
+    // The trusted proxy appended the right-most hop; the client wrote the
+    // leading one.
     for (trust, want) in [(false, "10.0.0.9"), (true, "203.0.113.7")] {
         let mut cfg = Config::default();
         cfg.auth.trust_forwarded_for = trust;
@@ -750,7 +893,7 @@ async fn client_ip_comes_from_x_forwarded_for_only_when_trusted(pool: PgPool) {
             .header("content-type", "application/json")
             .header(header::ORIGIN, ORIGIN)
             .header(header::USER_AGENT, "test-agent")
-            .header("x-forwarded-for", "203.0.113.7, 10.0.0.1")
+            .header("x-forwarded-for", "6.6.6.6, 203.0.113.7")
             .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
                 [10, 0, 0, 9],
                 4000,

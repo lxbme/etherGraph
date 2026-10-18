@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use sqlx::Row;
 use sqlx::postgres::PgRow;
 
+use crate::audit::{AuditEntry, insert_audit};
 use crate::users::{UserRow, user_cols, user_row};
 use crate::{Result, Store, StoreError};
 
@@ -110,6 +111,30 @@ fn session_row(r: &PgRow) -> Result<SessionRow> {
     })
 }
 
+async fn insert_session<'c>(
+    db: impl sqlx::Executor<'c, Database = sqlx::Postgres>,
+    user_id: i64,
+    kind: SessionKind,
+    ttl: Duration,
+    ip: Option<&str>,
+    user_agent: Option<&str>,
+) -> Result<String> {
+    let token: [u8; TOKEN_BYTES] = rand::random();
+    sqlx::query(
+        "INSERT INTO sessions (token_hash, user_id, kind, expires_at, ip, user_agent) \
+         VALUES ($1, $2, $3, now() + make_interval(secs => $4), $5, $6)",
+    )
+    .bind(Sha256::digest(token).to_vec())
+    .bind(user_id)
+    .bind(kind.as_str())
+    .bind(secs(ttl))
+    .bind(ip)
+    .bind(user_agent)
+    .execute(db)
+    .await?;
+    Ok(hex::encode(token))
+}
+
 impl Store {
     /// Stores a new session expiring after `ttl`; returns the raw token (hex),
     /// which is never stored.
@@ -121,20 +146,25 @@ impl Store {
         ip: Option<&str>,
         user_agent: Option<&str>,
     ) -> Result<String> {
-        let token: [u8; TOKEN_BYTES] = rand::random();
-        sqlx::query(
-            "INSERT INTO sessions (token_hash, user_id, kind, expires_at, ip, user_agent) \
-             VALUES ($1, $2, $3, now() + make_interval(secs => $4), $5, $6)",
-        )
-        .bind(Sha256::digest(token).to_vec())
-        .bind(user_id)
-        .bind(kind.as_str())
-        .bind(secs(ttl))
-        .bind(ip)
-        .bind(user_agent)
-        .execute(&self.pool)
-        .await?;
-        Ok(hex::encode(token))
+        insert_session(&self.pool, user_id, kind, ttl, ip, user_agent).await
+    }
+
+    /// Like [`Store::session_create`], appending `audit` in the same
+    /// transaction: either both are stored or neither is.
+    pub async fn session_create_audited(
+        &self,
+        user_id: i64,
+        kind: SessionKind,
+        ttl: Duration,
+        ip: Option<&str>,
+        user_agent: Option<&str>,
+        audit: &AuditEntry,
+    ) -> Result<String> {
+        let mut tx = self.pool.begin().await?;
+        let token = insert_session(&mut *tx, user_id, kind, ttl, ip, user_agent).await?;
+        insert_audit(&mut *tx, audit).await?;
+        tx.commit().await?;
+        Ok(token)
     }
 
     /// The live session of `kind` for `raw` and its user; `None` when unknown,
@@ -173,6 +203,16 @@ impl Store {
             .execute(&self.pool)
             .await?;
         Ok(res.rows_affected() > 0)
+    }
+
+    /// Deletes `user_id`'s sessions of `kind`; returns how many.
+    pub async fn sessions_delete_kind(&self, user_id: i64, kind: SessionKind) -> Result<u64> {
+        let res = sqlx::query("DELETE FROM sessions WHERE user_id = $1 AND kind = $2")
+            .bind(user_id)
+            .bind(kind.as_str())
+            .execute(&self.pool)
+            .await?;
+        Ok(res.rows_affected())
     }
 
     /// Deletes every session (user and admin) of `user_id`; returns how many.
@@ -454,6 +494,119 @@ mod tests {
                 .await
                 .unwrap()
                 .is_none()
+        );
+    }
+
+    fn login_entry(outcome: AuditOutcome) -> AuditEntry {
+        AuditEntry {
+            actor: "0x01".into(),
+            action: "login".into(),
+            target: None,
+            before: None,
+            after: None,
+            outcome,
+            ip: None,
+            user_agent: None,
+            message: None,
+            signature: None,
+        }
+    }
+
+    async fn audit_count(s: &Store) -> usize {
+        s.audit_page(&AuditFilter::default(), None, 100)
+            .await
+            .unwrap()
+            .len()
+    }
+
+    #[sqlx::test]
+    async fn session_create_audited_stores_both_or_neither(pool: PgPool) {
+        let s = Store::from_pool(pool.clone());
+        let u = user(&s, 1).await;
+        let ttl = Duration::days(1);
+        let raw = s
+            .session_create_audited(
+                u.id,
+                SessionKind::User,
+                ttl,
+                None,
+                None,
+                &login_entry(AuditOutcome::Ok),
+            )
+            .await
+            .unwrap();
+        assert!(
+            s.session_lookup(&raw, SessionKind::User)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(audit_count(&s).await, 1);
+
+        // An audit insert that fails takes the session with it.
+        sqlx::query(
+            "CREATE FUNCTION reject_audit() RETURNS trigger LANGUAGE plpgsql AS \
+             $$ BEGIN RAISE EXCEPTION 'audit down'; END; $$",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE TRIGGER reject_audit BEFORE INSERT ON audit_log \
+             FOR EACH ROW EXECUTE FUNCTION reject_audit()",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(
+            s.session_create_audited(
+                u.id,
+                SessionKind::User,
+                ttl,
+                None,
+                None,
+                &login_entry(AuditOutcome::Ok),
+            )
+            .await
+            .is_err()
+        );
+        let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(sessions, 1);
+    }
+
+    #[sqlx::test]
+    async fn sessions_delete_kind_keeps_other_kinds_and_users(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (a, b) = (user(&s, 1).await, user(&s, 2).await);
+        let ttl = Duration::days(1);
+        let mk = |id, kind| {
+            let s = s.clone();
+            async move { s.session_create(id, kind, ttl, None, None).await.unwrap() }
+        };
+        let a_user = mk(a.id, SessionKind::User).await;
+        mk(a.id, SessionKind::Admin).await;
+        mk(a.id, SessionKind::Admin).await;
+        let b_admin = mk(b.id, SessionKind::Admin).await;
+        assert_eq!(
+            s.sessions_delete_kind(a.id, SessionKind::Admin)
+                .await
+                .unwrap(),
+            2
+        );
+        assert!(
+            s.session_lookup(&a_user, SessionKind::User)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            s.session_lookup(&b_admin, SessionKind::Admin)
+                .await
+                .unwrap()
+                .is_some()
         );
     }
 

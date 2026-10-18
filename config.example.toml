@@ -37,5 +37,8 @@ admins = []
 default_daily_quota = 5000
 session_days = 7
 admin_session_minutes = 60
-# Only behind a reverse proxy you trust: take the client IP from X-Forwarded-For
+# Only behind exactly one reverse proxy you trust: take the client IP from the
+# right-most X-Forwarded-For hop. That proxy must append the peer address
+# (nginx: proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;) or
+# overwrite the header; hops further left are client-supplied and ignored.
 trust_forwarded_for = false

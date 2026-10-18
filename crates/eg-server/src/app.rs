@@ -57,12 +57,13 @@ pub fn router(state: AppState) -> Router {
     let open = Router::new()
         .route("/health", get(status::health))
         .route("/auth/nonce", get(auth::nonce))
-        .route("/auth/login", post(auth::login))
         .route("/auth/logout", post(auth::logout))
         .route("/auth/me", get(auth::me));
     let api = protected
         .merge(open)
         .route_layer(from_fn_with_state(state.clone(), require_origin))
+        // Checks the origin itself so that a refusal is audited.
+        .route("/auth/login", post(auth::login))
         .fallback(api_not_found)
         // Applies to the routes registered above.
         .method_not_allowed_fallback(method_not_allowed);

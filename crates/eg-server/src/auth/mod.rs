@@ -9,7 +9,7 @@ pub mod extract;
 pub mod ratelimit;
 pub mod siwe;
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
 use alloy_primitives::Address;
@@ -25,6 +25,8 @@ use self::ratelimit::RateLimiter;
 
 pub const SESSION_COOKIE: &str = "eg_session";
 pub const ADMIN_COOKIE: &str = "eg_admin";
+/// `eg_admin` is only sent to the admin API.
+pub const ADMIN_COOKIE_PATH: &str = "/api/admin";
 
 /// Requests per client IP and minute to `GET /api/auth/nonce` and, separately,
 /// to `POST /api/auth/login`.
@@ -101,25 +103,56 @@ pub fn set_cookie(name: &str, value: &str, path: &str, max_age_secs: u64, secure
     c
 }
 
-/// Client IP (D7): the socket peer; `X-Forwarded-For`'s first hop when the
-/// proxy in front is trusted. `None` without either (in-process tests).
+/// Client IP (D7): the socket peer; with `trust_forwarded_for`, the
+/// right-most `X-Forwarded-For` hop instead, the one the single trusted
+/// proxy appended (hops to its left are client-supplied). Falls back to the
+/// peer when that hop does not parse. `None` without either (in-process tests).
 pub fn client_ip(parts: &Parts, trust_forwarded_for: bool) -> Option<String> {
-    if trust_forwarded_for {
-        let first = parts
-            .headers
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.split(',').next())
-            .map(str::trim)
-            .filter(|ip| ip.parse::<std::net::IpAddr>().is_ok());
-        if let Some(ip) = first {
-            return Some(ip.to_owned());
-        }
+    let forwarded = trust_forwarded_for
+        .then(|| parts.headers.get_all("x-forwarded-for").iter().next_back())
+        .flatten()
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.rsplit(',').next())
+        .and_then(parse_hop);
+    let peer = || {
+        parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ConnectInfo(a)| a.ip())
+    };
+    forwarded
+        .or_else(peer)
+        .map(|ip| ip.to_canonical().to_string())
+}
+
+/// One `X-Forwarded-For` hop: `ip`, `ip:port`, `[v6]` or `[v6]:port`.
+fn parse_hop(hop: &str) -> Option<IpAddr> {
+    let hop = hop.trim();
+    if let Ok(ip) = hop.parse::<IpAddr>() {
+        return Some(ip);
     }
-    parts
-        .extensions
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(a)| a.ip().to_string())
+    if let Ok(sa) = hop.parse::<SocketAddr>() {
+        return Some(sa.ip());
+    }
+    let v6 = hop.strip_prefix('[')?.strip_suffix(']')?;
+    v6.parse::<Ipv6Addr>().ok().map(IpAddr::V6)
+}
+
+/// The rate-limit bucket of a client IP: an IPv4 address on its own, an IPv6
+/// address by its /64 (one subscriber usually holds a whole /64).
+pub fn rate_key(ip: Option<&str>) -> String {
+    match ip
+        .and_then(|i| i.parse::<IpAddr>().ok())
+        .map(|i| i.to_canonical())
+    {
+        Some(IpAddr::V4(v4)) => v4.to_string(),
+        Some(IpAddr::V6(v6)) => {
+            let mut seg = v6.segments();
+            seg[4..].fill(0);
+            format!("{}/64", Ipv6Addr::from(seg))
+        }
+        None => ip.unwrap_or("unknown").to_owned(),
+    }
 }
 
 /// The `User-Agent`, cut to a bounded length.
@@ -169,10 +202,10 @@ mod tests {
         );
     }
 
-    fn parts(xff: Option<&str>, peer: Option<[u8; 4]>) -> Parts {
+    fn parts(xff: &[&str], peer: Option<[u8; 4]>) -> Parts {
         let mut r = Request::get("/");
-        if let Some(x) = xff {
-            r = r.header("x-forwarded-for", x);
+        for x in xff {
+            r = r.header("x-forwarded-for", *x);
         }
         if let Some(ip) = peer {
             r = r.extension(ConnectInfo(SocketAddr::from((ip, 1234))));
@@ -182,13 +215,45 @@ mod tests {
 
     #[test]
     fn client_ip_rules() {
-        let p = parts(Some("203.0.113.7, 10.0.0.1"), Some([10, 0, 0, 9]));
+        let peer = Some([10, 0, 0, 9]);
+        let p = parts(&["203.0.113.7"], peer);
         assert_eq!(client_ip(&p, false).as_deref(), Some("10.0.0.9"));
         assert_eq!(client_ip(&p, true).as_deref(), Some("203.0.113.7"));
-        // A malformed header falls back to the peer.
-        let p = parts(Some("not-an-ip"), Some([10, 0, 0, 9]));
-        assert_eq!(client_ip(&p, true).as_deref(), Some("10.0.0.9"));
-        assert_eq!(client_ip(&parts(None, None), true), None);
+        // A spoofed leading hop is ignored: the proxy appended the last one.
+        let p = parts(&["6.6.6.6, 203.0.113.7"], peer);
+        assert_eq!(client_ip(&p, true).as_deref(), Some("203.0.113.7"));
+        let p = parts(&["6.6.6.6", "1.1.1.1, 203.0.113.7"], peer);
+        assert_eq!(client_ip(&p, true).as_deref(), Some("203.0.113.7"));
+        // Port and bracket forms.
+        for (hop, want) in [
+            ("203.0.113.7:4711", "203.0.113.7"),
+            ("2001:db8::1", "2001:db8::1"),
+            ("[2001:db8::1]", "2001:db8::1"),
+            ("[2001:db8::1]:443", "2001:db8::1"),
+            (" [::ffff:203.0.113.7]:80 ", "203.0.113.7"),
+        ] {
+            let p = parts(&[&format!("6.6.6.6,{hop}")], peer);
+            assert_eq!(client_ip(&p, true).as_deref(), Some(want), "{hop}");
+        }
+        // A malformed last hop falls back to the peer, never to an earlier hop.
+        for bad in ["203.0.113.7, not-an-ip", "203.0.113.7,", "[2001:db8::1"] {
+            let p = parts(&[bad], peer);
+            assert_eq!(client_ip(&p, true).as_deref(), Some("10.0.0.9"), "{bad}");
+        }
+        assert_eq!(client_ip(&parts(&[], None), true), None);
+    }
+
+    #[test]
+    fn rate_keys_bucket_ipv6_by_64() {
+        let k = |ip: &str| rate_key(Some(ip));
+        assert_eq!(k("203.0.113.7"), "203.0.113.7");
+        assert_ne!(k("203.0.113.7"), k("203.0.113.8"));
+        assert_eq!(k("2001:db8:1:2:aaaa::1"), "2001:db8:1:2::/64");
+        assert_eq!(k("2001:db8:1:2:aaaa::1"), k("2001:db8:1:2:ffff:1:2:3"));
+        assert_ne!(k("2001:db8:1:2::1"), k("2001:db8:1:3::1"));
+        // An IPv4-mapped peer counts as its IPv4 address.
+        assert_eq!(k("::ffff:203.0.113.7"), "203.0.113.7");
+        assert_eq!(rate_key(None), "unknown");
     }
 
     #[test]

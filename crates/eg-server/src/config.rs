@@ -156,8 +156,9 @@ pub struct AuthCfg {
     pub default_daily_quota: u32,
     pub session_days: u32,
     pub admin_session_minutes: u32,
-    /// Take the client IP from `X-Forwarded-For`'s first hop (behind a trusted
-    /// reverse proxy) instead of the socket peer.
+    /// Take the client IP from `X-Forwarded-For`'s right-most hop instead of
+    /// the socket peer. Assumes exactly one trusted reverse proxy that appends
+    /// (or overwrites) the header.
     pub trust_forwarded_for: bool,
 }
 
