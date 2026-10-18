@@ -398,13 +398,9 @@ const MAX_CORE_SCALE = 6;
  * up so anchors with more than one ring of leaves do not share space, and put each anchor's leaves on even
  * elliptical rings around it.
  */
-function ringLeaves(cy: cytoscape.Core, k: Axes, fixed: cytoscape.NodeCollection): void {
+function ringLeaves(cy: cytoscape.Core, k: Axes): void {
   const real = cy.nodes().filter((n) => !isMoreId(n.id())).nodes();
-  const split = splitLeaves(real);
-  // A fixed leaf stays put: it counts as core, an obstacle for the rings.
-  for (const id of fixed.map((n) => n.id())) split.anchorOf.delete(id);
-  const leaves = split.leaves.difference(fixed).nodes();
-  const anchorOf = split.anchorOf;
+  const { leaves, anchorOf } = splitLeaves(real);
   if (leaves.empty()) return;
   const core = real.difference(leaves).nodes();
   const count = leafCounts(anchorOf);
@@ -420,8 +416,7 @@ function ringLeaves(cy: cytoscape.Core, k: Axes, fixed: cytoscape.NodeCollection
       scale = Math.max(scale, need / Math.max(ringDist(a.p, b.p, k), need / MAX_CORE_SCALE));
     }
   }
-  // Scaling the core would move fixed nodes off their spots.
-  if (scale > 1 && fixed.empty()) {
+  if (scale > 1) {
     const c = centroid(core.map((n) => n.position()));
     core.forEach((n) => {
       const p = n.position();
@@ -461,13 +456,25 @@ function nearestExisting(existing: cytoscape.NodeCollection, seeds: Map<string, 
 
 const positionsOf = (nodes: cytoscape.NodeCollection) => new Map(nodes.map((n) => [n.id(), { ...n.position() }]));
 
+/** Re-layout's fcose: nodes sized with their labels, pushed further apart and on longer edges than a first layout. */
+const RELAYOUT_REPULSION = 45000;
+const RELAYOUT_EDGE_LENGTH = 2 * NEIGHBOR_RADIUS;
+
 /**
  * Lays out every node except `fixed`, which keep their positions: fcose from random positions ("draft" above
- * 300 nodes when nothing is fixed), leaves on rings around their anchors, "+N more" proxies outside their
- * centers. Without fixed nodes the result is also spread toward the viewport. Fits; small graphs then
- * animate from where the nodes were.
+ * 300 nodes when nothing is fixed), "+N more" proxies outside their centers. Without fixed nodes the result
+ * is also spread toward the viewport. Fits; small graphs then animate from where the nodes were.
+ *
+ * A first layout (one center, mostly) puts the leaves on even rings around their anchor. A re-layout does
+ * not: with several busy anchors the rings overlap each other; fcose that counts labels in node sizes keeps
+ * the groups apart instead.
  */
-function layoutAll(cy: cytoscape.Core, fixed: cytoscape.NodeCollection, viewport: Viewport, opts: LayoutOptions): void {
+function layoutAll(
+  cy: cytoscape.Core,
+  fixed: cytoscape.NodeCollection,
+  viewport: Viewport,
+  opts: LayoutOptions & { relayout?: boolean },
+): void {
   const k = ellipse(viewport);
   const total = cy.nodes().length;
   const big = total > DRAFT_THRESHOLD;
@@ -481,15 +488,16 @@ function layoutAll(cy: cytoscape.Core, fixed: cytoscape.NodeCollection, viewport
     randomize: true,
     animate: false,
     fit: false,
-    nodeRepulsion: 6000,
-    idealEdgeLength: NEIGHBOR_RADIUS,
+    ...(opts.relayout
+      ? { nodeRepulsion: RELAYOUT_REPULSION, idealEdgeLength: RELAYOUT_EDGE_LENGTH, nodeDimensionsIncludeLabels: true }
+      : { nodeRepulsion: 6000, idealEdgeLength: NEIGHBOR_RADIUS }),
     ...(fixed.nonempty() && {
       fixedNodeConstraint: fixed.map((n) => ({ nodeId: n.id(), position: { ...saved.get(n.id())! } })),
     }),
   } as FcoseLayoutOptions).run();
   // fcose may shift constrained nodes by a fraction; they must not move at all.
   for (const [id, p] of saved) cy.getElementById(id).position(p);
-  ringLeaves(cy, k, fixed);
+  if (!opts.relayout) ringLeaves(cy, k);
   if (fixed.empty()) {
     // The rings still sit in the middle of a wide canvas the budget counted on: spread them out.
     const spread = spreadToViewport(positionsOf(cy.nodes().filter((n) => !isMoreId(n.id()))), {
@@ -513,7 +521,7 @@ export function runRelayout(cy: cytoscape.Core, fixed: ReadonlySet<string>, opts
   const pinned = cy.nodes().filter((n) => fixed.has(n.id())).nodes();
   const real = cy.nodes().filter((n) => !isMoreId(n.id())).difference(pinned).nodes();
   if (real.empty()) return new Map();
-  layoutAll(cy, pinned, opts.viewport ?? { width: cy.width(), height: cy.height() }, opts);
+  layoutAll(cy, pinned, opts.viewport ?? { width: cy.width(), height: cy.height() }, { ...opts, relayout: true });
   // A glide may be in flight: report where the nodes end up, not where they are now.
   const targets = inFlight.get(cy);
   return new Map(real.map((n) => [n.id(), { ...(targets?.get(n.id()) ?? n.position()) }]));
