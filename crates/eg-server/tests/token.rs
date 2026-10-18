@@ -145,3 +145,50 @@ async fn invalid_address_is_a_400(pool: PgPool) {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_eq!(body["error"]["code"], "invalid_input");
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn kind_hint_without_a_tokens_row_sets_the_standard_and_queues_nothing_for_an_nft(
+    pool: PgPool,
+) {
+    let (app, state, _) = test_app(pool);
+    for (kind, standard) in [("erc721", "erc721"), ("erc1155", "erc1155")] {
+        let (status, body) = get(&app, &format!("/api/token/{}?kind={kind}", hex(UNKNOWN))).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["standard"], standard);
+    }
+    assert_eq!(jobs_of(&state, JobKind::TokenMeta).await, 0);
+    assert_eq!(jobs_of(&state, JobKind::ContractMeta).await, 0);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn erc20_hint_follows_the_hint_and_still_queues_token_meta(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let (_, body) = get(&app, &format!("/api/token/{}?kind=erc20", hex(UNKNOWN))).await;
+    assert_eq!(body["standard"], "erc20");
+    assert_eq!(jobs_of(&state, JobKind::TokenMeta).await, 1);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_stored_kind_wins_over_the_hint(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    state
+        .store
+        .upsert_tokens(&[TokenInfo {
+            address: USDT,
+            kind: TransferKind::Erc721,
+            name: None,
+            symbol: None,
+            decimals: None,
+        }])
+        .await
+        .unwrap();
+    let (_, body) = get(&app, &format!("/api/token/{}?kind=erc20", hex(USDT))).await;
+    assert_eq!(body["standard"], "erc721");
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn an_unknown_kind_hint_is_a_400(pool: PgPool) {
+    let (app, _, _) = test_app(pool);
+    let (status, _) = get(&app, &format!("/api/token/{}?kind=bogus", hex(USDT))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

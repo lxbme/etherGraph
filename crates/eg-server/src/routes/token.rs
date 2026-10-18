@@ -5,16 +5,24 @@ use axum::Json;
 use axum::extract::State;
 use eg_core::types::TransferKind;
 use eg_ingest::enqueue_tokens;
+use serde::Deserialize;
 
 use crate::dto::{TokenDetailDto, TokenListsDto, hex_addr};
 use crate::error::ApiError;
 use crate::parse::parse_address;
-use crate::routes::ApiPath;
+use crate::routes::{ApiPath, ApiQuery};
 use crate::state::AppState;
+
+/// What the caller already knows about the token from a transfer it decoded.
+#[derive(Deserialize)]
+pub struct TokenQuery {
+    kind: Option<TransferKind>,
+}
 
 pub async fn detail(
     State(s): State<AppState>,
     ApiPath(raw): ApiPath<String>,
+    ApiQuery(q): ApiQuery<TokenQuery>,
 ) -> Result<Json<TokenDetailDto>, ApiError> {
     let addr = parse_address(&raw)?;
     let token = s.store.tokens(&[addr]).await?.into_iter().next();
@@ -34,22 +42,28 @@ pub async fn detail(
     labels.sort();
     labels.dedup();
 
-    // Only the token's own metadata: a ContractMeta run is not wanted here.
-    match s
-        .store
-        .tokens_needing_meta(&[addr], s.ctx.cfg.meta_ttl)
-        .await
-    {
-        Ok(missing) if !missing.is_empty() => {
-            if let Err(e) = enqueue_tokens(&s.ctx, &missing).await {
-                tracing::warn!(error = %e, address = %hex_addr(addr), "enqueueing token metadata failed");
+    // Only the token's own metadata: a ContractMeta run is not wanted here. TokenMeta records
+    // every address it is given as ERC-20, so an address the caller says is an NFT is never queued.
+    let nft_hint = matches!(q.kind, Some(TransferKind::Erc721 | TransferKind::Erc1155));
+    if !nft_hint {
+        match s
+            .store
+            .tokens_needing_meta(&[addr], s.ctx.cfg.meta_ttl)
+            .await
+        {
+            Ok(missing) if !missing.is_empty() => {
+                if let Err(e) = enqueue_tokens(&s.ctx, &missing).await {
+                    tracing::warn!(error = %e, address = %hex_addr(addr), "enqueueing token metadata failed");
+                }
             }
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "checking token metadata failed"),
         }
-        Ok(_) => {}
-        Err(e) => tracing::warn!(error = %e, "checking token metadata failed"),
     }
 
-    let standard = match token.as_ref().map(|t| t.kind) {
+    // A stored kind wins; without a tokens row the caller's hint stands in.
+    let kind = token.as_ref().map(|t| t.kind).or(q.kind);
+    let standard = match kind {
         Some(TransferKind::Erc20) => "erc20",
         Some(TransferKind::Erc721) => "erc721",
         Some(TransferKind::Erc1155) => "erc1155",
@@ -69,6 +83,7 @@ pub async fn detail(
             coingecko: from_source("coingecko").next().is_some(),
         },
         tags: labels,
+        // The first by tag order (the store sorts by address, source, tag), not by file order.
         website: from_source("eth-labels").find_map(|t| t.website.clone()),
     }))
 }
