@@ -59,18 +59,21 @@ export function LabelEditor({ addresses, onClose }: { addresses: string[]; onClo
   const textId = useId();
   const [text, setText] = useState("");
   const [category, setCategory] = useState<Category>("other");
-  /** Addresses already labelled by an earlier, partly failed submit: a retry skips them. */
-  const done = useRef(new Set<string>());
+  /** Addresses an earlier, partly failed submit already gave this text and category: a retry skips them. */
+  const done = useRef({ key: "", addrs: new Set<string>() });
   const trimmed = text.trim();
   const len = [...trimmed].length;
   const valid = len >= 1 && len <= MAX;
 
   const add = useMutation({
     mutationFn: async () => {
-      const todo = addresses.filter((a) => !done.current.has(a));
+      const key = `${category}\n${trimmed}`;
+      if (done.current.key !== key) done.current = { key, addrs: new Set() };
+      const saved = done.current.addrs;
+      const todo = addresses.filter((a) => !saved.has(a));
       const errors = await settleLimited(todo, MAX_IN_FLIGHT, async (address) => {
         await api.addLabel({ address, text: trimmed, category });
-        done.current.add(address);
+        saved.add(address);
       });
       await Promise.all([
         ...todo.map((a) => qc.invalidateQueries({ queryKey: qk.address(a) })),

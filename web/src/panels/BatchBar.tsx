@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useBoxSelection } from "../graph/boxSelection";
 import { useGraph } from "../graph/store";
 import { t, useT } from "../i18n";
@@ -46,6 +47,15 @@ export function BatchBarShell({
   const tr = useT();
   const editorFor = useUi((s) => s.labelEditorFor);
   const closeEditor = useUi((s) => s.closeLabelEditor);
+  // A batch label request belongs to this selection: it goes when the selection changes or clears.
+  const key = ids.join("\n");
+  useEffect(
+    () => () => {
+      const req = useUi.getState().labelEditorFor;
+      if (key !== "" && Array.isArray(req) && sameSet(req, key.split("\n"))) useUi.getState().closeLabelEditor();
+    },
+    [key],
+  );
   if (ids.length === 0) return null;
   const editing = Array.isArray(editorFor) && sameSet(editorFor, ids);
   const all: BatchAction[] = [

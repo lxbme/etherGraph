@@ -28,6 +28,7 @@ async function setup() {
   const { useGraph } = await import("./store");
   const { useTabs } = await import("../shell/tabs");
   const actions = await import("./nodeActions");
+  const { useBoxSelection } = await import("./boxSelection");
   useTabs.setState({ tabs: [{ id: "graph" }], active: "graph" });
   useGraph.getState().reset();
   function Host() {
@@ -36,7 +37,7 @@ async function setup() {
   }
   render(<Host />);
   act(() => useGraph.getState().select({ kind: "node", address: A }));
-  return { useGraph, actions };
+  return { useGraph, actions, useBoxSelection };
 }
 
 beforeEach(() => {
@@ -73,10 +74,11 @@ test("dispatch reads the table: rebinding pin to Q makes Q pin and P do nothing"
 });
 
 test("every combo in the table except search (the search box's own) is handled here", async () => {
-  await setup();
+  const { useBoxSelection } = await setup();
   for (const s of SHORTCUTS) {
     if (s.id === "search") continue;
     for (const combo of s.keys) {
+      if (s.id === "clearSelection") useBoxSelection.getState().set([A]); // only consumed with something to clear
       const ev = new KeyboardEvent("keydown", { ...eventFor(combo), bubbles: true, cancelable: true });
       document.body.dispatchEvent(ev);
       expect(ev.defaultPrevented, `${s.id}: ${combo}`).toBe(true);

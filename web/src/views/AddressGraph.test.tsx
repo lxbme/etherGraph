@@ -7,6 +7,7 @@ import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { useCanvasMetrics } from "../graph/canvasMetrics";
+import { openFakePopover, pressEscape } from "../graph/fakePopover.testutil";
 import { useBoxSelection } from "../graph/boxSelection";
 import type { CytoscapeViewProps } from "../graph/CytoscapeView";
 import { pairKey, useGraph } from "../graph/store";
@@ -297,6 +298,30 @@ test("Escape clears the box selection and the canvas's native selection", async 
   expect(useBoxSelection.getState().ids).toEqual([]);
   expect(f.$).toHaveBeenCalledWith(":selected");
   expect(f.unselect).toHaveBeenCalled();
+});
+
+test("Escape with a popover open (focus on its trigger) closes only the popover; a second Escape clears the selection", async () => {
+  const { f } = await mountWithData();
+  act(() => props().onSelectionChange([A, B]));
+  const pop = openFakePopover();
+  try {
+    act(() => pressEscape(pop.trigger));
+    expect(pop.isOpen()).toBe(false);
+    expect(useBoxSelection.getState().ids).toEqual([A, B]);
+    expect(f.unselect).not.toHaveBeenCalled();
+    act(() => pressEscape(pop.trigger));
+    expect(useBoxSelection.getState().ids).toEqual([]);
+    expect(f.unselect).toHaveBeenCalled();
+  } finally {
+    pop.dispose();
+  }
+});
+
+test("Escape with nothing box-selected is left alone (not consumed)", async () => {
+  await mountWithData();
+  const e = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+  act(() => { window.dispatchEvent(e); });
+  expect(e.defaultPrevented).toBe(false);
 });
 
 test("batch bar: Unpin only while a selected node is pinned; hide, make centers, copy", async () => {

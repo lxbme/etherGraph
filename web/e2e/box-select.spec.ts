@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expectLaidOut, snapshot, type CySnapshot } from "./cy";
-import { A, expect, test } from "./mockApi";
+import { A, expect, test, type MockApi } from "./mockApi";
 
 const GRAPH = "POST /api/graph/edges";
 type Box = { x1: number; y1: number; x2: number; y2: number };
@@ -69,14 +69,24 @@ function pickPair(s: CySnapshot): { ids: [string, string]; from: Pt; to: Pt } {
   throw new Error("no pair of nodes can be boxed alone");
 }
 
-test("Shift+drag boxes two nodes; dragging one moves both (one undo step); Escape clears it", async ({ page, mock }) => {
+const selectedIds = (page: Page) =>
+  page.evaluate(() => {
+    const cy = (window as unknown as { __etherGraphCy?: import("cytoscape").Core | null }).__etherGraphCy!;
+    return cy.nodes(":selected").map((n) => n.id()).sort();
+  });
+
+/** Opens the mocked graph of A and waits until its layout settled. */
+async function openGraph(page: Page, mock: MockApi): Promise<Record<string, Pt>> {
   await page.goto("/?e2e=1");
   await page.getByRole("searchbox", { name: "Search" }).fill(A);
   await page.getByRole("searchbox", { name: "Search" }).press("Enter");
   await expect.poll(() => mock.count(GRAPH)).toBeGreaterThan(0);
   await expectLaidOut(page, "main", 4);
-  const before = await settled(page);
+  return settled(page);
+}
 
+/** Shift+drags a box around exactly two nodes with the real mouse; returns their ids and a page-coordinate centre lookup. */
+async function boxTwo(page: Page) {
   const s = (await snapshot(page, "main"))!;
   const { ids, from, to } = pickPair(s);
   const origin = await page.getByTestId("address-graph").locator(".cy-view").evaluate((el) => {
@@ -89,19 +99,22 @@ test("Shift+drag boxes two nodes; dragging one moves both (one undo step); Escap
   await page.mouse.move(origin.x + to.x, origin.y + to.y, { steps: 8 });
   await page.mouse.up();
   await page.keyboard.up("Shift");
+  await expect(page.getByRole("toolbar", { name: "Batch actions" })).toContainText("2 nodes selected");
+  expect(await selectedIds(page)).toEqual([...ids].sort());
+  const centre = (id: string) => {
+    const n = s.nodes.find((x) => x.id === id)!;
+    return { x: origin.x + (n.x1 + n.x2) / 2, y: origin.y + (n.y1 + n.y2) / 2 };
+  };
+  return { ids, centre };
+}
 
+test("Shift+drag boxes two nodes; dragging one moves both (one undo step); Escape clears it", async ({ page, mock }) => {
+  const before = await openGraph(page, mock);
+  const { ids, centre } = await boxTwo(page);
   const bar = page.getByRole("toolbar", { name: "Batch actions" });
-  await expect(bar).toContainText("2 nodes selected");
-  const selected = await page.evaluate(() => {
-    const cy = (window as unknown as { __etherGraphCy?: import("cytoscape").Core | null }).__etherGraphCy!;
-    return cy.nodes(":selected").map((n) => n.id()).sort();
-  });
-  expect(selected).toEqual([...ids].sort());
 
   // Drag one of them: both move by the same amount.
-  const grab = s.nodes.find((n) => n.id === ids[0])!;
-  const gx = origin.x + (grab.x1 + grab.x2) / 2;
-  const gy = origin.y + (grab.y1 + grab.y2) / 2;
+  const { x: gx, y: gy } = centre(ids[0]);
   await page.mouse.move(gx, gy);
   await page.mouse.down();
   await page.mouse.move(gx + 60, gy + 40, { steps: 8 });
@@ -128,5 +141,34 @@ test("Shift+drag boxes two nodes; dragging one moves both (one undo step); Escap
     const p = await positions(page);
     return ids.map((id) => [Math.round(p[id]!.x), Math.round(p[id]!.y)]);
   }).toEqual(ids.map((id) => [Math.round(before[id]!.x), Math.round(before[id]!.y)]));
+  expect(mock.unhandled).toEqual([]);
+});
+
+test("a plain click on a node after a box drops the box selection and selects that node alone", async ({ page, mock }) => {
+  await openGraph(page, mock);
+  const { ids, centre } = await boxTwo(page);
+  const p = centre(ids[1]);
+  await page.mouse.click(p.x, p.y);
+  await expect(page.getByRole("toolbar", { name: "Batch actions" })).toBeHidden();
+  await expect.poll(() => selectedIds(page)).toEqual([]);
+  await expect(page.locator(".detail__addr")).toContainText(ids[1]);
+});
+
+test("Escape with the Filter popover open closes only the popover; a second Escape clears the selection", async ({ page, mock }) => {
+  await openGraph(page, mock);
+  await boxTwo(page);
+  const bar = page.getByRole("toolbar", { name: "Batch actions" });
+  const filter = page.getByRole("button", { name: /Filter/ });
+  await filter.click();
+  await expect(page.getByRole("dialog", { name: "Filter" })).toBeVisible();
+  await expect(filter).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Filter" })).toBeHidden();
+  await page.waitForTimeout(200);
+  await expect(bar).toBeVisible();
+  expect(await selectedIds(page)).toHaveLength(2);
+  await page.keyboard.press("Escape");
+  await expect(bar).toBeHidden();
+  await expect.poll(() => selectedIds(page)).toEqual([]);
   expect(mock.unhandled).toEqual([]);
 });

@@ -23,7 +23,7 @@ export interface CytoscapeViewProps {
   /**
    * The natively selected nodes (box, Shift+click), lowercased and deduped; fired once per tick after any
    * change. A plain tap on a node leaves nothing selected, a Shift+tap toggles that node, a background tap
-   * unselects all.
+   * (with or without Shift) unselects all.
    */
   onSelectionChange(ids: string[]): void;
   /** Plain drag box-selects instead of panning (Shift+drag always box-selects). */
@@ -198,7 +198,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
     });
     cy.on("tap", (e) => {
       if (e.target !== cy) return;
-      if (!(e.originalEvent as MouseEvent | undefined)?.shiftKey) cy.nodes(":selected").unselect();
+      cy.nodes(":selected").unselect();
       p().onTapBackground?.();
     });
     cy.on("tap", "edge", (e) => p().onTapEdge(e.target.data("source"), e.target.data("target")));

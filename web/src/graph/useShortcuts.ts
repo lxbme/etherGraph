@@ -13,11 +13,26 @@ function isTyping(t: EventTarget | null): boolean {
   return /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable;
 }
 
-/** Whether the key belongs to something else: a text field being typed in, or an open dialog / context menu. */
-export function keyOwnedElsewhere(e: KeyboardEvent): boolean {
+/** Whether the key belongs to something else: a text field being typed in, or an open dialog / popover / menu. */
+function keyOwnedElsewhere(e: KeyboardEvent): boolean {
   if (isTyping(e.target)) return true;
   const t = e.target as Element | null;
   return !!(document.querySelector('[role="dialog"],[role="menu"]') || t?.closest?.('[role="dialog"],[role="menu"]'));
+}
+
+/**
+ * Calls `onKey` for key presses nothing else owns (see keyOwnedElsewhere); returns the unsubscribe.
+ *
+ * Listens on window in the capture phase, i.e. before any element or `document` handler. Popovers and menus
+ * close on Escape from `document` listeners, and in a browser React removes them before a bubble-phase window
+ * listener runs: checked then, one Escape would both close a popover and act here.
+ */
+export function listenShortcutKeys(onKey: (e: KeyboardEvent) => void): () => void {
+  const listener = (e: KeyboardEvent) => {
+    if (!keyOwnedElsewhere(e)) onKey(e);
+  };
+  window.addEventListener("keydown", listener, true);
+  return () => window.removeEventListener("keydown", listener, true);
 }
 
 interface Ctx {
@@ -26,8 +41,8 @@ interface Ctx {
   getData: () => GraphResponseDto | undefined;
 }
 
-/** What each SHORTCUTS entry does ("search" belongs to the search box). */
-const HANDLERS: Record<Exclude<ShortcutId, "search">, (c: Ctx) => void> = {
+/** What each SHORTCUTS entry does ("search" belongs to the search box); `false`: nothing to do, the key is not consumed. */
+const HANDLERS: Record<Exclude<ShortcutId, "search">, (c: Ctx) => void | false> = {
   undo: () => useGraph.getState().undo(),
   redo: () => useGraph.getState().redo(),
   sync: (c) => syncNode(c.address),
@@ -35,32 +50,33 @@ const HANDLERS: Record<Exclude<ShortcutId, "search">, (c: Ctx) => void> = {
   hide: (c) => hideNode(c.address),
   focus: (c) => focusNode(c.address, c.getData()),
   label: (c) => useUi.getState().openLabelEditor(c.address),
-  clearSelection: () => useBoxSelection.getState().clear(),
+  clearSelection: () => {
+    if (useBoxSelection.getState().ids.length === 0) return false;
+    useBoxSelection.getState().clear();
+  },
 };
 
 /**
  * Keyboard shortcuts from the SHORTCUTS table: undo/redo, Escape (clears the box selection), and node keys
  * on the selected node.
- * Inactive while typing, and while a tx tab is shown (the address graph they act on is hidden then).
+ * Inactive while typing or while a dialog / popover / menu is open (listenShortcutKeys), and while a tx tab is
+ * shown (the address graph they act on is hidden then).
  */
 export function useShortcuts(getData: () => GraphResponseDto | undefined): void {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (useTabs.getState().active !== "graph") return;
-      // Typing, or a dialog / context menu (which handles its own Escape), owns the keyboard.
-      if (keyOwnedElsewhere(e)) return;
-      const hit = shortcutFor(e);
-      if (!hit || hit.id === "search") return;
-      let address = "";
-      if (hit.scope === "node") {
-        const sel = graphSelection(useGraph.getState().selection);
-        if (sel?.kind !== "node") return;
-        address = sel.address;
-      }
-      HANDLERS[hit.id]({ address, getData });
-      e.preventDefault();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [getData]);
+  useEffect(
+    () =>
+      listenShortcutKeys((e) => {
+        if (useTabs.getState().active !== "graph") return;
+        const hit = shortcutFor(e);
+        if (!hit || hit.id === "search") return;
+        let address = "";
+        if (hit.scope === "node") {
+          const sel = graphSelection(useGraph.getState().selection);
+          if (sel?.kind !== "node") return;
+          address = sel.address;
+        }
+        if (HANDLERS[hit.id]({ address, getData }) !== false) e.preventDefault();
+      }),
+    [getData],
+  );
 }

@@ -11,7 +11,7 @@ import { txLegendFor } from "../graph/legend";
 import { callTooltip, flowTooltip, nodeTooltip, type TooltipLine } from "../graph/tooltip";
 import { addToGraph } from "../graph/nodeActions";
 import { isShortcut } from "../graph/shortcuts";
-import { keyOwnedElsewhere } from "../graph/useShortcuts";
+import { listenShortcutKeys } from "../graph/useShortcuts";
 import { txFlowStylesheet } from "../graph/styles";
 import { NodeDetail } from "../panels/NodeDetail";
 import { TxBatchBar } from "../panels/TxBatchBar";
@@ -88,16 +88,16 @@ export function TxFlowView({ hash }: { hash: string }) {
   const [box] = useState(createBoxSelection);
   const selectMode = box((s) => s.selectMode);
   // Escape clears it while this tab is shown (the global shortcuts act on the address graph only).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (useTabs.getState().active !== hash.toLowerCase() || keyOwnedElsewhere(e)) return;
-      if (!isShortcut(e, "clearSelection") || box.getState().ids.length === 0) return;
-      box.getState().clear();
-      e.preventDefault();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [box, hash]);
+  useEffect(
+    () =>
+      listenShortcutKeys((e) => {
+        if (useTabs.getState().active !== hash.toLowerCase()) return;
+        if (!isShortcut(e, "clearSelection") || box.getState().ids.length === 0) return;
+        box.getState().clear();
+        e.preventDefault();
+      }),
+    [box, hash],
+  );
   /** Canvas width the expanded legend covers from the left; fits keep it clear. */
   const [legendCover, setLegendCover] = useState(0);
   const [hover, setHover] = useState<{ kind: "node" | "edge"; id: string; pos: { x: number; y: number } } | null>(null);

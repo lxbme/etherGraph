@@ -90,3 +90,18 @@ test("a failure shows the first error and no success toast; a retry posts only t
   expect(add.mock.calls.map((c) => c[0].address)).toEqual([addr(2), addr(3)]);
   expect(screen.getByText("Added the label to 3 addresses")).toBeInTheDocument();
 });
+
+test("after a partly failed save, changing the text writes the new text to every address", async () => {
+  const add = vi.spyOn(api, "addLabel").mockImplementation(async (l) => {
+    if (l.address === addr(2)) throw new ApiError("invalid_input", 400, "bad");
+    return saved;
+  });
+  const onClose = mount([addr(1), addr(2)]);
+  submit("first");
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  add.mockClear();
+  add.mockResolvedValue(saved);
+  submit("second");
+  await waitFor(() => expect(onClose).toHaveBeenCalled());
+  expect(add.mock.calls.map((c) => [c[0].address, c[0].text])).toEqual([[addr(1), "second"], [addr(2), "second"]]);
+});

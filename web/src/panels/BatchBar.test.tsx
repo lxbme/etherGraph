@@ -39,3 +39,12 @@ test("the batch label editor shows only for this exact selection and never opens
   rerender([A]);
   expect(screen.queryByLabelText("Label text")).toBeNull();
 });
+
+test("a batch label request goes away with its selection, so the same selection later does not reopen it", () => {
+  const { rerender } = mount([A, B]);
+  act(() => useUi.getState().openLabelEditor([A, B]));
+  rerender([]);
+  expect(useUi.getState().labelEditorFor).toBeNull();
+  rerender([A, B]);
+  expect(screen.queryByLabelText("Label text")).toBeNull();
+});

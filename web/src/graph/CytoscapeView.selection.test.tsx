@@ -103,7 +103,7 @@ test("a tap on an unselectable node keeps the selection and still reaches onTapN
   expect(onTapNode).toHaveBeenCalledWith("more:a", { shift: false });
 });
 
-test("a background tap unselects all", async () => {
+test("a background tap unselects all, with or without Shift", async () => {
   const { cy, onTapBackground, onSelectionChange } = mount();
   act(() => { cy.$id("a").select(); cy.$id("c").select(); });
   await flush();
@@ -112,6 +112,10 @@ test("a background tap unselects all", async () => {
   expect(selected(cy)).toEqual([]);
   expect(onTapBackground).toHaveBeenCalled();
   expect(onSelectionChange).toHaveBeenLastCalledWith([]);
+  act(() => { cy.$id("a").select(); });
+  act(() => { cy.emit({ type: "tap", originalEvent: { shiftKey: true } } as unknown as string); });
+  await flush();
+  expect(selected(cy)).toEqual([]);
 });
 
 test("a removed selected node leaves the reported selection", async () => {

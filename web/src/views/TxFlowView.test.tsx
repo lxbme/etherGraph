@@ -6,6 +6,7 @@ import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import type { TxFlowDto } from "../api/generated/TxFlowDto";
 import type { TxResponseDto } from "../api/generated/TxResponseDto";
 import type { CytoscapeViewProps } from "../graph/CytoscapeView";
+import { openFakePopover, pressEscape } from "../graph/fakePopover.testutil";
 import { useGraph } from "../graph/store";
 import { useLocale } from "../i18n";
 import { useJobProgress } from "../shell/statusStore";
@@ -385,6 +386,21 @@ describe("box selection", () => {
     expect(screen.getByRole("toolbar", { name: "Batch actions" })).toBeInTheDocument();
     act(() => bar().getByRole("button", { name: "Cancel" }).click());
     expect(screen.queryByRole("toolbar", { name: "Batch actions" })).toBeNull();
+  });
+
+  test("Escape with a popover open (focus on its trigger) closes only the popover; a second Escape clears the selection", async () => {
+    const f = await selectBoth();
+    const pop = openFakePopover();
+    try {
+      act(() => pressEscape(pop.trigger));
+      expect(pop.isOpen()).toBe(false);
+      expect(screen.getByRole("toolbar", { name: "Batch actions" })).toBeInTheDocument();
+      expect(f.unselect).not.toHaveBeenCalled();
+      act(() => pressEscape(pop.trigger));
+      expect(screen.queryByRole("toolbar", { name: "Batch actions" })).toBeNull();
+    } finally {
+      pop.dispose();
+    }
   });
 
   test("the canvas tools toggle select mode for this canvas", async () => {
