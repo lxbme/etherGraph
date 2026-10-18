@@ -1,23 +1,12 @@
-import { ArrowLeft, ExternalLink, X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { qk } from "../../api/queryClient";
 import { api } from "../../api/endpoints";
 import { useT } from "../../i18n";
 import { AssetDetail } from "./AssetDetail";
-import { DOC_LINKS, docTitleKey } from "./docs";
+import { docTitleKey } from "./docs";
 import { useInfo, type InfoView } from "./infoStore";
-
-/** Until the written pages exist, a topic is its title and the link to the specification. */
-function DocView({ id }: { id: Extract<InfoView, { kind: "doc" }>["id"] }) {
-  const t = useT();
-  return (
-    <div className="detail__section">
-      <a className="detail__link" href={DOC_LINKS[id]} target="_blank" rel="noopener noreferrer">
-        <ExternalLink size={12} aria-hidden="true" /> {t("info.openSpec")}
-      </a>
-    </div>
-  );
-}
+import { StandardDoc } from "./StandardDoc";
 
 function AssetTitle({ view }: { view: Extract<InfoView, { kind: "asset" }> }) {
   const t = useT();
@@ -47,7 +36,7 @@ export function InfoPanel({ tab }: { tab: string }) {
           <X size={14} />
         </button>
       </div>
-      {view.kind === "doc" ? <DocView id={view.id} /> : <AssetDetail tab={tab} asset={view.asset} tokenId={view.tokenId} />}
+      {view.kind === "doc" ? <StandardDoc id={view.id} /> : <AssetDetail tab={tab} asset={view.asset} tokenId={view.tokenId} />}
     </div>
   );
 }

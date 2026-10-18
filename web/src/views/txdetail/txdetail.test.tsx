@@ -326,3 +326,22 @@ test("the token cell opens the asset in this tx tab's info stack", () => {
     { kind: "asset", asset: "0xdac17f958d2ee523a2206206994597c13d831ec7" },
   ]);
 });
+
+test("the transaction type opens its documentation in this tx tab's info stack for types 0–4 only", () => {
+  const ids = ["tx-legacy", "eip-2930", "eip-1559", "eip-4844", "eip-7702"] as const;
+  const labels = ["Legacy", "EIP-2930", "EIP-1559", "EIP-4844", "EIP-7702"];
+  ids.forEach((id, type) => {
+    useInfo.setState({ stacks: {} });
+    const f = base();
+    f.detail.tx_type = type;
+    const { unmount } = renderTabs(f);
+    fireEvent.click(within(valueOf("Transaction type")).getByRole("button", { name: labels[type] }));
+    expect(useInfo.getState().stacks[fixture.flow.tx.hash]).toEqual([{ kind: "doc", id }]);
+    unmount();
+  });
+  const f = base();
+  f.detail.tx_type = 5;
+  renderTabs(f);
+  expect(valueOf("Transaction type")).toHaveTextContent(/^Type 5$/);
+  expect(within(valueOf("Transaction type")).queryByRole("button")).toBeNull();
+});

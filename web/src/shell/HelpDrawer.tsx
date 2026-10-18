@@ -5,9 +5,13 @@ import { fullLegendGroups } from "../graph/legend";
 import { formatCombo, isMac, SHORTCUTS } from "../graph/shortcuts";
 import { MAX_NEIGHBOUR_LIMIT } from "../graph/store";
 import { useT, type MsgKey } from "../i18n";
+import { DocButton } from "../panels/info/DocButton";
+import { DOC_IDS } from "../panels/info/docs";
+import { useDocs } from "../panels/info/StandardDoc";
 import { useUi } from "../panels/uiStore";
 import { Legend } from "../views/Legend";
 import { useQuota } from "./statusStore";
+import { useTabs } from "./tabs";
 import { useTheme } from "./theme";
 import { replayTour } from "./tourBus";
 
@@ -23,7 +27,7 @@ const SHALLOW_RECORDS = 1000;
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-type SectionId = "reading" | "expanding" | "selecting" | "identifying" | "labels" | "tx" | "shortcuts" | "data";
+type SectionId = "reading" | "expanding" | "selecting" | "identifying" | "labels" | "tx" | "standards" | "shortcuts" | "data";
 type Params = Record<string, string | number>;
 
 /** Body keys of each section after its intro (`help.<id>.body`), rendered as a bullet list. */
@@ -51,6 +55,7 @@ function bullets(id: SectionId, mac: boolean, quota: number): { key: MsgKey; par
       return [1, 2, 3].map((n) => ({ key: `help.labels.body${n}` as MsgKey }));
     case "tx":
       return [{ key: "help.tx.body1" }, { key: "help.tx.body2" }, { key: "help.tx.body3" }, { key: "help.tx.body4" }, { key: "help.tx.body5" }];
+    case "standards":
     case "shortcuts":
       return [];
     case "data":
@@ -63,9 +68,9 @@ function bullets(id: SectionId, mac: boolean, quota: number): { key: MsgKey; par
   }
 }
 
-const SECTIONS: SectionId[] = ["reading", "expanding", "selecting", "identifying", "labels", "tx", "shortcuts", "data"];
+const SECTIONS: SectionId[] = ["reading", "expanding", "selecting", "identifying", "labels", "tx", "standards", "shortcuts", "data"];
 
-/** The "?" drawer: how to read the graph, expansion rules, the tx view, shortcuts, data and quotas. */
+/** The "?" drawer: how to read the graph, expansion rules, the tx view, the standards pages, shortcuts, data and quotas. */
 export function HelpDrawer() {
   const open = useUi((s) => s.helpOpen);
   return open ? <HelpDrawerPanel /> : null;
@@ -134,6 +139,7 @@ function HelpDrawerPanel() {
                 <h3 className="help__title" id={`eg-help-${id}`}>{t(`help.${id}.title`)}</h3>
                 <p>{t(`help.${id}.body`)}</p>
                 {id === "reading" && <Legend groups={fullLegendGroups(theme)} />}
+                {id === "standards" && <StandardsList onOpen={toggleHelp} />}
                 {id === "shortcuts" && <ShortcutTable mac={mac} />}
                 {items.length > 0 && (
                   <ul className="help__list">
@@ -154,6 +160,23 @@ function HelpDrawerPanel() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Every documentation page; one opens in the active tab's right panel, then `onOpen` closes the drawer. */
+function StandardsList({ onOpen }: { onOpen: () => void }) {
+  const docs = useDocs();
+  const active = useTabs((s) => s.active);
+  return (
+    <ul className="help__list">
+      {DOC_IDS.map((id) => (
+        <li key={id}>
+          <DocButton tab={active} doc={id} onOpen={onOpen}>
+            {docs[id].code} — {docs[id].title}
+          </DocButton>
+        </li>
+      ))}
+    </ul>
   );
 }
 

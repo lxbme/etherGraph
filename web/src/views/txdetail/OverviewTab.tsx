@@ -3,12 +3,17 @@ import type { TxFlowDto } from "../../api/generated/TxFlowDto";
 import { useT, type MsgKey } from "../../i18n";
 import { formatAmount, formatFixed } from "../../lib/amount";
 import { formatCount, formatLocalTime, formatTime } from "../../lib/format";
+import { DocButton } from "../../panels/info/DocButton";
+import type { DocId } from "../../panels/info/docs";
 import { TxStatusTag } from "../../panels/TxSummaryCard";
 import { AddressCell } from "../../shell/AddressCell";
 import { CopyButton } from "../../shell/CopyButton";
 import { nodeOf } from "./common";
 
 const DASH = "—";
+
+/** The documentation page of each transaction type (index = type); other types have none. */
+const TYPE_DOCS: readonly DocId[] = ["tx-legacy", "eip-2930", "eip-1559", "eip-4844", "eip-7702"];
 
 /** A count kept as a decimal string (gas), grouped. */
 const count = (raw: string) => formatAmount(raw, 0).text;
@@ -71,7 +76,8 @@ export function OverviewTab({ flow }: { flow: TxFlowDto }) {
   const t = useT();
   const { tx, detail: d } = flow;
   const typeKey = `tx.type.${d.tx_type}` as MsgKey;
-  const typeText = d.tx_type >= 0 && d.tx_type <= 4 ? t(typeKey) : t("tx.type.other", { type: String(d.tx_type) });
+  const typeDoc = TYPE_DOCS[d.tx_type];
+  const typeText = typeDoc ? t(typeKey) : t("tx.type.other", { type: String(d.tx_type) });
   const pct = usage(d.gas_used, d.gas_limit);
   const price = d.effective_gas_price ?? d.gas_price;
   const head: Rows = [
@@ -97,7 +103,7 @@ export function OverviewTab({ flow }: { flow: TxFlowDto }) {
   }
   parties.push(
     ["tx.value", <Eth wei={tx.value} />],
-    ["tx.ov.type", typeText],
+    ["tx.ov.type", typeDoc ? <DocButton tab={tx.hash.toLowerCase()} doc={typeDoc}>{typeText}</DocButton> : typeText],
     ["tx.ov.nonce", <span className="num">{formatCount(d.nonce)}</span>],
   );
   if (d.position !== null) parties.push(["tx.ov.position", <span className="num">{formatCount(d.position)}</span>]);

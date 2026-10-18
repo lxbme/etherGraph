@@ -2,13 +2,15 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { formatCombo, SHORTCUTS } from "../graph/shortcuts";
 import { useLocale } from "../i18n";
+import { useInfo } from "../panels/info/infoStore";
 import { useUi } from "../panels/uiStore";
 import { HelpDrawer } from "./HelpDrawer";
+import { useTabs } from "./tabs";
 import { setReplayTourHandler } from "./tourBus";
 import { TopBar } from "./TopBar";
 import { useQuota } from "./statusStore";
 
-const EN_TITLES = ["Reading the graph", "Expanding safely", "Selecting several nodes", "Identifying node types", "Labels and categories", "Transaction view", "Keyboard shortcuts", "Data & quotas"];
+const EN_TITLES = ["Reading the graph", "Expanding safely", "Selecting several nodes", "Identifying node types", "Labels and categories", "Transaction view", "Standards", "Keyboard shortcuts", "Data & quotas"];
 
 function Host() {
   return (
@@ -29,7 +31,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("the ? button opens the drawer with eight sections; Escape closes it and focus returns to the button", async () => {
+test("the ? button opens the drawer with nine sections; Escape closes it and focus returns to the button", async () => {
   const user = userEvent.setup();
   render(<Host />);
   expect(screen.queryByRole("dialog", { name: "Help" })).toBeNull();
@@ -96,7 +98,8 @@ test("switching to zh shows the section titles in Chinese", () => {
   act(() => useLocale.getState().setLocale("zh"));
   const drawer = screen.getByRole("dialog", { name: "帮助" });
   const titles = within(drawer).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
-  expect(titles).toHaveLength(8);
+  expect(titles).toHaveLength(9);
+  expect(titles).toContain("标准与规范");
   expect(titles).toContain("框选多个节点");
   expect(titles).toContain("探明节点类型");
   expect(titles).toContain("标签与分类");
@@ -154,4 +157,22 @@ test("the new sections describe selection, manual identification and label sourc
   expect(zhTx).toContain("加入关系图");
   expect(zhTx).not.toMatch(/固定|隐藏|中心/);
   expect(zh).toHaveTextContent("交易标签页中只有 Esc 仍然有效（清除框选）");
+});
+
+test("Standards lists every documentation page; one opens in the active tab's panel and closes the drawer", async () => {
+  const user = userEvent.setup();
+  const hash = "0xabc";
+  useTabs.setState({ tabs: [{ id: "graph" }, { id: hash, kind: "tx", hash }], active: hash });
+  useInfo.setState({ stacks: {} });
+  useUi.setState({ helpOpen: true, detailOpen: false });
+  render(<HelpDrawer />);
+  const section = screen.getByRole("region", { name: "Standards" });
+  const entries = within(section).getAllByRole("button");
+  expect(entries).toHaveLength(9);
+  expect(entries[0]).toHaveTextContent("EIP-155");
+  await user.click(within(section).getByRole("button", { name: /EIP-1559/ }));
+  expect(useInfo.getState().stacks[hash]).toEqual([{ kind: "doc", id: "eip-1559" }]);
+  expect(useInfo.getState().stacks["graph"]).toBeUndefined();
+  expect(useUi.getState().detailOpen).toBe(true);
+  expect(useUi.getState().helpOpen).toBe(false);
 });

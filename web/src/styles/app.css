@@ -1157,5 +1157,15 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .info__title { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-14); font-weight: 600; overflow-wrap: anywhere; }
 .info .detail__section { padding: var(--sp-3); }
 .kv--wrap > :nth-child(even) { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
-.asset-link { padding: 0; color: var(--accent); background: none; border: 0; font: inherit; cursor: pointer; }
-.asset-link:hover { text-decoration: underline; }
+.asset-link, .doc-link { padding: 0; color: var(--accent); background: none; border: 0; font: inherit; text-align: left; cursor: pointer; }
+.asset-link:hover, .doc-link:hover { text-decoration: underline; }
+/* Documentation pages: facts, paragraphs, fields as name over meaning, formulas in monospace. */
+.doc__title { margin: 0; font-size: var(--fs-16); font-weight: 600; overflow-wrap: anywhere; }
+.doc__heading { margin: var(--sp-2) 0 0; font-size: var(--fs-13); font-weight: 600; }
+.doc__p { margin: 0; overflow-wrap: anywhere; }
+.doc__fields { display: flex; flex-direction: column; gap: var(--sp-1); margin: 0; }
+.doc__fields dt { font-family: var(--font-mono); font-size: var(--fs-12); overflow-wrap: anywhere; }
+.doc__fields dd { margin: 0 0 var(--sp-2); color: var(--fg-muted); }
+.doc__math { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2) var(--sp-3); background: var(--bg-subtle); border-radius: var(--radius); }
+.doc__math code { font-family: var(--font-mono); font-size: var(--fs-12); overflow-wrap: anywhere; }
+.doc__list { display: grid; gap: var(--sp-1); margin: 0; padding-left: var(--sp-5); }

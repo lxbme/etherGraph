@@ -7,8 +7,8 @@ import { identifyAddresses, useIdentifying } from "../../graph/identify";
 import { type MsgKey, useT } from "../../i18n";
 import { AddressCell } from "../../shell/AddressCell";
 import { CopyButton } from "../../shell/CopyButton";
+import { DocButton } from "./DocButton";
 import type { DocId } from "./docs";
-import { useInfo } from "./infoStore";
 
 const STANDARD_DOC: Record<string, { label: string; doc: DocId }> = {
   erc20: { label: "ERC-20", doc: "erc-20" },
@@ -31,15 +31,6 @@ function Row({ label, children }: { label: MsgKey; children: React.ReactNode }) 
       <dt>{t(label)}</dt>
       <dd>{children}</dd>
     </>
-  );
-}
-
-function DocButton({ tab, doc, children }: { tab: string; doc: DocId; children: React.ReactNode }) {
-  const open = useInfo((s) => s.open);
-  return (
-    <button type="button" className="detail__link" onClick={() => open(tab, { kind: "doc", id: doc })}>
-      {children}
-    </button>
   );
 }
 
