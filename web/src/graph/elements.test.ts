@@ -47,7 +47,7 @@ describe("nodeElement", () => {
         kind: "contract",
         partial: true,
         labels: [
-          { id: 1, text: "Binance 14", category: "exchange", source: "import:x" },
+          { id: 1, text: "Binance 14", category: "cex", source: "import:x" },
           { id: 2, text: "mine", category: "scam", source: "user" },
         ],
       }),
@@ -56,7 +56,7 @@ describe("nodeElement", () => {
     );
     const cls = classesOf(el);
     expect(cls).toEqual(
-      expect.arrayContaining(["kind-contract", "cat-exchange", "synced", "partial", "pinned", "user-label", "selected", "center"]),
+      expect.arrayContaining(["kind-contract", "cat-cex", "synced", "partial", "pinned", "user-label", "selected", "center"]),
     );
     expect(cls).not.toContain("unsynced");
     expect(cls).not.toContain("syncing");

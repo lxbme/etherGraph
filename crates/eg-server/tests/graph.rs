@@ -301,7 +301,7 @@ async fn graph_node_flags_and_names(pool: PgPool) {
     .await;
     state
         .store
-        .add_user_label(A, "Binance 14", "exchange")
+        .add_user_label(A, "Binance 14", "cex")
         .await
         .unwrap();
     state
@@ -363,7 +363,7 @@ async fn graph_node_flags_and_names(pool: PgPool) {
     let labels = a["labels"].as_array().unwrap();
     assert_eq!(labels.len(), 2);
     assert_eq!(labels[0]["text"], "Binance 14");
-    assert_eq!(labels[0]["category"], "exchange");
+    assert_eq!(labels[0]["category"], "cex");
     assert_eq!(labels[0]["source"], "user");
     assert!(labels[0]["id"].is_number());
     assert_eq!(bb["display_name"], "bob.eth");

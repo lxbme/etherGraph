@@ -8,6 +8,7 @@ use serde::Deserialize;
 
 use crate::dto::{LabelDto, NewLabelDto};
 use crate::error::{ApiError, invalid};
+use crate::nodes::order_labels;
 use crate::parse::parse_address;
 use crate::routes::{ApiJson, ApiPath, ApiQuery};
 use crate::state::AppState;
@@ -25,7 +26,8 @@ pub async fn list(
     ApiQuery(q): ApiQuery<LabelsQuery>,
 ) -> Result<Json<Vec<LabelDto>>, ApiError> {
     let addr = parse_address(&q.addr)?;
-    let rows = s.store.labels(&[addr]).await?;
+    let mut rows = s.store.labels(&[addr]).await?;
+    order_labels(&mut rows);
     Ok(Json(rows.iter().map(LabelDto::from).collect()))
 }
 

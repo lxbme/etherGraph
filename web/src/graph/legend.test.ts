@@ -22,18 +22,18 @@ describe("legendFor", () => {
     expect(ids(legendFor(base, "light"))).toEqual({ shape: ["eoa"], asset: ["eth"], edge: ["width"] });
   });
 
-  test("a cat-exchange node lists exchange and, for contrast, no-category", () => {
-    const g = legendFor([...base, node("x", "kind-contract cat-exchange synced")], "light");
-    expect(ids(g).category).toEqual(["exchange", "none"]);
+  test("a cat-cex node lists exchange and, for contrast, no-category", () => {
+    const g = legendFor([...base, node("x", "kind-contract cat-cex synced")], "light");
+    expect(ids(g).category).toEqual(["cex", "none"]);
     expect(ids(g).shape).toEqual(["eoa", "contract"]);
   });
 
   test("the swatch colours come from the graph style exports", () => {
-    const g = legendFor([...base, node("x", "kind-eoa cat-exchange")], "light");
-    expect(item(g, "category", "exchange").swatch).toMatchObject({
+    const g = legendFor([...base, node("x", "kind-eoa cat-cex")], "light");
+    expect(item(g, "category", "cex").swatch).toMatchObject({
       kind: "node",
-      fill: categoryColors("light").exchange.fill,
-      stroke: categoryColors("light").exchange.stroke,
+      fill: categoryColors("light").cex.fill,
+      stroke: categoryColors("light").cex.stroke,
     });
     expect(item(g, "shape", "eoa").swatch).toMatchObject({ kind: "node", shape: NODE_SHAPE.eoa });
     expect(item(g, "asset", "eth").swatch).toMatchObject({ kind: "edge", color: assetColors("light").eth });
@@ -47,7 +47,7 @@ describe("legendFor", () => {
   });
 
   test("categories count only non-center nodes; sanctioned shows as scam", () => {
-    const g = legendFor([node("c", "kind-eoa cat-exchange center"), node("s", "kind-eoa cat-sanctioned")], "light");
+    const g = legendFor([node("c", "kind-eoa cat-cex center"), node("s", "kind-eoa cat-sanctioned")], "light");
     expect(ids(g).category).toEqual(["scam"]);
   });
 
@@ -106,7 +106,7 @@ describe("txLegendFor", () => {
 test("fullLegendGroups lists every entry", () => {
   expect(ids(fullLegendGroups("light"))).toEqual({
     shape: ["eoa", "contract", "unknown"],
-    category: ["exchange", "defi", "bridge", "mixer", "scam", "none"],
+    category: ["cex", "defi", "bridge", "mixer", "scam", "none"],
     state: ["center", "unsynced", "selected", "user-label", "pinned", "syncing", "partial", "more"],
     asset: ["eth", "stable", "erc20", "nft", "other"],
     edge: ["width", "badge"],

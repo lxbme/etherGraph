@@ -707,7 +707,7 @@ impl FlowDto {
 pub struct NewLabelDto {
     pub address: String,
     pub text: String,
-    #[ts(type = r#""exchange" | "defi" | "bridge" | "mixer" | "scam" | "sanctioned" | "other""#)]
+    #[ts(type = r#""cex" | "dex" | "defi" | "bridge" | "mixer" | "scam" | "sanctioned" | "hacker" | "mev" | "fund" | "nft" | "staking" | "other""#)]
     pub category: String,
 }
 

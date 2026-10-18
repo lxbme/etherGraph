@@ -28,14 +28,14 @@ describe("nodeTooltip", () => {
   });
   test("synced shows the newest coverage time (UTC) with a local title; partial wins", () => {
     const cov = (t: string): SyncStatusDto => ({ kind: "native", from_block: 1, to_block: 2, truncated: false, state: "ok", last_synced_at: t });
-    const ls = nodeTooltip(node({ synced: true, labels: [{ id: 1, text: "x", category: "exchange", source: "user" }] }), {
+    const ls = nodeTooltip(node({ synced: true, labels: [{ id: 1, text: "x", category: "cex", source: "user" }] }), {
       coverage: [cov("2026-01-01T00:00:00Z"), cov("2026-02-03T04:05:06Z")],
     });
     expect(text(ls)).toContain("Synced to 2026-02-03 04:05:06");
     expect(text(ls)).toContain("Category Exchange");
     expect(ls.find((l) => l.value.startsWith("Synced"))?.sub).toMatch(/^local \d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/);
     expect(text(nodeTooltip(node({ synced: true }), {}))).toMatch(/Sync Synced$/);
-    const two = nodeTooltip(node({ labels: [{ id: 1, text: "a", category: "exchange", source: "user" }, { id: 2, text: "b", category: "defi", source: "user" }] }), {});
+    const two = nodeTooltip(node({ labels: [{ id: 1, text: "a", category: "cex", source: "user" }, { id: 2, text: "b", category: "defi", source: "user" }] }), {});
     expect(text(two)).toContain("Category Exchange, DeFi");
     expect(text(nodeTooltip(node({ synced: true, partial: true }), {}))).toContain("Partial");
   });

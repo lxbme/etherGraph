@@ -111,7 +111,7 @@ mod tests {
         let store = Store::from_pool(pool);
         let a = Address::repeat_byte(1);
         store
-            .replace_import("d", &[(a, "Binance".into(), "exchange".into())])
+            .replace_import("d", &[(a, "Binance".into(), "cex".into())])
             .await
             .unwrap();
         let id = store.labels(&[a]).await.unwrap()[0].id;

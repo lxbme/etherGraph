@@ -104,7 +104,7 @@ button.chip:hover { color: var(--fg); }
 .tag--ok { --tag-hue: var(--pos); color: var(--fg); background: color-mix(in srgb, var(--pos) 18%, var(--bg)); }
 .tag--neg { --tag-hue: var(--neg); color: var(--fg); background: color-mix(in srgb, var(--neg) 18%, var(--bg)); }
 /* Label categories (see LabelEditor CATEGORIES); "other" and unknown ids use .tag--neutral. */
-.tag--exchange { --tag-hue: var(--cat-exchange); }
+.tag--cex { --tag-hue: var(--cat-cex); }
 .tag--defi { --tag-hue: var(--cat-defi); }
 .tag--bridge { --tag-hue: var(--cat-bridge); }
 .tag--mixer { --tag-hue: var(--cat-mixer); }

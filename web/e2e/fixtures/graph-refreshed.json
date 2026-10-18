@@ -24,7 +24,7 @@
         {
           "id": 1,
           "text": "Binance 14",
-          "category": "exchange",
+          "category": "cex",
           "source": "import:etherscan"
         }
       ],

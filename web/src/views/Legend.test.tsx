@@ -7,7 +7,7 @@ const KEY = "eg.legend.collapsed";
 const groups = legendFor(
   [
     { group: "nodes", data: { id: "a" }, classes: "kind-eoa cat-none" },
-    { group: "nodes", data: { id: "b" }, classes: "kind-eoa cat-exchange" },
+    { group: "nodes", data: { id: "b" }, classes: "kind-eoa cat-cex" },
     { group: "edges", data: { id: "e", source: "a", target: "b", width: 2 }, classes: "asset-eth" },
   ],
   "light",
@@ -53,7 +53,7 @@ test("lists each entry with a 16px swatch and its label", () => {
   const swatch = screen.getByText("Exchange").closest("li")!.querySelector("svg")!;
   expect(swatch.getAttribute("width")).toBe("16");
   expect(swatch.getAttribute("height")).toBe("16");
-  expect(swatch.querySelector("[fill]")!.getAttribute("fill")).toBe(categoryColors("light").exchange.fill);
+  expect(swatch.querySelector("[fill]")!.getAttribute("fill")).toBe(categoryColors("light").cex.fill);
 });
 
 test("collapsing hides the entries and survives a remount", () => {

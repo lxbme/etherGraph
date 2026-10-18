@@ -404,10 +404,10 @@ async fn label_crud_and_category_validation(pool: PgPool) {
     let wide = "é".repeat(64);
     let (st, v) = post_json(&app, "/api/labels", &body(&wide, "other")).await;
     assert_eq!(st, StatusCode::CREATED, "{v}");
-    let (st, v) = post_json(&app, "/api/labels", &body("  Hot wallet  ", "exchange")).await;
+    let (st, v) = post_json(&app, "/api/labels", &body("  Hot wallet  ", "cex")).await;
     assert_eq!(st, StatusCode::CREATED);
     assert_eq!(v["text"], "Hot wallet");
-    assert_eq!(v["category"], "exchange");
+    assert_eq!(v["category"], "cex");
     assert_eq!(v["source"], "user");
     let id = v["id"].as_i64().unwrap();
 

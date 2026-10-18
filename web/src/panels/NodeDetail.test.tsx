@@ -53,7 +53,7 @@ const C = "0x" + "cc".repeat(20);
 const wallet: AddressProfileDto = {
   node: {
     address: A, kind: "eoa", display_name: null, ens: null, contract_name: null,
-    labels: [{ id: 1, text: "Hot wallet", category: "exchange", source: "import:x" }],
+    labels: [{ id: 1, text: "Hot wallet", category: "cex", source: "import:x" }],
     partial: false, syncing: false, synced: true, hot: false, nonce: null, balance: null,
   },
   is_proxy: false, implementation: null, creator: null, creation_tx: null,

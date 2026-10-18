@@ -6,9 +6,9 @@ import type { NewLabelDto } from "../api/generated/NewLabelDto";
 import { qk } from "../api/queryClient";
 import { t, useT } from "../i18n";
 
-type Category = NewLabelDto["category"];
+type Category = Extract<NewLabelDto["category"], "cex" | "defi" | "bridge" | "mixer" | "scam" | "sanctioned" | "other">;
 
-export const CATEGORIES: Category[] = ["exchange", "defi", "bridge", "mixer", "scam", "sanctioned", "other"];
+export const CATEGORIES: Category[] = ["cex", "defi", "bridge", "mixer", "scam", "sanctioned", "other"];
 
 /** Localised category name; an id from a newer server is shown as-is. */
 export const categoryName = (c: string): string => ((CATEGORIES as string[]).includes(c) ? t(`category.${c as Category}`) : c);

@@ -17,7 +17,7 @@
   --warn: #e8a317;
 
   /* node categories (tint + stroke hue) */
-  --cat-exchange: #2563c9;
+  --cat-cex: #2563c9;
   --cat-defi: #7c3aed;
   --cat-bridge: #0f8a8a;
   --cat-mixer: #c2570c;
@@ -81,7 +81,7 @@
   --neg: #f0645a;
   --warn: #f0b64a;
 
-  --cat-exchange: #6ea3f0;
+  --cat-cex: #6ea3f0;
   --cat-defi: #a98bf0;
   --cat-bridge: #4cc2c2;
   --cat-mixer: #f08a4b;

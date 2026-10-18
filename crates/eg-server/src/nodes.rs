@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use eg_core::source::TokenInfo;
-use eg_core::types::{AccountKind, Address, TransferKind};
+use eg_core::types::{AccountKind, Address, TransferKind, category_rank};
 use eg_ingest::{enqueue_meta, enqueue_names, enqueue_tokens};
 use eg_store::{
     AccountRow, EnsRow, EnsStatus, LabelRow, StatsRow, Store, StoreError, SyncRow, SyncState,
@@ -14,7 +14,7 @@ use crate::dto::{LabelDto, NodeSummaryDto, hex_addr};
 use crate::state::AppState;
 
 /// Label categories that make a node hot regardless of its neighbour count.
-const HOT_CATEGORIES: [&str; 2] = ["exchange", "defi"];
+const HOT_CATEGORIES: [&str; 3] = ["cex", "dex", "defi"];
 
 pub struct Nodes {
     /// One summary per input address, in input order.
@@ -77,7 +77,21 @@ pub async fn load_nodes(
     })
 }
 
-/// Builds one node summary; `labels` keep the store's order.
+/// Orders labels by source (user, mainnet dataset, other imports, xchain),
+/// then category severity, then id. The first label is the primary one.
+pub fn order_labels(labels: &mut [LabelRow]) {
+    labels.sort_by_key(|l| {
+        let source = match l.source.as_str() {
+            "user" => 0,
+            "import:eth-labels" => 1,
+            "import:eth-labels-xchain" => 3,
+            _ => 2,
+        };
+        (source, category_rank(&l.category), l.id)
+    });
+}
+
+/// Builds one node summary; `labels` are re-ordered with [`order_labels`].
 pub fn summarize(
     addr: Address,
     account: Option<&AccountRow>,
@@ -91,11 +105,9 @@ pub fn summarize(
         .filter(|e| e.status == EnsStatus::Ok)
         .and_then(|e| e.name.clone());
     let contract_name = account.and_then(|a| a.contract_name.clone());
-    // The user's own label beats imported datasets.
-    let label = labels
-        .iter()
-        .find(|l| l.source == "user")
-        .or_else(|| labels.first());
+    let mut labels = labels.to_vec();
+    order_labels(&mut labels);
+    let label = labels.first();
     let display_name = ens_name
         .clone()
         .or_else(|| label.map(|l| l.text.clone()))
@@ -259,7 +271,7 @@ mod tests {
 
     #[test]
     fn display_name_prefers_user_label_over_imported() {
-        let mut imported = label("Binance 14", "exchange");
+        let mut imported = label("Binance 14", "cex");
         imported.source = "import:etherscan".into();
         let mine = label("my hot wallet", "other");
         let labels = [imported.clone(), mine];
@@ -277,7 +289,8 @@ mod tests {
     fn hot_by_category_or_degree() {
         let hot = |l: &[LabelRow], degree| summarize(A, None, None, l, &[], degree, 500).hot;
         assert!(hot(&[label("x", "defi")], 0));
-        assert!(hot(&[label("x", "exchange")], 0));
+        assert!(hot(&[label("x", "cex")], 0));
+        assert!(hot(&[label("x", "dex")], 0));
         assert!(!hot(&[label("x", "bridge")], 500));
         assert!(hot(&[], 501));
     }
@@ -297,5 +310,44 @@ mod tests {
         assert!(!s.synced && s.partial && s.syncing);
         let s = summarize(A, None, None, &[], &rows[..4], 0, 500);
         assert!(!s.synced);
+    }
+
+    fn src(id: i64, text: &str, category: &str, source: &str) -> LabelRow {
+        let mut l = label(text, category);
+        l.id = id;
+        l.source = source.into();
+        l
+    }
+
+    fn mixed() -> Vec<LabelRow> {
+        vec![
+            src(1, "x-cex", "cex", "import:eth-labels-xchain"),
+            src(2, "m-other", "other", "import:eth-labels"),
+            src(3, "m-cex", "cex", "import:eth-labels"),
+            src(4, "mine", "other", "user"),
+        ]
+    }
+
+    #[test]
+    fn order_labels_user_then_mainnet_then_xchain() {
+        let mut l = mixed();
+        order_labels(&mut l);
+        let got: Vec<_> = l.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(got, ["mine", "m-cex", "m-other", "x-cex"]);
+    }
+
+    #[test]
+    fn display_name_and_category_follow_ordered_labels() {
+        let s = summarize(A, None, None, &mixed(), &[], 0, 500);
+        assert_eq!(s.display_name.as_deref(), Some("mine"));
+        assert_eq!(s.labels[0].text, "mine");
+        assert_eq!(s.labels[1].category, "cex");
+    }
+
+    #[test]
+    fn hot_categories() {
+        let hot = |c| summarize(A, None, None, &[label("x", c)], &[], 0, 500).hot;
+        assert!(hot("cex") && hot("dex") && hot("defi"));
+        assert!(!hot("exchange") && !hot("bridge"));
     }
 }

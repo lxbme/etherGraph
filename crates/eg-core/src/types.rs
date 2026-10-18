@@ -113,15 +113,47 @@ pub enum AccountKind {
     Unknown,
 }
 
-pub const LABEL_CATEGORIES: [&str; 7] = [
-    "exchange",
+/// Label categories in UI order.
+pub const LABEL_CATEGORIES: [&str; 13] = [
+    "cex",
+    "dex",
     "defi",
     "bridge",
     "mixer",
     "scam",
     "sanctioned",
+    "hacker",
+    "mev",
+    "fund",
+    "nft",
+    "staking",
     "other",
 ];
+
+/// Categories from most to least severe; the first label's category colors a node.
+pub const CATEGORY_PRIORITY: [&str; 13] = [
+    "sanctioned",
+    "hacker",
+    "scam",
+    "mixer",
+    "cex",
+    "dex",
+    "bridge",
+    "mev",
+    "nft",
+    "staking",
+    "fund",
+    "defi",
+    "other",
+];
+
+/// Index of `c` in [`CATEGORY_PRIORITY`]; unknown categories sort last.
+pub fn category_rank(c: &str) -> usize {
+    CATEGORY_PRIORITY
+        .iter()
+        .position(|p| *p == c)
+        .unwrap_or(CATEGORY_PRIORITY.len())
+}
 
 #[cfg(test)]
 mod tests {

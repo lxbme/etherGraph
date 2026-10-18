@@ -22,7 +22,7 @@ const styleOf = (s: Block[], selector: string) => {
 const { tag: TAG_ICON_SVG, pin: PIN_ICON_SVG, syncing: SYNCING_ICON_SVG, partial: PARTIAL_ICON_SVG } = iconSvgs("light");
 
 afterEach(() => {
-  document.documentElement.style.removeProperty("--cat-exchange");
+  document.documentElement.style.removeProperty("--cat-cex");
   document.documentElement.style.removeProperty("--accent");
 });
 
@@ -105,12 +105,12 @@ describe("graphStylesheet", () => {
 
   test("categories are a light tint fill with a same-hue stroke", () => {
     const s = sheet();
-    const ex = styleOf(s, "node.cat-exchange");
+    const ex = styleOf(s, "node.cat-cex");
     expect(ex["background-color"]).toBe("#dee8f7");
     expect(ex["border-color"]).toBe("#2563c9");
     const colors = categoryColors("light");
-    expect(ex["background-color"]).toBe(colors.exchange.fill);
-    expect(ex["border-color"]).toBe(colors.exchange.stroke);
+    expect(ex["background-color"]).toBe(colors.cex.fill);
+    expect(ex["border-color"]).toBe(colors.cex.stroke);
     for (const k of ["defi", "bridge", "mixer"] as const) {
       expect(styleOf(s, `node.cat-${k}`)).toMatchObject({ "background-color": colors[k].fill, "border-color": colors[k].stroke });
     }
@@ -124,9 +124,9 @@ describe("graphStylesheet", () => {
 
   test("dark tints blend toward the dark surface instead of white", () => {
     const d = categoryColors("dark");
-    expect(d.exchange.stroke).toBe("#6ea3f0");
-    expect(d.exchange.fill).not.toBe(categoryColors("light").exchange.fill);
-    expect(parseInt(d.exchange.fill.slice(1, 3), 16)).toBeLessThan(0x60);
+    expect(d.cex.stroke).toBe("#6ea3f0");
+    expect(d.cex.fill).not.toBe(categoryColors("light").cex.fill);
+    expect(parseInt(d.cex.fill.slice(1, 3), 16)).toBeLessThan(0x60);
   });
 
   test("sync state and selection", () => {
@@ -278,11 +278,11 @@ describe("graphStylesheet", () => {
   });
 
   test("reads colors from CSS variables when they are set", () => {
-    document.documentElement.style.setProperty("--cat-exchange", "#123456");
+    document.documentElement.style.setProperty("--cat-cex", "#123456");
     document.documentElement.style.setProperty("--accent", "#abcdef");
     const s = sheet("dark");
-    expect(styleOf(s, "node.cat-exchange")["border-color"]).toBe("#123456");
-    expect(styleOf(s, "node.cat-exchange")["background-color"]).toBe(categoryColors("dark").exchange.fill);
+    expect(styleOf(s, "node.cat-cex")["border-color"]).toBe("#123456");
+    expect(styleOf(s, "node.cat-cex")["background-color"]).toBe(categoryColors("dark").cex.fill);
     expect(styleOf(s, "node.selected, node:selected")["outline-color"]).toBe("#abcdef");
     expect(styleOf(s, "node.center")["background-color"]).toBe("#abcdef");
   });
@@ -293,7 +293,7 @@ describe("graphStylesheet", () => {
       [
         { group: "nodes", data: { id: "a", text: "x\ny" }, classes: "kind-contract cat-mixer unsynced user-label" },
         { group: "nodes", data: { id: "b", text: "b" }, classes: "kind-unknown selected" },
-        { group: "nodes", data: { id: "c", text: "c" }, classes: "kind-eoa cat-exchange center selected" },
+        { group: "nodes", data: { id: "c", text: "c" }, classes: "kind-eoa cat-cex center selected" },
         { group: "edges", data: { id: "ab", source: "a", target: "b", width: 3, badge: "×2" }, classes: "asset-erc20 highlighted" },
       ],
       (cy) => {

@@ -24,7 +24,7 @@ const KINDS = TRANSFER_KINDS;
 const STATE_KEYS: Record<SyncStatusDto["state"], MsgKey> = { syncing: "sync.syncing", ok: "sync.ok", failed: "sync.failed" };
 const KIND_KEYS: Record<string, MsgKey> = { eoa: "node.kind.eoa", contract: "node.kind.contract", unknown: "node.kind.unknown" };
 /** Categories with their own hue; anything else uses the neutral tag. */
-const HUED = new Set(["exchange", "defi", "bridge", "mixer", "scam", "sanctioned"]);
+const HUED = new Set(["cex", "defi", "bridge", "mixer", "scam", "sanctioned"]);
 
 /** Transfer count and distinct counterparties over the canvas edges touching `address`; null when none do. */
 function canvasStats(address: string, edges: EdgeDto[]): { transfers: number; neighbours: number } | null {

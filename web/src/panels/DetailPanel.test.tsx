@@ -79,7 +79,7 @@ test("sync buttons call api.sync", async () => {
 test("imported labels have no delete button; user labels do", async () => {
   vi.spyOn(api, "address").mockResolvedValue(
     profile([
-      { id: 1, text: "Binance 14", category: "exchange", source: "import:etherscan-labels" },
+      { id: 1, text: "Binance 14", category: "cex", source: "import:etherscan-labels" },
       { id: 2, text: "mine", category: "other", source: "user" },
     ]),
   );

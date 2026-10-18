@@ -16,7 +16,7 @@ export interface TooltipLine {
   sub?: string;
 }
 
-const CATEGORIES = new Set(["exchange", "defi", "bridge", "mixer", "scam", "sanctioned", "other"]);
+const CATEGORIES = new Set(["cex", "defi", "bridge", "mixer", "scam", "sanctioned", "other"]);
 
 /** The newest `last_synced_at` among the coverage rows, as an ISO string. */
 function latestSync(coverage: SyncStatusDto[] | undefined): string | null {
