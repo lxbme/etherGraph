@@ -94,7 +94,9 @@ export function deserialize(
   if (!Array.isArray(expanded_pairs) || !expanded_pairs.every((p) => isStrArr(p) && p.length === 2)) {
     return bad(t("ws.err.field", { field: "expanded_pairs" }));
   }
-  if (!isObj(filter)) return bad(t("ws.err.field", { field: "filter" }));
+  if (!isObj(filter) || (filter.hide_suspicious != null && typeof filter.hide_suspicious !== "boolean")) {
+    return bad(t("ws.err.field", { field: "filter" }));
+  }
   if (v.sort !== undefined && !(isStr(v.sort) && SORTS.includes(v.sort))) return bad(t("ws.err.field", { field: "sort" }));
   if (!isObj(viewport) || !isNum(viewport.zoom) || !isObj(viewport.pan) || !isNum(viewport.pan.x) || !isNum(viewport.pan.y)) {
     return bad(t("ws.err.field", { field: "viewport" }));

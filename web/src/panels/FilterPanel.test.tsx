@@ -200,23 +200,134 @@ test("form sort falls back to count when amount sort becomes unavailable", () =>
   expect(screen.getByLabelText("By count")).toBeChecked();
 });
 
-test("the top-bar chips show the active filter count and the asset selection", () => {
+test("the top bar has one Filter chip whose count includes the hide-impersonations toggle", () => {
   setup();
   const chip = () => screen.getByRole("button", { name: /Filter/ });
-  expect(chip()).toHaveTextContent(/^Filters$/);
+  expect(screen.getAllByRole("button", { name: /Filter|assets/i })).toHaveLength(1);
+  expect(screen.queryByRole("button", { name: "All assets" })).toBeNull();
+  expect(chip()).toHaveTextContent(/^Filter$/);
   expect(chip()).not.toHaveClass("chip--active");
-  expect(screen.getByRole("button", { name: "All assets" })).toHaveClass("chip");
   fireEvent.click(screen.getByLabelText("Outbound"));
   fireEvent.click(screen.getByLabelText("USDC"));
   fireEvent.click(apply());
-  expect(chip()).toHaveTextContent("Filters · 2");
+  expect(chip()).toHaveTextContent("Filter · 2");
   expect(chip()).toHaveClass("chip", "chip--active");
   expect(chip().querySelector("svg.lucide")).not.toBeNull();
-  expect(screen.getByRole("button", { name: "USDC" })).toHaveClass("chip--active");
-  // The asset chip opens the same popover.
-  fireEvent.click(screen.getByRole("button", { name: "USDC" }));
-  expect(screen.getByRole("dialog", { name: "Filter" })).toBeInTheDocument();
-  fireEvent.click(screen.getByLabelText("ETH"));
+  fireEvent.click(chip());
+  fireEvent.click(screen.getByLabelText("Hide possibly impersonating tokens"));
   fireEvent.click(apply());
-  expect(screen.getByRole("button", { name: "2 assets" })).toBeInTheDocument();
+  expect(chip()).toHaveTextContent("Filter · 3");
+});
+
+test("the hide-impersonations toggle is off by default and applies hide_suspicious", () => {
+  setup();
+  const toggle = screen.getByLabelText("Hide possibly impersonating tokens");
+  expect(toggle).not.toBeChecked();
+  fireEvent.click(toggle);
+  fireEvent.click(apply());
+  expect(useGraph.getState().filter).toEqual({ hide_suspicious: true });
+  fireEvent.click(screen.getByRole("button", { name: /Filter/ }));
+  expect(screen.getByLabelText("Hide possibly impersonating tokens")).toBeChecked();
+  fireEvent.click(screen.getByLabelText("Hide possibly impersonating tokens"));
+  fireEvent.click(apply());
+  expect(useGraph.getState().filter).toEqual({});
+});
+
+test("the popover keeps Reset and Apply in a footer outside the scrolling body", () => {
+  setup();
+  const dialog = screen.getByRole("dialog", { name: "Filter" });
+  const body = dialog.querySelector(".filter__body")!;
+  const footer = dialog.querySelector(".filter__actions")!;
+  expect(body).not.toBeNull();
+  expect(body.contains(apply())).toBe(false);
+  expect(footer.contains(apply())).toBe(true);
+  expect(footer.contains(screen.getByRole("button", { name: "Reset" }))).toBe(true);
+  expect(body.contains(screen.getByLabelText("USDC"))).toBe(true);
+});
+
+const listed = { level: "listed", impersonates: null, reason: null } as const;
+const unknown = { level: "unknown", impersonates: null, reason: null } as const;
+const FAKE_USDT = "0x" + "f1".repeat(20);
+const SCAM = "0x" + "5c".repeat(20);
+const USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7";
+const trustEdges = () => [
+  edge({ asset: UNK, asset_kind: "erc20", decimals: 18, symbol: "ABC", trust: unknown }),
+  edge({ asset: FAKE_USDT, asset_kind: "erc20", decimals: 6, symbol: "USDT",
+    trust: { level: "suspicious", impersonates: { address: USDT, symbol: "USDT", name: "Tether USD" }, reason: null } }),
+  edge({ asset: USDT, asset_kind: "erc20", decimals: 6, symbol: "USDT", trust: listed }),
+  edge({ asset: SCAM, asset_kind: "erc20", decimals: 18, symbol: "AIRDROP", trust: { level: "scam", impersonates: null, reason: "spam-token" } }),
+  edge({ asset: USDC, asset_kind: "erc20", decimals: 6, symbol: "USDC", trust: listed }),
+  edge({}),
+];
+/** The asset rows' symbols, top to bottom (visible rows only). */
+const rowSymbols = () =>
+  [...document.querySelectorAll(".filter__asset .filter__check")].map((l) => l.textContent);
+
+test("asset rows show symbol, short address and trust badge, listed first, impersonations collapsed", () => {
+  setup(trustEdges());
+  expect(rowSymbols()).toEqual(["ETH", "USDC", "USDT", "ABC"]);
+  const group = screen.getByRole("button", { name: "Possible impersonations (2)" });
+  expect(group).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByLabelText("AIRDROP")).toBeNull();
+  // Short addresses (6…4) tell the real token from a copy; ETH has none.
+  const usdcRow = screen.getByLabelText("USDC").closest(".filter__asset")!;
+  expect(usdcRow).toHaveTextContent("0xa0b8…eb48");
+  expect(screen.getByLabelText("ETH").closest(".filter__asset")!.querySelector(".filter__addr")).toBeNull();
+
+  fireEvent.click(group);
+  expect(group).toHaveAttribute("aria-expanded", "true");
+  expect(rowSymbols()).toEqual(["ETH", "USDC", "USDT", "ABC", "AIRDROP", "USDT"]);
+  const fakeRow = screen.getByText("0xf1f1…f1f1").closest(".filter__asset")!;
+  expect(fakeRow).toHaveTextContent("Possible impersonation");
+  expect(screen.getByText("0x5c5c…5c5c").closest(".filter__asset")!).toHaveTextContent("Known scam");
+  // The real USDT carries no warning.
+  expect(screen.getByText("0xdac1…1ec7").closest(".filter__asset")!.querySelector(".tag")).toBeNull();
+
+  // Ticking inside the group works like any other row.
+  fireEvent.click(screen.getByLabelText("AIRDROP"));
+  fireEvent.click(apply());
+  expect(useGraph.getState().filter).toEqual({ assets: [{ asset: SCAM }] });
+});
+
+test("the impersonations group starts open when one of its tokens is already ticked", () => {
+  useGraph.getState().setFilter({ assets: [{ asset: SCAM }] });
+  setup(trustEdges());
+  expect(screen.getByRole("button", { name: "Possible impersonations (2)" })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByLabelText("AIRDROP")).toBeChecked();
+});
+
+const many = () =>
+  Array.from({ length: 10 }, (_, i) =>
+    edge({ asset: "0x" + String(i).padStart(2, "0").repeat(20), asset_kind: "erc20", decimals: 18, symbol: `TOK${i}`, trust: unknown }),
+  );
+
+test("no asset search with 8 or fewer options", () => {
+  setup(many().slice(0, 7));
+  expect(screen.queryByRole("searchbox", { name: "Search assets" })).toBeNull();
+});
+
+test("asset search over more than 8 options matches symbol or address, case-insensitive, keeping ticks", () => {
+  setup([...many(), edge({ asset: USDC, asset_kind: "erc20", decimals: 6, symbol: "USDC", trust: listed })]);
+  const search = screen.getByRole("searchbox", { name: "Search assets" });
+  fireEvent.click(screen.getByLabelText("TOK3"));
+  fireEvent.change(search, { target: { value: "usdc" } });
+  expect(rowSymbols()).toEqual(["USDC"]);
+  fireEvent.click(screen.getByLabelText("USDC"));
+  // By address (any case).
+  fireEvent.change(search, { target: { value: "0X0505" } });
+  expect(rowSymbols()).toEqual(["TOK5"]);
+  fireEvent.change(search, { target: { value: "zzz" } });
+  expect(rowSymbols()).toEqual([]);
+  expect(screen.getByText("No matching assets")).toBeInTheDocument();
+  // Hidden ticked rows are still applied.
+  fireEvent.click(apply());
+  expect(useGraph.getState().filter.assets).toEqual([{ asset: USDC }, { asset: "0x" + "03".repeat(20) }]);
+});
+
+test("search narrows the impersonations group and its count", () => {
+  setup([...many(), ...trustEdges()]);
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search assets" }), { target: { value: "usdt" } });
+  expect(rowSymbols()).toEqual(["USDT"]);
+  fireEvent.click(screen.getByRole("button", { name: "Possible impersonations (1)" }));
+  expect(rowSymbols()).toEqual(["USDT", "USDT"]);
 });

@@ -211,6 +211,24 @@ describe("leaving the page", () => {
 });
 
 describe("sort persistence", () => {
+  test("hide_suspicious round-trips through serialize/deserialize/load", async () => {
+    g().setCenters([A]);
+    g().applyFilter({ hide_suspicious: true, direction: "out" }, "count");
+    const s = serialize(g(), VP);
+    expect(s.filter).toEqual({ hide_suspicious: true, direction: "out" });
+    expect(deserialize(JSON.parse(JSON.stringify(s)), 1)).toEqual({ ok: true, state: s });
+    g().reset();
+    m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(s)) }));
+    await loadWorkspace(7);
+    expect(g().filter).toEqual({ hide_suspicious: true, direction: "out" });
+  });
+
+  test("a non-boolean hide_suspicious is rejected", () => {
+    const s = serialize(g(), VP);
+    expect(deserialize({ ...s, filter: { hide_suspicious: "yes" } }, 1).ok).toBe(false);
+    expect(deserialize({ ...s, filter: { hide_suspicious: null } }, 1).ok).toBe(true);
+  });
+
   test("sort round-trips through serialize/deserialize/load", async () => {
     g().setCenters([A]);
     g().applyFilter({}, "recent");

@@ -805,10 +805,14 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
   left: 0;
   z-index: 20;
   width: 320px;
+  /* Bound by the viewport: the title and the Reset / Apply row stay put while the body scrolls. */
   max-height: var(--mh-popover);
-  overflow-y: auto;
+  overflow: hidden;
   font-size: var(--fs-13);
 }
+.filter__head,
+.filter__actions { flex: none; }
+.filter__body { display: flex; flex: 1 1 auto; flex-direction: column; gap: var(--sp-3); min-height: 0; overflow-y: auto; }
 .filter__group { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; margin: 0; padding: 0; border: 0; }
 .filter__group legend { margin: 0 0 var(--sp-2); padding: 0; }
 .filter__times { display: flex; flex-direction: column; gap: var(--sp-2); }
@@ -818,6 +822,21 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .filter__asset { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); min-height: var(--h-compact); }
 .filter__check { display: flex; flex: none; align-items: center; gap: var(--sp-2); cursor: pointer; }
 .filter__check input { margin: 0; }
+.filter__addr { color: var(--fg-muted); font-size: var(--fs-12); }
+.filter__group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: var(--h-compact);
+  padding: 0;
+  color: var(--fg);
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.filter__group-head svg { flex: none; color: var(--fg-muted); }
 .filter__threshold { flex: 1; min-width: 0; }
 .filter__error { color: var(--neg); font-size: var(--fs-12); }
 .filter__hint { width: 100%; color: var(--fg-muted); font-size: var(--fs-12); }
