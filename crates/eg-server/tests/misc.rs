@@ -17,6 +17,7 @@ use eg_core::testing::FakeSource;
 use eg_core::types::{Transfer, TransferKind, TxHash};
 use eg_ingest::handlers::FetchTxHandler;
 use eg_ingest::{JobHandler, enqueue_fetch_tx};
+use eg_server::eth_labels::import_eth_labels;
 use eg_server::import_labels::import_labels;
 use eg_store::{Store, TxRow};
 use serde_json::{Value, json};
@@ -611,6 +612,48 @@ async fn import_labels_counts_and_is_idempotent(pool: PgPool) {
             .is_err()
     );
     assert_eq!(total(store).await, 3);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn import_eth_labels_writes_two_datasets_and_replaces(pool: PgPool) {
+    let store = Store::from_pool(pool);
+    let a = "0x00000000000000000000000000000000000000a1";
+    let b = "0x00000000000000000000000000000000000000b2";
+    let c = "0x00000000000000000000000000000000000000c3";
+    let csv = format!(
+        "address,chainId,label,nameTag\n\
+         {a},1,okx,OKX 1\n\
+         {a},8453,okx,OKX 1\n\
+         {b},480,okx,OKX: Hot Wallet 3\n\
+         {b},43114,okx,OKX: Hot Wallet 3\n\
+         {c},1,hot-wallet,\n\
+         nonsense,1,okx,bad\n"
+    );
+    assert_eq!(
+        import_eth_labels(&store, csv.as_bytes()).await.unwrap(),
+        (2, 1, 1)
+    );
+    // Re-importing replaces rather than duplicates.
+    assert_eq!(
+        import_eth_labels(&store, csv.as_bytes()).await.unwrap(),
+        (2, 1, 1)
+    );
+    let rows = store
+        .labels(&[a.parse().unwrap(), b.parse().unwrap(), c.parse().unwrap()])
+        .await
+        .unwrap();
+    let got: Vec<_> = rows
+        .iter()
+        .map(|l| (l.source.as_str(), l.text.as_str(), l.category.as_str()))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("import:eth-labels", "OKX 1", "cex"),
+            ("import:eth-labels-xchain", "OKX: Hot Wallet 3", "cex"),
+            ("import:eth-labels", "Hot Wallet", "cex"),
+        ]
+    );
 }
 
 // ------------------------------------------------------------------ probe

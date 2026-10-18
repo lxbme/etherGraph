@@ -34,15 +34,28 @@ enum Cmd {
         #[arg(long, value_enum)]
         source: Option<SourceMode>,
     },
-    /// Replace one imported label dataset from a CSV (address,text,category).
+    /// Replace imported label datasets from a CSV.
     ImportLabels {
         #[arg(long, default_value = "config.toml")]
         config: PathBuf,
-        /// Dataset name; its previous labels are replaced.
+        /// `simple` (address,text,category) or `eth-labels` (address,chainId,label,nameTag).
+        #[arg(long, value_enum, default_value = "simple")]
+        format: LabelFormat,
+        /// Dataset name (`simple` only); its previous labels are replaced.
         #[arg(long)]
-        dataset: String,
-        csv: PathBuf,
+        dataset: Option<String>,
+        /// The CSV file (`--csv <path>` or positional).
+        #[arg(long = "csv", value_name = "PATH", conflicts_with = "csv_pos")]
+        csv_flag: Option<PathBuf>,
+        #[arg(value_name = "CSV")]
+        csv_pos: Option<PathBuf>,
     },
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum LabelFormat {
+    Simple,
+    EthLabels,
 }
 
 #[tokio::main]
@@ -56,13 +69,32 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Serve { config, source } => serve(&config, source).await,
         Cmd::ImportLabels {
             config,
+            format,
             dataset,
-            csv,
-        } => import_labels_cmd(&config, &dataset, &csv).await,
+            csv_flag,
+            csv_pos,
+        } => {
+            let csv = csv_flag
+                .or(csv_pos)
+                .context("a CSV path is required (--csv <path>)")?;
+            import_labels_cmd(&config, format, dataset.as_deref(), &csv).await
+        }
     }
 }
 
-async fn import_labels_cmd(config: &Path, dataset: &str, csv: &Path) -> anyhow::Result<()> {
+async fn import_labels_cmd(
+    config: &Path,
+    format: LabelFormat,
+    dataset: Option<&str>,
+    csv: &Path,
+) -> anyhow::Result<()> {
+    match (format, dataset) {
+        (LabelFormat::Simple, None) => anyhow::bail!("--dataset is required with --format simple"),
+        (LabelFormat::EthLabels, Some(_)) => {
+            anyhow::bail!("--dataset is not allowed with --format eth-labels")
+        }
+        _ => {}
+    }
     let cfg = Config::read(config)?;
     anyhow::ensure!(
         !cfg.server.database_url.trim().is_empty(),
@@ -72,9 +104,18 @@ async fn import_labels_cmd(config: &Path, dataset: &str, csv: &Path) -> anyhow::
     let store = Store::connect(&cfg.server.database_url)
         .await
         .context("connecting to the database")?;
-    let (imported, skipped) =
-        eg_server::import_labels::import_labels(&store, dataset, file).await?;
-    println!("imported {imported}, skipped {skipped}");
+    match dataset {
+        Some(dataset) => {
+            let (imported, skipped) =
+                eg_server::import_labels::import_labels(&store, dataset, file).await?;
+            println!("imported {imported}, skipped {skipped}");
+        }
+        None => {
+            let (mainnet, xchain, skipped) =
+                eg_server::eth_labels::import_eth_labels(&store, file).await?;
+            println!("imported {mainnet} mainnet, {xchain} cross-chain, skipped {skipped}");
+        }
+    }
     Ok(())
 }
 

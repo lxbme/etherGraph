@@ -4,6 +4,7 @@ pub mod background;
 pub mod config;
 pub mod dto;
 pub mod error;
+pub mod eth_labels;
 pub mod head;
 pub mod import_labels;
 pub mod nodes;
