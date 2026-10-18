@@ -6,6 +6,7 @@ use chrono::Utc;
 use eg_core::source::Priority;
 use eg_ingest::{SyncDirection, enqueue_sync, estimate};
 
+use crate::auth::extract::CurrentUser;
 use crate::dto::{SyncRequestDto, SyncResponseDto, hex_addr};
 use crate::error::{ApiError, invalid};
 use crate::routes::batches::validate_batch;
@@ -14,6 +15,7 @@ use crate::state::AppState;
 
 pub async fn sync(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiJson(req): ApiJson<SyncRequestDto>,
 ) -> Result<Json<SyncResponseDto>, ApiError> {
     let addrs = parse_addresses(&req.addresses)?;
@@ -68,6 +70,7 @@ pub async fn sync(
         jobs.push(
             enqueue_sync(
                 &s.ctx,
+                Some(user.id),
                 a,
                 dir,
                 Priority::Background,

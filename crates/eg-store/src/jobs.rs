@@ -95,6 +95,8 @@ pub struct NewJob {
     pub kind: JobKind,
     pub params: serde_json::Value,
     pub priority: Priority,
+    /// The user the job is run for; `None` for a system job.
+    pub user_id: Option<i64>,
 }
 
 #[derive(Clone, Debug)]
@@ -110,6 +112,8 @@ pub struct JobRow {
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    /// The user the job is run for; `None` for a system job.
+    pub user_id: Option<i64>,
 }
 
 /// The statuses of an active job, as an SQL list; matches the `jobs_active_key`
@@ -123,7 +127,8 @@ pub(crate) use active_statuses;
 
 macro_rules! job_cols {
     () => {
-        "id, key, kind, params, priority, status, progress, attempts, error, created_at, updated_at"
+        "id, key, kind, params, priority, status, progress, attempts, error, created_at, \
+         updated_at, user_id"
     };
 }
 
@@ -184,6 +189,7 @@ fn job_row(r: &PgRow) -> Result<JobRow> {
         error: r.try_get("error")?,
         created_at: r.try_get("created_at")?,
         updated_at: r.try_get("updated_at")?,
+        user_id: r.try_get("user_id")?,
     })
 }
 
@@ -191,13 +197,14 @@ impl Store {
     /// Returns `(id, true)` for a new job, or the existing active job's
     /// `(id, false)` when one with the same key is active (pending, running or
     /// paused on either quota). A more urgent request raises the existing
-    /// job's priority.
+    /// job's priority. A new job belongs to `j.user_id`; a joined one keeps
+    /// its owner.
     pub async fn enqueue(&self, j: &NewJob) -> Result<(i64, bool)> {
         // The conflicting job may finish between the INSERT and the SELECT, so retry.
         for _ in 0..5 {
             let inserted: Option<i64> = sqlx::query_scalar(concat!(
-                "INSERT INTO jobs (key, kind, params, priority, status) \
-                 VALUES ($1, $2, $3, $4, 'pending') \
+                "INSERT INTO jobs (key, kind, params, priority, status, user_id) \
+                 VALUES ($1, $2, $3, $4, 'pending', $5) \
                  ON CONFLICT (key) WHERE status IN ",
                 active_statuses!(),
                 " DO NOTHING RETURNING id"
@@ -206,6 +213,7 @@ impl Store {
             .bind(j.kind.as_str())
             .bind(&j.params)
             .bind(j.priority.as_i16())
+            .bind(j.user_id)
             .fetch_optional(&self.pool)
             .await?;
             if let Some(id) = inserted {
@@ -319,11 +327,31 @@ impl Store {
             .map(|(_, k, st)| (k, st)))
     }
 
-    /// [`Store::cancel_job`] applied to every active job that is not
-    /// Interactive; returns each affected job's id, kind and resulting status.
-    pub async fn cancel_background(&self) -> Result<Vec<(i64, JobKind, JobStatus)>> {
-        let rows = sqlx::query_as(cancel_active!("priority > $1"))
+    /// [`Store::cancel_job`] for one of `user`'s jobs; another user's job is
+    /// `None`, like an unknown one.
+    pub async fn cancel_user_job(
+        &self,
+        user: i64,
+        id: i64,
+    ) -> Result<Option<(JobKind, JobStatus)>> {
+        let row: Option<(i64, String, String)> =
+            sqlx::query_as(cancel_active!("id = $1 AND user_id = $2"))
+                .bind(id)
+                .bind(user)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(cancelled(row.into_iter().collect())?
+            .pop()
+            .map(|(_, k, st)| (k, st)))
+    }
+
+    /// [`Store::cancel_job`] applied to every active job of `user` that is
+    /// not Interactive; returns each affected job's id, kind and resulting
+    /// status.
+    pub async fn cancel_background(&self, user: i64) -> Result<Vec<(i64, JobKind, JobStatus)>> {
+        let rows = sqlx::query_as(cancel_active!("priority > $1 AND user_id = $2"))
             .bind(Priority::Interactive.as_i16())
+            .bind(user)
             .fetch_all(&self.pool)
             .await?;
         cancelled(rows)
@@ -351,15 +379,16 @@ impl Store {
         Ok(res.rows_affected())
     }
 
-    /// The `limit` most recently created jobs of any status, newest first.
-    pub async fn recent_jobs(&self, limit: u32) -> Result<Vec<JobRow>> {
+    /// `user`'s `limit` most recently created jobs of any status, newest first.
+    pub async fn recent_jobs(&self, user: i64, limit: u32) -> Result<Vec<JobRow>> {
         let sql = concat!(
             "SELECT ",
             job_cols!(),
-            " FROM jobs ORDER BY created_at DESC, id DESC LIMIT $1"
+            " FROM jobs WHERE user_id = $2 ORDER BY created_at DESC, id DESC LIMIT $1"
         );
         let rows = sqlx::query(sql)
             .bind(i64::from(limit))
+            .bind(user)
             .fetch_all(&self.pool)
             .await?;
         rows.iter().map(job_row).collect()
@@ -371,6 +400,35 @@ impl Store {
         row.as_ref().map(job_row).transpose()
     }
 
+    /// One of `user`'s jobs; another user's job is `None`, like an unknown one.
+    pub async fn user_job(&self, user: i64, id: i64) -> Result<Option<JobRow>> {
+        let sql = concat!(
+            "SELECT ",
+            job_cols!(),
+            " FROM jobs WHERE id = $1 AND user_id = $2"
+        );
+        let row = sqlx::query(sql)
+            .bind(id)
+            .bind(user)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.as_ref().map(job_row).transpose()
+    }
+
+    /// `user`'s active jobs, oldest first.
+    pub async fn user_active_jobs(&self, user: i64) -> Result<Vec<JobRow>> {
+        let sql = concat!(
+            "SELECT ",
+            job_cols!(),
+            " FROM jobs WHERE user_id = $1 AND status IN ",
+            active_statuses!(),
+            " ORDER BY created_at, id"
+        );
+        let rows = sqlx::query(sql).bind(user).fetch_all(&self.pool).await?;
+        rows.iter().map(job_row).collect()
+    }
+
+    /// Every user's (and system) active jobs, oldest first.
     pub async fn active_jobs(&self) -> Result<Vec<JobRow>> {
         let sql = concat!(
             "SELECT ",
@@ -412,7 +470,22 @@ mod tests {
             kind: JobKind::SyncAddress,
             params: json!({"a": 1}),
             priority: p,
+            user_id: None,
         }
+    }
+
+    fn owned(key: &str, p: Priority, user: i64) -> NewJob {
+        NewJob {
+            user_id: Some(user),
+            ..nj(key, p)
+        }
+    }
+
+    async fn user(s: &Store, byte: u8) -> i64 {
+        s.upsert_user_on_login(crate::Address::repeat_byte(byte))
+            .await
+            .unwrap()
+            .id
     }
 
     #[sqlx::test]
@@ -675,14 +748,16 @@ mod tests {
     #[sqlx::test]
     async fn recent_jobs_newest_first_any_status(pool: PgPool) {
         let s = Store::from_pool(pool);
-        let (a, _) = s.enqueue(&nj("a", Priority::Background)).await.unwrap();
-        let (b, _) = s.enqueue(&nj("b", Priority::Background)).await.unwrap();
-        let (c, _) = s.enqueue(&nj("c", Priority::Background)).await.unwrap();
+        let me = user(&s, 0xe0).await;
+        let bg = Priority::Background;
+        let (a, _) = s.enqueue(&owned("a", bg, me)).await.unwrap();
+        let (b, _) = s.enqueue(&owned("b", bg, me)).await.unwrap();
+        let (c, _) = s.enqueue(&owned("c", bg, me)).await.unwrap();
         let first = s.claim_next().await.unwrap().unwrap();
         s.fail_job(first.id, "boom", false).await.unwrap();
         s.cancel_job(b).await.unwrap();
         let all: Vec<(i64, JobStatus)> = s
-            .recent_jobs(10)
+            .recent_jobs(me, 10)
             .await
             .unwrap()
             .iter()
@@ -696,7 +771,7 @@ mod tests {
                 (a, JobStatus::Failed)
             ]
         );
-        assert_eq!(s.recent_jobs(2).await.unwrap().len(), 2);
+        assert_eq!(s.recent_jobs(me, 2).await.unwrap().len(), 2);
         let j = s.job(a).await.unwrap().unwrap();
         assert_eq!(j.error.as_deref(), Some("boom"));
         assert!(s.job(9999).await.unwrap().is_none());
@@ -716,5 +791,54 @@ mod tests {
             s.claim_next().await.unwrap_err(),
             StoreError::Invalid(_)
         ));
+    }
+
+    #[sqlx::test]
+    async fn user_scoped_reads_and_cancels(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (me, other) = (user(&s, 0xe0).await, user(&s, 0xe1).await);
+        let bg = Priority::Background;
+        let (mine, _) = s.enqueue(&owned("m", bg, me)).await.unwrap();
+        let (mine_hi, _) = s
+            .enqueue(&owned("mi", Priority::Interactive, me))
+            .await
+            .unwrap();
+        let (theirs, _) = s.enqueue(&owned("t", bg, other)).await.unwrap();
+        let (system, _) = s.enqueue(&nj("s", bg)).await.unwrap();
+        assert_eq!(s.job(mine).await.unwrap().unwrap().user_id, Some(me));
+        assert_eq!(s.job(system).await.unwrap().unwrap().user_id, None);
+
+        let ids = |rows: Vec<JobRow>| rows.iter().map(|j| j.id).collect::<Vec<_>>();
+        assert_eq!(ids(s.user_active_jobs(me).await.unwrap()), [mine, mine_hi]);
+        assert_eq!(ids(s.user_active_jobs(other).await.unwrap()), [theirs]);
+        assert_eq!(ids(s.recent_jobs(other, 10).await.unwrap()), [theirs]);
+        assert_eq!(s.active_jobs().await.unwrap().len(), 4);
+        assert!(s.user_job(other, mine).await.unwrap().is_none());
+        assert!(s.user_job(me, system).await.unwrap().is_none());
+        assert_eq!(s.user_job(me, mine).await.unwrap().unwrap().id, mine);
+
+        // Another user's (or a system) job cannot be cancelled.
+        assert_eq!(s.cancel_user_job(other, mine).await.unwrap(), None);
+        assert_eq!(s.cancel_user_job(me, system).await.unwrap(), None);
+        assert_eq!(s.cancel_background(other).await.unwrap().len(), 1);
+        let mine_row = s.job(mine).await.unwrap().unwrap();
+        assert_eq!(mine_row.status, JobStatus::Pending);
+        assert_eq!(
+            s.job(system).await.unwrap().unwrap().status,
+            JobStatus::Pending
+        );
+        let cancelled = s.cancel_background(me).await.unwrap();
+        assert_eq!(
+            cancelled,
+            [(mine, JobKind::SyncAddress, JobStatus::Cancelled)]
+        );
+        assert_eq!(
+            s.cancel_user_job(me, mine_hi).await.unwrap(),
+            Some((JobKind::SyncAddress, JobStatus::Cancelled))
+        );
+        // Joining keeps the original owner.
+        let (again, created) = s.enqueue(&owned("s", bg, me)).await.unwrap();
+        assert_eq!((again, created), (system, false));
+        assert_eq!(s.job(system).await.unwrap().unwrap().user_id, None);
     }
 }

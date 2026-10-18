@@ -1,6 +1,6 @@
 //! Token trust levels: listed (Uniswap or CoinGecko list), scam (eth-labels
-//! `spam-token` or a `scam` label), suspicious (copies a listed token's symbol
-//! or name) and unknown.
+//! `spam-token` or an imported `scam` label), suspicious (copies a listed
+//! token's symbol or name) and unknown.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -111,7 +111,7 @@ pub struct ListedRef {
 pub enum ScamReason {
     /// eth-labels tags the token `spam-token`.
     SpamToken,
-    /// The address has a label of category `scam`.
+    /// The address has an imported label of category `scam`.
     ScamLabel,
 }
 
@@ -210,7 +210,9 @@ impl TrustIndex {
         let spam = store
             .token_tag_addresses("eth-labels", "spam-token")
             .await?;
-        let scam = store.addresses_with_category("scam").await?;
+        // Imported labels only (D4): a user's private label must not change
+        // what anyone else sees.
+        let scam = store.imported_addresses_with_category("scam").await?;
         let erc20 = store.tokens_of_kind(TransferKind::Erc20).await?;
         Ok(Self::build(&listed, &spam, &scam, &erc20))
     }

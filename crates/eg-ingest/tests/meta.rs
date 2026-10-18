@@ -47,6 +47,7 @@ async fn run(e: &Env, h: &dyn JobHandler, kind: JobKind, params: Value) -> Resul
             kind,
             params,
             priority: eg_core::source::Priority::Low,
+            user_id: None,
         })
         .await
         .unwrap();
@@ -451,6 +452,7 @@ async fn contract_meta_partial_failure_keeps_progress_and_retry_skips_done(pool:
             kind: JobKind::ContractMeta,
             params: json!({"addresses": list}),
             priority: eg_core::source::Priority::Low,
+            user_id: None,
         })
         .await
         .unwrap();

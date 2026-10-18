@@ -5,6 +5,7 @@ use axum::extract::State;
 use chrono::Utc;
 use eg_ingest::remaining_calls;
 
+use crate::auth::extract::CurrentUser;
 use crate::background::next_utc_midnight;
 use crate::dto::{StatusDto, rfc3339};
 use crate::error::ApiError;
@@ -15,8 +16,13 @@ pub async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "ok": true }))
 }
 
-pub async fn status(State(s): State<AppState>) -> Result<Json<StatusDto>, ApiError> {
-    let active = s.store.active_jobs().await?;
+/// `jobs_active` and `queued_calls` count the viewer's jobs only; the gate
+/// and client figures are server-wide.
+pub async fn status(
+    State(s): State<AppState>,
+    user: CurrentUser,
+) -> Result<Json<StatusDto>, ApiError> {
+    let active = s.store.user_active_jobs(user.id).await?;
     let queued_calls = active
         .iter()
         .map(|j| remaining_calls(j, &s.ctx.cfg))

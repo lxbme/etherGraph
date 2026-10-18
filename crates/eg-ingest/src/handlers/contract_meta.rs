@@ -94,7 +94,7 @@ impl JobHandler for ContractMetaHandler {
                 .addrs_needing_meta(&impls, ctx.cfg.meta_ttl)
                 .await?;
             if !need.is_empty() {
-                enqueue_meta(ctx, &need).await?;
+                enqueue_meta(ctx, job.user_id, &need).await?;
             }
         }
         if !done.is_empty() {

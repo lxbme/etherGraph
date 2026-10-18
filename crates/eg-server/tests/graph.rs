@@ -4,7 +4,7 @@ use alloy_primitives::{Address, B256, Bytes, U256, address};
 use alloy_sol_types::SolValue;
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
-use common::{delete, get, post_json, test_app};
+use common::{default_user_id, delete, get, post_json, test_app};
 use eg_core::source::{Priority, SourceError, TokenInfo};
 use eg_core::types::{AccountKind, Transfer, TransferKind, assign_sub_ids};
 use eg_server::import_tokens::{TokenFormat, import_tokens};
@@ -499,14 +499,15 @@ async fn graph_node_flags_and_names(pool: PgPool) {
         ],
     )
     .await;
+    let me = default_user_id(&state).await;
     state
         .store
-        .add_user_label(A, "Binance 14", "cex")
+        .add_user_label(me, A, "Binance 14", "cex")
         .await
         .unwrap();
     state
         .store
-        .add_user_label(A, "second", "other")
+        .add_user_label(me, A, "second", "other")
         .await
         .unwrap();
     state

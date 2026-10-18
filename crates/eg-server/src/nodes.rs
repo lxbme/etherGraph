@@ -24,18 +24,20 @@ pub struct Nodes {
     pub accounts: HashMap<Address, AccountRow>,
 }
 
-/// Loads metadata for `addrs` and summarizes each one. `degree[a]` is the
-/// number of neighbours known for `a` (returned plus omitted); absent means 0.
+/// Loads metadata for `addrs` and summarizes each one as `viewer` sees it
+/// (imported labels plus the viewer's own). `degree[a]` is the number of
+/// neighbours known for `a` (returned plus omitted); absent means 0.
 pub async fn load_nodes(
     store: &Store,
     addrs: &[Address],
     degree: &HashMap<Address, u64>,
     hot_threshold: u64,
+    viewer: i64,
 ) -> Result<Nodes, StoreError> {
     let (accounts, ens, labels, sync, stats) = tokio::try_join!(
         store.accounts(addrs),
         store.ens(addrs),
-        store.labels(addrs),
+        store.labels(addrs, viewer),
         store.sync_rows(addrs),
         store.account_stats(addrs),
     )?;
@@ -158,10 +160,11 @@ pub async fn token_map(
 }
 
 /// Enqueues Low-priority metadata jobs for the `meta_addrs` and ENS and token
-/// jobs for the `addrs` and `tokens` that need them. Failures are logged and
-/// never surface to the caller.
+/// jobs for the `addrs` and `tokens` that need them, run for `viewer`.
+/// Failures are logged and never surface to the caller.
 pub async fn enqueue_missing_meta(
     s: &AppState,
+    viewer: i64,
     meta_addrs: &[Address],
     addrs: &[Address],
     tokens: &[Address],
@@ -170,15 +173,15 @@ pub async fn enqueue_missing_meta(
     let result: Result<(), StoreError> = async {
         let meta = s.store.addrs_needing_meta(meta_addrs, cfg.meta_ttl).await?;
         if !meta.is_empty() {
-            enqueue_meta(&s.ctx, &meta).await?;
+            enqueue_meta(&s.ctx, Some(viewer), &meta).await?;
         }
         let names = s.store.addrs_needing_ens(addrs, cfg.ens_ttl).await?;
         if !names.is_empty() {
-            enqueue_names(&s.ctx, &names).await?;
+            enqueue_names(&s.ctx, Some(viewer), &names).await?;
         }
         let missing = s.store.tokens_needing_meta(tokens, cfg.meta_ttl).await?;
         if !missing.is_empty() {
-            enqueue_tokens(&s.ctx, &missing).await?;
+            enqueue_tokens(&s.ctx, Some(viewer), &missing).await?;
         }
         Ok(())
     }
@@ -189,12 +192,13 @@ pub async fn enqueue_missing_meta(
 }
 
 /// Enqueues Low-priority ENS resolution only (no contract or token metadata),
-/// for callers that list many addresses at once. Failures are logged.
-pub async fn enqueue_missing_names(s: &AppState, addrs: &[Address]) {
+/// run for `viewer`, for callers that list many addresses at once. Failures
+/// are logged.
+pub async fn enqueue_missing_names(s: &AppState, viewer: i64, addrs: &[Address]) {
     let result: Result<(), StoreError> = async {
         let names = s.store.addrs_needing_ens(addrs, s.ctx.cfg.ens_ttl).await?;
         if !names.is_empty() {
-            enqueue_names(&s.ctx, &names).await?;
+            enqueue_names(&s.ctx, Some(viewer), &names).await?;
         }
         Ok(())
     }

@@ -8,6 +8,7 @@ use axum::extract::State;
 use eg_core::types::{Address, TransferKind};
 use eg_ingest::{auto_meta_parties, enqueue_fetch_block, enqueue_fetch_tx, load_tx_flow};
 
+use crate::auth::extract::CurrentUser;
 use crate::dto::{
     DecodedCallDto, DecodedEventDto, FlowDto, TxFlowDto, TxMetaDto, TxRawDto, TxResponseDto,
     hex_addr, rfc3339,
@@ -21,11 +22,12 @@ use crate::txdetail::tx_detail;
 
 pub async fn tx(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiPath(raw): ApiPath<String>,
 ) -> Result<Json<TxResponseDto>, ApiError> {
     let hash = parse_tx_hash(&raw)?;
     let Some(f) = load_tx_flow(&s.store, hash).await? else {
-        let job_id = enqueue_fetch_tx(&s.ctx, hash).await?;
+        let job_id = enqueue_fetch_tx(&s.ctx, Some(user.id), hash).await?;
         return Ok(Json(TxResponseDto {
             status: "pending".into(),
             flow: None,
@@ -48,6 +50,7 @@ pub async fn tx(
         &f.participants,
         &HashMap::new(),
         s.ctx.cfg.hot_neighbor_threshold,
+        user.id,
     )
     .await?
     .nodes;
@@ -58,11 +61,11 @@ pub async fn tx(
         .as_str()
         .and_then(|a| a.parse::<Address>().ok());
     let parties = auto_meta_parties(f.tx.from, f.tx.to.or(created), &f.delegations);
-    enqueue_missing_meta(&s, &parties, &f.participants, &token_addrs).await;
+    enqueue_missing_meta(&s, user.id, &parties, &f.participants, &token_addrs).await;
     let block = s.store.block(f.tx.block_number).await?;
     if block.is_none() {
         // Fetched before headers were kept; the job key dedupes repeat views.
-        if let Err(e) = enqueue_fetch_block(&s.ctx, f.tx.block_number, hash).await {
+        if let Err(e) = enqueue_fetch_block(&s.ctx, Some(user.id), f.tx.block_number, hash).await {
             tracing::warn!(error = %e, "enqueueing block backfill failed");
         }
     }

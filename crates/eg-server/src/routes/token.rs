@@ -7,6 +7,7 @@ use eg_core::types::TransferKind;
 use eg_ingest::enqueue_tokens;
 use serde::Deserialize;
 
+use crate::auth::extract::CurrentUser;
 use crate::dto::{TokenDetailDto, TokenListsDto, hex_addr};
 use crate::error::ApiError;
 use crate::parse::parse_address;
@@ -21,6 +22,7 @@ pub struct TokenQuery {
 
 pub async fn detail(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiPath(raw): ApiPath<String>,
     ApiQuery(q): ApiQuery<TokenQuery>,
 ) -> Result<Json<TokenDetailDto>, ApiError> {
@@ -52,7 +54,7 @@ pub async fn detail(
             .await
         {
             Ok(missing) if !missing.is_empty() => {
-                if let Err(e) = enqueue_tokens(&s.ctx, &missing).await {
+                if let Err(e) = enqueue_tokens(&s.ctx, Some(user.id), &missing).await {
                     tracing::warn!(error = %e, address = %hex_addr(addr), "enqueueing token metadata failed");
                 }
             }

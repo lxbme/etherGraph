@@ -117,6 +117,7 @@ async fn run(e: &Env, hash: &str) -> Result<(), JobError> {
             kind: JobKind::FetchTx,
             params: json!({"hash": hash}),
             priority: Priority::Interactive,
+            user_id: None,
         })
         .await
         .unwrap();
@@ -187,6 +188,50 @@ async fn fetch_tx_persists_and_enqueues_meta(pool: PgPool) {
             .await
             .unwrap()
             .is_none()
+    );
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn follow_up_jobs_belong_to_the_parent_jobs_user(pool: PgPool) {
+    let e = env(pool);
+    e.fake.add_tx(
+        raw_tx(None),
+        receipt(true, 7, vec![erc20_log()]),
+        vec![internal()],
+        ts(),
+    );
+    let user = e
+        .ctx
+        .store
+        .upsert_user_on_login(Address::repeat_byte(0xe0))
+        .await
+        .unwrap()
+        .id;
+    let hash = format!("{HASH:#x}");
+    e.ctx
+        .store
+        .enqueue(&NewJob {
+            key: format!("tx:{hash}"),
+            kind: JobKind::FetchTx,
+            params: json!({"hash": hash}),
+            priority: Priority::Interactive,
+            user_id: Some(user),
+        })
+        .await
+        .unwrap();
+    let job = e.ctx.store.claim_next().await.unwrap().unwrap();
+    FetchTxHandler.run(&job, &e.ctx).await.unwrap();
+    let owners: Vec<(String, Option<i64>)> =
+        sqlx::query_as("SELECT kind, user_id FROM jobs WHERE kind <> 'fetch_tx' ORDER BY kind")
+            .fetch_all(e.ctx.store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        owners,
+        [
+            ("contract_meta".to_string(), Some(user)),
+            ("token_meta".to_string(), Some(user)),
+        ]
     );
 }
 
@@ -313,8 +358,8 @@ async fn successful_tx_skips_status_call(pool: PgPool) {
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn fetch_block_job_is_deduplicated(pool: PgPool) {
     let e = env(pool);
-    let a = enqueue_fetch_block(&e.ctx, 100, HASH).await.unwrap();
-    let b = enqueue_fetch_block(&e.ctx, 100, HASH).await.unwrap();
+    let a = enqueue_fetch_block(&e.ctx, None, 100, HASH).await.unwrap();
+    let b = enqueue_fetch_block(&e.ctx, None, 100, HASH).await.unwrap();
     assert_eq!(a, b);
 }
 
@@ -323,7 +368,7 @@ async fn fetch_block_handler_stores_header_and_announces(pool: PgPool) {
     let e = env(pool);
     e.fake.add_block(header());
     let mut rx = e.ctx.bus.subscribe();
-    enqueue_fetch_block(&e.ctx, 100, HASH).await.unwrap();
+    enqueue_fetch_block(&e.ctx, None, 100, HASH).await.unwrap();
     let job = e.ctx.store.claim_next().await.unwrap().unwrap();
     assert_eq!(job.kind, JobKind::FetchBlock);
     eg_ingest::handlers::FetchBlockHandler
@@ -409,7 +454,7 @@ async fn fetch_block_announces_every_stored_tx_of_the_block(pool: PgPool) {
     }
     e.fake.add_block(header());
     let mut rx = e.ctx.bus.subscribe();
-    enqueue_fetch_block(&e.ctx, 100, HASH).await.unwrap();
+    enqueue_fetch_block(&e.ctx, None, 100, HASH).await.unwrap();
     let job = e.ctx.store.claim_next().await.unwrap().unwrap();
     eg_ingest::handlers::FetchBlockHandler
         .run(&job, &e.ctx)

@@ -9,6 +9,7 @@ use eg_core::filter::{AssetFilter, EdgeFilter, EdgeQuery, SortBy, TimeRange};
 use eg_core::types::Address;
 use eg_store::Store;
 
+use crate::auth::extract::CurrentUser;
 use crate::dto::{
     EdgeDto, EdgeFilterDto, GraphRequestDto, GraphResponseDto, SyncStatusDto, hex_addr,
 };
@@ -27,6 +28,7 @@ const ETH_DECIMALS: u8 = 18;
 
 pub async fn edges(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiJson(req): ApiJson<GraphRequestDto>,
 ) -> Result<Json<GraphResponseDto>, ApiError> {
     let centers = parse_addresses(&req.addresses)?;
@@ -112,8 +114,15 @@ pub async fn edges(
     assets.dedup();
     let tokens = token_map(&s.store, &assets).await?;
     let trust = s.trust.get(&s.store).await;
-    let loaded = load_nodes(&s.store, &nodes, &degree, s.ctx.cfg.hot_neighbor_threshold).await?;
-    enqueue_missing_meta(&s, &centers, &nodes, &assets).await;
+    let loaded = load_nodes(
+        &s.store,
+        &nodes,
+        &degree,
+        s.ctx.cfg.hot_neighbor_threshold,
+        user.id,
+    )
+    .await?;
+    enqueue_missing_meta(&s, user.id, &centers, &nodes, &assets).await;
 
     let coverage = nodes
         .iter()

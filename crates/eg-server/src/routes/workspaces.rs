@@ -1,9 +1,11 @@
-//! Saved canvases with optimistic concurrency on `updated_at`.
+//! The viewer's saved canvases, with optimistic concurrency on `updated_at`.
+//! Another user's workspace is 404, like a missing one.
 
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 
+use crate::auth::extract::CurrentUser;
 use crate::dto::{NewWorkspaceDto, UpdateWorkspaceDto, WorkspaceDto, WorkspaceMetaDto};
 use crate::error::{ApiError, invalid};
 use crate::parse::parse_time;
@@ -43,13 +45,17 @@ fn check_version(v: Option<i32>) -> Result<(), ApiError> {
     }
 }
 
-pub async fn list(State(s): State<AppState>) -> Result<Json<Vec<WorkspaceMetaDto>>, ApiError> {
-    let rows = s.store.list_workspaces().await?;
+pub async fn list(
+    State(s): State<AppState>,
+    user: CurrentUser,
+) -> Result<Json<Vec<WorkspaceMetaDto>>, ApiError> {
+    let rows = s.store.list_workspaces(user.id).await?;
     Ok(Json(rows.iter().map(WorkspaceMetaDto::from).collect()))
 }
 
 pub async fn create(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiJson(body): ApiJson<NewWorkspaceDto>,
 ) -> Result<(StatusCode, Json<WorkspaceDto>), ApiError> {
     let name = valid_name(&body.name)?;
@@ -57,20 +63,24 @@ pub async fn create(
     check_version(body.schema_version)?;
     let row = s
         .store
-        .create_workspace(name, body.schema_version.unwrap_or(1), &body.state)
+        .create_workspace(user.id, name, body.schema_version.unwrap_or(1), &body.state)
         .await?;
     Ok((StatusCode::CREATED, Json(WorkspaceDto::from(&row))))
 }
 
 pub async fn get(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiPath(id): ApiPath<i64>,
 ) -> Result<Json<WorkspaceDto>, ApiError> {
-    Ok(Json(WorkspaceDto::from(&s.store.get_workspace(id).await?)))
+    Ok(Json(WorkspaceDto::from(
+        &s.store.get_workspace(user.id, id).await?,
+    )))
 }
 
 pub async fn update(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiPath(id): ApiPath<i64>,
     ApiJson(body): ApiJson<UpdateWorkspaceDto>,
 ) -> Result<Json<WorkspaceDto>, ApiError> {
@@ -80,15 +90,23 @@ pub async fn update(
     let expected = parse_time(&body.expected_updated_at, "expected_updated_at")?;
     let row = s
         .store
-        .update_workspace(id, name, body.schema_version, &body.state, expected)
+        .update_workspace(
+            user.id,
+            id,
+            name,
+            body.schema_version,
+            &body.state,
+            expected,
+        )
         .await?;
     Ok(Json(WorkspaceDto::from(&row)))
 }
 
 pub async fn delete(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiPath(id): ApiPath<i64>,
 ) -> Result<StatusCode, ApiError> {
-    s.store.delete_workspace(id).await?;
+    s.store.delete_workspace(user.id, id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

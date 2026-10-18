@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use axum::Json;
 use axum::extract::State;
 
+use crate::auth::extract::CurrentUser;
 use crate::dto::{NodeSummaryDto, NodesRequestDto};
 use crate::error::{ApiError, invalid};
 use crate::nodes::load_nodes;
@@ -18,6 +19,7 @@ const MAX_NODES: usize = 2000;
 
 pub async fn nodes(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiJson(req): ApiJson<NodesRequestDto>,
 ) -> Result<Json<Vec<NodeSummaryDto>>, ApiError> {
     if req.addresses.is_empty() || req.addresses.len() > MAX_NODES {
@@ -36,6 +38,7 @@ pub async fn nodes(
         &addrs,
         &HashMap::new(),
         s.ctx.cfg.hot_neighbor_threshold,
+        user.id,
     )
     .await?;
     Ok(Json(loaded.nodes))

@@ -16,6 +16,7 @@ use eg_ingest::{SyncDirection, enqueue_sync};
 use eg_store::SyncRow;
 use serde::Deserialize;
 
+use crate::auth::extract::CurrentUser;
 use crate::dto::{AddressProfileDto, SyncStatusDto, hex_addr, rfc3339};
 use crate::error::{ApiError, invalid};
 use crate::nodes::{enqueue_missing_meta, load_nodes};
@@ -31,6 +32,7 @@ pub struct ProfileQuery {
 
 pub async fn profile(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiPath(raw): ApiPath<String>,
     ApiQuery(q): ApiQuery<ProfileQuery>,
 ) -> Result<Json<AddressProfileDto>, ApiError> {
@@ -49,6 +51,7 @@ pub async fn profile(
         &[addr],
         &HashMap::new(),
         s.ctx.cfg.hot_neighbor_threshold,
+        user.id,
     )
     .await?;
     let activity = s.store.address_activity(addr).await?;
@@ -67,6 +70,7 @@ pub async fn profile(
         // Serve what is stored now; the sync result arrives over SSE.
         if let Err(e) = enqueue_sync(
             &s.ctx,
+            Some(user.id),
             addr,
             SyncDirection::Latest,
             p,
@@ -78,7 +82,7 @@ pub async fn profile(
             tracing::warn!(error = %e, address = %hex_addr(addr), "enqueueing sync failed");
         }
     }
-    enqueue_missing_meta(&s, &[addr], &[addr], &[]).await;
+    enqueue_missing_meta(&s, user.id, &[addr], &[addr], &[]).await;
 
     Ok(Json(AddressProfileDto {
         node,

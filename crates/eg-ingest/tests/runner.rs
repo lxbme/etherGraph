@@ -29,6 +29,7 @@ fn job(key: &str) -> NewJob {
         kind: JobKind::FetchTx,
         params: json!({}),
         priority: Priority::Background,
+        user_id: None,
     }
 }
 
@@ -170,12 +171,12 @@ async fn missing_handler_fails_without_retry(pool: PgPool) {
 async fn enqueue_meta_chunks_and_dedupes(pool: PgPool) {
     let c = ctx(pool);
     let addrs: Vec<Address> = (1u8..=45).map(Address::repeat_byte).collect();
-    let ids = enqueue_meta(&c, &addrs).await.unwrap();
+    let ids = enqueue_meta(&c, None, &addrs).await.unwrap();
     assert_eq!(ids.len(), 3);
     let mut rev = addrs.clone();
     rev.reverse();
     rev.push(addrs[0]);
-    assert_eq!(enqueue_meta(&c, &rev).await.unwrap(), ids);
+    assert_eq!(enqueue_meta(&c, None, &rev).await.unwrap(), ids);
     let rows = c.store.active_jobs().await.unwrap();
     assert_eq!(rows.len(), 3);
     assert!(
@@ -286,6 +287,7 @@ async fn reserved_worker_runs_interactive_while_others_busy(pool: PgPool) {
         .store
         .enqueue(&NewJob {
             priority: Priority::Interactive,
+            user_id: None,
             ..job("quick")
         })
         .await

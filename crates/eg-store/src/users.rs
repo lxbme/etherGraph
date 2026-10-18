@@ -303,19 +303,31 @@ mod tests {
         s.replace_import("d", &[(x, "Binance".into(), "cex".into())])
             .await
             .unwrap();
-        s.add_user_label(x, "mine", "other").await.unwrap();
-        s.add_user_label(y, "also mine", "other").await.unwrap();
-        s.create_workspace("w1", 1, &json!({})).await.unwrap();
-        s.create_workspace("w2", 1, &json!({})).await.unwrap();
+        // Data from before accounts existed has no owner.
+        for (addr, text) in [(x, "mine"), (y, "also mine")] {
+            sqlx::query(
+                "INSERT INTO labels (address, text, category, source) VALUES ($1, $2, 'other', 'user')",
+            )
+            .bind(addr.as_slice())
+            .bind(text)
+            .execute(s.pool())
+            .await
+            .unwrap();
+        }
+        for name in ["w1", "w2"] {
+            sqlx::query(
+                "INSERT INTO workspaces (name, schema_version, state) VALUES ($1, 1, '{}')",
+            )
+            .bind(name)
+            .execute(s.pool())
+            .await
+            .unwrap();
+        }
         let other = s
             .upsert_user_on_login(Address::repeat_byte(2))
             .await
             .unwrap();
-        let owned = s.create_workspace("theirs", 1, &json!({})).await.unwrap();
-        sqlx::query("UPDATE workspaces SET owner_id = $1 WHERE id = $2")
-            .bind(other.id)
-            .bind(owned.id)
-            .execute(s.pool())
+        s.create_workspace(other.id, "theirs", 1, &json!({}))
             .await
             .unwrap();
 

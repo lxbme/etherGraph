@@ -45,13 +45,15 @@ fn sync_key_prefix(addr: Address) -> String {
     format!("sync:{addr:#x}:")
 }
 
-/// Enqueues (or joins) the address's sync in `dir` and records `owner` (a
-/// batch id, or `None` for a batch-less caller) as one of its owners. `cap`
+/// Enqueues (or joins) the address's sync in `dir` for `user` (`None`: a
+/// system job) and records `owner` (a batch id, or `None` for a batch-less
+/// caller) as one of its owners. `cap`
 /// limits the records fetched per kind (`None`: `max_records_per_category`);
 /// a joined job keeps its own cap. A job that is cancelled (or finishes)
 /// before the owner is recorded is not joined: a fresh job is enqueued.
 pub async fn enqueue_sync(
     ctx: &JobCtx,
+    user: Option<i64>,
     addr: Address,
     dir: SyncDirection,
     p: Priority,
@@ -68,11 +70,16 @@ pub async fn enqueue_sync(
             "cap": cap,
         }),
         priority: p,
+        user_id: user,
     };
     enqueue_owned(ctx, job, owner).await
 }
 
-pub async fn enqueue_fetch_tx(ctx: &JobCtx, hash: TxHash) -> Result<i64, StoreError> {
+pub async fn enqueue_fetch_tx(
+    ctx: &JobCtx,
+    user: Option<i64>,
+    hash: TxHash,
+) -> Result<i64, StoreError> {
     enqueue_one(
         ctx,
         NewJob {
@@ -80,6 +87,7 @@ pub async fn enqueue_fetch_tx(ctx: &JobCtx, hash: TxHash) -> Result<i64, StoreEr
             kind: JobKind::FetchTx,
             params: json!({"hash": format!("{hash:#x}")}),
             priority: Priority::Interactive,
+            user_id: user,
         },
     )
     .await
@@ -87,6 +95,7 @@ pub async fn enqueue_fetch_tx(ctx: &JobCtx, hash: TxHash) -> Result<i64, StoreEr
 
 pub async fn enqueue_fetch_block(
     ctx: &JobCtx,
+    user: Option<i64>,
     number: u64,
     hash: TxHash,
 ) -> Result<i64, StoreError> {
@@ -97,6 +106,7 @@ pub async fn enqueue_fetch_block(
             kind: JobKind::FetchBlock,
             params: json!({"number": number, "hash": format!("{hash:#x}")}),
             priority: Priority::Background,
+            user_id: user,
         },
     )
     .await
@@ -122,6 +132,7 @@ fn chunk_key(prefix: &str, chunk: &[Address]) -> String {
 #[allow(clippy::too_many_arguments)]
 async fn enqueue_chunks(
     ctx: &JobCtx,
+    user: Option<i64>,
     addrs: &[Address],
     chunk_size: usize,
     prefix: &str,
@@ -138,6 +149,7 @@ async fn enqueue_chunks(
             kind,
             params: json!({ field: list }),
             priority,
+            user_id: user,
         };
         ids.push(enqueue_owned(ctx, job, owner).await?);
     }
@@ -158,20 +170,28 @@ async fn enqueue_owned(ctx: &JobCtx, job: NewJob, owner: Option<&str>) -> Result
     Err(StoreError::Conflict)
 }
 
-pub async fn enqueue_meta(ctx: &JobCtx, addrs: &[Address]) -> Result<Vec<i64>, StoreError> {
-    enqueue_meta_owned(ctx, addrs, Priority::Low, None).await
+/// Low-priority contract-metadata jobs for `user` (`None`: system jobs).
+pub async fn enqueue_meta(
+    ctx: &JobCtx,
+    user: Option<i64>,
+    addrs: &[Address],
+) -> Result<Vec<i64>, StoreError> {
+    enqueue_meta_owned(ctx, user, addrs, Priority::Low, None).await
 }
 
-/// Contract-metadata jobs in chunks of [`META_CHUNK`] at `priority`, each
-/// owned by `owner` (a batch id; `None` for a batch-less caller).
+/// Contract-metadata jobs for `user` in chunks of [`META_CHUNK`] at
+/// `priority`, each owned by `owner` (a batch id; `None` for a batch-less
+/// caller).
 pub async fn enqueue_meta_owned(
     ctx: &JobCtx,
+    user: Option<i64>,
     addrs: &[Address],
     priority: Priority,
     owner: Option<&str>,
 ) -> Result<Vec<i64>, StoreError> {
     enqueue_chunks(
         ctx,
+        user,
         addrs,
         META_CHUNK,
         "meta:",
@@ -183,10 +203,15 @@ pub async fn enqueue_meta_owned(
     .await
 }
 
-pub async fn enqueue_names(ctx: &JobCtx, addrs: &[Address]) -> Result<Vec<i64>, StoreError> {
+pub async fn enqueue_names(
+    ctx: &JobCtx,
+    user: Option<i64>,
+    addrs: &[Address],
+) -> Result<Vec<i64>, StoreError> {
     let n = ctx.cfg.multicall_batch_size;
     enqueue_chunks(
         ctx,
+        user,
         addrs,
         n,
         "ens:",
@@ -198,10 +223,15 @@ pub async fn enqueue_names(ctx: &JobCtx, addrs: &[Address]) -> Result<Vec<i64>, 
     .await
 }
 
-pub async fn enqueue_tokens(ctx: &JobCtx, tokens: &[Address]) -> Result<Vec<i64>, StoreError> {
+pub async fn enqueue_tokens(
+    ctx: &JobCtx,
+    user: Option<i64>,
+    tokens: &[Address],
+) -> Result<Vec<i64>, StoreError> {
     let n = ctx.cfg.multicall_batch_size;
     enqueue_chunks(
         ctx,
+        user,
         tokens,
         n,
         "token:",

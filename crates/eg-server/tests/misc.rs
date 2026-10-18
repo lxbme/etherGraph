@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::{DateTime, TimeZone, Utc};
-use common::{delete, get, post_json, send, test_app, test_app_with};
+use common::{default_user_id, delete, get, post_json, send, test_app, test_app_with};
 use eg_core::source::{
     ChainSource, ContractCreation, ContractSource, HistoryPage, HistoryQuery, Priority, RawBlock,
     RawLog, RawReceipt, RawTx, SourceError,
@@ -111,7 +111,10 @@ async fn tx_pending_then_ready(pool: PgPool) {
     // A repeat request while the job is queued reports the same job.
     let (_, again) = get(&app, &uri).await;
     assert_eq!(again["job_id"].as_i64(), Some(job_id));
-    assert_eq!(enqueue_fetch_tx(&state.ctx, HASH).await.unwrap(), job_id);
+    assert_eq!(
+        enqueue_fetch_tx(&state.ctx, None, HASH).await.unwrap(),
+        job_id
+    );
 
     let job = state.store.claim_next().await.unwrap().unwrap();
     assert_eq!(job.id, job_id);
@@ -578,7 +581,8 @@ async fn label_crud_and_category_validation(pool: PgPool) {
         .replace_import("d", &[(TO, "Imp".into(), "defi".into())])
         .await
         .unwrap();
-    let imp = state.store.labels(&[TO]).await.unwrap()[0].id;
+    let me = default_user_id(&state).await;
+    let imp = state.store.labels(&[TO], me).await.unwrap()[0].id;
     let (st, v) = delete(&app, &format!("/api/labels/{imp}")).await;
     assert_eq!((st, code(&v)), (StatusCode::NOT_FOUND, "not_found"));
 }
@@ -760,14 +764,17 @@ async fn import_labels_counts_and_is_idempotent(pool: PgPool) {
         (2, 0)
     );
     let rows = store
-        .labels(&[
-            "0x28c6c06298d514db089934071355e5743bf21d60"
-                .parse()
-                .unwrap(),
-            "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be"
-                .parse()
-                .unwrap(),
-        ])
+        .labels(
+            &[
+                "0x28c6c06298d514db089934071355e5743bf21d60"
+                    .parse()
+                    .unwrap(),
+                "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be"
+                    .parse()
+                    .unwrap(),
+            ],
+            0,
+        )
         .await
         .unwrap();
     let cats: Vec<_> = rows
@@ -820,7 +827,11 @@ async fn import_eth_labels_writes_two_datasets_and_replaces(pool: PgPool) {
         (2, 1, 1)
     );
     let rows = store
-        .labels(&[a.parse().unwrap(), b.parse().unwrap(), c.parse().unwrap()])
+        // Imports are visible to every viewer; no user is needed.
+        .labels(
+            &[a.parse().unwrap(), b.parse().unwrap(), c.parse().unwrap()],
+            0,
+        )
         .await
         .unwrap();
     let got: Vec<_> = rows
@@ -1090,6 +1101,7 @@ async fn cancel_background_scope_spares_interactive_jobs(pool: PgPool) {
             kind: eg_store::JobKind::FetchTx,
             params: json!({"hash": format!("{HASH:#x}")}),
             priority: Priority::Interactive,
+            user_id: Some(default_user_id(&state).await),
         })
         .await
         .unwrap();

@@ -170,6 +170,7 @@ mod tests {
             error: None,
             created_at: now(),
             updated_at: now(),
+            user_id: None,
         }
     }
 

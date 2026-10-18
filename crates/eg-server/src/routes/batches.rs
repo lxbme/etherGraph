@@ -1,8 +1,9 @@
-//! `DELETE /api/batches/{id}`: releases a batch's jobs.
+//! `DELETE /api/batches/{id}`: releases a batch's hold on the viewer's jobs.
 
 use axum::Json;
 use axum::extract::State;
 
+use crate::auth::extract::CurrentUser;
 use crate::dto::CancelledDto;
 use crate::error::{ApiError, invalid};
 use crate::routes::ApiPath;
@@ -25,14 +26,16 @@ pub fn validate_batch(id: &str) -> Result<(), ApiError> {
     }
 }
 
-/// Drops the batch's ownership and cancels the active jobs left without any
-/// owner; jobs another batch or a batch-less request also owns keep running.
-/// An unknown batch cancels nothing.
+/// Drops the batch's ownership of the viewer's jobs and cancels the active
+/// ones left without any owner; jobs another batch or a batch-less request
+/// also owns keep running. Other users' jobs are untouched, whatever their
+/// batch ids. An unknown batch cancels nothing.
 pub async fn release(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiPath(id): ApiPath<String>,
 ) -> Result<Json<CancelledDto>, ApiError> {
     validate_batch(&id)?;
-    let cancelled = s.store.release_batch(&id).await?;
+    let cancelled = s.store.release_batch(user.id, &id).await?;
     Ok(Json(after_cancels(&s, cancelled).await))
 }

@@ -154,7 +154,7 @@ impl JobHandler for FetchTxHandler {
             .store
             .addrs_needing_meta(&parties, ctx.cfg.meta_ttl)
             .await?;
-        enqueue_meta(ctx, &stale).await?;
+        enqueue_meta(ctx, job.user_id, &stale).await?;
         let tokens: Vec<Address> = transfers
             .iter()
             .filter(|t| t.kind == TransferKind::Erc20)
@@ -166,7 +166,7 @@ impl JobHandler for FetchTxHandler {
             .store
             .tokens_needing_meta(&tokens, ctx.cfg.meta_ttl)
             .await?;
-        enqueue_tokens(ctx, &missing).await?;
+        enqueue_tokens(ctx, job.user_id, &missing).await?;
 
         ctx.bus.publish(Event::JobProgress {
             job_id: job.id,

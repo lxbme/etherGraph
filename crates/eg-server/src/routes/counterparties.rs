@@ -11,6 +11,7 @@ use eg_core::types::TransferKind;
 use eg_store::{AccountKindFilter, CounterpartySort};
 use serde::Deserialize;
 
+use crate::auth::extract::CurrentUser;
 use crate::dto::{
     AssetRefDto, CounterpartyDto, CounterpartyPageDto, asset_meta, asset_trust, hex_addr, rfc3339,
 };
@@ -40,6 +41,7 @@ pub struct CounterpartiesQuery {
 
 pub async fn list(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiPath(raw): ApiPath<String>,
     ApiQuery(q): ApiQuery<CounterpartiesQuery>,
 ) -> Result<Json<CounterpartyPageDto>, ApiError> {
@@ -111,12 +113,13 @@ pub async fn list(
         &addrs,
         &HashMap::new(),
         s.ctx.cfg.hot_neighbor_threshold,
+        user.id,
     )
     .await?
     .nodes;
     // Candidate kinds come from the probe; only cheap, batched ENS lookups for
     // the head of the page, never contract or token metadata.
-    enqueue_missing_names(&s, &addrs[..addrs.len().min(NAME_LOOKUPS)]).await;
+    enqueue_missing_names(&s, user.id, &addrs[..addrs.len().min(NAME_LOOKUPS)]).await;
     let items = rows
         .iter()
         .zip(nodes)

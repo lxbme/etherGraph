@@ -6,6 +6,7 @@ use axum::extract::State;
 use eg_core::source::Priority;
 use eg_ingest::enqueue_meta_owned;
 
+use crate::auth::extract::CurrentUser;
 use crate::dto::{IdentifyRequestDto, IdentifyResponseDto};
 use crate::error::{ApiError, invalid};
 use crate::routes::batches::validate_batch;
@@ -17,6 +18,7 @@ const MAX_IDENTIFY: usize = 500;
 
 pub async fn identify(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiJson(req): ApiJson<IdentifyRequestDto>,
 ) -> Result<Json<IdentifyResponseDto>, ApiError> {
     if !(1..=MAX_IDENTIFY).contains(&req.addresses.len()) {
@@ -39,8 +41,14 @@ pub async fn identify(
         .store
         .addrs_needing_meta(&addrs, s.ctx.cfg.meta_ttl)
         .await?;
-    let jobs =
-        enqueue_meta_owned(&s.ctx, &needed, Priority::Interactive, req.batch.as_deref()).await?;
+    let jobs = enqueue_meta_owned(
+        &s.ctx,
+        Some(user.id),
+        &needed,
+        Priority::Interactive,
+        req.batch.as_deref(),
+    )
+    .await?;
     Ok(Json(IdentifyResponseDto {
         queued: u32::try_from(needed.len()).unwrap_or(u32::MAX),
         jobs,

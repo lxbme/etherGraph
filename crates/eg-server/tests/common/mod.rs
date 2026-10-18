@@ -273,3 +273,42 @@ pub async fn whitelisted_key(state: &AppState) -> SigningKey {
         .unwrap();
     key
 }
+
+/// `PUT uri` with a JSON body, `cookie` and the configured `Origin`.
+pub async fn put_json_as(
+    app: &Router,
+    cookie: &str,
+    uri: &str,
+    body: &serde_json::Value,
+) -> (StatusCode, serde_json::Value) {
+    let req = Request::put(uri)
+        .header("content-type", "application/json")
+        .header(header::COOKIE, cookie)
+        .header(header::ORIGIN, ORIGIN)
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    send(app, req).await
+}
+
+/// The user id of [`DEFAULT_USER`] (created by [`test_app`]).
+pub async fn default_user_id(state: &AppState) -> i64 {
+    state
+        .store
+        .upsert_user_on_login(DEFAULT_USER)
+        .await
+        .unwrap()
+        .id
+}
+
+/// A second whitelisted user, logged in: its session cookie and user id.
+pub async fn second_user(app: &Router, state: &AppState) -> (String, i64) {
+    let key = whitelisted_key(state).await;
+    let cookie = login_as(app, &key).await;
+    let id = state
+        .store
+        .upsert_user_on_login(key_address(&key))
+        .await
+        .unwrap()
+        .id;
+    (cookie, id)
+}

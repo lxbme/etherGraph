@@ -203,6 +203,7 @@ async fn enqueue(e: &Env, key: &str, params: Value) -> i64 {
             kind: JobKind::SyncAddress,
             params,
             priority: Priority::Interactive,
+            user_id: None,
         })
         .await
         .unwrap();
@@ -670,6 +671,7 @@ async fn background_job_never_uses_interactive_priority(pool: PgPool) {
                 kind: JobKind::SyncAddress,
                 params: params("latest", &[]),
                 priority: p,
+                user_id: None,
             })
             .await
             .unwrap();
@@ -724,6 +726,7 @@ async fn guard_miss_leaves_state_to_another_active_sync(pool: PgPool) {
             kind: JobKind::SyncAddress,
             params: params("latest", &["native"]),
             priority: Priority::Background,
+            user_id: None,
         })
         .await
         .unwrap();
@@ -747,9 +750,17 @@ async fn enqueue_sync_never_joins_a_job_cancelled_under_it(pool: PgPool) {
     use eg_ingest::{SyncDirection, enqueue_sync};
     let e = env(pool.clone(), 10_000);
     let dir = SyncDirection::Latest;
-    let first = enqueue_sync(&e.ctx, ADDR, dir, Priority::Background, None, Some("b1"))
-        .await
-        .unwrap();
+    let first = enqueue_sync(
+        &e.ctx,
+        None,
+        ADDR,
+        dir,
+        Priority::Background,
+        None,
+        Some("b1"),
+    )
+    .await
+    .unwrap();
     // A batch release locks the job, then cancels it, while a second request
     // has already found the job by key and is adding itself as an owner.
     let mut release = pool.begin().await.unwrap();
@@ -761,9 +772,17 @@ async fn enqueue_sync_never_joins_a_job_cancelled_under_it(pool: PgPool) {
     let join = tokio::spawn({
         let ctx = e.ctx.clone();
         async move {
-            enqueue_sync(&ctx, ADDR, dir, Priority::Background, None, Some("b2"))
-                .await
-                .unwrap()
+            enqueue_sync(
+                &ctx,
+                None,
+                ADDR,
+                dir,
+                Priority::Background,
+                None,
+                Some("b2"),
+            )
+            .await
+            .unwrap()
         }
     });
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -807,6 +826,7 @@ async fn enqueue_sync_reports_a_conflict_when_joining_keeps_racing(pool: PgPool)
     .unwrap();
     let err = enqueue_sync(
         &e.ctx,
+        None,
         ADDR,
         SyncDirection::Latest,
         Priority::Background,

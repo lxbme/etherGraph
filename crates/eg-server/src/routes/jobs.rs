@@ -1,5 +1,6 @@
 //! `GET /api/jobs?active=true|false`, `DELETE /api/jobs?scope=background`,
-//! `GET /api/jobs/{id}`, `DELETE /api/jobs/{id}`.
+//! `GET /api/jobs/{id}`, `DELETE /api/jobs/{id}`: the viewer's jobs only;
+//! another user's job is 404, like a missing one.
 
 use axum::Json;
 use axum::extract::State;
@@ -9,6 +10,7 @@ use eg_ingest::{Event, other_sync_active};
 use eg_store::{JobKind, JobRow, JobStatus, StoreError};
 use serde::Deserialize;
 
+use crate::auth::extract::CurrentUser;
 use crate::dto::{CancelledDto, JobDto};
 use crate::error::{ApiError, invalid};
 use crate::routes::{ApiPath, ApiQuery};
@@ -27,11 +29,12 @@ pub struct JobsQuery {
 /// `active=false`: the 50 most recent jobs of any status, newest first.
 pub async fn list(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiQuery(q): ApiQuery<JobsQuery>,
 ) -> Result<Json<Vec<JobDto>>, ApiError> {
     let jobs = match q.active.as_deref() {
-        None | Some("true") => s.store.active_jobs().await?,
-        Some("false") => s.store.recent_jobs(RECENT_JOBS).await?,
+        None | Some("true") => s.store.user_active_jobs(user.id).await?,
+        Some("false") => s.store.recent_jobs(user.id, RECENT_JOBS).await?,
         Some(other) => {
             return Err(invalid(format!(
                 "active must be \"true\" or \"false\", got {other:?}"
@@ -58,10 +61,11 @@ pub struct CancelQuery {
     pub scope: Option<String>,
 }
 
-/// `scope=background` (required): cancels every active job that is not
-/// Interactive.
+/// `scope=background` (required): cancels every active job of the viewer
+/// that is not Interactive.
 pub async fn cancel_scope(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiQuery(q): ApiQuery<CancelQuery>,
 ) -> Result<Json<CancelledDto>, ApiError> {
     if q.scope.as_deref() != Some("background") {
@@ -70,7 +74,7 @@ pub async fn cancel_scope(
             q.scope
         )));
     }
-    let cancelled = s.store.cancel_background().await?;
+    let cancelled = s.store.cancel_background(user.id).await?;
     Ok(Json(after_cancels(&s, cancelled).await))
 }
 
@@ -79,15 +83,17 @@ fn parse_id(raw: &str) -> Result<i64, ApiError> {
         .map_err(|_| invalid(format!("invalid job id {raw:?}")))
 }
 
-/// One job of any status; 404 when it does not exist.
+/// One of the viewer's jobs, of any status; 404 when it does not exist or is
+/// another user's.
 pub async fn get(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiPath(id): ApiPath<String>,
 ) -> Result<Json<JobDto>, ApiError> {
     let id = parse_id(&id)?;
     let job = s
         .store
-        .job(id)
+        .user_job(user.id, id)
         .await?
         .ok_or_else(|| ApiError::not_found(format!("no job {id}")))?;
     let mut dto = with_batches(&s, vec![job]).await?;
@@ -95,16 +101,18 @@ pub async fn get(
 }
 
 /// 204 when the job was cancelled (pending or quota-paused) or flagged for
-/// cancellation (running); 404 when it does not exist or has already finished.
-/// An immediate cancellation is announced here; the runner announces flagged ones.
+/// cancellation (running); 404 when it does not exist, is another user's or
+/// has already finished. An immediate cancellation is announced here; the
+/// runner announces flagged ones.
 pub async fn cancel(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiPath(id): ApiPath<String>,
 ) -> Result<StatusCode, ApiError> {
     let id = parse_id(&id)?;
     let (kind, status) = s
         .store
-        .cancel_job(id)
+        .cancel_user_job(user.id, id)
         .await?
         .ok_or_else(|| ApiError::not_found(format!("no active job {id}")))?;
     after_cancel(&s, id, kind, status).await;

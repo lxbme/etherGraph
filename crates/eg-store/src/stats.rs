@@ -185,17 +185,25 @@ impl Store {
         Ok(out)
     }
 
-    /// Drops `batch`'s ownership and cancels (as [`Store::cancel_job`]) the
-    /// active jobs it leaves with no owner at all; a batch-less owner still
-    /// counts as an owner. Returns each cancelled job's id, kind and resulting
-    /// status, by id.
-    pub async fn release_batch(&self, batch: &str) -> Result<Vec<(i64, JobKind, JobStatus)>> {
+    /// Drops `batch`'s ownership of `user`'s jobs and cancels (as
+    /// [`Store::cancel_job`]) the active ones it leaves with no owner at all;
+    /// a batch-less owner still counts as an owner. Other users' jobs are
+    /// untouched even when their batch has the same id. Returns each
+    /// cancelled job's id, kind and resulting status, by id.
+    pub async fn release_batch(
+        &self,
+        user: i64,
+        batch: &str,
+    ) -> Result<Vec<(i64, JobKind, JobStatus)>> {
         let mut tx = self.pool.begin().await?;
-        let released: Vec<i64> =
-            sqlx::query_scalar("DELETE FROM job_owners WHERE batch_id = $1 RETURNING job_id")
-                .bind(batch)
-                .fetch_all(&mut *tx)
-                .await?;
+        let released: Vec<i64> = sqlx::query_scalar(
+            "DELETE FROM job_owners o USING jobs j \
+             WHERE o.job_id = j.id AND o.batch_id = $1 AND j.user_id = $2 RETURNING o.job_id",
+        )
+        .bind(batch)
+        .bind(user)
+        .fetch_all(&mut *tx)
+        .await?;
         // A new owner's foreign-key check share-locks its job row, so after
         // this lock every owner added concurrently is either committed (and
         // seen by the next statement's fresh snapshot) or waits for this
@@ -368,16 +376,53 @@ mod tests {
         }
     }
 
+    /// The test user owning the jobs of [`job`].
+    async fn uid(s: &Store) -> i64 {
+        s.upsert_user_on_login(a(0xe0)).await.unwrap().id
+    }
+
     async fn job(s: &Store, key: &str, p: Priority) -> i64 {
+        job_of(s, key, p, uid(s).await).await
+    }
+
+    async fn job_of(s: &Store, key: &str, p: Priority, user: i64) -> i64 {
         s.enqueue(&NewJob {
             key: key.into(),
             kind: JobKind::SyncAddress,
             params: serde_json::json!({}),
             priority: p,
+            user_id: Some(user),
         })
         .await
         .unwrap()
         .0
+    }
+
+    #[sqlx::test]
+    async fn release_batch_only_touches_the_users_jobs(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let me = uid(&s).await;
+        let other = s.upsert_user_on_login(a(0xe1)).await.unwrap().id;
+        let mine = job_of(&s, "mine", Priority::Background, me).await;
+        let theirs = job_of(&s, "theirs", Priority::Background, other).await;
+        s.add_job_owner(mine, Some("b")).await.unwrap();
+        s.add_job_owner(theirs, Some("b")).await.unwrap();
+        assert_eq!(
+            s.release_batch(other, "b").await.unwrap(),
+            vec![(theirs, JobKind::SyncAddress, JobStatus::Cancelled)]
+        );
+        assert_eq!(
+            s.job(mine).await.unwrap().unwrap().status,
+            JobStatus::Pending
+        );
+        assert_eq!(
+            s.job_batches(&[mine]).await.unwrap()[&mine],
+            vec!["b".to_string()]
+        );
+        assert_eq!(
+            s.release_batch(me, "b").await.unwrap(),
+            vec![(mine, JobKind::SyncAddress, JobStatus::Cancelled)]
+        );
     }
 
     #[sqlx::test]
@@ -399,7 +444,7 @@ mod tests {
         assert_eq!(batches[&j2], vec!["b1".to_string(), "b2".to_string()]);
         assert_eq!(batches[&j3], vec!["b1".to_string()]);
         assert_eq!(
-            s.release_batch("b1").await.unwrap(),
+            s.release_batch(uid(&s).await, "b1").await.unwrap(),
             vec![(j1, JobKind::SyncAddress, JobStatus::Cancelled)]
         );
         assert_eq!(
@@ -408,9 +453,14 @@ mod tests {
         );
         assert_eq!(s.job(j2).await.unwrap().unwrap().status, JobStatus::Pending);
         // The batch is gone; a second release finds nothing.
-        assert!(s.release_batch("b1").await.unwrap().is_empty());
+        assert!(
+            s.release_batch(uid(&s).await, "b1")
+                .await
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(
-            s.release_batch("b2").await.unwrap(),
+            s.release_batch(uid(&s).await, "b2").await.unwrap(),
             vec![(j2, JobKind::SyncAddress, JobStatus::Cancelled)]
         );
         assert_eq!(s.job(j3).await.unwrap().unwrap().status, JobStatus::Pending);
@@ -423,7 +473,12 @@ mod tests {
         s.add_job_owner(j, Some("b")).await.unwrap();
         let claimed = s.claim_next().await.unwrap().unwrap();
         s.complete_job(claimed.id).await.unwrap();
-        assert!(s.release_batch("b").await.unwrap().is_empty());
+        assert!(
+            s.release_batch(uid(&s).await, "b")
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[sqlx::test]
@@ -438,7 +493,7 @@ mod tests {
         s.pause_job_quota(second.id).await.unwrap();
         // The running job is only flagged; the paused one is cancelled.
         assert_eq!(
-            s.release_batch("b").await.unwrap(),
+            s.release_batch(uid(&s).await, "b").await.unwrap(),
             vec![
                 (j1, JobKind::SyncAddress, JobStatus::Running),
                 (j2, JobKind::SyncAddress, JobStatus::Cancelled)
@@ -456,7 +511,7 @@ mod tests {
         assert!(s.add_job_owner(pending, Some("b1")).await.unwrap());
         assert_eq!(s.claim_next().await.unwrap().unwrap().id, running);
         // b1 goes: the pending job is cancelled, the running one only flagged.
-        s.release_batch("b1").await.unwrap();
+        s.release_batch(uid(&s).await, "b1").await.unwrap();
         assert!(s.cancel_requested(running).await.unwrap());
         // A request that found the cancelled job by key must not join it.
         assert!(!s.add_job_owner(pending, Some("b2")).await.unwrap());
@@ -484,7 +539,7 @@ mod tests {
             .unwrap();
         let release = tokio::spawn({
             let s = s.clone();
-            async move { s.release_batch("b").await.unwrap() }
+            async move { s.release_batch(uid(&s).await, "b").await.unwrap() }
         });
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         assert!(
@@ -504,7 +559,7 @@ mod tests {
         let low = job(&s, "low", Priority::Low).await;
         // Claim the interactive job so it is running; it must be left alone.
         assert_eq!(s.claim_next().await.unwrap().unwrap().id, hi);
-        let mut got = s.cancel_background().await.unwrap();
+        let mut got = s.cancel_background(uid(&s).await).await.unwrap();
         got.sort_by_key(|g| g.0);
         assert_eq!(
             got,
@@ -514,7 +569,7 @@ mod tests {
             ]
         );
         assert!(!s.cancel_requested(hi).await.unwrap());
-        assert!(s.cancel_background().await.unwrap().is_empty());
+        assert!(s.cancel_background(uid(&s).await).await.unwrap().is_empty());
     }
 
     #[sqlx::test]
@@ -526,7 +581,7 @@ mod tests {
         assert_eq!(s.claim_next().await.unwrap().unwrap().id, paused);
         s.pause_job_quota(paused).await.unwrap();
 
-        let got = s.cancel_background().await.unwrap();
+        let got = s.cancel_background(uid(&s).await).await.unwrap();
         assert_eq!(
             got,
             vec![

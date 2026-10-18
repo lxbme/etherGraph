@@ -7,31 +7,34 @@ use alloy_primitives::Address;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::{NaiveDate, TimeZone, Utc};
-use common::{delete, get, test_app};
+use common::{default_user_id, delete, get, test_app};
 use eg_core::source::{CallGate, Priority};
 use eg_ingest::Event;
 use eg_server::background::{next_utc_midnight, rollover, spawn_background};
 use eg_server::config::{Config, SourceMode};
 use eg_server::dto::{ErrorBody, JobDto, StatusDto};
+use eg_server::state::AppState;
 use eg_store::{JobKind, NewJob};
 use http_body_util::BodyExt;
 use serde_json::json;
 use sqlx::PgPool;
 use tower::ServiceExt;
 
-fn job(key: &str) -> NewJob {
+/// A job of the default test user.
+async fn job(state: &AppState, key: &str) -> NewJob {
     NewJob {
         key: key.into(),
         kind: JobKind::SyncAddress,
         params: json!({"address": "0x01"}),
         priority: Priority::Interactive,
+        user_id: Some(default_user_id(state).await),
     }
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn status_ok(pool: PgPool) {
     let (app, state, _) = test_app(pool).await;
-    state.store.enqueue(&job("a")).await.unwrap();
+    state.store.enqueue(&job(&state, "a").await).await.unwrap();
     let (status, body) = get(&app, "/api/status").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["quota_limit"], 100_000);
@@ -62,7 +65,7 @@ async fn cancel_unknown_job_404(pool: PgPool) {
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn cancel_pending_job_204_then_404(pool: PgPool) {
     let (app, state, _) = test_app(pool).await;
-    let (id, _) = state.store.enqueue(&job("a")).await.unwrap();
+    let (id, _) = state.store.enqueue(&job(&state, "a").await).await.unwrap();
     let (status, body) = delete(&app, &format!("/api/jobs/{id}")).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     assert_eq!(body, serde_json::Value::Null);
@@ -75,7 +78,7 @@ async fn cancel_pending_job_204_then_404(pool: PgPool) {
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn cancel_paused_job_204(pool: PgPool) {
     let (app, state, _) = test_app(pool).await;
-    let (id, _) = state.store.enqueue(&job("a")).await.unwrap();
+    let (id, _) = state.store.enqueue(&job(&state, "a").await).await.unwrap();
     state.store.claim_next().await.unwrap().unwrap();
     state.store.pause_job_quota(id).await.unwrap();
     let (status, _) = get(&app, "/api/jobs?active=true").await;
@@ -89,7 +92,7 @@ async fn cancel_paused_job_204(pool: PgPool) {
 async fn cancel_publishes_cancelled_progress(pool: PgPool) {
     let (app, state, _) = test_app(pool).await;
     let mut rx = state.ctx.bus.subscribe();
-    let (pending, _) = state.store.enqueue(&job("a")).await.unwrap();
+    let (pending, _) = state.store.enqueue(&job(&state, "a").await).await.unwrap();
     let (status, _) = delete(&app, &format!("/api/jobs/{pending}")).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     match rx.try_recv().unwrap() {
@@ -106,7 +109,7 @@ async fn cancel_publishes_cancelled_progress(pool: PgPool) {
         other => panic!("unexpected {other:?}"),
     }
     // A running job is only flagged; the runner reports the cancellation.
-    let (running, _) = state.store.enqueue(&job("b")).await.unwrap();
+    let (running, _) = state.store.enqueue(&job(&state, "b").await).await.unwrap();
     state.store.claim_next().await.unwrap().unwrap();
     let (status, _) = delete(&app, &format!("/api/jobs/{running}")).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
@@ -124,8 +127,8 @@ async fn cancel_bad_id_is_invalid_input(pool: PgPool) {
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn active_jobs_listed(pool: PgPool) {
     let (app, state, _) = test_app(pool).await;
-    let (a, _) = state.store.enqueue(&job("a")).await.unwrap();
-    let (b, _) = state.store.enqueue(&job("b")).await.unwrap();
+    let (a, _) = state.store.enqueue(&job(&state, "a").await).await.unwrap();
+    let (b, _) = state.store.enqueue(&job(&state, "b").await).await.unwrap();
     state.store.cancel_job(b).await.unwrap();
     let (status, body) = get(&app, "/api/jobs?active=true").await;
     assert_eq!(status, StatusCode::OK);
@@ -240,7 +243,7 @@ async fn rollover_persists_resets_and_resumes(pool: PgPool) {
     for _ in 0..3 {
         state.gate.acquire(Priority::Interactive).await.unwrap();
     }
-    let (id, _) = state.store.enqueue(&job("a")).await.unwrap();
+    let (id, _) = state.store.enqueue(&job(&state, "a").await).await.unwrap();
     state.store.claim_next().await.unwrap().unwrap();
     state.store.pause_job_quota(id).await.unwrap();
 
@@ -589,8 +592,10 @@ async fn cancel_pending_sync_settles_syncing_kinds(pool: PgPool) {
         .unwrap();
     }
     // The job ran, was paused by the quota and left its kinds `syncing`.
+    let me = Some(default_user_id(&state).await);
     let id = enqueue_sync(
         &state.ctx,
+        me,
         addr,
         SyncDirection::Latest,
         Priority::Background,
@@ -619,6 +624,7 @@ async fn cancel_pending_sync_settles_syncing_kinds(pool: PgPool) {
     // kinds are left alone.
     let running = enqueue_sync(
         &state.ctx,
+        me,
         other,
         SyncDirection::Older,
         Priority::Background,
@@ -630,6 +636,7 @@ async fn cancel_pending_sync_settles_syncing_kinds(pool: PgPool) {
     state.store.claim_next().await.unwrap().unwrap();
     let pending = enqueue_sync(
         &state.ctx,
+        me,
         other,
         SyncDirection::Latest,
         Priority::Background,
@@ -648,7 +655,11 @@ async fn cancel_pending_sync_settles_syncing_kinds(pool: PgPool) {
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn recent_jobs_and_single_job_expose_errors(pool: PgPool) {
     let (app, state, _) = test_app(pool).await;
-    let (failed, _) = state.store.enqueue(&job("failed")).await.unwrap();
+    let (failed, _) = state
+        .store
+        .enqueue(&job(&state, "failed").await)
+        .await
+        .unwrap();
     state.store.claim_next().await.unwrap().unwrap();
     state
         .store
@@ -656,7 +667,11 @@ async fn recent_jobs_and_single_job_expose_errors(pool: PgPool) {
         .await
         .unwrap();
     for i in 0..55 {
-        state.store.enqueue(&job(&format!("j{i}"))).await.unwrap();
+        state
+            .store
+            .enqueue(&job(&state, &format!("j{i}")).await)
+            .await
+            .unwrap();
     }
     let (status, body) = get(&app, "/api/jobs?active=false").await;
     assert_eq!(status, StatusCode::OK, "{body}");
