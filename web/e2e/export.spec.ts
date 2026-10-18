@@ -40,6 +40,32 @@ function transientState(page: Page, which: Which) {
   }, which);
 }
 
+/**
+ * Edge lines and arrowheads in an exported SVG, told apart from node bodies (which are filled *and* stroked):
+ * a line is a stroke-only path (`fill="none"`), an arrowhead a fill-only path (`stroke="none"`) in a line's colour.
+ */
+function svgEdgeShapes(svg: string): { lines: number; arrowheads: number } {
+  const paths = [...svg.matchAll(/<path\b([^>]*)>/g)].map((m) => ({
+    fill: /\bfill="([^"]*)"/.exec(m[1]!)?.[1],
+    stroke: /\bstroke="([^"]*)"/.exec(m[1]!)?.[1],
+  }));
+  const lines = paths.filter((p) => p.fill === "none" && p.stroke && p.stroke !== "none");
+  const colours = new Set(lines.map((p) => p.stroke));
+  const arrowheads = paths.filter((p) => p.stroke === "none" && p.fill && colours.has(p.fill));
+  return { lines: lines.length, arrowheads: arrowheads.length };
+}
+
+/** The canvas' visible edges and how many of them end in an arrow. */
+function edgeCounts(page: Page, which: Which) {
+  return page.evaluate((w) => {
+    type Core = import("cytoscape").Core;
+    const win = window as unknown as { __etherGraphCy?: Core | null; __etherGraphTxCy?: Record<string, Core> };
+    const cy = w === "main" ? win.__etherGraphCy : win.__etherGraphTxCy?.[w.tx];
+    const edges = cy!.edges(":visible");
+    return { edges: edges.length, arrows: edges.filter((e) => e.style("target-arrow-shape") !== "none").length };
+  }, which);
+}
+
 test("the address graph exports a clean PNG, transparent PNG and SVG with nodes, labels, edges, arrows and icons", async ({ page, mock }) => {
   // D syncs partially: its corner icon must come through in the SVG.
   mock.on("POST /api/graph/edges", () => ({
@@ -49,6 +75,8 @@ test("the address graph exports a clean PNG, transparent PNG and SVG with nodes,
   await page.getByRole("searchbox", { name: "Search" }).fill(A);
   await page.getByRole("searchbox", { name: "Search" }).press("Enter");
   await expectLaidOut(page, "main", 4);
+  const counts = await edgeCounts(page, "main");
+  expect(counts).toEqual({ edges: 4, arrows: 4 });
   // A detail selection (pair A-B) and a box selection (D): both are left out of the image and kept on the canvas.
   await tapEdge(page, A, B);
   await page.evaluate((d) => (window as unknown as { __etherGraphCy: import("cytoscape").Core }).__etherGraphCy.$id(d).select(), D);
@@ -70,8 +98,9 @@ test("the address graph exports a clean PNG, transparent PNG and SVG with nodes,
   // Node labels as text, edge lines and arrowheads as paths, the partial-sync corner icon as an embedded image.
   expect(text).toContain(">Binance 14</text>");
   expect(text).toContain(">UniswapV2Router02</text>");
-  expect((text.match(/<path [^>]*stroke="[^"n]/g) ?? []).length).toBeGreaterThanOrEqual(4);
-  expect(text).toMatch(/<path [^>]*fill="(?!none)[^"]+"/);
+  const shapes = svgEdgeShapes(text);
+  expect(shapes.lines).toBeGreaterThanOrEqual(counts.edges);
+  expect(shapes.arrowheads).toBeGreaterThanOrEqual(counts.arrows);
   expect(text).toMatch(/<image [^>]*href="data:image\/svg\+xml/);
 
   expect(await transientState(page, "main")).toEqual(before);
@@ -84,6 +113,9 @@ test("a tx tab exports as ethergraph-tx-<10 hex> in all three formats", async ({
   await page.getByRole("searchbox", { name: "Search" }).press("Enter");
   await expectLaidOut(page, { tx: TX }, 3);
   await tapNode(page, { tx: TX }, fixtures.tx.flow!.nodes[0]!.address.toLowerCase());
+  const counts = await edgeCounts(page, { tx: TX });
+  expect(counts.edges).toBeGreaterThanOrEqual(3);
+  expect(counts.arrows).toBeGreaterThanOrEqual(3);
 
   for (const [item, ext] of [["PNG", "png"], ["Transparent PNG", "png"], ["SVG", "svg"]] as const) {
     const out = await exportFrom(page, "[data-testid=tx-view]", item);
@@ -92,7 +124,9 @@ test("a tx tab exports as ethergraph-tx-<10 hex> in all three formats", async ({
       const text = out.text;
       expect(text).toMatch(/^<svg/);
       expect(text).toContain(">UniswapV2Router02</text>");
-      expect(text).toMatch(/<path [^>]*stroke="[^"n]/);
+      const shapes = svgEdgeShapes(text);
+      expect(shapes.lines).toBeGreaterThanOrEqual(counts.edges);
+      expect(shapes.arrowheads).toBeGreaterThanOrEqual(counts.arrows);
     } else {
       expect(out).toMatchObject({ type: "image/png", head: PNG_MAGIC });
     }
