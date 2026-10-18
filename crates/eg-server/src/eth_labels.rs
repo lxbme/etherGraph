@@ -344,7 +344,7 @@ const SCAM: &[&str] = &[
     "brand-infringement",
     "flagged-by-sec",
 ];
-const SANCTIONED: &[&str] = &["ofac-sanctions-lists", "ofac-sanctioned", "blocked"];
+const SANCTIONED: &[&str] = &["ofac-sanctions-lists", "ofac-sanctioned"];
 const HACKER: &[&str] = &["heist", "exploit", "cpimp-attack"];
 const MEV: &[&str] = &[
     "mev-bot",
@@ -627,6 +627,8 @@ mod tests {
             ("lido", "staking"),
             ("wintermute", "fund"),
             ("take-action", "other"),
+            // Stablecoin issuers freeze addresses (the zero address among them); that is not a sanction.
+            ("blocked", "other"),
         ] {
             assert_eq!(slug_category(slug), cat, "{slug}");
         }
@@ -671,7 +673,7 @@ mod tests {
                 [(
                     parse_address(A).unwrap(),
                     "Blocked".to_owned(),
-                    "sanctioned".to_owned()
+                    "other".to_owned()
                 )],
                 "{tag}"
             );
