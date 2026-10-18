@@ -161,6 +161,19 @@ test("NamesResolved and MetaUpdated are coalesced into one graph + address inval
   expect(spy).toHaveBeenCalledWith({ queryKey: qk.address(C) });
 });
 
+test("MetaUpdated refetches the cached txs the addresses take part in, and only those", () => {
+  mount();
+  const flowOf = (...addrs: string[]) => ({ status: "ready", job_id: null, flow: { nodes: addrs.map(node) } });
+  qc.setQueryData(qk.tx("0x1"), flowOf(A, B));
+  qc.setQueryData(qk.tx("0x2"), flowOf(A));
+  qc.setQueryData(qk.tx("0x3"), { status: "pending", job_id: 1, flow: null });
+  send({ type: "MetaUpdated", addresses: [B.toUpperCase().replace("0X", "0x")] });
+  advance(500);
+  expect(qc.getQueryState(qk.tx("0x1"))?.isInvalidated).toBe(true);
+  expect(qc.getQueryState(qk.tx("0x2"))?.isInvalidated).toBe(false);
+  expect(qc.getQueryState(qk.tx("0x3"))?.isInvalidated).toBe(false);
+});
+
 test("TxReady invalidates that tx", () => {
   mount();
   const spy = vi.spyOn(qc, "invalidateQueries");

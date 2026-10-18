@@ -126,3 +126,18 @@ test("graph shortcuts do nothing while a tx tab is active", () => {
   fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
   expect(useGraph.getState().ui[A]?.pinned).toBe(false);
 });
+
+test("'Identify type' shows only for a node that needs it and queues just that address", async () => {
+  const identify = vi.spyOn(api, "identify").mockResolvedValue({ queued: 1, jobs: [1] });
+  const { unmount } = render(menu(false, "eoa"));
+  expect(screen.queryByRole("menuitem", { name: "Identify type" })).toBeNull();
+  unmount();
+  const { unmount: u2 } = render(
+    <ContextMenu x={1} y={2} node={{ ...node(false, "unknown"), identified: false }} data={data} onExpand={() => {}} onBrowse={() => {}} onClose={() => {}} />,
+  );
+  await act(async () => screen.getByRole("menuitem", { name: "Identify type" }).click());
+  expect(identify).toHaveBeenCalledWith(expect.objectContaining({ addresses: [A] }));
+  u2();
+  render(menu(false, "contract")); // identified: true
+  expect(screen.queryByRole("menuitem", { name: "Identify type" })).toBeNull();
+});

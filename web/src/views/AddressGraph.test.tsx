@@ -496,3 +496,53 @@ describe("+N more proxy", () => {
     expect(useGraph.getState().expandedPairs.size).toBe(0);
   });
 });
+
+const unid = (address: string, kind: NodeSummaryDto["kind"] = "unknown"): NodeSummaryDto => ({ ...node(address, true), kind, identified: false });
+
+test("Identify all (N) counts unidentified non-wallet nodes on the canvas, skips hidden ones, and sends exactly those", async () => {
+  const C = "0x" + "cc".repeat(20);
+  const D = "0x" + "dd".repeat(20);
+  const identify = vi.spyOn(api, "identify").mockResolvedValue({ queued: 2, jobs: [1] });
+  vi.mocked(api.graphEdges).mockResolvedValue({ ...data, nodes: [node(A, true), unid(B), unid(C, "contract"), unid(D)] });
+  useGraph.getState().addCenter(A);
+  mount();
+  await waitFor(() => expect(ids()).toContain(B));
+  const btn = () => screen.queryByRole("button", { name: /^Identify all/ });
+  expect(btn()).toHaveTextContent("Identify all (3)");
+  expect(btn()).toHaveAttribute("title", "Look up the type and name of every unknown node");
+  act(() => useGraph.getState().setHidden([D], true));
+  expect(btn()).toHaveTextContent("Identify all (2)");
+  await act(async () => btn()!.click());
+  expect(identify).toHaveBeenCalledTimes(1);
+  expect(identify.mock.calls[0]![0].addresses).toEqual([B, C]);
+  expect(await screen.findByText("Queued 2 addresses for identification")).toBeInTheDocument();
+});
+
+test("Identify all is hidden when nothing needs identification", async () => {
+  await mountWithData();
+  expect(screen.queryByRole("button", { name: /^Identify all/ })).toBeNull();
+});
+
+test("batch bar: Identify type only when a selected node needs it, sending only those", async () => {
+  const identify = vi.spyOn(api, "identify").mockResolvedValue({ queued: 1, jobs: [1] });
+  vi.mocked(api.graphEdges).mockResolvedValue({ ...data, nodes: [node(A, true), unid(B)] });
+  await mountWithData();
+  await waitFor(() => expect(ids()).toContain(B));
+  const bar = () => within(screen.getByRole("toolbar", { name: "Batch actions" }));
+  act(() => props().onSelectionChange([A]));
+  expect(bar().queryByRole("button", { name: "Identify type" })).toBeNull();
+  act(() => props().onSelectionChange([A, B]));
+  await act(async () => bar().getByRole("button", { name: "Identify type" }).click());
+  expect(identify.mock.calls[0]![0].addresses).toEqual([B]);
+  expect(useBoxSelection.getState().ids).toEqual([]);
+});
+
+test("the context menu offers 'Identify type' for an unidentified node", async () => {
+  vi.mocked(api.graphEdges).mockResolvedValue({ ...data, nodes: [node(A, true), unid(B)] });
+  await mountWithData();
+  await waitFor(() => expect(ids()).toContain(B));
+  act(() => props().onCxtNode(A, { x: 1, y: 1 }));
+  expect(screen.queryByRole("menuitem", { name: "Identify type" })).toBeNull();
+  act(() => props().onCxtNode(B, { x: 1, y: 1 }));
+  expect(screen.getByRole("menuitem", { name: "Identify type" })).toBeInTheDocument();
+});

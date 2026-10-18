@@ -6,6 +6,7 @@ import { ACTIVE_JOB_STATUSES, useJobProgress, useQuota, useSseState } from "../s
 import { toast } from "../shell/Toasts";
 import { api } from "./endpoints";
 import type { Event } from "./generated/Event";
+import type { TxResponseDto } from "./generated/TxResponseDto";
 import type { JobDto } from "./generated/JobDto";
 import type { GraphResponseDto } from "./generated/GraphResponseDto";
 import { qk } from "./queryClient";
@@ -100,6 +101,14 @@ export function useEvents(): void {
     const metaChanged = coalescer((addrs) => {
       void qc.invalidateQueries({ queryKey: ["graph"] });
       invalidateAddresses(addrs);
+      // A tx's flow nodes carry their type and name: refetch the cached txs these addresses take part in.
+      void qc.invalidateQueries({
+        predicate: (q) => {
+          if (q.queryKey[0] !== "tx") return false;
+          const d = q.state.data as TxResponseDto | undefined;
+          return d?.status === "ready" && !!d.flow && d.flow.nodes.some((n) => addrs.has(n.address.toLowerCase()));
+        },
+      });
     }, graphBusy);
 
     /** Quota/degraded from /api/status; drops progress of tracked jobs that are no longer active. */

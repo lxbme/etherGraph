@@ -1,10 +1,10 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
-import { focusNode, hideNode, syncNode, togglePin } from "../graph/nodeActions";
+import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
+import { identifyAddresses, needsIdentify } from "../graph/identify";
+import { copyAddress, focusNode, hideNode, openInEtherscan, syncNode, togglePin } from "../graph/nodeActions";
 import { useGraph } from "../graph/store";
 import { useT } from "../i18n";
-import { toast } from "../shell/Toasts";
-import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
+import { MenuItem, MenuShell } from "./MenuShell";
 import { useUi } from "./uiStore";
 
 export interface ContextMenuProps {
@@ -27,71 +27,24 @@ export function ContextMenu(p: ContextMenuProps) {
   const addr = node.address.toLowerCase();
   const pinned = useGraph((s) => !!s.ui[addr]?.pinned);
   const isCenter = useGraph((s) => s.centers.includes(addr));
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    const onDown = (e: MouseEvent) => {
-      if (!(e.target as Element | null)?.closest?.(".ctx-menu")) onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("mousedown", onDown, true);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("mousedown", onDown, true);
-    };
-  }, [onClose]);
-
-  const ref = useRef<HTMLDivElement>(null);
-  // Keep the menu inside the viewport.
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.left = `${Math.max(0, Math.min(p.x, window.innerWidth - el.offsetWidth - 4))}px`;
-    el.style.top = `${Math.max(0, Math.min(p.y, window.innerHeight - el.offsetHeight - 4))}px`;
-  }, [p.x, p.y]);
-
-  const run = (fn: () => void) => () => {
-    fn();
-    onClose();
-  };
-  const copy = () => {
-    if (!navigator.clipboard) {
-      toast(t("common.copyFailed"), "error");
-      return;
-    }
-    navigator.clipboard
-      .writeText(addr)
-      .then(() => toast(t("common.copied")))
-      .catch(() => toast(t("common.copyFailed"), "error"));
-  };
+  const item = (label: string, onRun: () => void) => (
+    <MenuItem onRun={onRun} onClose={onClose}>{label}</MenuItem>
+  );
 
   return (
-    <div className="menu ctx-menu" role="menu" ref={ref} style={{ left: p.x, top: p.y }}>
-      <button role="menuitem" className="menu__item" onClick={run(() => syncNode(addr))}>{t("ctx.sync")}</button>
-      {node.partial && (
-        <button role="menuitem" className="menu__item" onClick={run(() => syncNode(addr, "older"))}>{t("ctx.older")}</button>
-      )}
+    <MenuShell x={p.x} y={p.y} onClose={onClose}>
+      {item(t("ctx.sync"), () => syncNode(addr))}
+      {needsIdentify(node) && item(t("ctx.identify"), () => void identifyAddresses([addr]))}
+      {node.partial && item(t("ctx.older"), () => syncNode(addr, "older"))}
       {/* Contracts are never expanded directly: their counterparties are picked from a list (spec §5.9). */}
-      {node.kind !== "contract" ? (
-        <button role="menuitem" className="menu__item" onClick={run(p.onExpand)}>{t("ctx.expand")}</button>
-      ) : (
-        <button role="menuitem" className="menu__item" onClick={run(p.onBrowse)}>{t("ctx.browse")}</button>
-      )}
-      <button role="menuitem" className="menu__item" onClick={run(() => togglePin(addr))}>{pinned ? t("ctx.unpin") : t("ctx.pin")}</button>
-      <button role="menuitem" className="menu__item" onClick={run(() => hideNode(addr))}>{t("ctx.hide")}</button>
-      {isCenter && (
-        <button role="menuitem" className="menu__item" onClick={run(() => useGraph.getState().removeCenter(addr))}>{t("ctx.removeCenter")}</button>
-      )}
-      <button role="menuitem" className="menu__item" onClick={run(() => focusNode(addr, p.data))}>{t("ctx.focus")}</button>
-      <button role="menuitem" className="menu__item" onClick={run(() => useUi.getState().openLabelEditor(addr))}>{t("ctx.addLabel")}</button>
-      <button role="menuitem" className="menu__item" onClick={run(() => void copy())}>{t("ctx.copyAddress")}</button>
-      <button
-        role="menuitem"
-        className="menu__item"
-        onClick={run(() => window.open(`https://etherscan.io/address/${addr}`, "_blank", "noopener"))}
-      >
-        {t("ctx.openEtherscan")}
-      </button>
-    </div>
+      {node.kind !== "contract" ? item(t("ctx.expand"), p.onExpand) : item(t("ctx.browse"), p.onBrowse)}
+      {item(pinned ? t("ctx.unpin") : t("ctx.pin"), () => togglePin(addr))}
+      {item(t("ctx.hide"), () => hideNode(addr))}
+      {isCenter && item(t("ctx.removeCenter"), () => useGraph.getState().removeCenter(addr))}
+      {item(t("ctx.focus"), () => focusNode(addr, p.data))}
+      {item(t("ctx.addLabel"), () => useUi.getState().openLabelEditor(addr))}
+      {item(t("ctx.copyAddress"), () => copyAddress(addr))}
+      {item(t("ctx.openEtherscan"), () => openInEtherscan(addr))}
+    </MenuShell>
   );
 }

@@ -46,3 +46,19 @@ export function focusNode(addr: string, data: GraphResponseDto | undefined): voi
   const nb = data ? neighborsOf(addr, data.edges) : [];
   useGraph.getState().focusNeighborhood(addr, nb, data?.nodes.map((n) => n.address));
 }
+
+/** Copies an address to the clipboard, toasting the outcome. */
+export function copyAddress(addr: string): void {
+  if (!navigator.clipboard) {
+    toast(t("common.copyFailed"), "error");
+    return;
+  }
+  navigator.clipboard
+    .writeText(lc(addr))
+    .then(() => toast(t("common.copied")))
+    .catch(() => toast(t("common.copyFailed"), "error"));
+}
+
+export function openInEtherscan(addr: string): void {
+  window.open(`https://etherscan.io/address/${lc(addr)}`, "_blank", "noopener");
+}

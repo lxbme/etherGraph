@@ -4,6 +4,8 @@ import type { CancelledDto } from "../src/api/generated/CancelledDto";
 import type { CounterpartyPageDto } from "../src/api/generated/CounterpartyPageDto";
 import type { Event } from "../src/api/generated/Event";
 import type { GraphResponseDto } from "../src/api/generated/GraphResponseDto";
+import type { IdentifyRequestDto } from "../src/api/generated/IdentifyRequestDto";
+import type { IdentifyResponseDto } from "../src/api/generated/IdentifyResponseDto";
 import type { JobDto } from "../src/api/generated/JobDto";
 import type { ProbeItemDto } from "../src/api/generated/ProbeItemDto";
 import type { ProbeRequestDto } from "../src/api/generated/ProbeRequestDto";
@@ -101,6 +103,13 @@ function defaultHandlers(): Map<RouteKey, Handler> {
         const body = req.postDataJSON() as { addresses: string[] };
         const jobs = body.addresses.map((_, i) => i + 1);
         return { json: { estimated_calls: null, estimated_seconds: null, per_address: null, jobs } satisfies SyncResponseDto };
+      },
+    ],
+    [
+      "POST /api/identify",
+      (req) => {
+        const body = req.postDataJSON() as IdentifyRequestDto;
+        return { json: { queued: body.addresses.length, jobs: [1] } satisfies IdentifyResponseDto };
       },
     ],
     ["DELETE /api/batches/*", () => ({ json: { cancelled: [] } satisfies CancelledDto })],

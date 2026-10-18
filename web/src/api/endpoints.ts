@@ -4,6 +4,8 @@ import type { CancelledDto } from "./generated/CancelledDto";
 import type { CounterpartyPageDto } from "./generated/CounterpartyPageDto";
 import type { GraphRequestDto } from "./generated/GraphRequestDto";
 import type { GraphResponseDto } from "./generated/GraphResponseDto";
+import type { IdentifyRequestDto } from "./generated/IdentifyRequestDto";
+import type { IdentifyResponseDto } from "./generated/IdentifyResponseDto";
 import type { JobDto } from "./generated/JobDto";
 import type { LabelDto } from "./generated/LabelDto";
 import type { NewLabelDto } from "./generated/NewLabelDto";
@@ -98,6 +100,8 @@ export const api = {
     request<CounterpartyPageDto>("GET", `/api/address/${encodeURIComponent(addr)}/counterparties`, {
       query: { sort: p.sort, limit: num(p.limit), offset: num(p.offset), kind: p.kind, from: p.from, to: p.to },
     }),
+  /** Queues type/name lookups for the given addresses (1 to 500). */
+  identify: (body: IdentifyRequestDto) => request<IdentifyResponseDto>("POST", "/api/identify", { body }),
   /** Releases a batch's jobs; only jobs left without any other owner are cancelled. */
   cancelBatch: (id: string) => request<CancelledDto>("DELETE", `/api/batches/${encodeURIComponent(id)}`),
   /** Cancels every active job that is not interactive. */

@@ -25,12 +25,13 @@ import { shortAddr } from "../lib/address";
 import { toast } from "../shell/Toasts";
 import { useTheme } from "../shell/theme";
 import { GraphTooltip } from "./GraphTooltip";
-import { CanvasTools } from "./CanvasTools";
+import { CanvasTools, IdentifyAllButton } from "./CanvasTools";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
 
 /** A second tap on the same "+N more" node within this window is part of a double-click. */
 const REVEAL_DEBOUNCE_MS = 300;
 
+const NO_NODES: NodeSummaryDto[] = [];
 const lc = (s: string) => s.toLowerCase();
 
 /** The address relationship canvas: store + graph data → Cytoscape, and interactions back into the store/API. */
@@ -76,6 +77,8 @@ export function AddressGraph() {
     () => (data ? data.nodes.filter((n) => hidden.has(lc(n.address))).length : 0),
     [data, hidden],
   );
+  /** Nodes on the canvas: not hidden (the "+N more" placeholders are not result nodes). */
+  const shownNodes = useMemo(() => (data ? data.nodes.filter((n) => !hidden.has(lc(n.address))) : NO_NODES), [data, hidden]);
   // `locale` is a dependency only because the edge badges are translated when derived.
   const visual = useMemo(
     () => (data ? deriveVisualEdges(data.edges, expandedPairs, hidden) : []),
@@ -245,8 +248,9 @@ export function AddressGraph() {
       />
       {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
       <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
-      <BatchBar insetLeft={legendCover} />
+      <BatchBar insetLeft={legendCover} nodes={data?.nodes ?? NO_NODES} />
       <CanvasTools selectMode={selectMode} onSelectModeChange={useBoxSelection.getState().setSelectMode}>
+        <IdentifyAllButton nodes={shownNodes} />
         {hiddenOnCanvas > 0 && (
           <button
             type="button"

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import { useLocale, useT } from "../i18n";
@@ -14,12 +15,13 @@ import { isShortcut } from "../graph/shortcuts";
 import { listenShortcutKeys } from "../graph/useShortcuts";
 import { txFlowStylesheet } from "../graph/styles";
 import { NodeDetail } from "../panels/NodeDetail";
+import { TxContextMenu } from "../panels/TxContextMenu";
 import { TxBatchBar } from "../panels/TxBatchBar";
 import { useUi } from "../panels/uiStore";
 import { useJobProgress } from "../shell/statusStore";
 import { useTabs } from "../shell/tabs";
 import { useTheme } from "../shell/theme";
-import { CanvasTools } from "./CanvasTools";
+import { CanvasTools, IdentifyAllButton } from "./CanvasTools";
 import { GraphTooltip } from "./GraphTooltip";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
 import { txElements } from "./txElements";
@@ -98,6 +100,9 @@ export function TxFlowView({ hash }: { hash: string }) {
       }),
     [box, hash],
   );
+  const graphRef = useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; node: NodeSummaryDto } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   /** Canvas width the expanded legend covers from the left; fits keep it clear. */
   const [legendCover, setLegendCover] = useState(0);
   const [hover, setHover] = useState<{ kind: "node" | "edge"; id: string; pos: { x: number; y: number } } | null>(null);
@@ -157,7 +162,7 @@ export function TxFlowView({ hash }: { hash: string }) {
       <div className="txview__main">
         <TxSummaryBar flow={flow} />
         {flow.completeness === "fund_flow" && <div className="txview__banner">{t("tx.banner")}</div>}
-        <div className="txview__graph">
+        <div className="txview__graph" ref={graphRef}>
           <CytoscapeView
             elements={elements}
             stylesheet={stylesheet}
@@ -170,7 +175,15 @@ export function TxFlowView({ hash }: { hash: string }) {
             onTapEdge={NOOP}
             onDblTapNode={NOOP}
             onDblTapEdge={NOOP}
-            onCxtNode={NOOP}
+            onCxtNode={(id, pos) => {
+              const node = flow.nodes.find((n) => n.address.toLowerCase() === id.toLowerCase());
+              if (!node) return;
+              // The menu acts on this node, so it becomes the tab's selection.
+              box.getState().clear();
+              setSelected(node.address.toLowerCase());
+              const rect = graphRef.current?.getBoundingClientRect();
+              setMenu({ x: pos.x + (rect?.left ?? 0), y: pos.y + (rect?.top ?? 0), node });
+            }}
             onSelectionChange={box.getState().set}
             selectMode={selectMode}
             onDragEnd={NOOP}
@@ -183,8 +196,11 @@ export function TxFlowView({ hash }: { hash: string }) {
           />
           {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
           <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
-          <CanvasTools selectMode={selectMode} onSelectModeChange={box.getState().setSelectMode} />
-          <TxBatchBar selection={box} insetLeft={legendCover} />
+          <CanvasTools selectMode={selectMode} onSelectModeChange={box.getState().setSelectMode}>
+            <IdentifyAllButton nodes={flow.nodes} />
+          </CanvasTools>
+          <TxBatchBar selection={box} insetLeft={legendCover} nodes={flow.nodes} />
+          {menu && <TxContextMenu x={menu.x} y={menu.y} node={menu.node} onClose={closeMenu} />}
         </div>
         <TxDetailTabs flow={flow} />
       </div>

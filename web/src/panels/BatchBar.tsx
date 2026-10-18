@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { useBoxSelection } from "../graph/boxSelection";
+import { identifiable, identifyAddresses } from "../graph/identify";
 import { useGraph } from "../graph/store";
+import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { t, useT } from "../i18n";
 import { toast } from "../shell/Toasts";
 import { LabelEditor } from "./LabelEditor";
@@ -81,14 +83,28 @@ export function BatchBarShell({
   );
 }
 
+/** "Identify type" over the selected nodes that need it (only those are sent); none when no one does. */
+export function identifyAction(
+  ids: string[],
+  nodes: readonly NodeSummaryDto[],
+  clear: () => void,
+  tr: (k: "batch.identify") => string,
+): BatchAction[] {
+  const sel = new Set(ids);
+  const addrs = identifiable(nodes.filter((n) => sel.has(n.address.toLowerCase())));
+  if (addrs.length === 0) return [];
+  return [{ id: "identify", label: tr("batch.identify"), onClick: () => { void identifyAddresses(addrs); clear(); } }];
+}
+
 /** The address graph's batch bar, over its box selection. */
-export function BatchBar({ insetLeft }: { insetLeft?: number }) {
+export function BatchBar({ insetLeft, nodes }: { insetLeft?: number; nodes: readonly NodeSummaryDto[] }) {
   const ids = useBoxSelection((s) => s.ids);
   const clear = useBoxSelection((s) => s.clear);
   const anyPinned = useGraph((s) => ids.some((id) => !!s.ui[id]?.pinned));
   const tr = useT();
   const g = () => useGraph.getState();
   const actions: BatchAction[] = [
+    ...identifyAction(ids, nodes, clear, tr),
     { id: "pin", label: tr("batch.pin"), onClick: () => { g().setPinned(ids, true); clear(); } },
     ...(anyPinned ? [{ id: "unpin", label: tr("batch.unpin"), onClick: () => { g().setPinned(ids, false); clear(); } }] : []),
     { id: "hide", label: tr("batch.hide"), onClick: () => { g().setHidden(ids, true); clear(); } },

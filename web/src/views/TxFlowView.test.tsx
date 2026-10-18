@@ -410,3 +410,48 @@ describe("box selection", () => {
     expect(h.props!.selectMode).toBe(true);
   });
 });
+
+const withUnknown = () => {
+  const r = ready();
+  r.flow!.nodes = [node(A), node(B, { kind: "unknown", identified: false }), node("0x" + "dd".repeat(20), { kind: "contract", identified: false })];
+  return r;
+};
+
+test("right-clicking a flow node opens the tx menu and selects it; Identify type queues that address", async () => {
+  const identify = vi.spyOn(api, "identify").mockResolvedValue({ queued: 1, jobs: [1] });
+  vi.spyOn(api, "tx").mockResolvedValue(withUnknown());
+  renderView();
+  await screen.findByTestId("cy");
+  act(() => h.props!.onCxtNode(A, { x: 5, y: 5 }));
+  expect(screen.getByRole("menu")).toBeInTheDocument();
+  expect(screen.queryByRole("menuitem", { name: "Identify type" })).toBeNull(); // A is identified
+  expect(useUi.getState().txSelection[HASH]).toBe(A);
+  act(() => h.props!.onCxtNode(B, { x: 5, y: 5 }));
+  await act(async () => screen.getByRole("menuitem", { name: "Identify type" }).click());
+  expect(identify.mock.calls[0]![0].addresses).toEqual([B]);
+  expect(screen.queryByRole("menu")).toBeNull();
+});
+
+test("Identify all uses the flow nodes; it is absent when all are identified", async () => {
+  const identify = vi.spyOn(api, "identify").mockResolvedValue({ queued: 2, jobs: [1] });
+  const spy = vi.spyOn(api, "tx").mockResolvedValue(ready());
+  renderView();
+  await screen.findByTestId("cy");
+  expect(screen.queryByRole("button", { name: /^Identify all/ })).toBeNull();
+  spy.mockResolvedValue(withUnknown());
+  await act(() => qc.invalidateQueries({ queryKey: ["tx", HASH] }));
+  const btn = await screen.findByRole("button", { name: "Identify all (2)" });
+  await act(async () => btn.click());
+  expect(identify.mock.calls[0]![0].addresses).toEqual([B, "0x" + "dd".repeat(20)]);
+});
+
+test("the tx batch bar offers Identify type for selected nodes that need it", async () => {
+  const identify = vi.spyOn(api, "identify").mockResolvedValue({ queued: 1, jobs: [1] });
+  vi.spyOn(api, "tx").mockResolvedValue(withUnknown());
+  renderView();
+  await screen.findByTestId("cy");
+  act(() => h.props!.onSelectionChange?.([A, B]));
+  const bar = within(screen.getByRole("toolbar", { name: "Batch actions" }));
+  await act(async () => bar.getByRole("button", { name: "Identify type" }).click());
+  expect(identify.mock.calls[0]![0].addresses).toEqual([B]);
+});
