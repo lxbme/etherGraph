@@ -502,3 +502,63 @@ test("tapping a node or the call edge clears the tab's info stack; a transfer ed
   act(() => h.props!.onTapNode(A, { shift: false }));
   expect(useInfo.getState().stacks[key]).toEqual([]);
 });
+
+describe("token-contract nodes and EIP-7702", () => {
+  const D = "0x" + "dd".repeat(20);
+  // A batch self-call: A delegated to D; USDT only emitted the Transfer log of B → A.
+  const batch = () =>
+    ready({
+      tx: { ...ready().flow!.tx, from: A, to: A, method: "execute" },
+      detail: { ...ready().flow!.detail, tx_type: 4, authorizations: [{ chain_id: "1", delegate: D, nonce: "2", authority: A }] },
+      call: { signature: "execute(bytes)", name: "execute", args: [], via_delegate: D },
+      nodes: [node(A, { display_name: "alice.eth" }), node(B), node(D, { kind: "contract" }), node(USDT, { kind: "contract", display_name: "Tether" })],
+      flows: [{ ...flow, from: B, to: A }],
+    });
+
+  test("tapping a token-contract node opens its asset with the kind hint instead of the node detail", async () => {
+    vi.spyOn(api, "tx").mockResolvedValue(batch());
+    renderView();
+    await screen.findByTestId("tx-detail");
+    act(() => h.props!.onTapNode(B, { shift: false }));
+    expect(useUi.getState().txSelection[HASH]).toBe(B);
+    act(() => h.props!.onTapNode(USDT, { shift: false }));
+    expect(useInfo.getState().stacks[HASH]).toEqual([{ kind: "asset", asset: USDT, tokenKind: "erc20" }]);
+    // The node detail underneath is left as it was (Back returns to it).
+    expect(useUi.getState().txSelection[HASH]).toBe(B);
+  });
+
+  test("tooltips: the token contract explains itself, the delegation edge names both ends, the call names the delegate ABI", async () => {
+    vi.spyOn(api, "tx").mockResolvedValue(batch());
+    renderView();
+    await screen.findByTestId("tx-summary-bar");
+    act(() => h.props!.onHover?.({ kind: "node", id: USDT, pos: { x: 5, y: 5 } }));
+    expect(screen.getByTestId("graph-tooltip")).toHaveTextContent("it emitted the Transfer events but did not send or receive funds itself");
+    act(() => h.props!.onHover?.({ kind: "node", id: B, pos: { x: 5, y: 5 } }));
+    expect(screen.getByTestId("graph-tooltip")).not.toHaveTextContent("Token contract");
+    act(() => h.props!.onHover?.({ kind: "edge", id: "delegation-0", pos: { x: 5, y: 5 } }));
+    expect(screen.getByTestId("graph-tooltip")).toHaveTextContent("EIP-7702 delegation");
+    expect(screen.getByTestId("graph-tooltip")).toHaveTextContent("alice.eth → 0xdddd…dddd");
+    act(() => h.props!.onHover?.({ kind: "edge", id: "call", pos: { x: 5, y: 5 } }));
+    expect(screen.getByTestId("graph-tooltip")).toHaveTextContent("Decoded with the delegate's ABI (0xdddd…dddd)");
+  });
+
+  test("the legend lists the token-contract and delegation rows only when they are drawn", async () => {
+    vi.spyOn(api, "tx").mockResolvedValue(batch());
+    const { container } = renderView();
+    await screen.findByTestId("tx-summary-bar");
+    const legend = within(container.querySelector(".txview__graph")!).getByTestId("legend");
+    expect(within(legend).getByText("Token contract (dotted link)")).toBeInTheDocument();
+    expect(within(legend).getByText("Delegation (EIP-7702)")).toBeInTheDocument();
+    const ids = h.props!.elements.map((e) => String(e.data.id));
+    expect(ids).toEqual(expect.arrayContaining(["delegation-0", `asset-link-${USDT}-${B}`]));
+  });
+
+  test("a tx without them shows neither row", async () => {
+    vi.spyOn(api, "tx").mockResolvedValue(ready());
+    const { container } = renderView();
+    await screen.findByTestId("tx-summary-bar");
+    const legend = within(container.querySelector(".txview__graph")!).getByTestId("legend");
+    expect(within(legend).queryByText("Token contract (dotted link)")).toBeNull();
+    expect(within(legend).queryByText("Delegation (EIP-7702)")).toBeNull();
+  });
+});

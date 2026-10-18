@@ -1,6 +1,6 @@
 import type cytoscape from "cytoscape";
 import { fullLegendGroups, legendFor, txLegendFor, type LegendGroup } from "./legend";
-import { NODE_SHAPE, assetColors, categoryColors, iconSvgs, stateColors } from "./styles";
+import { NODE_SHAPE, assetColors, categoryColors, delegationColor, iconSvgs, mutedColor, stateColors } from "./styles";
 
 const node = (id: string, classes: string): cytoscape.ElementDefinition => ({ group: "nodes", data: { id }, classes });
 const edge = (id: string, classes: string, data: Record<string, unknown> = {}): cytoscape.ElementDefinition => ({
@@ -103,6 +103,20 @@ describe("txLegendFor", () => {
   test("no elements, no groups", () => {
     expect(txLegendFor([], "light")).toEqual([]);
   });
+
+  test("token-contract and delegation rows only when their edges are on the canvas", () => {
+    const plain = [node("a", "kind-eoa cat-none"), edge("call", "call")];
+    expect(ids(txLegendFor(plain, "light")).tx).toEqual(["call", "flow", "seq"]);
+    const g = txLegendFor([...plain, edge("asset-link-a-b", "asset-link"), edge("delegation-0", "delegation", { label: "delegates to" })], "light");
+    expect(ids(g).tx).toEqual(["call", "flow", "seq", "asset-link", "delegation"]);
+    // The dotted link is not an asset class.
+    expect(ids(g).asset).toBeUndefined();
+    expect(item(g, "tx", "asset-link")).toMatchObject({ label: "legend.tx.assetLink", swatch: { kind: "edge", dotted: true, color: mutedColor("light") } });
+    expect(item(g, "tx", "delegation")).toMatchObject({
+      label: "legend.tx.delegation",
+      swatch: { kind: "edge", dashed: true, color: delegationColor("light") },
+    });
+  });
 });
 
 test("a canvas with cex and hacker nodes lists exactly those rows plus no-category for an untinted node", () => {
@@ -117,7 +131,7 @@ test("fullLegendGroups lists every entry", () => {
     state: ["center", "unsynced", "selected", "box-selected", "user-label", "pinned", "syncing", "partial", "more"],
     asset: ["eth", "stable", "erc20", "nft", "other"],
     edge: ["width", "badge"],
-    tx: ["call", "flow", "seq"],
+    tx: ["call", "flow", "seq", "asset-link", "delegation"],
   });
 });
 

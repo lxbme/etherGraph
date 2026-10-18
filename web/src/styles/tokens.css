@@ -37,6 +37,8 @@
   --asset-nft: #b8327f;
   /* unknown asset class and tx call edges: the one grey */
   --asset-other: #868d98;
+  /* tx view: EIP-7702 "delegates to" edges */
+  --tx-delegation: #0e7490;
 
   /* spacing: multiples of 4 */
   --sp-1: 4px;
@@ -115,6 +117,7 @@
   --asset-erc20: #e0a030;
   --asset-nft: #e879c6;
   --asset-other: #6b7280;
+  --tx-delegation: #22b8cf;
 
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.5);
 }

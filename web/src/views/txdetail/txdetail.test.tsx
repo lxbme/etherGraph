@@ -346,3 +346,54 @@ test("the transaction type opens its documentation in this tx tab's info stack f
   expect(valueOf("Transaction type")).toHaveTextContent(/^Type 5$/);
   expect(within(valueOf("Transaction type")).queryByRole("button")).toBeNull();
 });
+
+describe("Overview authorizations (type 4)", () => {
+  const DELEGATE = "0x612373d7003d694220f7800eeaf8e3924c0951d3";
+  const OTHER = "0xe0e0000000000000000000000000000000000005";
+  function setCode(): TxFlowDto {
+    const f = base();
+    f.detail.tx_type = 4;
+    f.nodes.push({ ...f.nodes[0]!, address: DELEGATE, kind: "contract", display_name: "Simple7702Account" });
+    f.detail.authorizations = [
+      { chain_id: "1", delegate: DELEGATE, nonce: "2", authority: ALICE },
+      { chain_id: "0", delegate: "0x" + "00".repeat(20), nonce: "7", authority: OTHER },
+      { chain_id: "10", delegate: DELEGATE, nonce: "0", authority: null },
+    ];
+    return f;
+  }
+  const rows = () => within(screen.getByRole("region", { name: "Authorizations" })).getAllByRole("row").slice(1);
+  const cells = (r: HTMLElement) => within(r).getAllByRole("cell").map((c) => c.textContent);
+
+  test("lists each entry with signer, delegate, chain and nonce, in tx order", () => {
+    renderTabs(setCode());
+    const region = within(screen.getByRole("region", { name: "Authorizations" }));
+    expect(region.getAllByRole("columnheader").map((c) => c.textContent)).toEqual(["Signer", "Delegate", "Chain", "Nonce"]);
+    const [first, second, third] = rows();
+    expect(cells(first!)).toEqual(["0xa11c…0001", "Simple7702Account", "Ethereum", "2"]);
+    // A zero-address delegate clears the signer's delegation; signers other than the sender are listed as they are.
+    expect(cells(second!)).toEqual(["0xe0e0…0005", "clears delegation", "any chain", "7"]);
+    // A signature that does not recover: no address to show.
+    expect(cells(third!)).toEqual(["unknown signer", "Simple7702Account", "10", "0"]);
+  });
+
+  test("a signer's name selects that node in the tx graph", () => {
+    renderTabs(setCode());
+    fireEvent.click(within(rows()[0]!).getByRole("button", { name: "0xa11c…0001" }));
+    expect(useUi.getState().txSelection[fixture.flow.tx.hash]).toBe(ALICE);
+  });
+
+  test("other types have no authorizations section", () => {
+    renderTabs(base());
+    expect(screen.queryByRole("region", { name: "Authorizations" })).toBeNull();
+  });
+
+  test("labels are translated", () => {
+    act(() => useLocale.getState().setLocale("zh"));
+    renderTabs(setCode());
+    const region = within(screen.getByRole("region", { name: "授权列表" }));
+    expect(region.getByText("以太坊")).toBeInTheDocument();
+    expect(region.getByText("任意链")).toBeInTheDocument();
+    expect(region.getByText("清除委托")).toBeInTheDocument();
+    expect(region.getByText("未知签名者")).toBeInTheDocument();
+  });
+});

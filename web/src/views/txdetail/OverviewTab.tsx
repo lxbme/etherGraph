@@ -1,6 +1,8 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useId, type ReactNode } from "react";
+import type { AuthorizationDto } from "../../api/generated/AuthorizationDto";
 import type { TxFlowDto } from "../../api/generated/TxFlowDto";
 import { useT, type MsgKey } from "../../i18n";
+import { ZERO_ADDRESS } from "../../lib/address";
 import { formatAmount, formatFixed } from "../../lib/amount";
 import { formatCount, formatLocalTime, formatTime } from "../../lib/format";
 import { DocButton } from "../../panels/info/DocButton";
@@ -8,7 +10,7 @@ import type { DocId } from "../../panels/info/docs";
 import { TxStatusTag } from "../../panels/TxSummaryCard";
 import { AddressCell } from "../../shell/AddressCell";
 import { CopyButton } from "../../shell/CopyButton";
-import { nodeOf } from "./common";
+import { nodeOf, useFlowLink } from "./common";
 
 const DASH = "—";
 
@@ -53,6 +55,51 @@ function Copyable({ value, text }: { value: string; text?: string }) {
 
 type Rows = [MsgKey, ReactNode][];
 
+/** EIP-7702 authorizations in tx order: signer, delegate (or "clears delegation"), chain and nonce. */
+function Authorizations({ flow, items }: { flow: TxFlowDto; items: AuthorizationDto[] }) {
+  const t = useT();
+  const { select } = useFlowLink(flow.tx.hash);
+  const titleId = useId();
+  const chain = (id: string) => (id === "1" ? t("tx.auth.chain.mainnet") : id === "0" ? t("tx.auth.chain.any") : id);
+  return (
+    <section className="txdetail__auths" aria-labelledby={titleId}>
+      <h3 id={titleId} className="txdetail__subhead">{t("tx.ov.authorizations")}</h3>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>{t("tx.auth.signer")}</th>
+            <th>{t("tx.auth.delegate")}</th>
+            <th>{t("tx.auth.chain")}</th>
+            <th className="table__num">{t("tx.auth.nonce")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((a, i) => (
+            <tr key={i}>
+              <td>
+                {a.authority ? (
+                  <AddressCell address={a.authority} node={nodeOf(flow, a.authority)} onSelect={select} />
+                ) : (
+                  <span className="detail__muted">{t("tx.auth.unknownSigner")}</span>
+                )}
+              </td>
+              <td>
+                {a.delegate.toLowerCase() === ZERO_ADDRESS ? (
+                  <span className="detail__muted">{t("tx.auth.clears")}</span>
+                ) : (
+                  <AddressCell address={a.delegate} node={nodeOf(flow, a.delegate)} onSelect={select} />
+                )}
+              </td>
+              <td>{chain(a.chain_id)}</td>
+              <td className="num table__num">{a.nonce}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
 function Group({ rows, className }: { rows: Rows; className?: string }) {
   const t = useT();
   return (
@@ -79,6 +126,8 @@ export function OverviewTab({ flow }: { flow: TxFlowDto }) {
   const typeDoc = TYPE_DOCS[d.tx_type];
   const typeText = typeDoc ? t(typeKey) : t("tx.type.other", { type: String(d.tx_type) });
   const pct = usage(d.gas_used, d.gas_limit);
+  // Absent from responses of servers older than the field.
+  const auths = d.authorizations ?? [];
   const price = d.effective_gas_price ?? d.gas_price;
   const head: Rows = [
     ["tx.ov.hash", <Copyable value={tx.hash} />],
@@ -132,6 +181,7 @@ export function OverviewTab({ flow }: { flow: TxFlowDto }) {
       <Group rows={head} className="txdetail__kv--head" />
       <Group rows={parties} />
       <Group rows={fees} />
+      {d.tx_type === 4 && auths.length > 0 && <Authorizations flow={flow} items={auths} />}
     </div>
   );
 }

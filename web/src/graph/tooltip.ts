@@ -49,7 +49,15 @@ const named = (names: Map<string, string>, a: string) => names.get(a.toLowerCase
 
 export function nodeTooltip(
   n: NodeSummaryDto,
-  extra: { coverage?: SyncStatusDto[]; omitted?: number; degree?: number; center?: boolean; pinned?: boolean },
+  extra: {
+    coverage?: SyncStatusDto[];
+    omitted?: number;
+    degree?: number;
+    center?: boolean;
+    pinned?: boolean;
+    /** A tx-view token contract that only emitted the Transfer logs of its flows. */
+    assetContract?: boolean;
+  },
 ): TooltipLine[] {
   const lines: TooltipLine[] = [];
   // Labels arrive best first, so the first one names the node (unless an ENS name does); say when that name is only known from another EVM chain.
@@ -104,6 +112,7 @@ export function nodeTooltip(
     const b = formatFixed(n.balance, 18, "eth");
     lines.push({ label: t("tooltip.balance"), value: `${b.text} ${NATIVE_SYMBOL}`, mono: true, ...(moreExact(b.text, b.full) && { sub: `${b.full} ${NATIVE_SYMBOL}` }) });
   }
+  if (extra.assetContract) lines.push({ value: t("tooltip.assetContract") });
   return lines;
 }
 
@@ -125,11 +134,20 @@ export function edgeTooltip(v: VisualEdge, names: Map<string, string> = new Map(
   return lines;
 }
 
-/** The tx call edge, with the decoded method name when known. */
-export function callTooltip(method?: string | null): TooltipLine[] {
+/** The tx call edge, with the decoded method name when known and the delegate whose ABI decoded it (EIP-7702). */
+export function callTooltip(method?: string | null, viaDelegate?: string | null): TooltipLine[] {
   const lines: TooltipLine[] = [{ value: t("tooltip.call") }];
   if (method) lines.push({ label: t("tooltip.method"), value: method, mono: true });
+  if (viaDelegate) lines.push({ value: t("tooltip.viaDelegate", { address: shortAddr(viaDelegate.toLowerCase()) }) });
   return lines;
+}
+
+/** An EIP-7702 delegation edge (signer → delegate); `names` maps lower-case addresses to display names. */
+export function delegationTooltip(authority: string, delegate: string, names: Map<string, string>): TooltipLine[] {
+  return [
+    { value: t("tooltip.delegation") },
+    { label: t("tooltip.direction"), value: `${named(names, authority)} → ${named(names, delegate)}` },
+  ];
 }
 
 export function moreTooltip(count: number): TooltipLine[] {

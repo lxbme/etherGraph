@@ -7,6 +7,7 @@ import {
   assetColors,
   categoryColors,
   graphStylesheet,
+  delegationColor,
   iconSvgs,
   txFlowStylesheet,
 } from "./styles";
@@ -255,7 +256,7 @@ describe("graphStylesheet", () => {
     expect(styleOf(s, "edge").width).toBe("data(width)");
   });
 
-  test("every asset colour has its own hue and reads on the canvas (3:1) in both themes", () => {
+  test("every asset colour and the delegation colour has its own hue and reads on the canvas (3:1) in both themes", () => {
     const hex = (c: string) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16) / 255) as [number, number, number];
     const lum = (c: string) => {
       const [r, g, b] = hex(c).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)) as [number, number, number];
@@ -277,10 +278,10 @@ describe("graphStylesheet", () => {
     for (const theme of ["light", "dark"] as const) {
       const canvas = theme === "light" ? "#fbfcfd" : "#10141a";
       const a = assetColors(theme);
-      for (const c of Object.values(a)) expect(contrast(c, canvas), `${theme} ${c}`).toBeGreaterThanOrEqual(3);
+      for (const c of [...Object.values(a), delegationColor(theme)]) expect(contrast(c, canvas), `${theme} ${c}`).toBeGreaterThanOrEqual(3);
       // Only "other" is a grey; the named classes are hues at least 30° apart.
       expect(hue(a.other)).toBeNull();
-      const hues = (["eth", "stable", "erc20", "nft"] as const).map((k) => hue(a[k]));
+      const hues = [...(["eth", "stable", "erc20", "nft"] as const).map((k) => hue(a[k])), hue(delegationColor(theme))];
       for (const h of hues) expect(h).not.toBeNull();
       for (let i = 0; i < hues.length; i++)
         for (let j = i + 1; j < hues.length; j++) {
@@ -365,6 +366,74 @@ describe("txFlowStylesheet", () => {
         expect(e.style("line-style")).toBe("dashed");
         expect(e.style("source-label")).toBe("1 ETH");
         expect(e.style("label")).toBe("");
+      },
+    );
+  });
+
+  test.each(["light", "dark"] as const)("token-contract nodes are muted with a dotted thin outline; their links are faint dotted lines without arrows (%s)", (theme) => {
+    const s = txFlowStylesheet(theme) as unknown as Block[];
+    const muted = theme === "light" ? "#6b7280" : "#98a3b0";
+    expect(styleOf(s, "node.asset-contract")).toMatchObject({
+      "border-style": "dotted",
+      "border-width": 1,
+      "border-color": muted,
+      "background-opacity": 0.5,
+      color: muted,
+    });
+    // After the sync states, which would otherwise restyle the border.
+    const order = s.map((b) => b.selector);
+    expect(order.indexOf("node.asset-contract")).toBeGreaterThan(order.indexOf("node.unsynced"));
+    expect(styleOf(s, "edge.asset-link")).toMatchObject({
+      "line-style": "dotted",
+      width: 1,
+      "target-arrow-shape": "none",
+      "line-color": muted,
+    });
+    expect(Number(styleOf(s, "edge.asset-link").opacity)).toBeLessThan(0.85);
+  });
+
+  test.each(["light", "dark"] as const)("delegation edges are dashed in the delegation token with a mid-edge label (%s)", (theme) => {
+    const s = txFlowStylesheet(theme) as unknown as Block[];
+    expect(styleOf(s, "edge.delegation")).toMatchObject({
+      "line-style": "dashed",
+      "line-color": delegationColor(theme),
+      "target-arrow-color": delegationColor(theme),
+    });
+    expect(delegationColor(theme)).toBe(theme === "light" ? "#0e7490" : "#22b8cf");
+  });
+
+  test("the delegation fallbacks match tokens.css in both themes", () => {
+    const tokens = readFileSync("src/styles/tokens.css", "utf8");
+    expect(tokens).toContain("--tx-delegation: #0e7490;");
+    expect(tokens).toContain("--tx-delegation: #22b8cf;");
+  });
+
+  test("a self-call loop shows its method as a plain label instead of the sender-side one", () => {
+    const s = txFlowStylesheet("light") as unknown as Block[];
+    const order = s.map((b) => b.selector);
+    expect(order.indexOf("edge.self-call")).toBeGreaterThan(order.indexOf("edge.call"));
+    expect(styleOf(s, "edge.self-call")).toMatchObject({ label: "data(label)", "source-label": "" });
+  });
+
+  test("cytoscape accepts the new tx blocks without warnings and draws a self-call as a loop", () => {
+    withCy(
+      txFlowStylesheet("light"),
+      [
+        { group: "nodes", data: { id: "a", text: "a" }, classes: "kind-eoa" },
+        { group: "nodes", data: { id: "t", text: "USDT" }, classes: "kind-contract asset-contract unsynced" },
+        { group: "nodes", data: { id: "d", text: "d" }, classes: "kind-contract" },
+        { group: "edges", data: { id: "self", source: "a", target: "a", width: 1.5, label: "execute" }, classes: "call self-call" },
+        { group: "edges", data: { id: "link", source: "t", target: "a", width: 1 }, classes: "asset-link" },
+        { group: "edges", data: { id: "del", source: "a", target: "d", width: 1.5, label: "delegates to" }, classes: "delegation" },
+      ],
+      (cy) => {
+        expect(cy.getElementById("t").style("border-style")).toBe("dotted");
+        expect(cy.getElementById("link").style("target-arrow-shape")).toBe("none");
+        expect(cy.getElementById("link").style("line-style")).toBe("dotted");
+        expect(cy.getElementById("del").style("line-style")).toBe("dashed");
+        expect(cy.getElementById("del").style("label")).toBe("delegates to");
+        expect(cy.getElementById("self").style("label")).toBe("execute");
+        expect(cy.getElementById("self").isLoop()).toBe(true);
       },
     );
   });

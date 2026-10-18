@@ -1,5 +1,5 @@
 import { expectLaidOut, snapshot, tapBackground, tapEdge, tapNode } from "./cy";
-import { A, B, C, TX, expect, test } from "./mockApi";
+import { A, B, C, TX, TX7702, expect, test } from "./mockApi";
 
 const GRAPH = "POST /api/graph/edges";
 
@@ -173,5 +173,56 @@ test("the Overview type value opens its documentation page in the right panel", 
   const link = doc.getByRole("link", { name: /specification/i });
   await expect(link).toHaveAttribute("rel", "noopener noreferrer");
   await expect(link).toHaveAttribute("target", "_blank");
+  expect(mock.unhandled).toEqual([]);
+});
+
+test("an EIP-7702 batch self-call: loop call edge, delegation edge, muted token contract that opens its asset, authorizations in Overview", async ({ page, mock }) => {
+  const S = "0x5e11000000000000000000000000000000000006";
+  const R = "0x4a00000000000000000000000000000000000007";
+  const P = "0x9001000000000000000000000000000000000009";
+  const DL = "0xde1e000000000000000000000000000000000010";
+  const USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7";
+  const WETH = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
+  await page.goto("/?e2e=1");
+  await page.getByRole("searchbox", { name: "Search" }).fill(TX7702);
+  await page.getByRole("searchbox", { name: "Search" }).press("Enter");
+  const txView = page.getByTestId("tx-view");
+  await expect(txView.getByTestId("tx-summary-bar")).toBeVisible();
+  const laid = await expectLaidOut(page, { tx: TX7702 }, 7);
+
+  const edges = new Map(laid.edges.map((e) => [e.id, [e.source, e.target]]));
+  expect(edges.get("call")).toEqual([S, S]);
+  expect(edges.get("delegation-0")).toEqual([S, DL]);
+  expect(edges.get(`asset-link-${USDT}-${P}`)).toEqual([P, USDT]);
+  expect(edges.get(`asset-link-${USDT}-${R}`)).toEqual([R, USDT]);
+  expect([...edges.keys()].filter((id) => id.startsWith("asset-link"))).toHaveLength(2);
+  const classes = await page.evaluate(
+    ({ hash, ids }) => {
+      type Core = import("cytoscape").Core;
+      const cy = (window as unknown as { __etherGraphTxCy: Record<string, Core> }).__etherGraphTxCy[hash]!;
+      return Object.fromEntries(ids.map((id) => [id, cy.$id(id).classes()]));
+    },
+    { hash: TX7702, ids: [USDT, WETH, "call"] },
+  );
+  expect(classes[USDT]).toContain("asset-contract");
+  // WETH receives internal ETH, so it is a party, not just the token contract.
+  expect(classes[WETH]).not.toContain("asset-contract");
+  expect(classes.call).toContain("self-call");
+
+  const legend = txView.getByTestId("legend");
+  await expect(legend.getByText("Token contract (dotted link)")).toBeVisible();
+  await expect(legend.getByText("Delegation (EIP-7702)")).toBeVisible();
+
+  const auths = txView.getByRole("region", { name: "Authorizations" });
+  await expect(auths.locator("tbody tr")).toHaveCount(1);
+  await expect(auths.locator("tbody tr td")).toHaveText([/sender\.eth/, /BatchDelegator/, "Ethereum", "2"]);
+
+  // The token contract opens its asset details (with the kind hint), not the node detail.
+  await tapNode(page, { tx: TX7702 }, USDT);
+  const panel = page.locator(".main__right");
+  await expect(panel.getByTestId("info-panel")).toBeVisible();
+  await expect(panel.getByText("Tether USD").first()).toBeVisible();
+  expect(new URL(mock.requests("GET /api/token/*")[0]!.url()).searchParams.get("kind")).toBe("erc20");
+
   expect(mock.unhandled).toEqual([]);
 });

@@ -1,7 +1,7 @@
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import type { SyncStatusDto } from "../api/generated/SyncStatusDto";
 import type { FlowDto } from "../api/generated/FlowDto";
-import { callTooltip, flowTooltip, edgeTooltip, moreTooltip, nodeTooltip } from "./tooltip";
+import { callTooltip, delegationTooltip, flowTooltip, edgeTooltip, moreTooltip, nodeTooltip } from "./tooltip";
 import type { VisualEdge } from "./visualEdges";
 
 const node = (o: Partial<NodeSummaryDto> = {}): NodeSummaryDto => ({
@@ -97,6 +97,26 @@ test("call and more tooltips", () => {
   expect(callTooltip()).toHaveLength(1);
   expect(text(callTooltip("transfer"))).toContain("Method transfer");
   expect(text(moreTooltip(7))).toContain("7 more neighbours not shown");
+});
+
+test("a call decoded with the delegate's ABI says so, naming the delegate", () => {
+  const ls = callTooltip("execute", "0x612373d7003d694220f7800eeaf8e3924c0951d3");
+  expect(text(ls)).toContain("Method execute");
+  expect(ls.at(-1)).toEqual({ value: "Decoded with the delegate's ABI (0x6123…51d3)" });
+  expect(text(callTooltip("execute", null))).not.toContain("delegate");
+});
+
+test("a token-contract node's tooltip explains why it has no flow edges", () => {
+  const note = "Token contract of these transfers — it emitted the Transfer events but did not send or receive funds itself.";
+  expect(nodeTooltip(node(), { assetContract: true }).at(-1)).toEqual({ value: note });
+  expect(text(nodeTooltip(node(), {}))).not.toContain(note);
+});
+
+test("delegationTooltip: what it is and signer → delegate by name", () => {
+  const names = new Map([["0xaaaa", "lxbme.eth"]]);
+  const ls = delegationTooltip("0xAAAA", "0x612373d7003d694220f7800eeaf8e3924c0951d3", names);
+  expect(ls[0]).toEqual({ value: "EIP-7702 delegation: the signer's account runs the delegate's code" });
+  expect(text(ls)).toContain("Direction lxbme.eth → 0x6123…51d3");
 });
 
 test("flowTooltip: names, symbol, fixed amount, order, kind", () => {

@@ -116,3 +116,12 @@ test("the +N more swatch is a wide dashed pill with a +, outlined in the canvas 
   expect(rect.getAttribute("stroke-dasharray")).toBeTruthy();
   expect(svg.querySelector("text")?.textContent).toBe("+");
 });
+
+test("the token-contract swatch is a dotted line (round dots), the delegation swatch a dashed one", () => {
+  render(<Legend groups={fullLegendGroups("light")} />);
+  const line = (label: string) => screen.getByText(label).closest("li")!.querySelector("line")!;
+  const dotted = line("Token contract (dotted link)");
+  expect(dotted.getAttribute("stroke-linecap")).toBe("round");
+  expect(dotted.getAttribute("stroke-dasharray")).toBe("0.1 3");
+  expect(line("Delegation (EIP-7702)").getAttribute("stroke-dasharray")).toBe("3 2");
+});

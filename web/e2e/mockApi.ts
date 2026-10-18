@@ -28,6 +28,7 @@ import probeWalletJson from "./fixtures/probe-wallet.json" with { type: "json" }
 import statusJson from "./fixtures/status.json" with { type: "json" };
 import transfersJson from "./fixtures/transfers.json" with { type: "json" };
 import txJson from "./fixtures/tx.json" with { type: "json" };
+import tx7702Json from "./fixtures/tx-7702.json" with { type: "json" };
 import txRawJson from "./fixtures/tx-raw.json" with { type: "json" };
 
 export const A = "0xa11ce00000000000000000000000000000000001";
@@ -36,6 +37,8 @@ export const C = "0xc0ffee0000000000000000000000000000000003";
 export const D = "0xd00d000000000000000000000000000000000004";
 export const E = "0xe0e0000000000000000000000000000000000005";
 export const TX = "0x7e57000000000000000000000000000000000000000000000000000000000001";
+/** An EIP-7702 batch self-call modelled on mainnet tx 0x4f85…bb8c: one authorization, USDT only emits Transfer logs. */
+export const TX7702 = "0x4f85000000000000000000000000000000000000000000000000000000007702";
 
 export const fixtures = {
   graph: graphJson as GraphResponseDto,
@@ -43,6 +46,7 @@ export const fixtures = {
   status: statusJson as StatusDto,
   transfers: transfersJson as TransferPageDto,
   tx: txJson as TxResponseDto,
+  tx7702: tx7702Json as TxResponseDto,
   txRaw: txRawJson as TxRawDto,
   /** The 120 neighbours of the big wallet (count descending; last two: a whale and a contract). */
   counterparties: counterpartiesJson as CounterpartyPageDto,
@@ -119,8 +123,11 @@ function defaultHandlers(): Map<RouteKey, Handler> {
     ["GET /api/tx/*/raw", () => ({ json: fixtures.txRaw })],
     [
       "GET /api/tx/*",
-      (_req, url) =>
-        url.pathname.toLowerCase().endsWith(TX) ? { json: fixtures.tx } : notFound("unknown transaction"),
+      (_req, url) => {
+        const path = url.pathname.toLowerCase();
+        if (path.endsWith(TX)) return { json: fixtures.tx };
+        return path.endsWith(TX7702) ? { json: fixtures.tx7702 } : notFound("unknown transaction");
+      },
     ],
     [
       "GET /api/token/*",

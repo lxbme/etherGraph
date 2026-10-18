@@ -9,7 +9,7 @@ import { createBoxSelection } from "../graph/boxSelection";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { exposeTxCy } from "../graph/cyRegistry";
 import { txLegendFor } from "../graph/legend";
-import { callTooltip, flowTooltip, nodeTooltip, type TooltipLine } from "../graph/tooltip";
+import { callTooltip, delegationTooltip, flowTooltip, nodeTooltip, type TooltipLine } from "../graph/tooltip";
 import { addToGraph } from "../graph/nodeActions";
 import { isShortcut } from "../graph/shortcuts";
 import { listenShortcutKeys } from "../graph/useShortcuts";
@@ -25,7 +25,7 @@ import { useTheme } from "../shell/theme";
 import { CanvasTools, IdentifyAllButton } from "./CanvasTools";
 import { GraphTooltip } from "./GraphTooltip";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
-import { assetViewForEdge, txElements } from "./txElements";
+import { assetOnlyAddresses, assetViewForEdge, assetViewForNode, txElements } from "./txElements";
 import { TxDetailTabs } from "./txdetail/TxDetailTabs";
 import { TxSummaryBar } from "./txdetail/TxSummaryBar";
 
@@ -111,15 +111,18 @@ export function TxFlowView({ hash }: { hash: string }) {
   const tooltipLines = useMemo((): TooltipLine[] | null => {
     if (!hover || !flow) return null;
     if (hover.kind === "edge") {
-      if (hover.id === "call") return callTooltip(flow.call?.name);
+      if (hover.id === "call") return callTooltip(flow.call?.name, flow.call?.via_delegate);
+      const names = new Map(flow.nodes.flatMap((n) => (n.display_name ? [[n.address.toLowerCase(), n.display_name] as const] : [])));
+      const d = /^delegation-(\d+)$/.exec(hover.id);
+      const a = d ? flow.detail.authorizations[Number(d[1])] : undefined;
+      if (a?.authority) return delegationTooltip(a.authority, a.delegate, names);
       const m = /^flow-\d+-(\d+)$/.exec(hover.id);
       const f = m ? flow.flows[Number(m[1])] : undefined;
       if (!f) return null;
-      const names = new Map(flow.nodes.flatMap((n) => (n.display_name ? [[n.address.toLowerCase(), n.display_name] as const] : [])));
       return flowTooltip(f, names);
     }
     const n = flow.nodes.find((x) => x.address.toLowerCase() === hover.id);
-    return n ? nodeTooltip(n, {}) : null;
+    return n ? nodeTooltip(n, { assetContract: assetOnlyAddresses(flow).has(hover.id) }) : null;
   }, [hover, flow, locale]);
   useEffect(
     () => () => {
@@ -173,7 +176,10 @@ export function TxFlowView({ hash }: { hash: string }) {
             onTapNode={(id) => {
               box.getState().clear();
               useInfo.getState().close(hash.toLowerCase());
-              setSelected(id.toLowerCase());
+              // A token contract that only emitted Transfer logs opens its asset; the node detail stays underneath.
+              const asset = assetViewForNode(flow, id);
+              if (asset) useInfo.getState().open(hash.toLowerCase(), asset);
+              else setSelected(id.toLowerCase());
             }}
             onTapBackground={() => setSelected(null)}
             onTapEdge={(_s, _t, id) => {

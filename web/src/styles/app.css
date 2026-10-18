@@ -1030,6 +1030,9 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .txdetail__kv > dd > * { min-width: 0; }
 .txdetail__kv > :nth-child(even) { text-align: left; }
 .txdetail__kv .addr-cell { justify-content: flex-start; }
+.txdetail__auths { grid-column: 1 / -1; display: flex; flex-direction: column; gap: var(--sp-1); margin-top: var(--sp-3); }
+.txdetail__subhead { margin: 0; font-size: var(--fs-13); font-weight: 600; }
+.txdetail__auths .addr-cell { justify-content: flex-start; }
 @container (min-width: 800px) {
   .txdetail__overview { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .txdetail__kv--head { grid-column: 1 / -1; }

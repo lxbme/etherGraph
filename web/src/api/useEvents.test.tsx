@@ -174,6 +174,19 @@ test("MetaUpdated refetches the cached txs the addresses take part in, and only 
   expect(qc.getQueryState(qk.tx("0x3"))?.isInvalidated).toBe(false);
 });
 
+test("MetaUpdated for an EIP-7702 delegate refetches the tx, so the call is re-decoded with the delegate's ABI", () => {
+  mount();
+  // The delegate (C) is one of the tx's flow nodes even though no funds moved through it.
+  qc.setQueryData(qk.tx("0x1"), {
+    status: "ready",
+    job_id: null,
+    flow: { nodes: [A, C].map(node), detail: { authorizations: [{ chain_id: "1", delegate: C, nonce: "0", authority: A }] }, call: null },
+  });
+  send({ type: "MetaUpdated", addresses: [C] });
+  advance(500);
+  expect(qc.getQueryState(qk.tx("0x1"))?.isInvalidated).toBe(true);
+});
+
 test("TxReady invalidates that tx", () => {
   mount();
   const spy = vi.spyOn(qc, "invalidateQueries");

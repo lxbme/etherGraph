@@ -39,6 +39,9 @@ const ASSET_HEX: Record<Theme, Record<AssetClass | "other", string>> = {
   dark: { eth: "#9a9aff", stable: "#34c37a", erc20: "#e0a030", nft: "#e879c6", other: "#6b7280" },
 };
 
+/** The tx view's EIP-7702 "delegates to" edge: a cyan apart from the asset hues. */
+const DELEGATION_HEX: Record<Theme, string> = { light: "#0e7490", dark: "#22b8cf" };
+
 /** Share of the hue in a category tint; the rest is the node surface (white in light, the dark surface in dark). */
 const TINT_WEIGHT: Record<Theme, number> = { light: 0.15, dark: 0.28 };
 /** Per-character width and horizontal padding of the "+N more" pill. */
@@ -159,6 +162,16 @@ export function categoryColors(theme: Theme): Record<CategoryId, CategoryColor> 
 export function assetColors(theme: Theme): Record<AssetClass | "other", string> {
   const asset = (k: AssetClass | "other") => cssVar(`--asset-${k}`, ASSET_HEX[theme][k]);
   return { eth: asset("eth"), stable: asset("stable"), erc20: asset("erc20"), nft: asset("nft"), other: asset("other") };
+}
+
+/** The muted foreground (--fg-muted): token-contract nodes and their dotted links in the tx view. */
+export function mutedColor(theme: Theme): string {
+  return cssVar("--fg-muted", THEME_HEX[theme].fgMuted);
+}
+
+/** Colour of the tx view's delegation edges. */
+export function delegationColor(theme: Theme): string {
+  return cssVar("--tx-delegation", DELEGATION_HEX[theme]);
 }
 
 /** Fills and strokes of the state encodings that are not a category or an icon. */
@@ -349,9 +362,14 @@ export function graphStylesheet(theme: Theme): cytoscape.StylesheetJson {
   return asStylesheet(graphBlocks(theme));
 }
 
-/** The tx fund-flow view: the graph stylesheet plus edge labels and the dashed call edge. */
+/**
+ * The tx fund-flow view: the graph stylesheet plus edge labels, the dashed call edge (a loop on a self-call),
+ * muted token-contract nodes with their dotted links, and the EIP-7702 delegation edges.
+ */
 export function txFlowStylesheet(theme: Theme): cytoscape.StylesheetJson {
   const canvas = cssVar("--canvas", THEME_HEX[theme].canvas);
+  const fgMuted = mutedColor(theme);
+  const delegation = delegationColor(theme);
   return asStylesheet([
     ...graphBlocks(theme),
     {
@@ -376,6 +394,51 @@ export function txFlowStylesheet(theme: Theme): cytoscape.StylesheetJson {
         "source-text-offset": 56,
         "source-text-rotation": "autorotate",
         "source-text-margin-y": -8,
+        "font-size": 10,
+      },
+    },
+    {
+      // A call to the sender itself (an EIP-7702 batch): a wide, narrow loop to the left, outside a self-transfer's
+      // loop (upper left, the default) and clear of the flows leaving to the right; its method a plain label at its tip.
+      selector: "edge.self-call",
+      style: {
+        label: "data(label)",
+        "source-label": "",
+        "text-rotation": "none",
+        // Centred on the loop's tip by default: shift the label left of it by about half its width (10px type).
+        "text-margin-x": (ele) => -(String(ele.data("label") ?? "").length * 3 + 6),
+        "loop-direction": "-90deg",
+        "loop-sweep": "-50deg",
+        "control-point-step-size": 64,
+      },
+    },
+    {
+      // A token contract that only emitted Transfer logs: muted fill, a thin dotted outline and a muted label.
+      selector: "node.asset-contract",
+      style: {
+        "background-opacity": 0.5,
+        "border-style": "dotted",
+        "border-width": 1,
+        "border-color": fgMuted,
+        color: fgMuted,
+      },
+    },
+    {
+      selector: "edge.asset-link",
+      style: {
+        width: 1,
+        "line-style": "dotted",
+        "target-arrow-shape": "none",
+        ...edgeColor(fgMuted),
+        opacity: 0.6,
+      },
+    },
+    {
+      selector: "edge.delegation",
+      style: {
+        "line-style": "dashed",
+        ...edgeColor(delegation),
+        color: delegation,
         "font-size": 10,
       },
     },

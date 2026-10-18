@@ -1,12 +1,12 @@
 import type cytoscape from "cytoscape";
 import type { MsgKey } from "../i18n";
 import type { AssetClass } from "../lib/assets";
-import { NODE_SHAPE, assetColors, categoryColors, iconSvgs, stateColors, type CategoryId, type NodeKind, type Theme } from "./styles";
+import { NODE_SHAPE, assetColors, categoryColors, delegationColor, iconSvgs, mutedColor, stateColors, type CategoryId, type NodeKind, type Theme } from "./styles";
 
 export type LegendGroupId = "shape" | "category" | "state" | "asset" | "edge" | "tx";
 export type Swatch =
   | { kind: "node"; shape: string; fill: string; stroke: string; dashed?: boolean; ring?: string; ringDashed?: boolean }
-  | { kind: "edge"; color: string; width?: number; dashed?: boolean; badge?: string }
+  | { kind: "edge"; color: string; width?: number; dashed?: boolean; dotted?: boolean; badge?: string }
   /** The "+N more" placeholder: a dashed pill with `text` inside. */
   | { kind: "pill"; fill: string; stroke: string; text: string }
   | { kind: "icon"; svg: string };
@@ -18,6 +18,8 @@ const KINDS: NodeKind[] = ["eoa", "contract", "unknown"];
 const CATEGORIES = ["cex", "dex", "defi", "bridge", "mixer", "scam", "hacker", "mev", "fund", "nft", "staking", "none"] as const satisfies readonly CategoryId[];
 const STATES = ["center", "unsynced", "selected", "box-selected", "user-label", "pinned", "syncing", "partial", "more"] as const;
 const ASSETS = ["eth", "stable", "erc20", "nft", "other"] as const satisfies readonly (AssetClass | "other")[];
+/** Tx rows listed only when the canvas draws them; the others (call, flow, seq) always are. */
+const TX_OPTIONAL = new Set(["asset-link", "delegation"]);
 
 const STATE_LABEL: Record<(typeof STATES)[number], MsgKey> = {
   center: "legend.state.center",
@@ -66,6 +68,8 @@ function catalogue(theme: Theme): Record<LegendGroupId, LegendItem[]> {
       { id: "call", swatch: { kind: "edge", color: asset.other, dashed: true }, label: "legend.tx.call" },
       { id: "flow", swatch: { kind: "edge", color: asset.eth }, label: "legend.tx.flow" },
       { id: "seq", swatch: { kind: "edge", color: asset.other, badge: "①" }, label: "legend.tx.seq" },
+      { id: "asset-link", swatch: { kind: "edge", color: mutedColor(theme), width: 1.5, dotted: true }, label: "legend.tx.assetLink" },
+      { id: "delegation", swatch: { kind: "edge", color: delegationColor(theme), dashed: true }, label: "legend.tx.delegation" },
     ],
   };
 }
@@ -100,6 +104,10 @@ function present(els: cytoscape.ElementDefinition[]): Set<string> {
         // The center is drawn in the accent whatever its category; one the stylesheet does not tint ("other", …) is plain.
         if (c.startsWith("cat-") && !cls.has("center")) categories.add(legendCategory(c.slice(4)));
       }
+    } else if (cls.has("asset-link")) {
+      out.add("tx/asset-link");
+    } else if (cls.has("delegation")) {
+      out.add("tx/delegation");
     } else if (!cls.has("more")) {
       out.add("edge/width");
       if (el.data.badge) out.add("edge/badge");
@@ -122,12 +130,17 @@ export function legendFor(els: cytoscape.ElementDefinition[], theme: Theme, boxS
   return assemble(catalogue(theme), (g, id) => g !== "tx" && has.has(`${g}/${id}`));
 }
 
-/** The tx fund-flow legend: the node encodings in view, the call / flow edges and sequence numbers, and the asset colours present. */
+/**
+ * The tx fund-flow legend: the node encodings in view, the call / flow edges and sequence numbers, the token-contract
+ * links and delegations when drawn, and the asset colours present.
+ */
 export function txLegendFor(els: cytoscape.ElementDefinition[], theme: Theme, boxSelected = 0): LegendGroup[] {
   if (els.length === 0) return [];
   const has = present(els);
   if (boxSelected > 0) has.add("state/box-selected");
-  return assemble(catalogue(theme), (g, id) => g === "tx" || (g !== "edge" && has.has(`${g}/${id}`)));
+  return assemble(catalogue(theme), (g, id) =>
+    g === "tx" ? !TX_OPTIONAL.has(id) || has.has(`tx/${id}`) : g !== "edge" && has.has(`${g}/${id}`),
+  );
 }
 
 /** Every entry (the help page's "Reading the graph"), independent of what is on a canvas. */

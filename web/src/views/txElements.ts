@@ -3,7 +3,7 @@ import type { FlowDto } from "../api/generated/FlowDto";
 import type { TxFlowDto } from "../api/generated/TxFlowDto";
 import { nodeElement } from "../graph/elements";
 import { t } from "../i18n";
-import { shortAddr } from "../lib/address";
+import { shortAddr, ZERO_ADDRESS } from "../lib/address";
 import { assetClass } from "../lib/assets";
 import { formatAmount } from "../lib/amount";
 import { circled, ellipsize, shortTokenId } from "../lib/format";
@@ -14,6 +14,21 @@ export const EDGE_LABEL_MAX = 48;
 
 const lc = (s: string) => s.toLowerCase();
 export { circled };
+
+/**
+ * Token contracts that only emitted the Transfer logs of their flows: the asset of some flow, never a flow's sender
+ * or recipient, and neither the tx's sender nor its recipient (lower-case, in flow order).
+ */
+export function assetOnlyAddresses(flow: TxFlowDto): Set<string> {
+  const parties = new Set<string>([lc(flow.tx.from), ...(flow.tx.to ? [lc(flow.tx.to)] : [])]);
+  for (const f of flow.flows) parties.add(lc(f.from)).add(lc(f.to));
+  const out = new Set<string>();
+  for (const f of flow.flows) if (f.asset !== null && !parties.has(lc(f.asset))) out.add(lc(f.asset));
+  return out;
+}
+
+/** EIP-7702 authorizations; absent from responses of servers older than the field. */
+const authorizationsOf = (flow: TxFlowDto) => flow.detail.authorizations ?? [];
 
 export function flowSymbol(f: FlowDto): string {
   if (f.asset === null) return "ETH";
@@ -36,26 +51,52 @@ export function callLabel(flow: TxFlowDto): string {
 }
 
 /**
- * Nodes, a dashed call edge (tx.from → tx.to) and one solid edge per flow; edges to unknown nodes are skipped.
+ * Nodes, a dashed call edge (tx.from → tx.to; a loop when they are the same) and one solid edge per flow; edges to
+ * unknown nodes are skipped. Token contracts that only emitted Transfer logs are muted (`asset-contract`) with one
+ * dotted `asset-link` (no arrow) between them and each distinct sender of their flows; each recovered EIP-7702
+ * authorization with a non-zero delegate is a dashed `delegation` edge from signer to delegate.
  * The flow with seq `highlightedSeq` (picked in a detail table) gets the `highlighted` class.
  */
 export function txElements(flow: TxFlowDto, selected?: string | null, highlightedSeq?: number | null): cytoscape.ElementDefinition[] {
   const out: cytoscape.ElementDefinition[] = [];
   const present = new Set<string>();
   const sel = selected ? lc(selected) : null;
+  const assetOnly = assetOnlyAddresses(flow);
   for (const n of flow.nodes) {
     const id = lc(n.address);
     if (present.has(id)) continue;
     present.add(id);
-    out.push(nodeElement(n, undefined, { selected: sel === id, isCenter: false, omitted: 0 }));
+    const el = nodeElement(n, undefined, { selected: sel === id, isCenter: false, omitted: 0 });
+    if (assetOnly.has(id)) el.classes = `${String(el.classes)} asset-contract`;
+    out.push(el);
   }
   const { from, to } = flow.tx;
   if (to && present.has(lc(from)) && present.has(lc(to))) {
     out.push({
       group: "edges",
       data: { id: "call", source: lc(from), target: lc(to), width: 1.5, label: callLabel(flow) },
-      classes: "call",
+      classes: lc(from) === lc(to) ? "call self-call" : "call",
     });
+  }
+  authorizationsOf(flow).forEach((a, i) => {
+    if (a.authority === null || lc(a.delegate) === ZERO_ADDRESS) return;
+    const source = lc(a.authority);
+    const target = lc(a.delegate);
+    if (!present.has(source) || !present.has(target)) return;
+    out.push({
+      group: "edges",
+      data: { id: `delegation-${i}`, source, target, width: 1.5, label: t("tx.delegatesTo") },
+      classes: "delegation",
+    });
+  });
+  for (const asset of assetOnly) {
+    if (!present.has(asset)) continue;
+    const senders = new Set(flow.flows.filter((f) => f.asset !== null && lc(f.asset) === asset).map((f) => lc(f.from)));
+    for (const sender of senders) {
+      if (!present.has(sender)) continue;
+      // Sender → token: the left-to-right layout then ranks the token after its senders, clear of the tx sender's loops.
+      out.push({ group: "edges", data: { id: `asset-link-${asset}-${sender}`, source: sender, target: asset, width: 1 }, classes: "asset-link" });
+    }
   }
   flow.flows.forEach((f, i) => {
     if (!present.has(lc(f.from)) || !present.has(lc(f.to))) return;
@@ -66,6 +107,17 @@ export function txElements(flow: TxFlowDto, selected?: string | null, highlighte
     });
   });
   return out;
+}
+
+/** A tapped token-contract node (one that only emitted Transfer logs) as its asset, with the kind of its flows; other nodes resolve to nothing. */
+export function assetViewForNode(flow: TxFlowDto, id: string): InfoView | null {
+  const asset = lc(id);
+  if (!assetOnlyAddresses(flow).has(asset)) return null;
+  const f = flow.flows.find((x) => x.asset !== null && lc(x.asset) === asset);
+  const tokenKind = f ? tokenKindOf(f.kind) : undefined;
+  const view: Extract<InfoView, { kind: "asset" }> = { kind: "asset", asset };
+  if (tokenKind) view.tokenKind = tokenKind;
+  return view;
 }
 
 /** The asset a tapped edge carries (`flow-<seq>-<index>`); NFTs include their token id. The call edge has none. */

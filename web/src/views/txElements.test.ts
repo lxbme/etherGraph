@@ -1,7 +1,7 @@
 import type { FlowDto } from "../api/generated/FlowDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import type { TxFlowDto } from "../api/generated/TxFlowDto";
-import { assetViewForEdge, callLabel, circled, flowLabel, txElements } from "./txElements";
+import { assetOnlyAddresses, assetViewForEdge, assetViewForNode, callLabel, circled, flowLabel, txElements } from "./txElements";
 import { ellipsize, shortTokenId } from "../lib/format";
 
 const A = "0x" + "aa".repeat(20);
@@ -120,4 +120,117 @@ test("tapping a flow edge resolves its asset (NFTs with their token id); the cal
   expect(assetViewForEdge(f, "flow-1-1")).toEqual({ kind: "asset", asset: USDT, tokenKind: "erc20" });
   expect(assetViewForEdge(f, "flow-2-2")).toEqual({ kind: "asset", asset: USDT, tokenId: "77", tokenKind: "erc721" });
   expect(assetViewForEdge(f, "call")).toBeNull();
+});
+
+const WETH = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
+const C = "0x" + "cc".repeat(20);
+const D = "0x" + "dd".repeat(20);
+const E = "0x" + "ee".repeat(20);
+const ZERO = "0x" + "00".repeat(20);
+const ids = (els: ReturnType<typeof txElements>, prefix: string) =>
+  els.filter((e) => String(e.data.id).startsWith(prefix)).map((e) => [e.data.source, e.data.target]);
+const classesOf = (els: ReturnType<typeof txElements>, id: string) => String(els.find((e) => e.data.id === id)!.classes);
+
+describe("token-contract (asset-only) nodes", () => {
+  // A swaps through router C: USDT (only emitted the Transfer logs) and WETH (also receives internal ETH).
+  const swap = () =>
+    dto({
+      tx: { ...dto().tx, from: A, to: C },
+      nodes: [node(A), node(B), node(C), node(USDT), node(WETH)],
+      flows: [
+        flow({ seq: 1, from: B, to: C, asset: USDT }),
+        flow({ seq: 2, from: C, to: A, asset: USDT }),
+        flow({ seq: 3, from: B, to: C, asset: USDT }),
+        flow({ seq: 4, from: B, to: C, asset: WETH, symbol: "WETH", decimals: 18 }),
+        flow({ seq: 5, from: C, to: WETH, asset: null, kind: "internal", symbol: null, decimals: 18 }),
+      ],
+    });
+
+  test("an asset that never sends or receives is asset-only; WETH, which receives internal ETH, is not", () => {
+    expect([...assetOnlyAddresses(swap())]).toEqual([USDT]);
+    const els = txElements(swap());
+    expect(classesOf(els, USDT)).toContain("asset-contract");
+    expect(classesOf(els, WETH)).not.toContain("asset-contract");
+    expect(classesOf(els, C)).not.toContain("asset-contract");
+  });
+
+  test("one dotted link per distinct sender of that asset's flows, without label or arrow data", () => {
+    const els = txElements(swap());
+    // Sender → token, so the left-to-right layout ranks the token after its senders, off the sender's column.
+    expect(ids(els, "asset-link")).toEqual([[B, USDT], [C, USDT]]);
+    for (const e of els.filter((x) => String(x.data.id).startsWith("asset-link"))) {
+      expect(e.classes).toBe("asset-link");
+      expect(e.data.label).toBeUndefined();
+    }
+  });
+
+  test("a token that transfers to itself, or is the tx's sender or recipient, is not asset-only", () => {
+    const self = dto({ nodes: [node(A), node(B), node(USDT)], flows: [flow({ from: USDT, to: USDT })] });
+    expect(assetOnlyAddresses(self).size).toBe(0);
+    const called = dto({ tx: { ...dto().tx, to: USDT }, nodes: [node(A), node(B), node(USDT)], flows: [flow({ from: A, to: B })] });
+    expect(assetOnlyAddresses(called).size).toBe(0);
+    expect(txElements(called).some((e) => String(e.data.id).startsWith("asset-link"))).toBe(false);
+  });
+
+  test("an asset without a node gets no class and no link", () => {
+    const els = txElements(dto());
+    expect(els.some((e) => String(e.data.id).startsWith("asset-link"))).toBe(false);
+  });
+
+  test("tapping an asset-only node resolves its asset with the kind of its flows; other nodes resolve to nothing", () => {
+    expect(assetViewForNode(swap(), USDT.toUpperCase().replace("0X", "0x"))).toEqual({ kind: "asset", asset: USDT, tokenKind: "erc20" });
+    expect(assetViewForNode(swap(), WETH)).toBeNull();
+    expect(assetViewForNode(swap(), A)).toBeNull();
+  });
+});
+
+describe("self-calls and EIP-7702 delegations", () => {
+  const auth = (authority: string | null, delegate: string) => ({ chain_id: "1", delegate, nonce: "2", authority });
+
+  test("a plain EOA sending ETH to itself: the call edge is a loop on that node, with no delegate node", () => {
+    const els = txElements(
+      dto({
+        tx: { ...dto().tx, from: A, to: A, selector: null, method: null },
+        call: null,
+        nodes: [node(A)],
+        flows: [flow({ from: A, to: A, asset: null, kind: "native", symbol: null, decimals: 18 })],
+      }),
+    );
+    expect(els.filter((e) => e.group === "nodes")).toHaveLength(1);
+    const call = els.find((e) => e.data.id === "call")!;
+    expect(call.data).toMatchObject({ source: A, target: A, label: "Call" });
+    expect(call.classes).toBe("call self-call");
+    expect(els.some((e) => String(e.classes).includes("delegation"))).toBe(false);
+  });
+
+  test("an ordinary call edge keeps the plain call class", () => {
+    expect(txElements(dto()).find((e) => e.data.id === "call")!.classes).toBe("call");
+  });
+
+  test("each recovered, non-zero authorization draws a dashed delegates-to edge from signer to delegate", () => {
+    const f = dto({
+      tx: { ...dto().tx, from: A, to: A },
+      call: { signature: "execute(bytes)", name: "execute", args: [], via_delegate: D },
+      detail: {
+        ...dto().detail,
+        tx_type: 4,
+        authorizations: [auth(A, D), auth(null, C), auth(E, ZERO), auth(B.toUpperCase().replace("0X", "0x"), D)],
+      },
+      nodes: [node(A), node(B), node(D), node(E)],
+      flows: [],
+    });
+    const els = txElements(f);
+    const del = els.filter((e) => String(e.classes) === "delegation");
+    expect(del.map((e) => [e.data.source, e.data.target, e.data.label])).toEqual([
+      [A, D, "delegates to"],
+      [B, D, "delegates to"],
+    ]);
+    // Via the delegate's ABI, the call edge still shows the method name.
+    expect(els.find((e) => e.data.id === "call")!.data.label).toBe("execute");
+  });
+
+  test("a delegate without a node gets no edge", () => {
+    const f = dto({ detail: { ...dto().detail, tx_type: 4, authorizations: [auth(A, D)] } });
+    expect(txElements(f).some((e) => String(e.classes) === "delegation")).toBe(false);
+  });
 });
