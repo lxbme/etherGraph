@@ -520,7 +520,8 @@ pub fn aggregate(rows: impl IntoIterator<Item = EthLabelRow>) -> (Out, Out, u64)
     let mut on_mainnet: HashSet<Address> = HashSet::new();
     let mut skipped = 0u64;
     for row in rows {
-        let Ok(addr) = parse_address(row.address.trim()) else {
+        // Dataset casing is not trusted: parse the lowercase form, no checksum.
+        let Ok(addr) = parse_address(&row.address.trim().to_ascii_lowercase()) else {
             skipped += 1;
             continue;
         };
@@ -529,7 +530,12 @@ pub fn aggregate(rows: impl IntoIterator<Item = EthLabelRow>) -> (Out, Out, u64)
             Some(n) if category_rank(n) < category_rank(slug_cat) => n,
             _ => slug_cat,
         };
-        let key = (addr, label_text(&row));
+        let text = label_text(&row);
+        if text.is_empty() {
+            skipped += 1;
+            continue;
+        }
+        let key = (addr, text);
         if row.chain_id == 1 {
             on_mainnet.insert(addr);
             keep_best(&mut main, key, cat);
@@ -665,6 +671,25 @@ mod tests {
             ),
         ]);
         assert_eq!((m.len(), skipped), (1, 0));
+    }
+
+    #[test]
+    fn bad_checksum_mixed_case_is_accepted_and_dedupes() {
+        // Valid checksum is ...6045; flip the case of one letter to break it.
+        let bad = "0xd8Da6BF26964aF9D7eEd9e03E53415D37aA96045";
+        assert!(parse_address(bad).is_err());
+        let (m, _, skipped) = aggregate([
+            row(bad, 1, "lido", "Lido"),
+            row(&bad.to_lowercase(), 1, "lido", "Lido"),
+            row(&bad.replacen("0x", "0X", 1), 1, "lido", "Lido"),
+        ]);
+        assert_eq!((m.len(), skipped), (1, 0));
+    }
+
+    #[test]
+    fn empty_label_and_name_is_skipped() {
+        let (m, _, skipped) = aggregate([row(A, 1, "", "")]);
+        assert_eq!((m.len(), skipped), (0, 1));
     }
 
     #[test]
