@@ -556,6 +556,11 @@ async fn an_action_message_names_the_change_and_is_audited(pool: PgPool) {
     let action = json!({"type": "SetUserQuota", "address": hex(DEFAULT_USER), "calls": 1000});
     let (nonce, message) = issued(&app, &both, &action).await;
     let mut lines = message.lines();
+    // The wallet shows which app and origin the signature is for.
+    assert_eq!(
+        lines.next().unwrap(),
+        "etherGraph admin action on 127.0.0.1:8080"
+    );
     assert_eq!(
         lines.next().unwrap(),
         format!(
@@ -849,7 +854,9 @@ async fn an_action_signed_against_a_changed_value_is_refused(pool: PgPool) {
     let both = admin_cookies(&app, &key).await;
     let to_100 = json!({"type": "SetDefaultQuota", "calls": 100});
     let (nonce, message) = issued(&app, &both, &to_100).await;
-    assert!(message.starts_with("Set the default daily quota from 5000 to 100\n"));
+    assert!(message.starts_with(
+        "etherGraph admin action on 127.0.0.1:8080\nSet the default daily quota from 5000 to 100\n"
+    ));
     act_ok(
         &app,
         &key,

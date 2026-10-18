@@ -7,7 +7,7 @@ use eg_core::types::TransferKind;
 use eg_ingest::enqueue_tokens;
 use serde::Deserialize;
 
-use crate::auth::extract::CurrentUser;
+use crate::auth::extract::{CurrentUser, MayStartWork};
 use crate::dto::{TokenDetailDto, TokenListsDto, hex_addr};
 use crate::error::ApiError;
 use crate::parse::parse_address;
@@ -23,6 +23,7 @@ pub struct TokenQuery {
 pub async fn detail(
     State(s): State<AppState>,
     user: CurrentUser,
+    MayStartWork(may_start): MayStartWork,
     ApiPath(raw): ApiPath<String>,
     ApiQuery(q): ApiQuery<TokenQuery>,
 ) -> Result<Json<TokenDetailDto>, ApiError> {
@@ -46,8 +47,9 @@ pub async fn detail(
 
     // Only the token's own metadata: a ContractMeta run is not wanted here. TokenMeta records
     // every address it is given as ERC-20, so an address the caller says is an NFT is never queued.
+    // A cross-site request (see [`MayStartWork`]) queues nothing.
     let nft_hint = matches!(q.kind, Some(TransferKind::Erc721 | TransferKind::Erc1155));
-    if !nft_hint {
+    if !nft_hint && may_start {
         match s
             .store
             .tokens_needing_meta(&[addr], s.ctx.cfg.meta_ttl)

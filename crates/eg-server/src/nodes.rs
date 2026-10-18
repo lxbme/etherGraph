@@ -1,7 +1,7 @@
 //! Node summaries (metadata, labels, ENS, sync flags) for a set of addresses,
 //! and the low-priority jobs that fill in missing metadata.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use eg_core::source::TokenInfo;
 use eg_core::types::{AccountKind, Address, TransferKind, category_rank};
@@ -34,12 +34,13 @@ pub async fn load_nodes(
     hot_threshold: u64,
     viewer: i64,
 ) -> Result<Nodes, StoreError> {
-    let (accounts, ens, labels, sync, stats) = tokio::try_join!(
+    let (accounts, ens, labels, sync, stats, own_syncs) = tokio::try_join!(
         store.accounts(addrs),
         store.ens(addrs),
         store.labels(addrs, viewer),
         store.sync_rows(addrs),
         store.account_stats(addrs),
+        store.user_syncing(viewer, addrs),
     )?;
     let stats: HashMap<Address, StatsRow> = stats.into_iter().map(|r| (r.address, r)).collect();
     let accounts: HashMap<Address, AccountRow> =
@@ -51,7 +52,9 @@ pub async fn load_nodes(
     }
     let mut sync_by: HashMap<Address, Vec<SyncRow>> = HashMap::new();
     for r in sync {
-        sync_by.entry(r.address).or_default().push(r);
+        if let Some(r) = as_seen_by(r, &own_syncs) {
+            sync_by.entry(r.address).or_default().push(r);
+        }
     }
     let nodes = addrs
         .iter()
@@ -77,6 +80,21 @@ pub async fn load_nodes(
         sync: sync_by,
         accounts,
     })
+}
+
+/// A coverage row as a viewer sees it. `syncing` is shared state that
+/// reflects whoever's job is running or paused, so it is shown only to a
+/// viewer with an active sync of the address (`own_syncs`); for anyone else
+/// the kind shows its coverage: `ok` when it has some, else none at all
+/// (unsynced). Another user's sync thus neither leaks nor keeps the viewer
+/// from starting their own.
+fn as_seen_by(mut row: SyncRow, own_syncs: &HashSet<Address>) -> Option<SyncRow> {
+    if row.state != SyncState::Syncing || own_syncs.contains(&row.address) {
+        return Some(row);
+    }
+    row.to_block?;
+    row.state = SyncState::Ok;
+    Some(row)
 }
 
 /// Orders labels by source (user, mainnet dataset, other imports, xchain),
@@ -321,6 +339,40 @@ mod tests {
         assert!(!s.synced && s.partial && s.syncing);
         let s = summarize(A, None, None, &[], &rows[..4], 0, 500);
         assert!(!s.synced);
+    }
+
+    #[test]
+    fn syncing_is_shown_only_to_the_viewer_syncing() {
+        let syncing = |to_block| SyncRow {
+            state: SyncState::Syncing,
+            ..row(TransferKind::Native, to_block)
+        };
+        let mine = HashSet::from([A]);
+        let none = HashSet::new();
+        assert_eq!(
+            as_seen_by(syncing(Some(10)), &mine).unwrap().state,
+            SyncState::Syncing
+        );
+        assert_eq!(
+            as_seen_by(syncing(None), &mine).unwrap().state,
+            SyncState::Syncing
+        );
+        // Someone else's sync: the coverage there is, or none.
+        let seen = as_seen_by(syncing(Some(10)), &none).unwrap();
+        assert_eq!((seen.state, seen.to_block), (SyncState::Ok, Some(10)));
+        assert!(as_seen_by(syncing(None), &none).is_none());
+        // Settled rows are everyone's.
+        let failed = SyncRow {
+            state: SyncState::Failed,
+            ..row(TransferKind::Erc20, None)
+        };
+        assert_eq!(as_seen_by(failed, &none).unwrap().state, SyncState::Failed);
+        assert_eq!(
+            as_seen_by(row(TransferKind::Erc20, Some(5)), &none)
+                .unwrap()
+                .state,
+            SyncState::Ok
+        );
     }
 
     fn src(id: i64, text: &str, category: &str, source: &str) -> LabelRow {

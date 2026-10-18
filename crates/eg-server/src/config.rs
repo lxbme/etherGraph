@@ -281,6 +281,21 @@ impl AuthCfg {
         })
     }
 
+    /// The startup warning for an `https` origin without
+    /// `trust_forwarded_for`: such a deployment normally sits behind a
+    /// reverse proxy, which is then every client's IP, so all clients share
+    /// one rate-limit bucket and audit rows record only the proxy.
+    pub fn proxy_warning(&self) -> Option<&'static str> {
+        let https = self.origin().is_ok_and(|o| o.secure);
+        (https && !self.trust_forwarded_for).then_some(
+            "auth.public_origin is https but auth.trust_forwarded_for is false: behind a reverse \
+             proxy every client has the proxy's IP, so all clients share one login rate-limit \
+             bucket (a single client can lock everyone out) and audit rows record only the \
+             proxy; set trust_forwarded_for = true when exactly one trusted proxy appends \
+             X-Forwarded-For",
+        )
+    }
+
     /// The configured admins; call after [`Config::validate`] (invalid
     /// entries are skipped).
     pub fn admin_addresses(&self) -> Vec<Address> {
@@ -379,5 +394,31 @@ impl Config {
             hot_neighbor_threshold: self.sync.hot_neighbor_threshold,
             ..IngestConfig::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn https_without_trusted_forwarding_warns_about_one_shared_bucket() {
+        let auth = |origin: &str, trust| AuthCfg {
+            public_origin: origin.into(),
+            trust_forwarded_for: trust,
+            ..AuthCfg::default()
+        };
+        let warning = auth("https://graph.example.org", false).proxy_warning();
+        assert!(
+            warning.is_some_and(|w| w.contains("trust_forwarded_for")),
+            "{warning:?}"
+        );
+        assert_eq!(
+            auth("https://graph.example.org", true).proxy_warning(),
+            None
+        );
+        // Plain-http local development has no proxy in front.
+        assert_eq!(auth("http://127.0.0.1:8080", false).proxy_warning(), None);
+        assert_eq!(auth("http://localhost:5173", true).proxy_warning(), None);
     }
 }

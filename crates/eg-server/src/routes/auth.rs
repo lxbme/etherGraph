@@ -16,7 +16,7 @@ use crate::auth::siwe::{
     self, LOGIN_STATEMENT, MAX_MESSAGE_LEN, VerifyError, canonical_message, claimed,
 };
 use crate::auth::{
-    ADMIN_COOKIE, ADMIN_COOKIE_PATH, MAX_AUDIT_SIGNATURE, SESSION_COOKIE, cookie,
+    ADMIN_COOKIE, ADMIN_COOKIE_PATH, MAX_AUDIT_SIGNATURE, audit_pre_auth, cookie,
     open_registration, set_cookie,
 };
 use crate::background::next_utc_midnight;
@@ -44,6 +44,14 @@ pub async fn nonce(
         return Err(ApiError::rate_limited());
     }
     let address = parse_address(&q.address)?;
+    let cap = s.auth.max_login_nonces;
+    if s.store.nonces_outstanding(NoncePurpose::Login, cap).await? >= cap {
+        tracing::debug!(
+            cap,
+            "login nonce refused: too many outstanding across all clients"
+        );
+        return Err(ApiError::rate_limited());
+    }
     let fields = siwe::issue(&s, NoncePurpose::Login, None, address, LOGIN_STATEMENT).await?;
     Ok(Json(fields))
 }
@@ -71,8 +79,9 @@ impl From<StoreError> for LoginError {
 }
 
 /// `POST /api/auth/login`: checks the origin, verifies the signed message and
-/// starts a session. Every attempt past the rate limit is audited, and a
-/// session exists only together with its `ok` audit row.
+/// starts a session. Every attempt past the rate limit is audited (refusals
+/// within the server-wide cap, see [`audit_pre_auth`]), and a session exists
+/// only together with its `ok` audit row.
 pub async fn login(
     State(s): State<AppState>,
     meta: ClientMeta,
@@ -108,15 +117,10 @@ pub async fn login(
             .map(|b| b.signature.clone()),
     };
     let reason = |r: &'static str| Some(serde_json::json!({ "reason": r }));
+    let bucket = meta.ip_key();
     if !origin_ok(&s, &headers) {
-        s.store
-            .audit_append(&entry(
-                &attempt,
-                None,
-                AuditOutcome::Denied,
-                reason("bad_origin"),
-            ))
-            .await?;
+        let denied = entry(&attempt, None, AuditOutcome::Denied, reason("bad_origin"));
+        audit_pre_auth(&s, &denied, &bucket).await?;
         return Err(ApiError::unauthorized("bad_origin"));
     }
     let body = parsed.map_err(|e| invalid(format!("invalid login body: {e}")))?;
@@ -125,11 +129,13 @@ pub async fn login(
         Ok(user) => {
             let me = me_dto(&s, &user);
             let ttl = Duration::days(i64::from(s.cfg.auth.session_days));
+            // The session this browser held until now ends with the login.
+            let replaces = cookie(&headers, s.auth.session_cookie());
             let created = s
                 .store
                 .session_create_audited(
                     user.id,
-                    SessionKind::User,
+                    replaces,
                     ttl,
                     meta.ip.as_deref(),
                     meta.user_agent.as_deref(),
@@ -144,7 +150,7 @@ pub async fn login(
                 }
             };
             let cookie = set_cookie(
-                SESSION_COOKIE,
+                s.auth.session_cookie(),
                 &token,
                 "/",
                 ttl.num_seconds().unsigned_abs(),
@@ -153,14 +159,8 @@ pub async fn login(
             Ok(([(header::SET_COOKIE, cookie)], Json(me)).into_response())
         }
         Err(LoginError::Denied(r)) => {
-            s.store
-                .audit_append(&entry(
-                    &attempt,
-                    Some(&body),
-                    AuditOutcome::Denied,
-                    reason(r),
-                ))
-                .await?;
+            let denied = entry(&attempt, Some(&body), AuditOutcome::Denied, reason(r));
+            audit_pre_auth(&s, &denied, &bucket).await?;
             Err(ApiError::unauthorized(r))
         }
         Err(LoginError::Internal(e)) => {
@@ -230,7 +230,7 @@ pub async fn logout(
     meta: ClientMeta,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    if let Some(raw) = cookie(&headers, SESSION_COOKIE) {
+    if let Some(raw) = cookie(&headers, s.auth.session_cookie()) {
         let found = s.store.session_lookup(raw, SessionKind::User).await?;
         s.store.session_delete(raw).await?;
         if let Some((_, user)) = found {
@@ -257,7 +257,7 @@ pub async fn logout(
     let clear = AppendHeaders([
         (
             header::SET_COOKIE,
-            set_cookie(SESSION_COOKIE, "", "/", 0, secure),
+            set_cookie(s.auth.session_cookie(), "", "/", 0, secure),
         ),
         (
             header::SET_COOKIE,

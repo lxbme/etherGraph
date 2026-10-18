@@ -1,6 +1,6 @@
 //! Quota persistence (server and per user), UTC-midnight reset, per-user
-//! limit refresh, `QuotaStatus` events and the purge of spent login nonces
-//! and expired sessions.
+//! limit refresh, `QuotaStatus` events, the purge of spent login nonces
+//! and expired sessions, and the summary rows of capped pre-login audit rows.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -8,7 +8,7 @@ use std::time::Duration;
 use chrono::{DateTime, NaiveDate, Utc};
 use eg_ingest::gate::{PriorityGate, QuotaSnapshot};
 use eg_ingest::{Audience, Event, Listener};
-use eg_store::{SETTING_DEFAULT_DAILY_QUOTA, Store, StoreError};
+use eg_store::{JobKind, JobStatus, SETTING_DEFAULT_DAILY_QUOTA, Store, StoreError};
 use tokio::sync::watch;
 use tokio::time::{Instant, sleep_until};
 
@@ -36,8 +36,9 @@ pub fn next_utc_midnight(now: DateTime<Utc>) -> DateTime<Utc> {
 
 /// Spawns the quota loop (persist every 5s, reset at UTC midnight), the
 /// per-user limit refresh (every 30s), the per-user `QuotaStatus` publisher
-/// (when a stream opens and on change, at most once per second per user) and the auth purge (every
-/// 10 minutes), and starts the first chain head fetch.
+/// (when a stream opens and on change, at most once per second per user), the auth purge (every
+/// 10 minutes) and the flush of left-out pre-login audit rows (every cap
+/// window), and starts the first chain head fetch.
 pub fn spawn_background(state: &AppState) {
     state.head.prime(state);
     // Subscribe before spawning so no change after this call is missed.
@@ -46,6 +47,7 @@ pub fn spawn_background(state: &AppState) {
     tokio::spawn(quota_loop(state.clone()));
     tokio::spawn(limits_loop(state.clone()));
     tokio::spawn(auth_purge_loop(state.clone()));
+    tokio::spawn(suppressed_audit_loop(state.clone()));
 }
 
 /// Per-user limits and counts as the gate starts with them.
@@ -144,6 +146,39 @@ async fn auth_purge_loop(state: AppState) {
         tick.tick().await;
         purge_auth(&state).await;
     }
+}
+
+/// Writes each capped window's summary row soon after the window ends.
+async fn suppressed_audit_loop(state: AppState) {
+    let mut tick = tokio::time::interval(state.auth.pre_auth_audit.window());
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tick.tick().await;
+        if let Err(e) = crate::auth::flush_suppressed_audit(&state).await {
+            tracing::warn!(error = %e, "writing the summary of left-out audit rows failed");
+        }
+    }
+}
+
+/// Cancels the active jobs left from before accounts existed (migration
+/// 0009): no owner and an unscoped key. They would run unbilled, report to
+/// nobody, and no user could see or cancel them. A cancelled sync's
+/// `syncing` kinds are settled. Run at startup, after running jobs were
+/// requeued; returns how many were cancelled.
+pub async fn cancel_legacy_jobs(state: &AppState) -> Result<u64, StoreError> {
+    let jobs = state.store.cancel_legacy_jobs().await?;
+    for &(id, kind, status) in &jobs {
+        if kind == JobKind::SyncAddress && status == JobStatus::Cancelled {
+            crate::routes::jobs::settle_cancelled_sync(state, id).await;
+        }
+    }
+    if !jobs.is_empty() {
+        tracing::info!(
+            jobs = jobs.len(),
+            "cancelled ownerless jobs left from before accounts existed"
+        );
+    }
+    Ok(jobs.len() as u64)
 }
 
 /// Deletes used or expired login nonces and expired sessions.

@@ -161,7 +161,7 @@ pub(crate) async fn after_cancels(
 /// re-queued or paused); nothing will finish them now. Kinds are left alone
 /// while another sync of the same address is still active. Failures are
 /// logged: the cancellation itself already happened.
-async fn settle_cancelled_sync(s: &AppState, id: i64) {
+pub(crate) async fn settle_cancelled_sync(s: &AppState, id: i64) {
     let result: Result<(), StoreError> = async {
         let Some(job) = s.store.job(id).await? else {
             return Ok(());

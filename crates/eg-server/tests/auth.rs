@@ -1,8 +1,12 @@
 mod common;
 
+use std::net::SocketAddr;
+use std::sync::Arc;
+
 use alloy_primitives::{Address, B256, Bytes, eip191_hash_message};
 use axum::Router;
 use axum::body::Body;
+use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode, header};
 use axum::routing::get;
 use chrono::Duration;
@@ -12,10 +16,14 @@ use common::{
     whitelisted_key,
 };
 use eg_core::source::SourceError;
+use eg_server::app::router;
 use eg_server::auth::extract::{AdminMode, CurrentUser};
+use eg_server::auth::ratelimit::AuditCap;
 use eg_server::auth::siwe::canonical_message;
+use eg_server::auth::{AuthState, flush_suppressed_audit};
 use eg_server::config::Config;
 use eg_server::dto::SiweFieldsDto;
+use eg_server::state::AppState;
 use eg_store::{
     AuditEntry, AuditFilter, AuditOutcome, AuditRow, SETTING_OPEN_REGISTRATION, SessionKind, Store,
 };
@@ -249,10 +257,38 @@ async fn https_origin_sets_secure_cookies(pool: PgPool) {
         .unwrap();
     let (status, cookies, body) = send_full(&app, req).await;
     assert_eq!(status, StatusCode::OK, "{body}");
+    let c = &cookies[0];
+    // `__Host-`: the browser takes it only from this host, Secure, Path=/
+    // and without Domain, so a sibling subdomain cannot plant a session.
+    assert!(c.starts_with("__Host-eg_session="), "{c}");
+    for attr in ["Secure", "Path=/", "HttpOnly"] {
+        assert!(c.split("; ").any(|a| a == attr), "{attr} missing in {c}");
+    }
+    assert!(!c.contains("Domain"), "{c}");
+    let pair = c.split(';').next().unwrap().to_owned();
+    let token = pair.strip_prefix("__Host-eg_session=").unwrap();
+    let (status, me) = get_as(&app, &pair, "/api/auth/me").await;
+    assert_eq!(status, StatusCode::OK, "{me}");
+    // The unprefixed name is not read over https (it could be tossed).
+    let (status, _) = get_as(&app, &format!("eg_session={token}"), "/api/auth/me").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    // Logout ends it and clears the prefixed cookie.
+    let req = Request::post("/api/auth/logout")
+        .header(header::ORIGIN, "https://graph.example.org")
+        .header(header::COOKIE, &pair)
+        .body(Body::empty())
+        .unwrap();
+    let (status, cleared, _) = send_full(&app, req).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
     assert!(
-        cookies[0].split("; ").any(|a| a == "Secure"),
-        "{}",
-        cookies[0]
+        cleared
+            .iter()
+            .any(|c| c.starts_with("__Host-eg_session=;") && c.contains("Max-Age=0")),
+        "{cleared:?}"
+    );
+    assert_eq!(
+        get_as(&app, &pair, "/api/auth/me").await.0,
+        StatusCode::UNAUTHORIZED
     );
 }
 
@@ -465,6 +501,48 @@ async fn me_and_logout(pool: PgPool) {
     assert_eq!(status, StatusCode::NO_CONTENT);
     assert!(cookies[0].starts_with("eg_session=;"));
     assert_eq!(audit(&state.store, "logout").await.len(), 1);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_new_login_ends_the_session_it_replaces(pool: PgPool) {
+    let (app, state, _) = anon_app(pool.clone(), Config::default());
+    let key = whitelisted_key(&state).await;
+    let other = whitelisted_key(&state).await;
+    let first = login_as(&app, &key).await;
+    let admin = admin_session_for(&state.store, &first).await;
+    let bystander = login_as(&app, &other).await;
+
+    // The browser still holds the first session's cookie when it signs in
+    // again (here as another wallet).
+    let fields = nonce_for(&app, key_address(&other)).await;
+    let message = message_for(&fields);
+    let body = json!({"message": message, "signature": personal_sign(&other, &message)});
+    let req = Request::post("/api/auth/login")
+        .header("content-type", "application/json")
+        .header(header::ORIGIN, ORIGIN)
+        .header(header::COOKIE, &first)
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let (status, cookies, body) = send_full(&app, req).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let second = session_cookie(&cookies).unwrap();
+
+    assert_eq!(
+        get_as(&app, &first, "/api/auth/me").await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert!(
+        state
+            .store
+            .session_lookup(&admin, SessionKind::Admin)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    for live in [&second, &bystander] {
+        assert_eq!(get_as(&app, live, "/api/auth/me").await.0, StatusCode::OK);
+    }
+    assert_eq!(count(&pool, "sessions").await, 2);
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
@@ -964,5 +1042,148 @@ async fn the_background_purge_drops_spent_nonces_and_expired_sessions(pool: PgPo
     assert_eq!(
         get_as(&app, &cookie, "/api/auth/me").await.0,
         StatusCode::UNAUTHORIZED
+    );
+}
+
+// ------------------------------------------------------- server-wide caps
+
+/// The app without a default session whose refusals before login are
+/// audited at most `rows` times per `window` server-wide, and which keeps at
+/// most `nonces` unused login nonces outstanding.
+fn capped_app(
+    pool: PgPool,
+    rows: u32,
+    window: std::time::Duration,
+    nonces: u32,
+) -> (Router, AppState) {
+    let (_, mut state, _) = anon_app(pool, Config::default());
+    state.auth = Arc::new(AuthState {
+        pre_auth_audit: AuditCap::new(rows, window),
+        max_login_nonces: nonces,
+        ..AuthState::new(&state.cfg)
+    });
+    (router(state.clone()), state)
+}
+
+/// `req` as sent from client IP 198.51.100.`last`.
+fn from_ip(mut req: Request<Body>, last: u8) -> Request<Body> {
+    req.extensions_mut()
+        .insert(ConnectInfo(SocketAddr::from(([198, 51, 100, last], 4000))));
+    req
+}
+
+fn cross_site_login() -> Request<Body> {
+    Request::post("/api/auth/login")
+        .header("content-type", "application/json")
+        .header(header::ORIGIN, "https://evil.example.org")
+        .body(Body::from(
+            json!({"message": "x", "signature": "0x"}).to_string(),
+        ))
+        .unwrap()
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn refusals_before_login_are_audited_within_a_server_wide_cap(pool: PgPool) {
+    let window = std::time::Duration::from_millis(300);
+    let (app, state) = capped_app(pool, 3, window, 1000);
+    let junk = format!("eg_admin={}", "ab".repeat(32));
+    // Denied logins and junk admin cookies from many client IPs (each well
+    // within its own per-IP allowance) share one allowance.
+    for i in 0..4u8 {
+        let (status, _) = send(&app, from_ip(cross_site_login(), i)).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let req = from_ip(get_req("/api/admin/users", Some(&junk)), 100 + i);
+        assert_eq!(send(&app, req).await.0, StatusCode::UNAUTHORIZED);
+    }
+    let logins = audit(&state.store, "login").await;
+    let admin = audit(&state.store, "admin_access").await;
+    assert_eq!((logins.len(), admin.len()), (2, 1));
+    assert!(audit(&state.store, "audit_suppressed").await.is_empty());
+
+    // The next window's first refusal first records what was left out.
+    tokio::time::sleep(window + std::time::Duration::from_millis(50)).await;
+    let (status, _, _) = post_login(&app, "garbage", "0x00").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(audit(&state.store, "login").await.len(), 3);
+    let summary = audit(&state.store, "audit_suppressed").await;
+    assert_eq!(summary.len(), 1);
+    let e = &summary[0].entry;
+    assert_eq!(
+        (e.actor.as_str(), e.outcome),
+        ("unknown", AuditOutcome::Denied)
+    );
+    let after = e.after.clone().unwrap();
+    assert_eq!(after["suppressed"], 5, "{after}");
+    assert_eq!(after["by_action"], json!({"login": 2, "admin_access": 3}));
+    let buckets = after["top_buckets"].as_array().unwrap();
+    assert_eq!(buckets.len(), 5, "{after}");
+    assert!(buckets.iter().all(|b| b["count"] == 1), "{after}");
+    assert!(
+        buckets.iter().any(|b| b["bucket"] == "198.51.100.103"),
+        "{after}"
+    );
+    assert!(
+        after["from"].is_string() && after["to"].is_string(),
+        "{after}"
+    );
+
+    // Without further traffic, the background flush writes a window's
+    // summary once it ended; a window that left nothing out writes none.
+    for _ in 0..3 {
+        post_login(&app, "garbage", "0x00").await;
+    }
+    assert_eq!(audit(&state.store, "login").await.len(), 5);
+    flush_suppressed_audit(&state).await.unwrap();
+    assert_eq!(audit(&state.store, "audit_suppressed").await.len(), 1);
+    tokio::time::sleep(window + std::time::Duration::from_millis(50)).await;
+    flush_suppressed_audit(&state).await.unwrap();
+    flush_suppressed_audit(&state).await.unwrap();
+    let summary = audit(&state.store, "audit_suppressed").await;
+    assert_eq!(summary.len(), 2);
+    let after = summary[0].entry.after.clone().unwrap();
+    assert_eq!(after["by_action"], json!({"login": 1}), "{after}");
+    tokio::time::sleep(window + std::time::Duration::from_millis(50)).await;
+    flush_suppressed_audit(&state).await.unwrap();
+    assert_eq!(audit(&state.store, "audit_suppressed").await.len(), 2);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn outstanding_login_nonces_are_capped_server_wide(pool: PgPool) {
+    let (app, state) = capped_app(pool.clone(), 300, std::time::Duration::from_secs(60), 3);
+    let key = whitelisted_key(&state).await;
+    let addr = key_address(&key);
+    let uri = format!("/api/auth/nonce?address={addr:#x}");
+    let mut issued = Vec::new();
+    for i in 0..3u8 {
+        let (status, body) = send(&app, from_ip(get_req(&uri, None), i)).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        issued.push(serde_json::from_value::<SiweFieldsDto>(body).unwrap());
+    }
+    let full = || async { send(&app, from_ip(get_req(&uri, None), 50)).await };
+    let (status, body) = full().await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(body["error"]["code"], "rate_limited");
+
+    // Used and expired nonces no longer count.
+    let message = message_for(&issued[0]);
+    let (status, _, body) = post_login(&app, &message, &personal_sign(&key, &message)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(full().await.0, StatusCode::OK);
+    assert_eq!(full().await.0, StatusCode::TOO_MANY_REQUESTS);
+    sqlx::query("UPDATE auth_nonces SET expires_at = now() - interval '1 second' WHERE nonce = $1")
+        .bind(&issued[1].nonce)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(full().await.0, StatusCode::OK);
+}
+
+#[test]
+fn server_wide_caps_default_to_their_constants() {
+    let auth = AuthState::new(&Config::default());
+    assert_eq!(auth.max_login_nonces, eg_server::auth::MAX_LOGIN_NONCES);
+    assert_eq!(
+        auth.pre_auth_audit.limit(),
+        eg_server::auth::PRE_AUTH_AUDIT_PER_MINUTE
     );
 }

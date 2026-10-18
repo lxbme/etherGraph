@@ -10,8 +10,8 @@ use eg_ingest::Event;
 use eg_store::SessionKind;
 use futures::{Stream, StreamExt, stream};
 
+use crate::auth::cookie;
 use crate::auth::extract::CurrentUser;
-use crate::auth::{SESSION_COOKIE, cookie};
 use crate::state::AppState;
 
 /// Only events addressed to the viewer (plus `Lagged` when this stream missed
@@ -23,7 +23,7 @@ pub async fn events(
     headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
     let sub = s.ctx.bus.subscribe_user(user.id);
-    let token = cookie(&headers, SESSION_COOKIE).map(str::to_owned);
+    let token = cookie(&headers, s.auth.session_cookie()).map(str::to_owned);
     let ended = session_gone(s.clone(), token);
     let stream = stream::unfold(sub, |mut sub| async move {
         let e = sub.recv().await?;

@@ -1,9 +1,10 @@
 //! Wallet login (SIWE), sessions and the auth gate (spec §3–§4).
 //!
-//! Cookies: `eg_session` (the login session, `Path=/`) and `eg_admin` (admin
-//! mode, `Path=/api/admin`), both `HttpOnly; SameSite=Lax`, `Secure` unless
-//! the public origin is plain-http local development. Only the SHA-256 of a
-//! token is stored.
+//! Cookies: `eg_session` (the login session, `Path=/`; named
+//! `__Host-eg_session` when `Secure`, so that no other host can set it) and
+//! `eg_admin` (admin mode, `Path=/api/admin`), both `HttpOnly; SameSite=Lax`,
+//! `Secure` unless the public origin is plain-http local development. Only
+//! the SHA-256 of a token is stored.
 
 pub mod actions;
 pub mod extract;
@@ -17,14 +18,20 @@ use alloy_primitives::Address;
 use axum::extract::ConnectInfo;
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, header};
-use eg_store::{SETTING_OPEN_REGISTRATION, StoreError};
+use eg_store::{AuditEntry, AuditOutcome, SETTING_OPEN_REGISTRATION, StoreError};
 
 use crate::config::{Config, PublicOrigin};
+use crate::dto::rfc3339;
 use crate::state::AppState;
 
-use self::ratelimit::RateLimiter;
+use self::ratelimit::{AuditCap, RateLimiter, Suppressed};
 
+/// The login session cookie over plain-http local development.
 pub const SESSION_COOKIE: &str = "eg_session";
+/// The login session cookie when cookies are `Secure`: the `__Host-` prefix
+/// makes browsers accept it only from this host, with `Path=/` and no
+/// `Domain`, so a sibling subdomain cannot plant a session (cookie tossing).
+pub const SECURE_SESSION_COOKIE: &str = "__Host-eg_session";
 pub const ADMIN_COOKIE: &str = "eg_admin";
 /// `eg_admin` is only sent to the admin API.
 pub const ADMIN_COOKIE_PATH: &str = "/api/admin";
@@ -37,6 +44,20 @@ pub const AUTH_REQUESTS_PER_MINUTE: u32 = 10;
 /// client IP) and minute; more are refused alike but not recorded, so the
 /// append-only log cannot be grown without bound.
 pub const ADMIN_DENIALS_PER_MINUTE: u32 = 20;
+
+/// Audit rows of refusals before login (denied logins, admin API requests
+/// with an `eg_admin` cookie but no session) written per minute across all
+/// clients. The per-IP limits above bound each client; this bounds a client
+/// spread over many addresses. Rows past it are left out and counted in one
+/// [`SUPPRESSED_ACTION`] row per minute.
+pub const PRE_AUTH_AUDIT_PER_MINUTE: u32 = 300;
+
+/// The audit action of the row that counts left-out refusals.
+pub const SUPPRESSED_ACTION: &str = "audit_suppressed";
+
+/// Unused, unexpired login nonces kept at a time across all clients; past
+/// it, `GET /api/auth/nonce` answers 429 `rate_limited`.
+pub const MAX_LOGIN_NONCES: u32 = 10_000;
 
 /// How often an open event stream re-checks its session; the stream ends
 /// once the session is gone (logged out, revoked or expired).
@@ -57,6 +78,10 @@ pub struct AuthState {
     pub login_limit: RateLimiter,
     /// Audit rows of refused admin API requests, per [`ADMIN_DENIALS_PER_MINUTE`].
     pub admin_denial_limit: RateLimiter,
+    /// Audit rows of refusals before login, per [`PRE_AUTH_AUDIT_PER_MINUTE`].
+    pub pre_auth_audit: AuditCap,
+    /// [`MAX_LOGIN_NONCES`]; smaller in tests.
+    pub max_login_nonces: u32,
     /// [`SESSION_RECHECK_EVERY`]; shorter in tests.
     pub session_recheck: Duration,
 }
@@ -72,12 +97,24 @@ impl AuthState {
             nonce_limit: RateLimiter::new(AUTH_REQUESTS_PER_MINUTE, window),
             login_limit: RateLimiter::new(AUTH_REQUESTS_PER_MINUTE, window),
             admin_denial_limit: RateLimiter::new(ADMIN_DENIALS_PER_MINUTE, window),
+            pre_auth_audit: AuditCap::new(PRE_AUTH_AUDIT_PER_MINUTE, window),
+            max_login_nonces: MAX_LOGIN_NONCES,
             session_recheck: SESSION_RECHECK_EVERY,
         }
     }
 
     pub fn is_admin(&self, addr: Address) -> bool {
         self.admins.contains(&addr)
+    }
+
+    /// The login session cookie's name: [`SECURE_SESSION_COOKIE`] when
+    /// cookies are `Secure`, else [`SESSION_COOKIE`]. Only that name is read.
+    pub fn session_cookie(&self) -> &'static str {
+        if self.origin.secure {
+            SECURE_SESSION_COOKIE
+        } else {
+            SESSION_COOKIE
+        }
     }
 }
 
@@ -96,6 +133,66 @@ pub async fn open_registration(state: &AppState) -> Result<bool, StoreError> {
         .await?
         .and_then(|v| v.as_bool())
         .unwrap_or(false))
+}
+
+/// Appends `entry`, the audit row of a refusal before login from client
+/// bucket `bucket` (see [`rate_key`]), within [`AuthState::pre_auth_audit`]:
+/// past the cap the row is left out (and only logged), and the first row of
+/// the next window is preceded by a summary of what was left out.
+pub async fn audit_pre_auth(
+    state: &AppState,
+    entry: &AuditEntry,
+    bucket: &str,
+) -> Result<(), StoreError> {
+    let (write, ended) = state.auth.pre_auth_audit.admit(&entry.action, bucket);
+    if let Some(ended) = ended {
+        state.store.audit_append(&suppressed_entry(&ended)).await?;
+    }
+    if write {
+        state.store.audit_append(entry).await?;
+    } else {
+        tracing::debug!(action = %entry.action, %bucket, "refusal not audited (server-wide cap)");
+    }
+    Ok(())
+}
+
+/// Writes the summary of a capped window that has ended, if it left rows
+/// out; run periodically, so a summary does not wait for the next refusal.
+pub async fn flush_suppressed_audit(state: &AppState) -> Result<(), StoreError> {
+    if let Some(ended) = state.auth.pre_auth_audit.take_ended() {
+        state.store.audit_append(&suppressed_entry(&ended)).await?;
+    }
+    Ok(())
+}
+
+fn suppressed_entry(s: &Suppressed) -> AuditEntry {
+    tracing::warn!(
+        suppressed = s.total,
+        "refusals before login over the server-wide audit cap were left out of the audit log"
+    );
+    let buckets: Vec<serde_json::Value> = s
+        .top_buckets
+        .iter()
+        .map(|(bucket, count)| serde_json::json!({ "bucket": bucket, "count": count }))
+        .collect();
+    AuditEntry {
+        actor: "unknown".into(),
+        action: SUPPRESSED_ACTION.into(),
+        target: None,
+        before: None,
+        after: Some(serde_json::json!({
+            "from": rfc3339(s.from),
+            "to": rfc3339(s.to),
+            "suppressed": s.total,
+            "by_action": s.by_action,
+            "top_buckets": buckets,
+        })),
+        outcome: AuditOutcome::Denied,
+        ip: None,
+        user_agent: None,
+        message: None,
+        signature: None,
+    }
 }
 
 /// The value of cookie `name` from the request's `Cookie` headers (first
@@ -207,6 +304,14 @@ mod tests {
         let h = headers(&["junk; eg_session=; eg_session=second"]);
         assert_eq!(cookie(&h, "eg_session"), Some(""));
         assert_eq!(cookie(&HeaderMap::new(), "eg_session"), None);
+    }
+
+    #[test]
+    fn the_session_cookie_is_host_prefixed_when_secure() {
+        let mut cfg = Config::default();
+        assert_eq!(AuthState::new(&cfg).session_cookie(), "eg_session");
+        cfg.auth.public_origin = "https://graph.example.org".into();
+        assert_eq!(AuthState::new(&cfg).session_cookie(), "__Host-eg_session");
     }
 
     #[test]

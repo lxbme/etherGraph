@@ -12,9 +12,10 @@ use common::{
 };
 use eg_core::source::{RawLog, RawReceipt, RawTx};
 use eg_core::testing::FakeSource;
+use eg_core::types::TransferKind;
 use eg_ingest::JobHandler;
-use eg_ingest::handlers::FetchTxHandler;
-use eg_store::JobStatus;
+use eg_ingest::handlers::{FetchTxHandler, SyncAddressHandler};
+use eg_store::{JobStatus, SyncState};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
@@ -358,6 +359,151 @@ async fn jobs_started_by_viewing_belong_to_the_viewer(pool: PgPool) {
     assert_eq!(ids(&theirs).len(), 2);
     let (_, mine) = get(&app, "/api/jobs").await;
     assert_eq!(mine, json!([]));
+}
+
+// ------------------------------------------------------------- sync state
+
+/// Every `state` in a coverage list.
+fn states(coverage: &Value) -> Vec<&str> {
+    coverage
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["state"].as_str().unwrap())
+        .collect()
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn another_users_sync_is_neither_shown_nor_blocking(pool: PgPool) {
+    let (app, state, _) = test_app(pool).await;
+    let (b, b_id) = second_user(&app, &state).await;
+    // A's sync of X ran, then paused on A's own quota: its kinds stay
+    // `syncing` until A's quota resets.
+    let ja = sync_job(&app, json!({"addresses": [hex(X)]})).await;
+    state.store.pause_job_user_quota(ja).await.unwrap();
+    for k in TransferKind::ALL {
+        state
+            .store
+            .set_sync_state(X, k, SyncState::Syncing)
+            .await
+            .unwrap();
+    }
+    let nodes = json!({"addresses": [hex(X)]});
+    let profile = format!("/api/address/{}", hex(X));
+
+    // A sees its own sync.
+    let (st, v) = post_json(&app, "/api/nodes", &nodes).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert_eq!(v[0]["syncing"], true, "{v}");
+    let (_, v) = get(&app, &profile).await;
+    assert_eq!(v["node"]["syncing"], true, "{v}");
+    assert_eq!(states(&v["coverage"]), ["syncing"; 5]);
+
+    // B learns nothing of it: no `syncing` anywhere, X is simply unsynced.
+    let (st, v) = post_json_as(&app, &b, "/api/nodes", &nodes).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert_eq!(
+        (&v[0]["syncing"], &v[0]["synced"]),
+        (&json!(false), &json!(false)),
+        "{v}"
+    );
+    let (st, v) = get_as(&app, &b, &profile).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert_eq!(v["node"]["syncing"], false, "{v}");
+    assert_eq!(v["coverage"], json!([]), "{v}");
+    let (st, v) = post_json_as(&app, &b, "/api/graph/edges", &nodes).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    let node = v["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["address"] == hex(X))
+        .unwrap_or_else(|| panic!("X missing: {v}"));
+    assert_eq!(node["syncing"], false, "{v}");
+    assert_eq!(v["coverage"][hex(X)], json!([]), "{v}");
+
+    // Nothing stops B from syncing X itself: opening it starts B's own job,
+    // which B then sees as syncing (A's job is still paused).
+    let (st, v) = get_as(&app, &b, &format!("{profile}?sync=auto")).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    let job = state.store.claim_next().await.unwrap().unwrap();
+    assert_eq!(
+        (job.kind, job.user_id),
+        (eg_store::JobKind::SyncAddress, Some(b_id))
+    );
+    let (_, v) = get_as(&app, &b, &profile).await;
+    assert_eq!(v["node"]["syncing"], true, "{v}");
+    SyncAddressHandler.run(&job, &state.ctx).await.unwrap();
+    state.store.complete_job(job.id).await.unwrap();
+    let (_, v) = get_as(&app, &b, &profile).await;
+    assert_eq!(
+        (&v["node"]["syncing"], &v["node"]["synced"]),
+        (&json!(false), &json!(true)),
+        "{v}"
+    );
+    assert_eq!(states(&v["coverage"]), ["ok"; 5]);
+    assert_eq!(
+        state.store.job(ja).await.unwrap().unwrap().status,
+        JobStatus::PausedUserQuota
+    );
+}
+
+// ------------------------------------------------------- cross-site reads
+
+/// `GET uri` as the default user, with `Sec-Fetch-Site: site` when given.
+async fn get_from(app: &axum::Router, uri: &str, site: Option<&str>) -> (StatusCode, Value) {
+    let mut req = axum::http::Request::get(uri);
+    if let Some(site) = site {
+        req = req.header("sec-fetch-site", site);
+    }
+    common::send(app, req.body(axum::body::Body::empty()).unwrap()).await
+}
+
+async fn job_count(state: &eg_server::state::AppState) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM jobs")
+        .fetch_one(state.store.pool())
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn cross_site_reads_start_no_work(pool: PgPool) {
+    let (app, state, fake) = test_app(pool).await;
+    let tx = format!("/api/tx/{HASH:#x}");
+    let views = [
+        format!("/api/address/{}?sync=auto", hex(X)),
+        format!("/api/address/{}/counterparties", hex(X)),
+        format!("/api/token/{}", hex(TOKEN)),
+    ];
+    // A link or form on another site (or a sibling subdomain): read-only.
+    for site in ["cross-site", "same-site", "none"] {
+        for uri in &views {
+            let (st, v) = get_from(&app, uri, Some(site)).await;
+            assert_eq!(st, StatusCode::OK, "{uri} {v}");
+        }
+        let (st, v) = get_from(&app, &tx, Some(site)).await;
+        assert_not_found(st, &v);
+        let (st, v) = get_from(&app, "/api/search?q=vitalik.eth", Some(site)).await;
+        assert_not_found(st, &v);
+        assert_eq!(job_count(&state).await, 0, "{site}");
+        assert_eq!(fake.calls(), 0, "{site}");
+    }
+    // The app's own requests (same-origin, or a client sending no
+    // Sec-Fetch-Site) do the work.
+    for site in [Some("same-origin"), None] {
+        let (st, v) = get_from(&app, &tx, site).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["status"], "pending");
+        assert!(v["job_id"].is_i64(), "{v}");
+    }
+    assert_eq!(job_count(&state).await, 1);
+    let (st, v) = get_from(&app, &views[0], Some("same-origin")).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    let syncs: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs WHERE kind = 'sync_address'")
+        .fetch_one(state.store.pool())
+        .await
+        .unwrap();
+    assert_eq!(syncs, 1);
 }
 
 // ------------------------------------------------------------------ job keys

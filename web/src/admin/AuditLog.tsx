@@ -13,6 +13,7 @@ const ACTIONS = [
   "login",
   "logout",
   "admin_access",
+  "audit_suppressed",
   "admin_mode_enter",
   "admin_mode_exit",
   "whitelist_add",

@@ -904,3 +904,118 @@ async fn status_reports_invalid_key_as_degraded(pool: PgPool) {
     assert_eq!(body["degraded"], "invalid_key");
     assert_eq!(body["errors"]["invalid_key"], 1);
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn every_response_forbids_framing(pool: PgPool) {
+    let dir = std::env::temp_dir().join(format!("eg-static-{:016x}", rand::random::<u64>()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("index.html"), "<!doctype html><title>eg</title>").unwrap();
+    let mut cfg = Config::default();
+    cfg.server.static_dir = Some(dir.clone());
+    let (app, _, _) = common::anon_app(pool, cfg);
+    // The SPA (file and fallback), open and gated API routes, errors.
+    for uri in [
+        "/",
+        "/index.html",
+        "/some/spa/route",
+        "/api/health",
+        "/api/status",
+        "/api/no-such-route",
+    ] {
+        let resp = app
+            .clone()
+            .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let h = resp.headers();
+        assert_eq!(
+            h.get("x-frame-options").map(|v| v.to_str().unwrap()),
+            Some("DENY"),
+            "{uri}"
+        );
+        assert_eq!(
+            h.get("content-security-policy")
+                .map(|v| v.to_str().unwrap()),
+            Some("frame-ancestors 'none'"),
+            "{uri}"
+        );
+    }
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn ownerless_jobs_from_before_accounts_are_cancelled_at_startup(pool: PgPool) {
+    use eg_core::types::TransferKind;
+    use eg_store::{JobStatus, SyncState};
+    let (_, state, _) = test_app(pool).await;
+    let store = &state.store;
+    let addr = Address::repeat_byte(0xab);
+    let job = |key: String, kind, params, user_id| NewJob {
+        key,
+        kind,
+        params,
+        priority: Priority::Background,
+        user_id,
+    };
+    // From before accounts: no owner and an unscoped key. The sync ran,
+    // left a kind `syncing` and was paused on the quota.
+    let (legacy_sync, _) = store
+        .enqueue(&job(
+            format!("sync:{addr:#x}:latest"),
+            JobKind::SyncAddress,
+            json!({"address": format!("{addr:#x}"), "direction": "latest", "kinds": []}),
+            None,
+        ))
+        .await
+        .unwrap();
+    store.pause_job_quota(legacy_sync).await.unwrap();
+    store
+        .set_sync_state(addr, TransferKind::Native, SyncState::Syncing)
+        .await
+        .unwrap();
+    let (legacy_tx, _) = store
+        .enqueue(&job("tx:0x01".into(), JobKind::FetchTx, json!({}), None))
+        .await
+        .unwrap();
+    // Today's system and user jobs stay.
+    let (system, _) = store
+        .enqueue(&job(
+            "sys:tx:0x02".into(),
+            JobKind::FetchTx,
+            json!({}),
+            None,
+        ))
+        .await
+        .unwrap();
+    let me = default_user_id(&state).await;
+    let (mine, _) = store
+        .enqueue(&job(
+            format!("u{me}:tx:0x03"),
+            JobKind::FetchTx,
+            json!({}),
+            Some(me),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        eg_server::background::cancel_legacy_jobs(&state)
+            .await
+            .unwrap(),
+        2
+    );
+    let status = |id| async move { store.job(id).await.unwrap().unwrap().status };
+    assert_eq!(status(legacy_sync).await, JobStatus::Cancelled);
+    assert_eq!(status(legacy_tx).await, JobStatus::Cancelled);
+    assert_eq!(status(system).await, JobStatus::Pending);
+    assert_eq!(status(mine).await, JobStatus::Pending);
+    // Nothing will finish the cancelled sync's kind: it is settled.
+    let rows = store.sync_rows(&[addr]).await.unwrap();
+    assert_eq!(rows[0].state, SyncState::Failed);
+    assert_eq!(
+        eg_server::background::cancel_legacy_jobs(&state)
+            .await
+            .unwrap(),
+        0
+    );
+}

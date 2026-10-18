@@ -13,7 +13,7 @@ use eg_ingest::gate::{GateConfig, PriorityGate};
 use eg_ingest::{Runner, default_handlers};
 use eg_server::app::router;
 use eg_server::background::{
-    load_user_quotas, persist_quota, resume_users_under_quota, spawn_background,
+    cancel_legacy_jobs, load_user_quotas, persist_quota, resume_users_under_quota, spawn_background,
 };
 use eg_server::config::{Config, SourceMode};
 use eg_server::import_tokens::TokenFormat;
@@ -159,6 +159,10 @@ async fn serve(path: &Path, source: Option<SourceMode>) -> anyhow::Result<()> {
     cfg.validate()
         .with_context(|| format!("invalid config {}", path.display()))?;
 
+    if let Some(warning) = cfg.auth.proxy_warning() {
+        tracing::warn!("{warning}");
+    }
+
     let store = Store::connect(&cfg.server.database_url)
         .await
         .context("connecting to the database")?;
@@ -217,6 +221,7 @@ async fn serve(path: &Path, source: Option<SourceMode>) -> anyhow::Result<()> {
 
     let cfg = Arc::new(cfg);
     let state = AppState::new(cfg.clone(), store, source, gate, stats);
+    cancel_legacy_jobs(&state).await?;
     Runner::spawn(state.ctx.clone(), cfg.sync.workers, default_handlers());
     spawn_background(&state);
 

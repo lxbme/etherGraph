@@ -8,7 +8,7 @@ use eg_decode::{decode_resolve_addr, encode_resolve_addr, normalize};
 use eg_ingest::billing::billed;
 use serde::Deserialize;
 
-use crate::auth::extract::CurrentUser;
+use crate::auth::extract::{CurrentUser, MayStartWork};
 use crate::dto::{SearchResultDto, hex_addr};
 use crate::error::{ApiError, invalid};
 use crate::parse::{is_hex, parse_address, parse_tx_hash};
@@ -21,10 +21,12 @@ pub struct SearchQuery {
 }
 
 /// An ENS lookup is billed to the viewer; over their quota it is 429
-/// `user_quota_exhausted`.
+/// `user_quota_exhausted`. A cross-site request (see [`MayStartWork`])
+/// makes no lookup: the name is answered as not resolving (404).
 pub async fn search(
     State(s): State<AppState>,
     user: CurrentUser,
+    MayStartWork(may_start): MayStartWork,
     ApiQuery(q): ApiQuery<SearchQuery>,
 ) -> Result<Json<SearchResultDto>, ApiError> {
     let q = q.q.unwrap_or_default();
@@ -40,6 +42,9 @@ pub async fn search(
         result("tx", format!("{:#x}", parse_tx_hash(q)?), None)
     } else if q.contains('.') {
         let name = normalize(q).map_err(|e| invalid(e.to_string()))?;
+        if !may_start {
+            return Err(unresolved(&name));
+        }
         let addr = billed(Some(user.id), resolve(&s, &name)).await?;
         result("ens", name, Some(hex_addr(addr)))
     } else {
@@ -50,11 +55,15 @@ pub async fn search(
     Ok(Json(dto))
 }
 
+fn unresolved(name: &str) -> ApiError {
+    ApiError::not_found(format!("{name} does not resolve to an address"))
+}
+
 /// Forward resolution through the UniversalResolver; a revert or the zero
 /// address is 404, an undecodable response 502.
 async fn resolve(s: &AppState, name: &str) -> Result<Address, ApiError> {
     let data = encode_resolve_addr(name).map_err(|e| invalid(e.to_string()))?;
-    let unresolved = || ApiError::not_found(format!("{name} does not resolve to an address"));
+    let unresolved = || unresolved(name);
     let ret = match s
         .source
         .eth_call(Priority::Interactive, s.cfg.ens.universal_resolver, data)

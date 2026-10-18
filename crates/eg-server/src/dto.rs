@@ -270,9 +270,9 @@ pub struct AdminActionNonceRequestDto {
     pub action: AdminAction,
 }
 
-/// The message to sign for one action: a line describing the change with
-/// its concrete values, then `Nonce: …` and `Issued At: …`. Valid for five
-/// minutes.
+/// The message to sign for one action: `etherGraph admin action on
+/// <domain>`, a line describing the change with its concrete values, then
+/// `Nonce: …` and `Issued At: …`. Valid for five minutes.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct AdminActionNonceDto {

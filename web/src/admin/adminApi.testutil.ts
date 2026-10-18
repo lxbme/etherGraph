@@ -69,8 +69,9 @@ export const auditRow = (id: number, extra: Partial<AuditRowDto> = {}): AuditRow
   ...extra,
 });
 
-/** The server's message for an action: a line, then Nonce and Issued At (crates/eg-server/src/auth/actions.rs). */
-export const actionMessage = (line: string, nonce = "n1") => `${line}\n\nNonce: ${nonce}\nIssued At: 2026-10-19T10:00:00.000Z`;
+/** The server's message for an action: the app and origin, a line, then Nonce and Issued At (crates/eg-server/src/auth/actions.rs). */
+export const actionMessage = (line: string, nonce = "n1") =>
+  `etherGraph admin action on 127.0.0.1:8080\n${line}\n\nNonce: ${nonce}\nIssued At: 2026-10-19T10:00:00.000Z`;
 
 export const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });

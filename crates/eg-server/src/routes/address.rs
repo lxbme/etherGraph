@@ -1,4 +1,6 @@
 //! `GET /api/address/{addr}?sync=auto|none`: address profile.
+//! A cross-site request (see [`MayStartWork`]) starts no sync or metadata
+//! job.
 //!
 //! `none` (default) never starts a first sync: syncing a new address costs
 //! upstream calls the user has to confirm. Existing coverage that is stale is
@@ -16,7 +18,7 @@ use eg_ingest::{SyncDirection, enqueue_sync};
 use eg_store::SyncRow;
 use serde::Deserialize;
 
-use crate::auth::extract::CurrentUser;
+use crate::auth::extract::{CurrentUser, MayStartWork};
 use crate::dto::{AddressProfileDto, SyncStatusDto, hex_addr, rfc3339};
 use crate::error::{ApiError, invalid};
 use crate::nodes::{enqueue_missing_meta, load_nodes};
@@ -33,6 +35,7 @@ pub struct ProfileQuery {
 pub async fn profile(
     State(s): State<AppState>,
     user: CurrentUser,
+    MayStartWork(may_start): MayStartWork,
     ApiPath(raw): ApiPath<String>,
     ApiQuery(q): ApiQuery<ProfileQuery>,
 ) -> Result<Json<AddressProfileDto>, ApiError> {
@@ -59,7 +62,9 @@ pub async fn profile(
     let rows = loaded.sync.remove(&addr).unwrap_or_default();
     let account = loaded.accounts.remove(&addr);
 
-    let refresh = if auto && !node.synced {
+    let refresh = if !may_start {
+        None
+    } else if auto && !node.synced {
         Some(Priority::Interactive)
     } else if is_stale(&s, &rows) {
         Some(Priority::Background)
@@ -82,7 +87,9 @@ pub async fn profile(
             tracing::warn!(error = %e, address = %hex_addr(addr), "enqueueing sync failed");
         }
     }
-    enqueue_missing_meta(&s, user.id, &[addr], &[addr], &[]).await;
+    if may_start {
+        enqueue_missing_meta(&s, user.id, &[addr], &[addr], &[]).await;
+    }
 
     Ok(Json(AddressProfileDto {
         node,

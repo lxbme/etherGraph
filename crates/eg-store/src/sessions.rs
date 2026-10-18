@@ -161,19 +161,29 @@ impl Store {
         insert_session(&self.pool, user_id, kind, ttl, ip, user_agent).await
     }
 
-    /// Like [`Store::session_create`], appending `audit` in the same
-    /// transaction: either both are stored or neither is.
+    /// Starts a login session like [`Store::session_create`], appending
+    /// `audit` in the same transaction: either both are stored or neither
+    /// is. The login session `replaces` (the raw token the browser still
+    /// held, of any user) ends in that transaction, and with it its admin
+    /// mode.
     pub async fn session_create_audited(
         &self,
         user_id: i64,
-        kind: SessionKind,
+        replaces: Option<&str>,
         ttl: Duration,
         ip: Option<&str>,
         user_agent: Option<&str>,
         audit: &AuditEntry,
     ) -> Result<String> {
         let mut tx = self.pool.begin().await?;
-        let token = insert_session(&mut *tx, user_id, kind, ttl, ip, user_agent).await?;
+        if let Some(old) = replaces.and_then(token_hash) {
+            sqlx::query("DELETE FROM sessions WHERE token_hash = $1 AND kind = 'user'")
+                .bind(old)
+                .execute(&mut *tx)
+                .await?;
+        }
+        let token =
+            insert_session(&mut *tx, user_id, SessionKind::User, ttl, ip, user_agent).await?;
         insert_audit(&mut *tx, audit).await?;
         tx.commit().await?;
         Ok(token)
@@ -341,6 +351,19 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(nonce)
+    }
+
+    /// Unused, unexpired nonces of `purpose`, counted up to `up_to`.
+    pub async fn nonces_outstanding(&self, purpose: NoncePurpose, up_to: u32) -> Result<u32> {
+        let n: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM (SELECT 1 FROM auth_nonces \
+             WHERE purpose = $1 AND used_at IS NULL AND expires_at > now() LIMIT $2) n",
+        )
+        .bind(purpose.as_str())
+        .bind(i64::from(up_to))
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(u32::try_from(n).unwrap_or(u32::MAX))
     }
 
     /// Consumes `nonce` if it was issued for `purpose`, is unexpired and
@@ -602,14 +625,7 @@ mod tests {
         let u = user(&s, 1).await;
         let ttl = Duration::days(1);
         let raw = s
-            .session_create_audited(
-                u.id,
-                SessionKind::User,
-                ttl,
-                None,
-                None,
-                &login_entry(AuditOutcome::Ok),
-            )
+            .session_create_audited(u.id, None, ttl, None, None, &login_entry(AuditOutcome::Ok))
             .await
             .unwrap();
         assert!(
@@ -636,16 +652,9 @@ mod tests {
         .await
         .unwrap();
         assert!(
-            s.session_create_audited(
-                u.id,
-                SessionKind::User,
-                ttl,
-                None,
-                None,
-                &login_entry(AuditOutcome::Ok),
-            )
-            .await
-            .is_err()
+            s.session_create_audited(u.id, None, ttl, None, None, &login_entry(AuditOutcome::Ok),)
+                .await
+                .is_err()
         );
         let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM sessions")
             .fetch_one(&pool)

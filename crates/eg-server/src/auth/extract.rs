@@ -9,7 +9,7 @@ use axum::middleware::Next;
 use axum::response::Response;
 use eg_store::{AuditEntry, AuditOutcome, SessionKind, SessionRow, UserRow};
 
-use super::{ADMIN_COOKIE, SESSION_COOKIE, client_ip, cookie, rate_key, user_agent};
+use super::{ADMIN_COOKIE, audit_pre_auth, client_ip, cookie, rate_key, user_agent};
 use crate::dto::hex_addr;
 use crate::error::ApiError;
 use crate::state::AppState;
@@ -39,7 +39,7 @@ pub async fn session_user(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<Option<CurrentUser>, ApiError> {
-    let Some(raw) = cookie(headers, SESSION_COOKIE) else {
+    let Some(raw) = cookie(headers, state.auth.session_cookie()) else {
         return Ok(None);
     };
     let found = state.store.session_lookup(raw, SessionKind::User).await?;
@@ -74,7 +74,7 @@ pub async fn admin_session(
     }
     let (Some(admin), Some(login)) = (
         cookie(headers, ADMIN_COOKIE),
-        cookie(headers, SESSION_COOKIE),
+        cookie(headers, state.auth.session_cookie()),
     ) else {
         return Ok(None);
     };
@@ -144,7 +144,8 @@ const MAX_AUDIT_TARGET: usize = 256;
 /// Audits a refused admin API request (`admin_access`, `denied`, the
 /// request's method and path as target) by `actor` (address and user id;
 /// `None`: `unknown`). At most [`ADMIN_DENIALS_PER_MINUTE`] rows per user,
-/// or per client IP for an unknown actor; further refusals are only logged,
+/// or per client IP for an unknown actor, whose rows also count toward the
+/// server-wide cap of [`audit_pre_auth`]; further refusals are only logged,
 /// so the append-only log cannot be grown without bound.
 ///
 /// [`ADMIN_DENIALS_PER_MINUTE`]: super::ADMIN_DENIALS_PER_MINUTE
@@ -174,21 +175,24 @@ async fn deny_admin_access(
         tracing::debug!(%key, %target, reason, "refused admin request not audited (over the limit)");
         return Ok(());
     }
-    state
-        .store
-        .audit_append(&AuditEntry {
-            actor: actor.map_or_else(|| "unknown".to_owned(), |(a, _)| a),
-            action: "admin_access".into(),
-            target: Some(target),
-            before: None,
-            after: Some(serde_json::json!({ "reason": reason })),
-            outcome: AuditOutcome::Denied,
-            ip: meta.ip,
-            user_agent: meta.user_agent,
-            message: None,
-            signature: None,
-        })
-        .await?;
+    let known = actor.is_some();
+    let entry = AuditEntry {
+        actor: actor.map_or_else(|| "unknown".to_owned(), |(a, _)| a),
+        action: "admin_access".into(),
+        target: Some(target),
+        before: None,
+        after: Some(serde_json::json!({ "reason": reason })),
+        outcome: AuditOutcome::Denied,
+        ip: meta.ip.clone(),
+        user_agent: meta.user_agent.clone(),
+        message: None,
+        signature: None,
+    };
+    if known {
+        state.store.audit_append(&entry).await?;
+    } else {
+        audit_pre_auth(state, &entry, &meta.ip_key()).await?;
+    }
     Ok(())
 }
 
@@ -217,6 +221,27 @@ impl FromRequestParts<AppState> for ClientMeta {
             ip: client_ip(parts, state.auth.trust_forwarded_for),
             user_agent: user_agent(&parts.headers),
         })
+    }
+}
+
+/// Whether a `GET` may start work for its user: enqueue jobs or make a
+/// billed upstream call. Only the app's own requests may: `Sec-Fetch-Site`
+/// `same-origin`, or absent (a client that does not send it). `SameSite=Lax`
+/// cookies also ride along on a top-level navigation from another site, so a
+/// link there must not spend the user's quota or add to their jobs; such a
+/// request is served from what is stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MayStartWork(pub bool);
+
+impl<S: Send + Sync> FromRequestParts<S> for MayStartWork {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _: &S,
+    ) -> Result<Self, std::convert::Infallible> {
+        let site = parts.headers.get("sec-fetch-site");
+        Ok(Self(site.is_none_or(|v| v.as_bytes() == b"same-origin")))
     }
 }
 

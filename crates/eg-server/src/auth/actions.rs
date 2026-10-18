@@ -322,9 +322,11 @@ async fn export(
     }
 }
 
-/// The signed text: the description, then the nonce and issue time.
-pub fn message(line: &str, nonce: &str, issued_at: &str) -> String {
-    format!("{line}\n\nNonce: {nonce}\nIssued At: {issued_at}")
+/// The signed text: a header naming the app and the origin's `domain` (so
+/// the wallet shows what the signature is for), the description, then the
+/// nonce and issue time.
+pub fn message(domain: &str, line: &str, nonce: &str, issued_at: &str) -> String {
+    format!("etherGraph admin action on {domain}\n{line}\n\nNonce: {nonce}\nIssued At: {issued_at}")
 }
 
 /// Issues a nonce for `action` to admin `user_id` and returns it with the
@@ -349,7 +351,12 @@ pub async fn issue(
             MESSAGE_TTL,
         )
         .await?;
-    let text = message(&issued.line, &nonce, &issued.issued_at);
+    let text = message(
+        &s.auth.origin.domain,
+        &issued.line,
+        &nonce,
+        &issued.issued_at,
+    );
     Ok((nonce, text))
 }
 
@@ -372,7 +379,12 @@ pub async fn take(s: &AppState, nonce: &str) -> Result<Option<Taken>, StoreError
     Ok(Some(Taken {
         user_id: row.user_id,
         payload_hash: row.payload_hash,
-        message: message(&issued.line, &row.nonce, &issued.issued_at),
+        message: message(
+            &s.auth.origin.domain,
+            &issued.line,
+            &row.nonce,
+            &issued.issued_at,
+        ),
         line: issued.line,
     }))
 }
@@ -433,11 +445,13 @@ mod tests {
     fn message_layout() {
         assert_eq!(
             message(
+                "graph.example.org",
                 "Turn open registration on",
                 "abc",
                 "2026-10-19T12:00:00.000Z"
             ),
-            "Turn open registration on\n\nNonce: abc\nIssued At: 2026-10-19T12:00:00.000Z"
+            "etherGraph admin action on graph.example.org\nTurn open registration on\n\n\
+             Nonce: abc\nIssued At: 2026-10-19T12:00:00.000Z"
         );
     }
 }

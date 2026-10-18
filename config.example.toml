@@ -41,4 +41,12 @@ admin_session_minutes = 60
 # right-most X-Forwarded-For hop. That proxy must append the peer address
 # (nginx: proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;) or
 # overwrite the header; hops further left are client-supplied and ignored.
+#
+# Deployment note: an https public_origin normally means a reverse proxy
+# (nginx, caddy) terminates TLS in front of this server. Then set this to true:
+# left false, every client has the proxy's IP, so all clients share one login
+# rate-limit bucket (one client can lock everyone out of signing in) and audit
+# rows and sessions record only the proxy. The server warns at startup about an
+# https origin with this off. Leave it false when clients connect directly, or
+# when more than one proxy sits in front (the right-most hop would be a proxy).
 trust_forwarded_for = false

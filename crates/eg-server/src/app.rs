@@ -3,8 +3,9 @@
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::handler::Handler;
-use axum::http::StatusCode;
-use axum::middleware::from_fn_with_state;
+use axum::http::{HeaderValue, StatusCode, header};
+use axum::middleware::{from_fn_with_state, map_response};
+use axum::response::Response;
 use axum::routing::{any, delete, get, post};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
@@ -22,7 +23,7 @@ use crate::state::AppState;
 /// is for configured admins (see [`admin`]), the rest need a session, and
 /// state-changing requests need the public `Origin`. When
 /// `server.static_dir` exists, other paths are served from it with
-/// `index.html` as the SPA fallback.
+/// `index.html` as the SPA fallback. No response may be framed.
 pub fn router(state: AppState) -> Router {
     let protected = Router::new()
         .route("/status", get(status::status))
@@ -93,7 +94,22 @@ pub fn router(state: AppState) -> Router {
     let trace = TraceLayer::new_for_http()
         .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
         .on_response(DefaultOnResponse::new().level(Level::INFO));
-    app.layer(trace).with_state(state)
+    app.layer(map_response(no_framing))
+        .layer(trace)
+        .with_state(state)
+}
+
+/// Forbids framing every response (the SPA and the API) against
+/// clickjacking: `X-Frame-Options` for older browsers, CSP
+/// `frame-ancestors` for current ones.
+async fn no_framing(mut res: Response) -> Response {
+    let h = res.headers_mut();
+    h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    h.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("frame-ancestors 'none'"),
+    );
+    res
 }
 
 /// Largest workspace body (a canvas with imported snapshots can be big): twice

@@ -89,7 +89,8 @@ function serveAdmin(mock: MockApi, wallet: FakeWallet) {
     if (!adminMode) return unauthorized("no_admin_session");
     const { action } = req.postDataJSON() as { action: AdminAction };
     const nonce = `action${++n}`;
-    const message = `${line(action)}\n\nNonce: ${nonce}\nIssued At: ${new Date().toISOString()}`;
+    const header = `etherGraph admin action on ${new URL(req.url()).host}`;
+    const message = `${header}\n${line(action)}\n\nNonce: ${nonce}\nIssued At: ${new Date().toISOString()}`;
     nonces.set(nonce, { action, message });
     return { json: { nonce, message } };
   });
@@ -147,7 +148,9 @@ test("an admin adds an address to the whitelist with a signed action", async ({ 
   await whitelist.getByRole("button", { name: "Add" }).click();
   const shown = await signShown(page, wallet);
 
-  expect(shown).toMatch(new RegExp(`^Add ${getAddress(C)} to the whitelist\\n\\nNonce: action1\\nIssued At: `));
+  expect(shown).toMatch(
+    new RegExp(`^etherGraph admin action on localhost:4173\\nAdd ${getAddress(C)} to the whitelist\\n\\nNonce: action1\\nIssued At: `),
+  );
   expect(server.applied).toEqual([{ type: "WhitelistAdd", address: C }]);
   await expect(whitelist.getByRole("cell", { name: C, exact: true })).toBeVisible();
   expect(mock.unhandled).toEqual([]);
@@ -164,7 +167,10 @@ test("an admin changes a user's daily quota with a signed action", async ({ page
   await row.getByRole("button", { name: "Save" }).click();
   const shown = await signShown(page, wallet);
 
-  expect(shown.split("\n")[0]).toBe(`Set the daily quota of ${getAddress(B)} from 1000 to 2500`);
+  expect(shown.split("\n").slice(0, 2)).toEqual([
+    "etherGraph admin action on localhost:4173",
+    `Set the daily quota of ${getAddress(B)} from 1000 to 2500`,
+  ]);
   expect(server.applied).toEqual([{ type: "SetUserQuota", address: B, calls: 2500 }]);
   await expect(row.getByText("2,500")).toBeVisible();
   expect(mock.unhandled).toEqual([]);
@@ -206,7 +212,10 @@ test("an admin exports the audit log to a JSON file with a signed action", async
   await audit.getByRole("button", { name: "Export to a file" }).click();
   const [dl, shown] = await Promise.all([page.waitForEvent("download"), signShown(page, wallet)]);
 
-  expect(shown.split("\n")[0]).toBe("Export the audit log from the beginning to now");
+  expect(shown.split("\n").slice(0, 2)).toEqual([
+    "etherGraph admin action on localhost:4173",
+    "Export the audit log from the beginning to now",
+  ]);
   expect(server.applied).toEqual([{ type: "ExportAudit", from: null, to: null }]);
   expect(dl.suggestedFilename()).toMatch(/^ethergraph-audit-\d{8}-\d{6}\.json$/);
   const file = await page.evaluate(async () => {

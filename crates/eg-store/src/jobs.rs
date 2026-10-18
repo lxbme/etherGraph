@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use eg_core::source::Priority;
+use eg_core::types::Address;
 use serde::{Deserialize, Serialize};
 use sqlx::PgConnection;
 use sqlx::Row;
@@ -424,6 +425,16 @@ impl Store {
         cancelled(rows)
     }
 
+    /// [`Store::cancel_job`] applied to every active job from before jobs had
+    /// owners: no owner and a key without the system scope (`sys:`). Returns
+    /// each affected job's id, kind and resulting status.
+    pub async fn cancel_legacy_jobs(&self) -> Result<Vec<(i64, JobKind, JobStatus)>> {
+        let rows = sqlx::query_as(cancel_active!("user_id IS NULL AND key NOT LIKE 'sys:%'"))
+            .fetch_all(&self.pool)
+            .await?;
+        cancelled(rows)
+    }
+
     pub async fn cancel_requested(&self, id: i64) -> Result<bool> {
         sqlx::query_scalar("SELECT cancel_requested FROM jobs WHERE id = $1")
             .bind(id)
@@ -493,6 +504,33 @@ impl Store {
         );
         let rows = sqlx::query(sql).bind(user).fetch_all(&self.pool).await?;
         rows.iter().map(job_row).collect()
+    }
+
+    /// Those of `addrs` that `user` has an active address sync of (either
+    /// direction): only that user's own jobs, never another user's.
+    pub async fn user_syncing(&self, user: i64, addrs: &[Address]) -> Result<HashSet<Address>> {
+        if addrs.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let wanted: Vec<String> = addrs.iter().map(|a| format!("{a:#x}")).collect();
+        let sql = concat!(
+            "SELECT DISTINCT params->>'address' FROM jobs \
+             WHERE user_id = $1 AND kind = 'sync_address' AND status IN ",
+            active_statuses!(),
+            " AND params->>'address' = ANY($2)"
+        );
+        let found: Vec<String> = sqlx::query_scalar(sql)
+            .bind(user)
+            .bind(&wanted)
+            .fetch_all(&self.pool)
+            .await?;
+        found
+            .iter()
+            .map(|a| {
+                a.parse()
+                    .map_err(|e| StoreError::Invalid(format!("sync job address {a:?}: {e}")))
+            })
+            .collect()
     }
 
     /// Every user's (and system) active jobs, oldest first.
@@ -1033,5 +1071,32 @@ mod tests {
         s.pause_job_quota(sys).await.unwrap();
         let counts = s.user_waiting_job_counts().await.unwrap();
         assert_eq!(counts, HashMap::from([(a, 2), (b, 1)]));
+    }
+
+    #[sqlx::test]
+    async fn user_syncing_lists_only_the_users_active_syncs(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (a, b) = (user(&s, 0xa1).await, user(&s, 0xb1).await);
+        let (x, y, z) = (
+            Address::repeat_byte(0x11),
+            Address::repeat_byte(0x12),
+            Address::repeat_byte(0x13),
+        );
+        let sync = |addr: Address, owner: i64, dir: &str| NewJob {
+            key: format!("u{owner}:sync:{addr:#x}:{dir}"),
+            params: json!({"address": format!("{addr:#x}"), "direction": dir}),
+            ..owned("", Priority::Background, owner)
+        };
+        let (xa, _) = s.enqueue(&sync(x, a, "latest")).await.unwrap();
+        s.pause_job_user_quota(xa).await.unwrap();
+        s.enqueue(&sync(x, a, "older")).await.unwrap();
+        s.enqueue(&sync(y, b, "latest")).await.unwrap();
+        let (za, _) = s.enqueue(&sync(z, a, "latest")).await.unwrap();
+        s.cancel_job(za).await.unwrap();
+        let all = [x, y, z];
+        assert_eq!(s.user_syncing(a, &all).await.unwrap(), HashSet::from([x]));
+        assert_eq!(s.user_syncing(b, &all).await.unwrap(), HashSet::from([y]));
+        assert!(s.user_syncing(b, &[x]).await.unwrap().is_empty());
+        assert!(s.user_syncing(a, &[]).await.unwrap().is_empty());
     }
 }

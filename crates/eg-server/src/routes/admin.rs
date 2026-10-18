@@ -18,8 +18,7 @@ use crate::auth::actions::{self, Action};
 use crate::auth::extract::{AdminMode, AdminUser, ClientMeta, CurrentUser, admin_session};
 use crate::auth::siwe::{self, MAX_MESSAGE_LEN, VerifyError, canonical_message, claimed};
 use crate::auth::{
-    ADMIN_COOKIE, ADMIN_COOKIE_PATH, MAX_AUDIT_SIGNATURE, SESSION_COOKIE, cookie,
-    open_registration, set_cookie,
+    ADMIN_COOKIE, ADMIN_COOKIE_PATH, MAX_AUDIT_SIGNATURE, cookie, open_registration, set_cookie,
 };
 use crate::background::{default_user_limit, next_utc_midnight, refresh_user_limits};
 use crate::dto::{
@@ -156,7 +155,7 @@ pub async fn session_enter(
             return Err(e);
         }
     }
-    let login = cookie(&headers, SESSION_COOKIE).unwrap_or_default();
+    let login = cookie(&headers, s.auth.session_cookie()).unwrap_or_default();
     let ttl = Duration::minutes(i64::from(s.cfg.auth.admin_session_minutes));
     let created = s
         .store

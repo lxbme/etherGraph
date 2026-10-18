@@ -539,6 +539,9 @@ async fn graph_node_flags_and_names(pool: PgPool) {
         .execute(&pool)
         .await
         .unwrap();
+    // The viewer's own sync of C is under way (another user's would not show).
+    let (s, v) = post_json(&app, "/api/sync", &json!({"addresses": [hex(C)]})).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
 
     let (s, b) = post_json(&app, "/api/graph/edges", &graph_req(json!(null))).await;
     assert_eq!(s, StatusCode::OK, "{b}");
