@@ -10,6 +10,7 @@ pub mod probe;
 pub mod search;
 pub mod status;
 pub mod sync;
+pub mod token;
 pub mod transfers;
 pub mod tx;
 pub mod workspaces;

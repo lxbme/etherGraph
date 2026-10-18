@@ -10,7 +10,7 @@ use tracing::Level;
 use crate::error::ApiError;
 use crate::routes::{
     address, batches, counterparties, events, graph, identify, jobs, labels, probe, search, status,
-    sync, transfers, tx, workspaces,
+    sync, token, transfers, tx, workspaces,
 };
 use crate::state::AppState;
 
@@ -26,6 +26,7 @@ pub fn router(state: AppState) -> Router {
         .route("/search", get(search::search))
         .route("/address/{addr}", get(address::profile))
         .route("/address/{addr}/counterparties", get(counterparties::list))
+        .route("/token/{addr}", get(token::detail))
         .route("/sync", post(sync::sync))
         .route("/identify", post(identify::identify))
         .route("/probe", post(probe::probe))

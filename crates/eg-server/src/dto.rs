@@ -799,3 +799,33 @@ impl From<&eg_store::WorkspaceMeta> for WorkspaceMetaDto {
         }
     }
 }
+
+// ------------------------------------------------------------------ token
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TokenListsDto {
+    pub uniswap: bool,
+    pub coingecko: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TokenDetailDto {
+    pub address: String,
+    #[ts(type = r#""erc20" | "erc721" | "erc1155" | "unknown""#)]
+    pub standard: String,
+    pub name: Option<String>,
+    pub symbol: Option<String>,
+    pub decimals: Option<u8>,
+    pub contract_name: Option<String>,
+    /// Real metadata has been fetched for the address.
+    pub identified: bool,
+    /// Verified source code is on file; null when not identified.
+    pub source_verified: Option<bool>,
+    pub lists: TokenListsDto,
+    /// eth-labels tags, sorted.
+    pub tags: Vec<String>,
+    /// First website recorded by eth-labels.
+    pub website: Option<String>,
+}
