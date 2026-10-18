@@ -10,6 +10,9 @@ import { api } from '../api/endpoints'
 import { queryClient } from '../api/queryClient'
 import { useUi } from '../panels/uiStore'
 import { formatLocalTime } from '../lib/format'
+import { useAuth } from '../auth/useMe'
+
+const ME = { address: '0xa0cf798816d4b9b9866b5330eea46a18382f251e', is_admin: false, quota: { used: 0, limit: 5000, reset_at: '2026-10-18T00:00:00Z' } }
 
 // Cytoscape cannot render in jsdom and the SSE stream is covered by api/useEvents.test.tsx.
 vi.mock('../graph/CytoscapeView', () => ({ CytoscapeView: () => <div data-testid="cy" /> }))
@@ -28,6 +31,7 @@ beforeEach(() => {
   localStorage.clear()
   useUi.setState({ labelEditorFor: null, detailOpen: true, txSelection: {} })
   queryClient.clear()
+  useAuth.setState({ status: 'authenticated', me: ME, reason: null })
 })
 afterEach(() => vi.restoreAllMocks())
 
@@ -126,15 +130,45 @@ describe('banners', () => {
     expect(screen.getByText('Live updates disconnected, reconnecting…')).toBeInTheDocument()
   })
 
-  it('quota paused shows the reset time banner', () => {
-    useQuota.setState({ quota: { used: 100, limit: 100, paused: true, reset_at: '2026-10-18T00:00:00Z' } })
+  it('over their own quota: the banner says names fill in tomorrow and counts the waiting jobs', async () => {
+    useQuota.setState({ quota: { used: 5000, limit: 5000, paused: true, server_paused: false, reset_at: '2026-10-18T00:00:00Z' } })
+    const job = (id: number, status: string) => ({ id, kind: 'contract_meta', status, params: [], attempts: 0, error: null, batches: [] })
+    vi.spyOn(api, 'jobs').mockResolvedValue([job(1, 'running'), job(2, 'paused_user_quota'), job(3, 'paused_user_quota')] as never)
+    // Job 1 paused after the list was loaded: its progress event is the newer status.
+    useJobProgress.getState().upsert({ type: 'JobProgress', job_id: 1, kind: 'contract_meta', fetched: 0, cursor_block: null, status: 'paused_user_quota', error: null })
     render(<App />)
-    const text = screen.getByText('Etherscan quota used up for today; resets at 2026-10-18 00:00:00 UTC')
-    expect(text).toHaveAttribute('title', formatLocalTime('2026-10-18T00:00:00Z'))
-    expect(document.querySelector('.topbar__quota')).toHaveAttribute(
-      'title',
-      `Resets at 2026-10-18 00:00:00 UTC (local ${formatLocalTime('2026-10-18T00:00:00Z')})`,
+    const text = await screen.findByText(
+      "Today's quota is used up: names and metadata are filled in tomorrow. 3 jobs wait for the reset at 2026-10-18 00:00:00 UTC",
     )
+    expect(text).toHaveAttribute('title', formatLocalTime('2026-10-18T00:00:00Z'))
+    expect(document.querySelector('.topbar__quota')).toHaveTextContent('Quota 5,000/5,000')
+    expect(document.querySelector('.topbar__quota')).toHaveClass('chip--error')
+  })
+
+  it('over their own quota with nothing waiting: no job count', () => {
+    useQuota.setState({ quota: { used: 5000, limit: 5000, paused: true, server_paused: false, reset_at: '2026-10-18T00:00:00Z' } })
+    vi.spyOn(api, 'jobs').mockResolvedValue([])
+    render(<App />)
+    expect(screen.getByText("Today's quota is used up: names and metadata are filled in tomorrow. It resets at 2026-10-18 00:00:00 UTC")).toBeInTheDocument()
+  })
+
+  it('the server total used up: everyone waits, said differently', () => {
+    useQuota.setState({ quota: { used: 10, limit: 5000, paused: true, server_paused: true, reset_at: '2026-10-18T00:00:00Z' } })
+    render(<App />)
+    expect(screen.getByText("The server's Etherscan quota is used up for today; all jobs resume at 2026-10-18 00:00:00 UTC")).toBeInTheDocument()
+    expect(screen.queryByText(/names and metadata are filled in tomorrow/)).toBeNull()
+  })
+
+  it('the quota chip shows the user\'s own used / limit and what is left', () => {
+    useQuota.setState({ quota: { used: 1200, limit: 5000, paused: false, server_paused: false, reset_at: '2026-10-18T00:00:00Z' } })
+    render(<App />)
+    const chip = document.querySelector('.topbar__quota')
+    expect(chip).toHaveTextContent('Quota 1,200/5,000')
+    expect(chip).toHaveAttribute(
+      'title',
+      `Your Etherscan calls today: 1,200 used, 3,800 left. Resets at 2026-10-18 00:00:00 UTC (local ${formatLocalTime('2026-10-18T00:00:00Z')})`,
+    )
+    expect(screen.queryByText(/quota is used up/)).toBeNull()
   })
 
   it('invalid_key degraded shows the fatal banner', () => {

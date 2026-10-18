@@ -90,3 +90,44 @@ test("the first successful open after failed attempts emits Lagged (events may h
   inst(1).onopen!();
   expect(events).toEqual([{ type: "Lagged" }]);
 });
+
+describe("session check on a dropped stream", () => {
+  const ES = FakeES as unknown as typeof EventSource;
+
+  test("a dead session stops the retry loop for good", async () => {
+    const states: SseState[] = [];
+    const sessionAlive = vi.fn().mockResolvedValue(false);
+    subscribeEvents(() => {}, (s) => states.push(s), { EventSourceImpl: ES, sessionAlive });
+    inst(0).onopen!();
+    inst(0).onerror!();
+    await vi.runAllTimersAsync();
+    expect(sessionAlive).toHaveBeenCalledTimes(1);
+    expect(FakeES.instances).toHaveLength(1);
+    expect(states.at(-1)).toBe("closed");
+    vi.advanceTimersByTime(120_000);
+    expect(FakeES.instances).toHaveLength(1);
+  });
+
+  test("a live session (or a failed check) reconnects with backoff", async () => {
+    const sessionAlive = vi.fn().mockResolvedValueOnce(true).mockRejectedValueOnce(new Error("offline"));
+    subscribeEvents(() => {}, () => {}, { EventSourceImpl: ES, sessionAlive });
+    inst(0).onerror!();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(FakeES.instances).toHaveLength(2);
+    inst(1).onerror!();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(FakeES.instances).toHaveLength(3);
+    expect(sessionAlive).toHaveBeenCalledTimes(2);
+  });
+
+  test("stopping while the check runs never reconnects", async () => {
+    let answer!: (alive: boolean) => void;
+    const sessionAlive = () => new Promise<boolean>((r) => (answer = r));
+    const stop = subscribeEvents(() => {}, () => {}, { EventSourceImpl: ES, sessionAlive });
+    inst(0).onerror!();
+    stop();
+    answer(true);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(FakeES.instances).toHaveLength(1);
+  });
+});

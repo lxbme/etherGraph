@@ -126,6 +126,8 @@ test("a graph file dropped on the window opens as a new unsaved workspace showin
 
 test("a dropped file that is not an etherGraph file shows one error and leaves the page as it was", async ({ page, mock }) => {
   await page.goto("/?e2e=1");
+  // The shell (and its drop handler) mounts once the session check answered.
+  await expect(page.getByText("Workspace: Not saved")).toBeVisible();
   await dropFile(page, "x.json", '{"format":"other"}');
   await expect(page.getByText("Cannot import the file: Not an etherGraph file")).toBeVisible();
   await expect(page.getByTestId("snapshot-banner")).toHaveCount(0);

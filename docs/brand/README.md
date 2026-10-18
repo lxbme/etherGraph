@@ -87,6 +87,7 @@
 |---|---|---|
 | `--font-brand` | `'Archivo Variable', 'Archivo', var(--font-sans)` | 品牌字体 |
 | `--fs-brand` | `15px` | 顶栏字标字号 |
+| `--fs-brand-login` | `28px` | 登录页字标字号 |
 | `--brand-mark` | `1.166em` | 标志方框边长 |
 | `--brand-gap` | `0.16em` | 标志与字标的间距 |
 | `--brand-nudge` | `0.03em` | 标志下移量 |
@@ -122,7 +123,8 @@
 | `web/src/shell/Brand.tsx` | `BrandMark`（标志）、`BrandLockup`（组合标志）及几何常量 |
 | `web/src/shell/Brand.test.tsx` | 几何、可访问名称，以及网页图标与组件一致性的测试 |
 | `web/src/styles/tokens.css` | 品牌 token（第 5 节） |
-| `web/src/styles/app.css` | `.brand`、`.brand__mark`、`.brand__ether`、`.brand__graph`、`.topbar__logo` |
+| `web/src/styles/app.css` | `.brand`、`.brand__mark`、`.brand__ether`、`.brand__graph`、`.topbar__logo`、`.login__brand` |
+| `web/src/auth/LoginPage.tsx` | 登录页上的组合标志 |
 | `web/src/main.tsx` | 引入 `@fontsource-variable/archivo/wdth.css` |
 | `web/public/favicon.svg` | 网页图标 |
 | `docs/brand/` | 本文档和文中的图片、SVG 素材 |

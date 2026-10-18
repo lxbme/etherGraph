@@ -50,7 +50,7 @@ beforeEach(() => {
 
 describe("quota pill", () => {
   const setQ = (used: number, paused = false) =>
-    useQuota.setState({ quota: { used, limit: 100, paused, reset_at: "2026-10-18T00:00:00Z" } });
+    useQuota.setState({ quota: { used, limit: 100, paused, server_paused: false, reset_at: "2026-10-18T00:00:00Z" } });
 
   test("turns warning at 80% and error when paused", () => {
     setQ(79);
@@ -152,7 +152,7 @@ describe("status loading", () => {
     const first = wrap(<StatusBar />, qc);
     await screen.findByText("Queue 7");
     first.unmount();
-    const newer = { used: 99, limit: 100, paused: false, reset_at: "2026-10-18T00:00:00Z" };
+    const newer = { used: 99, limit: 100, paused: false, server_paused: false, reset_at: "2026-10-18T00:00:00Z" };
     useQuota.setState({ quota: newer });
     m.status.mockReturnValue(new Promise(() => {}));
     wrap(<StatusBar />, qc);

@@ -2,10 +2,20 @@ import { act, render, screen } from '@testing-library/react'
 import { useLocale } from './i18n'
 import { App } from './App'
 import { clearExport, requestExport } from './workspace/fileRequest'
+import { useAuth } from './auth/useMe'
 
 // Cytoscape cannot render in jsdom and the SSE stream is covered by api/useEvents.test.tsx.
 vi.mock('./graph/CytoscapeView', () => ({ CytoscapeView: () => <div data-testid="cy" /> }))
 vi.mock('./api/useEvents', () => ({ useEvents: () => {} }))
+
+// Signed in: the login gate is covered by auth/AuthGate.test.tsx.
+beforeEach(() =>
+  useAuth.setState({
+    status: 'authenticated',
+    me: { address: '0xa0cf798816d4b9b9866b5330eea46a18382f251e', is_admin: false, quota: { used: 0, limit: 5000, reset_at: '2026-10-20T00:00:00Z' } },
+    reason: null,
+  }),
+)
 
 describe('App', () => {
   it('渲染搜索框', () => {

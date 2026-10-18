@@ -11,6 +11,11 @@ body,
   margin: 0;
 }
 
+/* RainbowKit's theme root (src/auth/AuthGate.tsx) wraps the whole page: it must pass the height on. */
+#root > [data-rk] {
+  height: 100%;
+}
+
 .app {
   display: flex;
   flex-direction: column;
@@ -393,6 +398,9 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .brand__ether { font-weight: 400; color: var(--fg-muted); }
 .brand__graph { font-weight: 700; color: var(--fg); }
 .topbar__spacer { flex: 1; }
+a.btn { text-decoration: none; }
+/* The signed-in address (or its ENS name); the full address is the title. */
+.topbar__account { min-width: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-muted); }
 .wsmenu__name { min-width: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 
 .search {
@@ -1212,3 +1220,43 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .doc__math { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-2) var(--sp-3); background: var(--bg-subtle); border-radius: var(--radius); }
 .doc__math code { font-family: var(--font-mono); font-size: var(--fs-12); overflow-wrap: anywhere; }
 .doc__list { display: grid; gap: var(--sp-1); margin: 0; padding-left: var(--sp-5); }
+
+/* ---------- Login page (src/auth/LoginPage.tsx) ---------- */
+
+.login {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--sp-4);
+  background: var(--canvas);
+}
+.login__settings { position: absolute; top: var(--sp-3); right: var(--sp-3); }
+.login__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+  width: 360px;
+  max-width: 100%;
+  padding: var(--sp-6);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pop);
+  box-shadow: var(--shadow-pop);
+  text-align: center;
+}
+.login__brand { margin: 0; font-size: var(--fs-brand-login); }
+.login__subtitle { margin: 0; font-size: var(--fs-16); }
+.login__reason {
+  width: 100%;
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--neg) 8%, var(--bg));
+  border: 1px solid var(--neg);
+  border-radius: var(--radius);
+}
+.login__connect { width: 100%; }
+.login__hint { margin: 0; color: var(--fg-muted); font-size: var(--fs-12); }

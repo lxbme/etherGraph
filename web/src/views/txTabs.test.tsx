@@ -10,6 +10,7 @@ import { useUi } from "../panels/uiStore";
 import { useTabs } from "../shell/tabs";
 import { serialize } from "../workspace/serialize";
 import { loadWorkspace, useWorkspace } from "../workspace/useWorkspace";
+import { useAuth } from "../auth/useMe";
 
 // One mocked canvas per mount, identified by the first node id of its elements.
 const h = vi.hoisted(() => ({ byFirst: {} as Record<string, CytoscapeViewProps>, mounts: 0 }));
@@ -26,6 +27,15 @@ vi.mock("../graph/CytoscapeView", async () => {
 });
 vi.mock("../api/useEvents", () => ({ useEvents: () => {} }));
 vi.mock("../panels/NodeDetail", () => ({ NodeDetail: ({ address }: { address: string }) => <div>detail:{address}</div> }));
+
+// Signed in: the login gate is covered by auth/AuthGate.test.tsx.
+beforeEach(() =>
+  useAuth.setState({
+    status: "authenticated",
+    me: { address: "0x" + "ee".repeat(20), is_admin: false, quota: { used: 0, limit: 5000, reset_at: "2026-10-20T00:00:00Z" } },
+    reason: null,
+  }),
+);
 
 const H1 = "0x" + "a1".repeat(32);
 const H2 = "0x" + "b2".repeat(32);

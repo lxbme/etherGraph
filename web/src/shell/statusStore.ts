@@ -3,7 +3,11 @@ import type { SseState } from "../api/sse";
 import type { Event } from "../api/generated/Event";
 
 export type JobProgressEvent = Extract<Event, { type: "JobProgress" }>;
-export type QuotaInfo = { used: number; limit: number; paused: boolean; reset_at: string };
+/**
+ * The viewer's own daily quota. `paused`: their jobs wait for the reset, because they are over their
+ * own limit or (`server_paused`) the server's daily total is used up for everyone.
+ */
+export type QuotaInfo = { used: number; limit: number; paused: boolean; server_paused: boolean; reset_at: string };
 
 export const useSseState = create<{
   state: SseState;

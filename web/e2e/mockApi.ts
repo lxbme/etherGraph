@@ -7,6 +7,7 @@ import type { GraphResponseDto } from "../src/api/generated/GraphResponseDto";
 import type { IdentifyRequestDto } from "../src/api/generated/IdentifyRequestDto";
 import type { IdentifyResponseDto } from "../src/api/generated/IdentifyResponseDto";
 import type { JobDto } from "../src/api/generated/JobDto";
+import type { MeDto } from "../src/api/generated/MeDto";
 import type { NodesRequestDto } from "../src/api/generated/NodesRequestDto";
 import type { ProbeItemDto } from "../src/api/generated/ProbeItemDto";
 import type { ProbeRequestDto } from "../src/api/generated/ProbeRequestDto";
@@ -44,6 +45,13 @@ export const TX = "0x7e570000000000000000000000000000000000000000000000000000000
 /** An EIP-7702 batch self-call modelled on mainnet tx 0x4f85…bb8c: one authorization, USDT only emits Transfer logs. */
 export const TX7702 = "0x4f85000000000000000000000000000000000000000000000000000000007702";
 
+/** The signed-in user every spec runs as unless it overrides `GET /api/auth/me` (auth.spec.ts). */
+export const ME: MeDto = {
+  address: "0x5e55100000000000000000000000000000000006",
+  is_admin: false,
+  quota: { used: 120, limit: 5000, reset_at: "2026-10-18T00:00:00Z" },
+};
+
 export const fixtures = {
   graph: graphJson as GraphResponseDto,
   address: addressJson as AddressProfileDto,
@@ -73,6 +81,8 @@ export type Handler = (req: Request, url: URL) => Reply | Promise<Reply>;
 export type RouteKey = string;
 
 export const notFound = (message: string): Reply => ({ status: 404, json: { error: { code: "not_found", message } } });
+/** 401 `unauthorized` with its reason, as the backend sends it (no session, refused login). */
+export const unauthorized = (reason: string): Reply => ({ status: 401, json: { error: { code: "unauthorized", message: reason } } });
 
 function defaultHandlers(): Map<RouteKey, Handler> {
   let nextWorkspaceId = 1;
@@ -81,6 +91,8 @@ function defaultHandlers(): Map<RouteKey, Handler> {
   const workspaceId = (url: URL) => Number(url.pathname.split("/").pop());
   const nodes = new Map(fixtures.graph.nodes.map((n) => [n.address, n]));
   return new Map<RouteKey, Handler>([
+    ["GET /api/auth/me", () => ({ json: ME })],
+    ["POST /api/auth/logout", () => ({ status: 204 })],
     ["GET /api/status", () => ({ json: fixtures.status })],
     ["GET /api/jobs", () => ({ json: [] })],
     [

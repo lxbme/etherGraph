@@ -37,7 +37,7 @@ function mount(c: NodeSummaryDto = contract) {
 beforeEach(() => {
   useGraph.getState().reset();
   useCanvasMetrics.setState({ width: 960, height: 576, visible: 0 });
-  useQuota.setState({ quota: { used: 100, limit: 5000, paused: false, reset_at: "" } });
+  useQuota.setState({ quota: { used: 100, limit: 5000, paused: false, server_paused: false, reset_at: "" } });
   vi.spyOn(api, "status").mockResolvedValue(status);
   vi.spyOn(api, "probe").mockResolvedValue({ calls: 0, items: [] });
 });

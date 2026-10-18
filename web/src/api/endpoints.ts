@@ -8,6 +8,8 @@ import type { IdentifyRequestDto } from "./generated/IdentifyRequestDto";
 import type { IdentifyResponseDto } from "./generated/IdentifyResponseDto";
 import type { JobDto } from "./generated/JobDto";
 import type { LabelDto } from "./generated/LabelDto";
+import type { LoginDto } from "./generated/LoginDto";
+import type { MeDto } from "./generated/MeDto";
 import type { NewLabelDto } from "./generated/NewLabelDto";
 import type { NewWorkspaceDto } from "./generated/NewWorkspaceDto";
 import type { NodeSummaryDto } from "./generated/NodeSummaryDto";
@@ -15,6 +17,7 @@ import type { NodesRequestDto } from "./generated/NodesRequestDto";
 import type { ProbeRequestDto } from "./generated/ProbeRequestDto";
 import type { ProbeResponseDto } from "./generated/ProbeResponseDto";
 import type { SearchResultDto } from "./generated/SearchResultDto";
+import type { SiweFieldsDto } from "./generated/SiweFieldsDto";
 import type { StatusDto } from "./generated/StatusDto";
 import type { SyncRequestDto } from "./generated/SyncRequestDto";
 import type { SyncResponseDto } from "./generated/SyncResponseDto";
@@ -57,6 +60,13 @@ export interface CounterpartiesParams {
 const num = (n: number | undefined) => (n === undefined ? undefined : String(n));
 
 export const api = {
+  /** The fields of a login message for `address` (D1: the client builds the text from exactly these). */
+  authNonce: (address: string) => request<SiweFieldsDto>("GET", "/api/auth/nonce", { query: { address } }),
+  /** A 401 here is a refused attempt (reason in the message), not an ended session. */
+  login: (body: LoginDto) => request<MeDto>("POST", "/api/auth/login", { body, loginAttempt: true }),
+  logout: () => request<void>("POST", "/api/auth/logout"),
+  /** The signed-in user; 401 without a session. */
+  me: () => request<MeDto>("GET", "/api/auth/me"),
   search: (q: string) => request<SearchResultDto>("GET", "/api/search", { query: { q } }),
   graphEdges: (req: GraphRequestDto, opts?: { signal?: AbortSignal }) =>
     request<GraphResponseDto>("POST", "/api/graph/edges", { body: req, signal: opts?.signal }),

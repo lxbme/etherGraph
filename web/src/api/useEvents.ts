@@ -5,6 +5,7 @@ import { t } from "../i18n";
 import { ACTIVE_JOB_STATUSES, useJobProgress, useQuota, useSseState } from "../shell/statusStore";
 import { toast } from "../shell/Toasts";
 import { api } from "./endpoints";
+import { ApiError } from "./errors";
 import type { Event } from "./generated/Event";
 import type { TxResponseDto } from "./generated/TxResponseDto";
 import type { JobDto } from "./generated/JobDto";
@@ -76,6 +77,16 @@ function transfersTouch(params: unknown, addrs: Set<string>): boolean {
     return typeof v === "string" && addrs.has(v.toLowerCase());
   });
 }
+
+/**
+ * Whether the session still holds, asked when the event stream drops. A 401 also ends the session
+ * app-wide (client.ts), which returns to the login page; any other failure keeps reconnecting.
+ */
+export const sessionAlive = (): Promise<boolean> =>
+  api.me().then(
+    () => true,
+    (e: unknown) => !(e instanceof ApiError && e.code === "unauthorized"),
+  );
 
 /** Subscribes to the backend event stream for the app's lifetime; call once at the top of App. */
 export function useEvents(): void {
@@ -182,7 +193,9 @@ export function useEvents(): void {
           }
           break;
         case "QuotaStatus":
-          useQuota.getState().setQuota({ used: e.used, limit: e.limit, paused: e.paused, reset_at: e.reset_at });
+          useQuota.getState().setQuota({
+            used: e.used, limit: e.limit, paused: e.paused, server_paused: e.server_paused, reset_at: e.reset_at,
+          });
           break;
         case "Lagged":
           // Events were missed: refetch everything and resync the status stores.
@@ -193,7 +206,7 @@ export function useEvents(): void {
     };
 
     loadStatus();
-    const unsubscribe = subscribeEvents(onEvent, (s) => useSseState.getState().set(s));
+    const unsubscribe = subscribeEvents(onEvent, (s) => useSseState.getState().set(s), { sessionAlive });
     return () => {
       alive = false;
       if (retryTimer !== null) clearTimeout(retryTimer);

@@ -5,15 +5,29 @@ type Method = "GET" | "POST" | "PUT" | "DELETE";
 
 const KNOWN: ApiErrorCode[] = [
   "invalid_input", "not_found", "conflict", "quota_exhausted", "upstream_error", "internal",
+  "unauthorized", "rate_limited", "user_quota_exhausted",
 ];
 
 // The server may send codes the client does not handle yet; those stay "internal".
 const isKnown = (c: string): c is ApiErrorCode => (KNOWN as string[]).includes(c);
 
+let unauthorizedHandler: (() => void) | null = null;
+
+/** Called on every 401 (the session is gone), except for a refused login attempt. */
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+  unauthorizedHandler = fn;
+}
+
 export async function request<T>(
   method: Method,
   path: string,
-  opts: { query?: Record<string, string | undefined>; body?: unknown; signal?: AbortSignal } = {},
+  opts: {
+    query?: Record<string, string | undefined>;
+    body?: unknown;
+    signal?: AbortSignal;
+    /** A 401 refuses this login attempt; it does not end a session. */
+    loginAttempt?: boolean;
+  } = {},
 ): Promise<T> {
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(opts.query ?? {})) {
@@ -45,6 +59,7 @@ export async function request<T>(
     } catch {
       // non-JSON error body: keep defaults
     }
+    if (res.status === 401 && !opts.loginAttempt) unauthorizedHandler?.();
     throw new ApiError(code, res.status, message);
   }
   if (res.status === 204) return undefined as T;

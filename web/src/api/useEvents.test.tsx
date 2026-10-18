@@ -6,6 +6,7 @@ import { Banners } from "../shell/Banners";
 import { useJobProgress, useQuota, useSseState } from "../shell/statusStore";
 import { Toasts } from "../shell/Toasts";
 import { api } from "./endpoints";
+import { ApiError } from "./errors";
 import type { Event } from "./generated/Event";
 import type { GraphResponseDto } from "./generated/GraphResponseDto";
 import type { JobDto } from "./generated/JobDto";
@@ -220,10 +221,10 @@ test("Lagged invalidates all queries", () => {
 
 test("QuotaStatus paused shows the quota banner", () => {
   mount();
-  expect(screen.queryByText(/Etherscan quota used up for today/)).toBeNull();
+  expect(screen.queryByText(/quota is used up/)).toBeNull();
   send({ type: "QuotaStatus", used: 100, limit: 100, paused: true, server_paused: false, reset_at: "2026-10-18T00:00:00Z" });
-  expect(useQuota.getState().quota).toEqual({ used: 100, limit: 100, paused: true, reset_at: "2026-10-18T00:00:00Z" });
-  expect(screen.getByText(/Etherscan quota used up for today; resets at .+/)).toBeInTheDocument();
+  expect(useQuota.getState().quota).toEqual({ used: 100, limit: 100, paused: true, server_paused: false, reset_at: "2026-10-18T00:00:00Z" });
+  expect(screen.getByText(/Today's quota is used up: names and metadata are filled in tomorrow/)).toBeInTheDocument();
 });
 
 test("JobProgress updates the job store; a failed fetch_tx job shows a toast", () => {
@@ -244,7 +245,7 @@ test("writes SSE state, loads status on mount and unsubscribes on unmount", asyn
   const { unmount } = mount();
   await act(async () => {});
   expect(api.status).toHaveBeenCalledTimes(1);
-  expect(useQuota.getState().quota).toEqual({ used: 10, limit: 100, paused: false, reset_at: "2026-10-18T00:00:00Z" });
+  expect(useQuota.getState().quota).toEqual({ used: 10, limit: 100, paused: false, server_paused: false, reset_at: "2026-10-18T00:00:00Z" });
   expect(useQuota.getState().degraded).toBe("invalid_key");
   expect(useSseState.getState().state).toBe("connecting");
   act(() => setSse("open"));
@@ -272,7 +273,8 @@ test("Lagged reloads status and drops job progress for jobs that are no longer a
   send(progress(1));
   send(progress(2));
   vi.mocked(api.jobs).mockResolvedValue([job(2)]);
-  vi.mocked(api.status).mockResolvedValue({ ...status, paused: true, degraded: null });
+  // Server-wide pause: the banner then does not load the job list itself (only the resync's calls count).
+  vi.mocked(api.status).mockResolvedValue({ ...status, paused: true, server_paused: true, degraded: null });
   send({ type: "Lagged" });
   await act(async () => {});
   expect(api.status).toHaveBeenCalledTimes(2);
@@ -379,4 +381,18 @@ test("JobProgress with a finished status drops the job from the cached active li
   send({ ...progress(1), status: "done" as const });
   expect(qc.getQueryData<JobDto[]>(qk.jobs())?.map((j) => j.id)).toEqual([2]);
   expect(qc.getQueryState(qk.jobs())?.isInvalidated).toBe(false);
+});
+
+test("a dropped stream checks the session: only a 401 stops reconnecting", async () => {
+  mount();
+  const opts = vi.mocked(subscribeEvents).mock.calls[0]![2];
+  const sessionAlive = opts?.sessionAlive;
+  expect(sessionAlive).toBeTypeOf("function");
+  const me = vi.spyOn(api, "me");
+  me.mockResolvedValueOnce({ address: A, is_admin: false, quota: { used: 0, limit: 1, reset_at: "x" } });
+  await expect(sessionAlive!()).resolves.toBe(true);
+  me.mockRejectedValueOnce(new ApiError("network", 0, "offline"));
+  await expect(sessionAlive!()).resolves.toBe(true);
+  me.mockRejectedValueOnce(new ApiError("unauthorized", 401, "no_session"));
+  await expect(sessionAlive!()).resolves.toBe(false);
 });

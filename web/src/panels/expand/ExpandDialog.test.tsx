@@ -67,7 +67,7 @@ beforeEach(() => {
   probeCalls = 2;
   // 960 x 576 at 96 px per node: capacity 60, nothing shown → node budget 60 (10 new centers at 1 + K_MIN each).
   useCanvasMetrics.setState({ width: 960, height: 576, visible: 0 });
-  useQuota.setState({ quota: { used: 100, limit: 5000, paused: false, reset_at: "" } });
+  useQuota.setState({ quota: { used: 100, limit: 5000, paused: false, server_paused: false, reset_at: "" } });
   vi.spyOn(api, "status").mockResolvedValue(status());
   vi.spyOn(api, "probe").mockImplementation(async (r) => probeAnswer(r.addresses));
 });

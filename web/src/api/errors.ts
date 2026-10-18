@@ -8,6 +8,8 @@ export type ApiErrorCode =
   | "upstream_error"
   | "internal"
   | "user_quota_exhausted"
+  | "unauthorized"
+  | "rate_limited"
   | "network";
 
 export class ApiError extends Error {
@@ -28,6 +30,12 @@ export function messageFor(err: unknown): string {
       return t("error.network");
     case "quota_exhausted":
       return t("error.quota");
+    case "user_quota_exhausted":
+      return t("error.userQuota");
+    case "unauthorized":
+      return t("error.unauthorized");
+    case "rate_limited":
+      return t("error.rateLimited");
     case "not_found":
       return t("error.notFound");
     case "conflict":

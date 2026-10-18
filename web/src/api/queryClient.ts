@@ -1,7 +1,9 @@
 import { QueryClient } from "@tanstack/react-query";
 import { ApiError } from "./errors";
 
-const NO_RETRY = ["invalid_input", "not_found", "conflict", "quota_exhausted"];
+const NO_RETRY = [
+  "invalid_input", "not_found", "conflict", "quota_exhausted", "user_quota_exhausted", "unauthorized", "rate_limited",
+];
 
 export const queryClient = new QueryClient({
   defaultOptions: {

@@ -80,6 +80,7 @@
      Every value is in em of the wordmark, so the lockup scales as one piece. */
   --font-brand: 'Archivo Variable', 'Archivo', var(--font-sans);
   --fs-brand: 15px;
+  --fs-brand-login: 28px; /* the lockup on the login page */
   --brand-mark: 1.166em; /* the ring's outer edge spans 0.8875 of the box: visible 1.035em = 1.5 × cap height */
   --brand-gap: 0.16em; /* ring edge to the "e": 0.4 × cap height, less the box inset and the e's side bearing */
   /* A centred mark sits 0.335em above the baseline (line-height 1); its centre belongs halfway between the
