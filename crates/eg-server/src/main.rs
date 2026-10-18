@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -230,7 +231,11 @@ async fn serve(path: &Path, source: Option<SourceMode>) -> anyhow::Result<()> {
     // Open SSE streams never finish, so shut down on SIGINT/SIGTERM without
     // draining connections; persist the quota count first.
     tokio::select! {
-        r = axum::serve(listener, router(state.clone())) => r?,
+        // The peer address is the client IP for rate limits and audit rows.
+        r = axum::serve(
+            listener,
+            router(state.clone()).into_make_service_with_connect_info::<SocketAddr>(),
+        ) => r?,
         r = shutdown_signal() => {
             let signal = r?;
             tracing::info!(signal, "shutting down");

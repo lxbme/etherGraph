@@ -116,7 +116,7 @@ fn assert_invalid(status: StatusCode, body: &Value) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn search_classifies_inputs(pool: PgPool) {
-    let (app, _, _) = test_app(pool);
+    let (app, _, _) = test_app(pool).await;
     let lower = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
     let (s, b) = get(&app, &format!("/api/search?q=%20{lower}%20")).await;
     assert_eq!(s, StatusCode::OK, "{b}");
@@ -176,7 +176,7 @@ fn resolve_ret(a: Address) -> Bytes {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn search_ens_resolves_via_eth_call(pool: PgPool) {
-    let (app, state, fake) = test_app(pool);
+    let (app, state, fake) = test_app(pool).await;
     let target = address!("d8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
     let ur = state.cfg.ens.universal_resolver;
     let want = eg_decode::encode_resolve_addr("vitalik.eth").unwrap();
@@ -196,7 +196,7 @@ async fn search_ens_resolves_via_eth_call(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn search_ens_invalid_name_400(pool: PgPool) {
-    let (app, _, fake) = test_app(pool);
+    let (app, _, fake) = test_app(pool).await;
     let (s, b) = get(&app, "/api/search?q=a..eth").await;
     assert_invalid(s, &b);
     assert_eq!(fake.calls(), 0);
@@ -204,7 +204,7 @@ async fn search_ens_invalid_name_400(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn search_ens_unresolved_404(pool: PgPool) {
-    let (app, _, fake) = test_app(pool);
+    let (app, _, fake) = test_app(pool).await;
     // No handler: the fake answers with an RPC error (a revert).
     let (s, b) = get(&app, "/api/search?q=nobody.eth").await;
     assert_eq!(s, StatusCode::NOT_FOUND, "{b}");
@@ -224,7 +224,7 @@ async fn search_ens_unresolved_404(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn hide_suspicious_filters_flagged_tokens_in_the_query(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let fake = Address::repeat_byte(0xfa);
     let list = format!(
         r#"{{"tokens":[{{"chainId":1,"address":"{}","symbol":"USDT","name":"Tether USD"}}]}}"#,
@@ -290,7 +290,7 @@ async fn hide_suspicious_filters_flagged_tokens_in_the_query(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn nodes_endpoint_returns_summaries_in_request_order_without_jobs(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     seed(&state, vec![tr(1, C, A, None, U256::from(5), 0)]).await;
     let before = state.store.active_jobs().await.unwrap().len();
     let (s, b) = post_json(
@@ -319,7 +319,7 @@ async fn nodes_endpoint_returns_summaries_in_request_order_without_jobs(pool: Pg
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_edges_carry_each_assets_trust(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let fake = Address::repeat_byte(0xfa);
     let spam = Address::repeat_byte(0x5a);
     let labeled = Address::repeat_byte(0x5b);
@@ -392,7 +392,7 @@ async fn graph_edges_carry_each_assets_trust(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_edges_returns_nodes_and_enqueues_meta(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     seed(
         &state,
         vec![
@@ -462,7 +462,7 @@ async fn graph_edges_returns_nodes_and_enqueues_meta(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_auto_meta_only_for_the_center(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let others = [A, B, USDT, Address::repeat_byte(0x77)];
     seed(
         &state,
@@ -490,7 +490,7 @@ async fn graph_auto_meta_only_for_the_center(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_node_flags_and_names(pool: PgPool) {
-    let (app, state, _) = test_app(pool.clone());
+    let (app, state, _) = test_app(pool.clone()).await;
     seed(
         &state,
         vec![
@@ -588,7 +588,7 @@ async fn graph_node_flags_and_names(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_hot_by_neighbour_count(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     // limit 1 with 501 neighbours: omitted 500 + 1 returned = 501 > threshold 500.
     let mut v = Vec::new();
     for i in 0..501u32 {
@@ -614,7 +614,7 @@ async fn graph_hot_by_neighbour_count(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_min_amount_unknown_decimals_400(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let filter = json!({"assets": [{"asset": hex(USDT), "min_amount": "1"}]});
     let (s, b) = post_json(&app, "/api/graph/edges", &graph_req(filter.clone())).await;
     assert_invalid(s, &b);
@@ -634,7 +634,7 @@ async fn graph_min_amount_unknown_decimals_400(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_min_amount_decimal_conversion(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     token(&state, USDT, "USDT", Some(6)).await;
     seed(
         &state,
@@ -692,7 +692,7 @@ async fn graph_min_amount_decimal_conversion(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_sort_amount_requires_single_asset(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     seed(&state, vec![tr(1, C, A, None, U256::from(5), 0)]).await;
     let req = |assets: Value| json!({"addresses": [hex(C)], "sort": "amount", "filter": {"assets": assets}});
     for assets in [
@@ -710,7 +710,7 @@ async fn graph_sort_amount_requires_single_asset(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_rejects_bad_input(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let many: Vec<String> = (1..=51u8).map(|i| hex(Address::repeat_byte(i))).collect();
     let cases = [
         json!({"addresses": []}),
@@ -755,7 +755,7 @@ async fn graph_rejects_bad_input(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_limits_and_prefer(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     seed(
         &state,
         vec![
@@ -789,7 +789,7 @@ async fn graph_limits_and_prefer(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn sync_dry_run_estimates(pool: PgPool) {
-    let (app, state, _) = test_app(pool.clone());
+    let (app, state, _) = test_app(pool.clone()).await;
     mark_synced(&pool, B, 0, true).await;
     let (s, b) = post_json(
         &app,
@@ -819,7 +819,7 @@ async fn sync_dry_run_estimates(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn sync_enqueues_background_jobs(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let (s, b) = post_json(
         &app,
         "/api/sync",
@@ -860,7 +860,7 @@ async fn sync_enqueues_background_jobs(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn transfers_requires_exactly_one_scope(pool: PgPool) {
-    let (app, _, _) = test_app(pool);
+    let (app, _, _) = test_app(pool).await;
     let (a, c) = (hex(A), hex(C));
     for q in [
         String::new(),
@@ -881,7 +881,7 @@ async fn transfers_requires_exactly_one_scope(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn transfers_paginate_and_filter(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     token(&state, USDT, "USDT", Some(6)).await;
     seed(
         &state,
@@ -969,7 +969,7 @@ async fn transfers_paginate_and_filter(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn transfers_direction_for_address_scope(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     seed(
         &state,
         vec![
@@ -1009,7 +1009,7 @@ async fn transfers_direction_for_address_scope(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn amounts_are_decimal_strings(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     seed(&state, vec![tr(1, C, A, None, U256::MAX, 0)]).await;
     let max = U256::MAX.to_string();
     let (s, b) = post_json(&app, "/api/graph/edges", &graph_req(json!(null))).await;
@@ -1024,7 +1024,7 @@ async fn amounts_are_decimal_strings(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn address_profile_never_synced_enqueues_interactive(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     seed(
         &state,
         vec![
@@ -1094,7 +1094,7 @@ async fn address_profile_never_synced_enqueues_interactive(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn address_profile_failed_kind_does_not_resync(pool: PgPool) {
-    let (app, state, _) = test_app(pool.clone());
+    let (app, state, _) = test_app(pool.clone()).await;
     mark_synced(&pool, A, 0, false).await;
     // ERC-1155 failed permanently: never covered, never synced.
     sqlx::query(
@@ -1121,7 +1121,7 @@ async fn address_profile_failed_kind_does_not_resync(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn address_profile_stale_enqueues_background(pool: PgPool) {
-    let (app, state, _) = test_app(pool.clone());
+    let (app, state, _) = test_app(pool.clone()).await;
     mark_synced(&pool, A, 0, false).await;
     let (s, b) = get(&app, &format!("/api/address/{}", hex(A))).await;
     assert_eq!(s, StatusCode::OK, "{b}");
@@ -1180,7 +1180,7 @@ const BAD_CHECKSUM: &str = "0xd8Da6BF26964aF9D7eEd9e03E53415D37aA96045";
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn extractor_rejections_are_json_invalid_input(pool: PgPool) {
-    let (app, _, _) = test_app(pool);
+    let (app, _, _) = test_app(pool).await;
     let a = hex(A);
     for uri in [
         "/api/search?q=a&q=b".to_owned(),
@@ -1198,7 +1198,7 @@ async fn extractor_rejections_are_json_invalid_input(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn wrong_method_is_json_405(pool: PgPool) {
-    let (app, _, _) = test_app(pool);
+    let (app, _, _) = test_app(pool).await;
     let (s, b) = get(&app, "/api/graph/edges").await;
     assert_eq!(s, StatusCode::METHOD_NOT_ALLOWED, "{b}");
     assert_eq!(
@@ -1214,7 +1214,7 @@ async fn wrong_method_is_json_405(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn search_emoji_ens_revert_is_404(pool: PgPool) {
-    let (app, _, fake) = test_app(pool);
+    let (app, _, fake) = test_app(pool).await;
     fake.on_eth_call(|_, _| {
         Err(SourceError::Rpc {
             code: 3,
@@ -1229,7 +1229,7 @@ async fn search_emoji_ens_revert_is_404(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn search_ens_undecodable_response_is_502(pool: PgPool) {
-    let (app, _, fake) = test_app(pool);
+    let (app, _, fake) = test_app(pool).await;
     fake.on_eth_call(|_, _| Ok(Bytes::from(vec![1, 2, 3])));
     let (s, b) = get(&app, "/api/search?q=vitalik.eth").await;
     assert_eq!(s, StatusCode::BAD_GATEWAY, "{b}");
@@ -1238,7 +1238,7 @@ async fn search_ens_undecodable_response_is_502(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn bad_checksum_rejected_on_transfers_and_address(pool: PgPool) {
-    let (app, _, _) = test_app(pool);
+    let (app, _, _) = test_app(pool).await;
     let a = hex(A);
     for uri in [
         format!("/api/transfers?address={BAD_CHECKSUM}"),
@@ -1259,7 +1259,7 @@ async fn bad_checksum_rejected_on_transfers_and_address(pool: PgPool) {
 async fn tokens_without_decimals_are_not_requeued(pool: PgPool) {
     use eg_ingest::JobHandler;
     use eg_ingest::handlers::TokenMetaHandler;
-    let (app, state, fake) = test_app(pool);
+    let (app, state, fake) = test_app(pool).await;
     const NFT: Address = Address::repeat_byte(0x77);
     let mut punk = tr(1, C, A, Some(NFT), U256::from(1), 0);
     punk.kind = TransferKind::Erc721;
@@ -1300,7 +1300,7 @@ async fn tokens_without_decimals_are_not_requeued(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn transfers_min_amount_matches_edge_threshold(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let unknown = Address::repeat_byte(0x66);
     token(&state, USDT, "USDT", Some(6)).await;
     token(&state, unknown, "UNK", None).await;
@@ -1345,7 +1345,7 @@ async fn transfers_min_amount_matches_edge_threshold(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn counterparties_sort_page_kind_and_limits(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let d = Address::repeat_byte(0xd1);
     token(&state, USDT, "USDT", Some(6)).await;
     // A: 3 transfers (latest at 30), B: 1 (at 40), D: 2 (at 20, a contract).
@@ -1444,7 +1444,7 @@ async fn counterparties_sort_page_kind_and_limits(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn counterparties_enqueue_only_bounded_name_jobs(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     token(&state, USDT, "USDT", Some(6)).await;
     let mut v = Vec::new();
     for i in 0..150u8 {

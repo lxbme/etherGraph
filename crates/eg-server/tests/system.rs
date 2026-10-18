@@ -30,7 +30,7 @@ fn job(key: &str) -> NewJob {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn status_ok(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     state.store.enqueue(&job("a")).await.unwrap();
     let (status, body) = get(&app, "/api/status").await;
     assert_eq!(status, StatusCode::OK);
@@ -52,7 +52,7 @@ async fn status_ok(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn cancel_unknown_job_404(pool: PgPool) {
-    let (app, _, _) = test_app(pool);
+    let (app, _, _) = test_app(pool).await;
     let (status, body) = delete(&app, "/api/jobs/999").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(body["error"]["code"], "not_found");
@@ -61,7 +61,7 @@ async fn cancel_unknown_job_404(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn cancel_pending_job_204_then_404(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let (id, _) = state.store.enqueue(&job("a")).await.unwrap();
     let (status, body) = delete(&app, &format!("/api/jobs/{id}")).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
@@ -74,7 +74,7 @@ async fn cancel_pending_job_204_then_404(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn cancel_paused_job_204(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let (id, _) = state.store.enqueue(&job("a")).await.unwrap();
     state.store.claim_next().await.unwrap().unwrap();
     state.store.pause_job_quota(id).await.unwrap();
@@ -87,7 +87,7 @@ async fn cancel_paused_job_204(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn cancel_publishes_cancelled_progress(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let mut rx = state.ctx.bus.subscribe();
     let (pending, _) = state.store.enqueue(&job("a")).await.unwrap();
     let (status, _) = delete(&app, &format!("/api/jobs/{pending}")).await;
@@ -115,7 +115,7 @@ async fn cancel_publishes_cancelled_progress(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn cancel_bad_id_is_invalid_input(pool: PgPool) {
-    let (app, _, _) = test_app(pool);
+    let (app, _, _) = test_app(pool).await;
     let (status, body) = delete(&app, "/api/jobs/abc").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"]["code"], "invalid_input");
@@ -123,7 +123,7 @@ async fn cancel_bad_id_is_invalid_input(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn active_jobs_listed(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let (a, _) = state.store.enqueue(&job("a")).await.unwrap();
     let (b, _) = state.store.enqueue(&job("b")).await.unwrap();
     state.store.cancel_job(b).await.unwrap();
@@ -156,7 +156,7 @@ async fn active_jobs_listed(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn unknown_api_route_is_json_404(pool: PgPool) {
-    let (app, _, _) = test_app(pool);
+    let (app, _, _) = test_app(pool).await;
     let (status, body) = get(&app, "/api/nope").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(body["error"]["code"], "not_found");
@@ -191,7 +191,7 @@ async fn open_events(app: &axum::Router) -> Body {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn events_stream_delivers_published_event(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let mut body = open_events(&app).await;
     state.ctx.bus.publish(Event::AddressDataChanged {
         address: Address::repeat_byte(0xab),
@@ -211,7 +211,7 @@ async fn events_stream_delivers_published_event(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn events_stream_reports_lag(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let mut body = open_events(&app).await;
     for _ in 0..1100 {
         state.ctx.bus.publish(Event::AddressDataChanged {
@@ -236,7 +236,7 @@ fn next_midnight_is_strictly_after_now() {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn rollover_persists_resets_and_resumes(pool: PgPool) {
-    let (_, state, _) = test_app(pool);
+    let (_, state, _) = test_app(pool).await;
     for _ in 0..3 {
         state.gate.acquire(Priority::Interactive).await.unwrap();
     }
@@ -264,7 +264,7 @@ async fn rollover_persists_resets_and_resumes(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn background_publishes_quota_status(pool: PgPool) {
-    let (_, state, _) = test_app(pool);
+    let (_, state, _) = test_app(pool).await;
     let mut rx = state.ctx.bus.subscribe();
     spawn_background(&state);
     state.gate.acquire(Priority::Interactive).await.unwrap();
@@ -291,7 +291,7 @@ async fn background_publishes_quota_status(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn background_primes_the_chain_head(pool: PgPool) {
-    let (_, state, fake) = test_app(pool);
+    let (_, state, fake) = test_app(pool).await;
     fake.set_latest_block(500);
     spawn_background(&state);
     // Nothing has viewed a transaction yet: the head is fetched on start.
@@ -387,6 +387,22 @@ fn config_rejects_bad_auth_values() {
         "admins = [\"0xCA11bde05977b3631167028862bE2a173976CA11\"]",
         "public_origin = \"127.0.0.1:8080\"",
         "public_origin = \"http://127.0.0.1:8080/\"",
+        "public_origin = \"http://127.0.0.1:8080/app\"",
+        "public_origin = \"http://127.0.0.1:8080?x=1\"",
+        "public_origin = \"http://127.0.0.1:8080#top\"",
+        "public_origin = \"http://user@127.0.0.1:8080\"",
+        "public_origin = \"ftp://127.0.0.1\"",
+        "public_origin = \"http://\"",
+        "public_origin = \"http://:8080\"",
+        "public_origin = \"http://127.0.0.1:\"",
+        "public_origin = \"http://127.0.0.1:99999\"",
+        "public_origin = \"http://127.0.0.1:80a\"",
+        "public_origin = \"https://bad_host.example.org\"",
+        // Wallets reject a single-label host other than localhost in the message.
+        "public_origin = \"https://intranet\"",
+        // Plain http only on the local machine: elsewhere the Secure cookie
+        // would never be stored.
+        "public_origin = \"http://graph.example.org\"",
         "session_days = 0",
         "admin_session_minutes = 0",
         "unknown_key = 1",
@@ -394,6 +410,50 @@ fn config_rejects_bad_auth_values() {
         let text = format!("{AUTH_BASE}[auth]\n{bad}\n");
         assert!(Config::parse(&text, env(&[])).is_err(), "{bad}");
     }
+}
+
+#[test]
+fn public_origin_is_normalized() {
+    let origin = |o: &str| {
+        let text = format!("{AUTH_BASE}[auth]\npublic_origin = \"{o}\"\n");
+        let cfg = Config::parse(&text, env(&[])).unwrap();
+        let p = cfg.auth.origin().unwrap();
+        (p.origin, p.domain, p.secure)
+    };
+    let o = |a: &str, b: &str, s: bool| (a.to_string(), b.to_string(), s);
+    assert_eq!(
+        origin("http://127.0.0.1:8080"),
+        o("http://127.0.0.1:8080", "127.0.0.1:8080", false)
+    );
+    assert_eq!(
+        origin("http://localhost:5173"),
+        o("http://localhost:5173", "localhost:5173", false)
+    );
+    assert_eq!(
+        origin("http://localhost"),
+        o("http://localhost", "localhost", false)
+    );
+    // Scheme and host are case-insensitive; browsers omit a default port.
+    assert_eq!(
+        origin("HTTPS://Graph.Example.org:443"),
+        o("https://graph.example.org", "graph.example.org", true)
+    );
+    assert_eq!(
+        origin("https://graph.example.org:8443"),
+        o(
+            "https://graph.example.org:8443",
+            "graph.example.org:8443",
+            true
+        )
+    );
+    assert_eq!(
+        origin("https://10.0.0.5"),
+        o("https://10.0.0.5", "10.0.0.5", true)
+    );
+    assert_eq!(
+        origin("https://127.0.0.1"),
+        o("https://127.0.0.1", "127.0.0.1", true)
+    );
 }
 
 fn env<'a>(vars: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
@@ -510,7 +570,7 @@ async fn cancel_pending_sync_settles_syncing_kinds(pool: PgPool) {
     use eg_core::types::TransferKind;
     use eg_ingest::{SyncDirection, enqueue_sync};
     use eg_store::SyncState;
-    let (app, state, _) = test_app(pool.clone());
+    let (app, state, _) = test_app(pool.clone()).await;
     let (addr, other) = (Address::repeat_byte(0xaa), Address::repeat_byte(0xbb));
     for (a, kind, to_block) in [
         (addr, TransferKind::Native, Some(20i64)),
@@ -587,7 +647,7 @@ async fn cancel_pending_sync_settles_syncing_kinds(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn recent_jobs_and_single_job_expose_errors(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let (failed, _) = state.store.enqueue(&job("failed")).await.unwrap();
     state.store.claim_next().await.unwrap().unwrap();
     state
@@ -634,7 +694,7 @@ impl eg_etherscan::Transport for BadKeyTransport {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn status_reports_invalid_key_as_degraded(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let client = eg_etherscan::EtherscanClient::new(
         std::sync::Arc::new(BadKeyTransport),
         state.gate.clone(),

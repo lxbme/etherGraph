@@ -4,22 +4,26 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::handler::Handler;
 use axum::http::StatusCode;
+use axum::middleware::from_fn_with_state;
 use axum::routing::{delete, get, post};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
+use crate::auth::extract::{require_origin, require_user};
 use crate::error::ApiError;
 use crate::routes::{
-    address, batches, counterparties, events, graph, identify, jobs, labels, nodes, probe, search,
-    status, sync, token, transfers, tx, workspaces,
+    address, auth, batches, counterparties, events, graph, identify, jobs, labels, nodes, probe,
+    search, status, sync, token, transfers, tx, workspaces,
 };
 use crate::state::AppState;
 
-/// All `/api` routes; when `server.static_dir` exists, other paths are served
-/// from it with `index.html` as the SPA fallback.
+/// All `/api` routes: `/api/health` and `/api/auth/*` are open, the rest need
+/// a session, and state-changing requests need the public `Origin`. When
+/// `server.static_dir` exists, other paths are served from it with
+/// `index.html` as the SPA fallback.
 pub fn router(state: AppState) -> Router {
-    let api = Router::new()
+    let protected = Router::new()
         .route("/status", get(status::status))
         .route("/jobs", get(jobs::list).delete(jobs::cancel_scope))
         .route("/jobs/{id}", get(jobs::get).delete(jobs::cancel))
@@ -49,6 +53,16 @@ pub fn router(state: AppState) -> Router {
                 .put(workspaces::update.layer(big_body()))
                 .delete(workspaces::delete),
         )
+        .route_layer(from_fn_with_state(state.clone(), require_user));
+    let open = Router::new()
+        .route("/health", get(status::health))
+        .route("/auth/nonce", get(auth::nonce))
+        .route("/auth/login", post(auth::login))
+        .route("/auth/logout", post(auth::logout))
+        .route("/auth/me", get(auth::me));
+    let api = protected
+        .merge(open)
+        .route_layer(from_fn_with_state(state.clone(), require_origin))
         .fallback(api_not_found)
         // Applies to the routes registered above.
         .method_not_allowed_fallback(method_not_allowed);

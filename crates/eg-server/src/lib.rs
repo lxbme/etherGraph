@@ -1,5 +1,6 @@
 //! eg-server: HTTP API, SSE and background tasks on top of the ingest runner.
 pub mod app;
+pub mod auth;
 pub mod background;
 pub mod config;
 pub mod dto;

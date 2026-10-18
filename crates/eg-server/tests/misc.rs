@@ -99,7 +99,7 @@ fn seed_fake(fake: &eg_core::testing::FakeSource) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn tx_pending_then_ready(pool: PgPool) {
-    let (app, state, fake) = test_app(pool);
+    let (app, state, fake) = test_app(pool).await;
     seed_fake(&fake);
     let uri = format!("/api/tx/{HASH:#x}");
 
@@ -220,7 +220,7 @@ async fn fetch_block_jobs(app: &axum::Router) -> usize {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn tx_without_block_header_is_ready_and_backfills_once(pool: PgPool) {
-    let (app, state, fake) = test_app(pool);
+    let (app, state, fake) = test_app(pool).await;
     state.store.upsert_transaction(&stored_row()).await.unwrap();
     fake.set_latest_block(109);
     let uri = format!("/api/tx/{HASH:#x}");
@@ -278,7 +278,7 @@ const FOO_ABI: &str = r#"[{"type":"function","name":"foo","inputs":[{"name":"x",
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn set_code_tx_lists_authorizations_and_decodes_with_the_delegate_abi(pool: PgPool) {
-    let (app, state, _fake) = test_app(pool);
+    let (app, state, _fake) = test_app(pool).await;
     state
         .store
         .upsert_transaction(&set_code_row())
@@ -349,7 +349,7 @@ async fn set_code_tx_lists_authorizations_and_decodes_with_the_delegate_abi(pool
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn a_third_party_signer_and_its_delegate_are_nodes(pool: PgPool) {
-    let (app, state, _fake) = test_app(pool);
+    let (app, state, _fake) = test_app(pool).await;
     // A relayer sends SENDER's authorization in a call to OTHER.
     let mut row = set_code_row();
     let relayer = Address::repeat_byte(0x5a);
@@ -469,7 +469,7 @@ async fn tx_view_never_waits_for_the_chain_head(pool: PgPool) {
         fake: fake.clone(),
         release: release.clone(),
     });
-    let (app, state) = test_app_with(pool, source);
+    let (app, state) = test_app_with(pool, source).await;
     state.store.upsert_transaction(&stored_row()).await.unwrap();
     let uri = format!("/api/tx/{HASH:#x}");
 
@@ -489,7 +489,7 @@ async fn tx_view_never_waits_for_the_chain_head(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn tx_raw_returns_stored_json(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let row = stored_row();
     state.store.upsert_transaction(&row).await.unwrap();
     let (st, v) = get(&app, &format!("/api/tx/{HASH:#x}/raw")).await;
@@ -499,7 +499,7 @@ async fn tx_raw_returns_stored_json(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn tx_raw_unknown_hash_is_404(pool: PgPool) {
-    let (app, _, fake) = test_app(pool);
+    let (app, _, fake) = test_app(pool).await;
     let (st, v) = get(&app, &format!("/api/tx/{:#x}/raw", B256::repeat_byte(0x77))).await;
     assert_eq!(st, StatusCode::NOT_FOUND);
     assert_eq!(code(&v), "not_found");
@@ -511,7 +511,7 @@ async fn tx_raw_unknown_hash_is_404(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn tx_bad_hash_is_invalid_input(pool: PgPool) {
-    let (app, _, _) = test_app(pool);
+    let (app, _, _) = test_app(pool).await;
     let (st, v) = get(&app, "/api/tx/0x12").await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
     assert_eq!(code(&v), "invalid_input");
@@ -521,7 +521,7 @@ async fn tx_bad_hash_is_invalid_input(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn label_crud_and_category_validation(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let addr = format!("{FROM:#x}");
 
     let (st, v) = get(&app, &format!("/api/labels?addr={addr}")).await;
@@ -587,7 +587,7 @@ async fn label_crud_and_category_validation(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn workspace_conflict_409(pool: PgPool) {
-    let (app, _, _) = test_app(pool);
+    let (app, _, _) = test_app(pool).await;
     let (st, w) = post_json(
         &app,
         "/api/workspaces",
@@ -620,7 +620,7 @@ async fn workspace_conflict_409(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn workspace_accepts_a_state_over_the_32_mib_import_cap(pool: PgPool) {
-    let (app, _, _) = test_app(pool);
+    let (app, _, _) = test_app(pool).await;
     // A maximal imported file wrapped in the rest of the workspace must still save.
     let big = "x".repeat(33 * 1024 * 1024);
     let (st, w) = post_json(
@@ -642,7 +642,7 @@ async fn workspace_accepts_a_state_over_the_32_mib_import_cap(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn workspace_get_then_put_with_returned_updated_at(pool: PgPool) {
-    let (app, _, _) = test_app(pool);
+    let (app, _, _) = test_app(pool).await;
     let (_, w) = post_json(&app, "/api/workspaces", &json!({"name": "a", "state": {}})).await;
     let uri = format!("/api/workspaces/{}", w["id"]);
     // Two rounds: each GET's updated_at must be accepted verbatim.
@@ -663,7 +663,7 @@ async fn workspace_get_then_put_with_returned_updated_at(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn workspace_validation_list_delete(pool: PgPool) {
-    let (app, _, _) = test_app(pool);
+    let (app, _, _) = test_app(pool).await;
     for body in [
         json!({"name": "", "state": {}}),
         json!({"name": "   ", "state": {}}),
@@ -841,7 +841,7 @@ async fn import_eth_labels_writes_two_datasets_and_replaces(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn probe_caches_and_feeds_node_summaries(pool: PgPool) {
-    let (app, _state, fake) = test_app(pool);
+    let (app, _state, fake) = test_app(pool).await;
     fake.set_code(TOKEN, Bytes::from(vec![0x60, 0x80]));
     fake.set_nonce(FROM, 7);
     fake.set_balance(FROM, U256::from(10u8).pow(U256::from(18u8)));
@@ -882,7 +882,7 @@ async fn probe_caches_and_feeds_node_summaries(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn probe_rejects_more_than_20_addresses(pool: PgPool) {
-    let (app, _state, _fake) = test_app(pool);
+    let (app, _state, _fake) = test_app(pool).await;
     let addrs: Vec<String> = (1..=21u8)
         .map(|i| format!("{:#x}", Address::repeat_byte(i)))
         .collect();
@@ -909,7 +909,7 @@ fn account_row(addr: Address, kind: eg_core::types::AccountKind) -> eg_store::Ac
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn probe_known_contract_skips_tx_count_and_keeps_metadata(pool: PgPool) {
     use eg_core::types::AccountKind;
-    let (app, state, fake) = test_app(pool);
+    let (app, state, fake) = test_app(pool).await;
     state
         .store
         .upsert_accounts(&[
@@ -949,7 +949,7 @@ async fn probe_known_contract_skips_tx_count_and_keeps_metadata(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn probe_upstream_failure_writes_nothing(pool: PgPool) {
-    let (app, state, fake) = test_app(pool);
+    let (app, state, fake) = test_app(pool).await;
     fake.fail_next(SourceError::QuotaExhausted);
     let body = json!({"addresses": [format!("{FROM:#x}"), format!("{TO:#x}")]});
     let (st, _) = post_json(&app, "/api/probe", &body).await;
@@ -970,7 +970,7 @@ async fn probe_upstream_failure_writes_nothing(pool: PgPool) {
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn probe_failure_keeps_what_was_already_fetched(pool: PgPool) {
     use eg_core::types::AccountKind;
-    let (app, state, fake) = test_app(pool);
+    let (app, state, fake) = test_app(pool).await;
     fake.set_nonce(FROM, 7);
     fake.set_nonce(TO, 3);
     // code(FROM), tx_count(FROM), code(TO), then tx_count(TO) fails.
@@ -1025,7 +1025,7 @@ async fn sync_job(app: &axum::Router, body: Value) -> i64 {
 async fn batches_own_jobs_until_the_last_one_is_cancelled(pool: PgPool) {
     use eg_ingest::Event;
     use eg_store::JobStatus;
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let from = format!("{FROM:#x}");
     let id = sync_job(&app, json!({"addresses": [from], "batch": "b1"})).await;
     let job = active_job(&app, id).await.unwrap();
@@ -1069,7 +1069,7 @@ async fn batches_own_jobs_until_the_last_one_is_cancelled(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn manual_sync_keeps_a_job_alive_after_its_batches_go(pool: PgPool) {
-    let (app, _state, _) = test_app(pool);
+    let (app, _state, _) = test_app(pool).await;
     let to = format!("{TO:#x}");
     let id = sync_job(&app, json!({"addresses": [to], "batch": "b3"})).await;
     assert_eq!(sync_job(&app, json!({"addresses": [to]})).await, id);
@@ -1082,7 +1082,7 @@ async fn manual_sync_keeps_a_job_alive_after_its_batches_go(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn cancel_background_scope_spares_interactive_jobs(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let (interactive, _) = state
         .store
         .enqueue(&eg_store::NewJob {
@@ -1108,7 +1108,7 @@ async fn cancel_background_scope_spares_interactive_jobs(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn sync_depth_and_batch_validation(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let a = |b: u8| format!("{:#x}", Address::repeat_byte(b));
     let full = sync_job(&app, json!({"addresses": [a(1)], "depth": "full"})).await;
     let older = sync_job(
@@ -1143,7 +1143,7 @@ async fn sync_depth_and_batch_validation(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn cancelling_a_running_job_lists_it_but_leaves_the_event_to_the_runner(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let a = |b: u8| format!("{:#x}", Address::repeat_byte(b));
     let by_batch = sync_job(&app, json!({"addresses": [a(1)], "batch": "b1"})).await;
     assert_eq!(
@@ -1179,7 +1179,7 @@ fn fresh_account(addr: Address) -> eg_store::AccountRow {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn identify_rejects_bad_sizes_and_batches(pool: PgPool) {
-    let (app, _state, _) = test_app(pool);
+    let (app, _state, _) = test_app(pool).await;
     let (st, b) = post_json(&app, "/api/identify", &json!({"addresses": []})).await;
     assert_eq!(st, StatusCode::BAD_REQUEST, "{b}");
     assert_eq!(code(&b), "invalid_input");
@@ -1196,7 +1196,7 @@ async fn identify_rejects_bad_sizes_and_batches(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn identify_queues_only_addresses_needing_meta(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     state
         .store
         .upsert_accounts(&[fresh_account(OTHER)])
@@ -1228,7 +1228,7 @@ async fn identify_queues_only_addresses_needing_meta(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn identify_with_nothing_to_do_queues_nothing(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     state
         .store
         .upsert_accounts(&[fresh_account(OTHER)])
@@ -1242,7 +1242,7 @@ async fn identify_with_nothing_to_do_queues_nothing(pool: PgPool) {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn node_identified_follows_real_metadata(pool: PgPool) {
-    let (app, state, _) = test_app(pool);
+    let (app, state, _) = test_app(pool).await;
     let identified = |g: &Value| g["nodes"][0]["identified"].clone();
     let req = json!({"addresses": [format!("{TOKEN:#x}")]});
     let (_, g) = post_json(&app, "/api/graph/edges", &req).await;
@@ -1322,7 +1322,7 @@ async fn import_tokens_refuses_an_empty_parse_and_keeps_the_source(pool: PgPool)
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn workspace_stores_the_schema_version_it_is_given(pool: PgPool) {
-    let (app, _, _) = test_app(pool);
+    let (app, _, _) = test_app(pool).await;
     // Absent: version 1 (clients that predate the field).
     let (st, w) = post_json(&app, "/api/workspaces", &json!({"name": "a", "state": {}})).await;
     assert_eq!(st, StatusCode::CREATED, "{w}");

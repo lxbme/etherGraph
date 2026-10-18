@@ -13,6 +13,7 @@ use eg_store::{JobRow, LabelRow, SyncRow};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::auth::siwe::SiweFields;
 use crate::trust::TrustIndex;
 
 pub fn rfc3339(t: DateTime<Utc>) -> String {
@@ -122,10 +123,94 @@ pub struct ErrorBody {
 #[ts(export)]
 pub struct ErrorDetail {
     #[ts(
-        type = r#""invalid_input" | "not_found" | "conflict" | "quota_exhausted" | "upstream_error" | "internal""#
+        type = r#""invalid_input" | "not_found" | "conflict" | "quota_exhausted" | "upstream_error" | "internal" | "unauthorized" | "rate_limited" | "user_quota_exhausted""#
     )]
     pub code: String,
     pub message: String,
+}
+
+// -------------------------------------------------------------------- auth
+
+/// `GET /api/auth/nonce`: every field of the message to sign. The client
+/// builds the EIP-4361 text from them (viem `createSiweMessage`); the server
+/// accepts only that exact text.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SiweFieldsDto {
+    pub domain: String,
+    /// The address the nonce was requested for (lower case).
+    pub address: String,
+    pub statement: String,
+    pub uri: String,
+    /// Always `"1"`.
+    pub version: String,
+    /// Always 1 (mainnet).
+    #[ts(type = "number")]
+    pub chain_id: u64,
+    pub nonce: String,
+    /// Millisecond UTC timestamps (`Date.prototype.toISOString` form).
+    pub issued_at: String,
+    pub expiration_time: String,
+}
+
+impl SiweFieldsDto {
+    pub fn new(address: Address, f: SiweFields) -> Self {
+        Self {
+            domain: f.domain,
+            address: hex_addr(address),
+            statement: f.statement,
+            uri: f.uri,
+            version: f.version,
+            chain_id: f.chain_id,
+            nonce: f.nonce,
+            issued_at: f.issued_at,
+            expiration_time: f.expiration_time,
+        }
+    }
+
+    /// The fields without the address.
+    pub fn siwe_fields(&self) -> SiweFields {
+        SiweFields {
+            domain: self.domain.clone(),
+            statement: self.statement.clone(),
+            uri: self.uri.clone(),
+            version: self.version.clone(),
+            chain_id: self.chain_id,
+            nonce: self.nonce.clone(),
+            issued_at: self.issued_at.clone(),
+            expiration_time: self.expiration_time.clone(),
+        }
+    }
+}
+
+/// `POST /api/auth/login`: the signed message and the wallet's signature (hex).
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LoginDto {
+    pub message: String,
+    pub signature: String,
+}
+
+/// The user's own Etherscan quota for today.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct QuotaDto {
+    pub used: u32,
+    pub limit: u32,
+    /// Next UTC midnight.
+    pub reset_at: String,
+}
+
+/// `GET /api/auth/me` and the login response.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct MeDto {
+    pub address: String,
+    /// A configured admin.
+    pub is_admin: bool,
+    /// The request carried a live admin-mode session.
+    pub admin_mode: bool,
+    pub quota: QuotaDto,
 }
 
 // ------------------------------------------------------------------ search

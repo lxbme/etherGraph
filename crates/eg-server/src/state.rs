@@ -9,6 +9,7 @@ use eg_ingest::{EventBus, JobCtx};
 use eg_store::Store;
 use tokio::sync::Notify;
 
+use crate::auth::AuthState;
 use crate::config::Config;
 use crate::head::HeadCache;
 use crate::trust::TrustCache;
@@ -23,6 +24,7 @@ pub struct AppState {
     pub cfg: Arc<Config>,
     pub head: Arc<HeadCache>,
     pub trust: Arc<TrustCache>,
+    pub auth: Arc<AuthState>,
 }
 
 impl AppState {
@@ -42,6 +44,7 @@ impl AppState {
             wake: Arc::new(Notify::new()),
         };
         Self {
+            auth: Arc::new(AuthState::new(&cfg)),
             store,
             source,
             gate,

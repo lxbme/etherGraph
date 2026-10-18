@@ -1,0 +1,47 @@
+[
+  {
+    "fields": {
+      "domain": "127.0.0.1:8080",
+      "address": "0xa0cf798816d4b9b9866b5330eea46a18382f251e",
+      "statement": "Sign in to etherGraph",
+      "uri": "http://127.0.0.1:8080",
+      "version": "1",
+      "chain_id": 1,
+      "nonce": "3f1c2a9b8e7d6c5b4a39281706f5e4d3",
+      "issued_at": "2026-10-19T12:00:00.000Z",
+      "expiration_time": "2026-10-19T12:05:00.000Z"
+    },
+    "address": "0xa0cf798816d4b9b9866b5330eea46a18382f251e",
+    "expected": "127.0.0.1:8080 wants you to sign in with your Ethereum account:\n0xA0Cf798816D4b9b9866b5330EEa46a18382f251e\n\nSign in to etherGraph\n\nURI: http://127.0.0.1:8080\nVersion: 1\nChain ID: 1\nNonce: 3f1c2a9b8e7d6c5b4a39281706f5e4d3\nIssued At: 2026-10-19T12:00:00.000Z\nExpiration Time: 2026-10-19T12:05:00.000Z"
+  },
+  {
+    "fields": {
+      "domain": "graph.example.org",
+      "address": "0xcA11bde05977b3631167028862bE2a173976CA11",
+      "statement": "Enter etherGraph admin mode",
+      "uri": "https://graph.example.org",
+      "version": "1",
+      "chain_id": 1,
+      "nonce": "00ff00ff00ff00ff00ff00ff00ff00ff",
+      "issued_at": "2026-12-31T23:58:30.123Z",
+      "expiration_time": "2027-01-01T00:03:30.123Z"
+    },
+    "address": "0xcA11bde05977b3631167028862bE2a173976CA11",
+    "expected": "graph.example.org wants you to sign in with your Ethereum account:\n0xcA11bde05977b3631167028862bE2a173976CA11\n\nEnter etherGraph admin mode\n\nURI: https://graph.example.org\nVersion: 1\nChain ID: 1\nNonce: 00ff00ff00ff00ff00ff00ff00ff00ff\nIssued At: 2026-12-31T23:58:30.123Z\nExpiration Time: 2027-01-01T00:03:30.123Z"
+  },
+  {
+    "fields": {
+      "domain": "localhost:5173",
+      "address": "0x0000000000000000000000000000000000000001",
+      "statement": "Sign in to etherGraph",
+      "uri": "http://localhost:5173",
+      "version": "1",
+      "chain_id": 1,
+      "nonce": "abcdef0123456789abcdef0123456789",
+      "issued_at": "2026-02-28T09:07:05.009Z",
+      "expiration_time": "2026-02-28T09:12:05.009Z"
+    },
+    "address": "0x0000000000000000000000000000000000000001",
+    "expected": "localhost:5173 wants you to sign in with your Ethereum account:\n0x0000000000000000000000000000000000000001\n\nSign in to etherGraph\n\nURI: http://localhost:5173\nVersion: 1\nChain ID: 1\nNonce: abcdef0123456789abcdef0123456789\nIssued At: 2026-02-28T09:07:05.009Z\nExpiration Time: 2026-02-28T09:12:05.009Z"
+  }
+]

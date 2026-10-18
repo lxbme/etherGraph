@@ -27,8 +27,9 @@ database_url = "postgres://eg:eg@localhost:54329/eg"
 static_dir = "web/dist"
 
 [auth]
-# Scheme, host and port the browser opens (no trailing slash); login messages
-# and the Origin check of state-changing requests use it.
+# Scheme, host and port the browser opens (no trailing slash; plain http only
+# for localhost / 127.0.0.1); login messages and the Origin check of
+# state-changing requests use it.
 public_origin = "http://127.0.0.1:8080"
 # Admin wallet addresses, e.g. ["0x…"]. Empty: nobody can enter admin mode.
 admins = []

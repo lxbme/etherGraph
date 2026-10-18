@@ -1,4 +1,4 @@
-//! `GET /api/status`.
+//! `GET /api/status` and `GET /api/health`.
 
 use axum::Json;
 use axum::extract::State;
@@ -9,6 +9,11 @@ use crate::background::next_utc_midnight;
 use crate::dto::{StatusDto, rfc3339};
 use crate::error::ApiError;
 use crate::state::AppState;
+
+/// `GET /api/health`: open without a session.
+pub async fn health() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "ok": true }))
+}
 
 pub async fn status(State(s): State<AppState>) -> Result<Json<StatusDto>, ApiError> {
     let active = s.store.active_jobs().await?;

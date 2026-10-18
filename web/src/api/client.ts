@@ -7,6 +7,9 @@ const KNOWN: ApiErrorCode[] = [
   "invalid_input", "not_found", "conflict", "quota_exhausted", "upstream_error", "internal",
 ];
 
+// The server may send codes the client does not handle yet; those stay "internal".
+const isKnown = (c: string): c is ApiErrorCode => (KNOWN as string[]).includes(c);
+
 export async function request<T>(
   method: Method,
   path: string,
@@ -37,7 +40,7 @@ export async function request<T>(
     let message = res.statusText;
     try {
       const body = (await res.json()) as ErrorBody;
-      if (KNOWN.includes(body.error.code)) code = body.error.code;
+      if (isKnown(body.error.code)) code = body.error.code;
       message = body.error.message;
     } catch {
       // non-JSON error body: keep defaults

@@ -1,4 +1,5 @@
-//! Quota persistence, UTC-midnight reset and `QuotaStatus` events.
+//! Quota persistence, UTC-midnight reset, `QuotaStatus` events and the purge
+//! of spent login nonces and expired sessions.
 
 use std::time::Duration;
 
@@ -13,6 +14,7 @@ const PERSIST_EVERY: Duration = Duration::from_secs(5);
 /// Upper bound on how long the gate may take to apply a queued quota reset.
 const RESET_APPLY_TIMEOUT: Duration = Duration::from_secs(1);
 const STATUS_MIN_INTERVAL: Duration = Duration::from_secs(1);
+const AUTH_PURGE_EVERY: Duration = Duration::from_secs(600);
 
 /// The first UTC midnight strictly after `now`.
 pub fn next_utc_midnight(now: DateTime<Utc>) -> DateTime<Utc> {
@@ -25,14 +27,35 @@ pub fn next_utc_midnight(now: DateTime<Utc>) -> DateTime<Utc> {
 }
 
 /// Spawns the quota loop (persist every 5s, reset at UTC midnight) and the
-/// `QuotaStatus` publisher (on snapshot change, at most once per second), and
-/// starts the first chain head fetch.
+/// `QuotaStatus` publisher (on snapshot change, at most once per second) and
+/// the auth purge (every 10 minutes), and starts the first chain head fetch.
 pub fn spawn_background(state: &AppState) {
     state.head.prime(state);
     // Subscribe before spawning so no change after this call is missed.
     let quota_rx = state.gate.subscribe_quota();
     tokio::spawn(publish_quota_status(state.clone(), quota_rx));
     tokio::spawn(quota_loop(state.clone()));
+    tokio::spawn(auth_purge_loop(state.clone()));
+}
+
+async fn auth_purge_loop(state: AppState) {
+    let mut tick = tokio::time::interval(AUTH_PURGE_EVERY);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        tick.tick().await;
+        purge_auth(&state).await;
+    }
+}
+
+/// Deletes used or expired login nonces and expired sessions.
+pub async fn purge_auth(state: &AppState) {
+    match state.store.purge_expired_auth().await {
+        Ok((nonces, sessions)) if nonces + sessions > 0 => {
+            tracing::debug!(nonces, sessions, "purged spent nonces and expired sessions");
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "purging nonces and sessions failed"),
+    }
 }
 
 async fn quota_loop(state: AppState) {

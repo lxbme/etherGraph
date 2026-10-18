@@ -147,6 +147,7 @@ impl Default for SourceCfg {
 pub struct AuthCfg {
     /// Scheme, host and port the browser uses (the SIWE domain/URI and the
     /// required `Origin` of state-changing requests); no trailing slash.
+    /// Plain `http` only for `localhost` / `127.0.0.1`. See [`AuthCfg::origin`].
     pub public_origin: String,
     /// Admin wallet addresses. Empty is allowed (with a startup warning):
     /// nobody can enter admin mode.
@@ -186,7 +187,99 @@ fn parse_admin(s: &str) -> anyhow::Result<Address> {
     }
 }
 
+/// [`AuthCfg::public_origin`] parsed and normalized.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PublicOrigin {
+    /// `scheme://host[:port]`, lower case and without a default port: what a
+    /// browser sends as `Origin`, and the SIWE message's URI.
+    pub origin: String,
+    /// `host[:port]`: the SIWE message's domain.
+    pub domain: String,
+    /// Cookies carry `Secure`: everywhere except plain-http local development.
+    pub secure: bool,
+}
+
+/// What wallets (viem's `createSiweMessage`) accept as a message domain's host:
+/// a DNS name with an alphabetic top-level label, an IPv4 address or `localhost`.
+fn valid_host(host: &str) -> bool {
+    if host == "localhost" || host.parse::<std::net::Ipv4Addr>().is_ok() {
+        return true;
+    }
+    let labels: Vec<&str> = host.split('.').collect();
+    let label_ok = |l: &&str| {
+        !l.is_empty()
+            && l.len() <= 63
+            && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+            && !l.starts_with('-')
+            && !l.ends_with('-')
+    };
+    labels.len() >= 2
+        && labels.iter().all(label_ok)
+        && labels
+            .last()
+            .is_some_and(|t| t.len() >= 2 && t.bytes().all(|b| b.is_ascii_alphabetic()))
+}
+
+fn parse_origin(raw: &str) -> Result<PublicOrigin, String> {
+    let (scheme, rest) = raw
+        .split_once("://")
+        .ok_or("expected scheme://host[:port]")?;
+    let scheme = scheme.to_ascii_lowercase();
+    let default_port = match scheme.as_str() {
+        "http" => 80,
+        "https" => 443,
+        _ => return Err("the scheme must be http or https".into()),
+    };
+    if let Some(c) = rest.chars().find(|c| matches!(c, '/' | '?' | '#' | '@')) {
+        return Err(format!(
+            "no path, query, fragment or user info allowed (found {c:?})"
+        ));
+    }
+    let (host, port) = match rest.rsplit_once(':') {
+        Some((h, p)) => {
+            let ok = !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit());
+            let port = p
+                .parse::<u16>()
+                .ok()
+                .filter(|&n| ok && n > 0)
+                .ok_or_else(|| format!("invalid port {p:?}"))?;
+            (h, Some(port))
+        }
+        None => (rest, None),
+    };
+    let host = host.to_ascii_lowercase();
+    if !valid_host(&host) {
+        return Err(format!(
+            "invalid host {host:?} (a DNS name with a top-level domain, an IPv4 address or localhost)"
+        ));
+    }
+    let local = host == "localhost" || host == "127.0.0.1";
+    if scheme == "http" && !local {
+        return Err("plain http is only allowed for localhost / 127.0.0.1; use https".into());
+    }
+    let domain = match port.filter(|&p| p != default_port) {
+        Some(p) => format!("{host}:{p}"),
+        None => host,
+    };
+    Ok(PublicOrigin {
+        origin: format!("{scheme}://{domain}"),
+        domain,
+        secure: scheme == "https",
+    })
+}
+
 impl AuthCfg {
+    /// The parsed [`AuthCfg::public_origin`]: `http` or `https`, a host, an
+    /// optional port, nothing else.
+    pub fn origin(&self) -> anyhow::Result<PublicOrigin> {
+        parse_origin(&self.public_origin).map_err(|e| {
+            anyhow::anyhow!(
+                "auth.public_origin must be scheme://host[:port], got {:?}: {e}",
+                self.public_origin
+            )
+        })
+    }
+
     /// The configured admins; call after [`Config::validate`] (invalid
     /// entries are skipped).
     pub fn admin_addresses(&self) -> Vec<Address> {
@@ -200,13 +293,7 @@ impl AuthCfg {
         for a in &self.admins {
             parse_admin(a).with_context(|| format!("auth.admins: {a:?} is not a valid address"))?;
         }
-        let origin = &self.public_origin;
-        let rest = origin
-            .strip_prefix("https://")
-            .or_else(|| origin.strip_prefix("http://"));
-        if !rest.is_some_and(|r| !r.is_empty() && !r.contains('/')) {
-            bail!("auth.public_origin must be scheme://host[:port] without a path, got {origin:?}");
-        }
+        self.origin()?;
         if self.session_days == 0 {
             bail!("auth.session_days must be > 0");
         }

@@ -11,7 +11,7 @@ eg-decode = { path = "../eg-decode" }
 eg-store = { path = "../eg-store" }
 eg-etherscan = { path = "../eg-etherscan" }
 eg-ingest = { path = "../eg-ingest" }
-alloy-primitives = { workspace = true }
+alloy-primitives = { workspace = true, features = ["k256"] }
 anyhow = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
@@ -32,6 +32,8 @@ unicode-normalization = "0.1.25"
 alloy-sol-types = { workspace = true }
 eg-core = { path = "../eg-core", features = ["testing"] }
 http-body-util = "0.1"
+k256 = { workspace = true }
+rand = { workspace = true }
 sqlx = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 async-trait = { workspace = true }

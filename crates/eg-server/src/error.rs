@@ -28,6 +28,31 @@ impl ApiError {
         Self::new(StatusCode::NOT_FOUND, "not_found", msg)
     }
 
+    /// 401 `unauthorized`; `reason` is a machine-readable code (`no_session`,
+    /// `bad_origin`, `bad_nonce`, …). There is no 403: a resource the user may
+    /// not see is a 404.
+    pub fn unauthorized(reason: &'static str) -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, "unauthorized", reason)
+    }
+
+    /// 429 `rate_limited`: too many login requests from one client.
+    pub fn rate_limited() -> Self {
+        Self::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "rate_limited",
+            "too many requests, try again in a minute",
+        )
+    }
+
+    /// 429 `user_quota_exhausted`: the user's own daily Etherscan quota is used up.
+    pub fn user_quota_exhausted() -> Self {
+        Self::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "user_quota_exhausted",
+            "your daily Etherscan quota is used up",
+        )
+    }
+
     pub fn internal() -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -102,6 +127,22 @@ mod tests {
             v,
             serde_json::json!({"error": {"code": "invalid_input", "message": "bad address"}})
         );
+    }
+
+    #[tokio::test]
+    async fn auth_errors() {
+        let (status, v) = render(ApiError::unauthorized("bad_origin")).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            v,
+            serde_json::json!({"error": {"code": "unauthorized", "message": "bad_origin"}})
+        );
+        let (status, v) = render(ApiError::rate_limited()).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(v["error"]["code"], "rate_limited");
+        let (status, v) = render(ApiError::user_quota_exhausted()).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(v["error"]["code"], "user_quota_exhausted");
     }
 
     #[test]

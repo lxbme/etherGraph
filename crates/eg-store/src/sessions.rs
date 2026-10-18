@@ -184,6 +184,22 @@ impl Store {
         Ok(res.rows_affected())
     }
 
+    /// Deletes used or expired nonces and expired sessions; returns
+    /// `(nonces, sessions)` deleted. A deleted nonce stays unusable: taking
+    /// it finds no row.
+    pub async fn purge_expired_auth(&self) -> Result<(u64, u64)> {
+        let nonces =
+            sqlx::query("DELETE FROM auth_nonces WHERE used_at IS NOT NULL OR expires_at <= now()")
+                .execute(&self.pool)
+                .await?
+                .rows_affected();
+        let sessions = sqlx::query("DELETE FROM sessions WHERE expires_at <= now()")
+            .execute(&self.pool)
+            .await?
+            .rows_affected();
+        Ok((nonces, sessions))
+    }
+
     /// Stores a fresh random nonce (32 hex characters, valid for `ttl`) with
     /// the message fields and payload hash it is issued for.
     pub async fn nonce_issue(
@@ -438,6 +454,51 @@ mod tests {
                 .await
                 .unwrap()
                 .is_none()
+        );
+    }
+
+    #[sqlx::test]
+    async fn purge_drops_expired_sessions_and_spent_nonces(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let u = user(&s, 1).await;
+        let live = s
+            .session_create(u.id, SessionKind::User, Duration::days(1), None, None)
+            .await
+            .unwrap();
+        s.session_create(u.id, SessionKind::Admin, Duration::seconds(-1), None, None)
+            .await
+            .unwrap();
+        let issue = |ttl| {
+            let s = s.clone();
+            async move {
+                s.nonce_issue(NoncePurpose::Login, None, &json!({}), None, ttl)
+                    .await
+                    .unwrap()
+            }
+        };
+        let fresh = issue(Duration::minutes(5)).await;
+        let used = issue(Duration::minutes(5)).await;
+        issue(Duration::seconds(-1)).await;
+        assert!(
+            s.nonce_take(&used, NoncePurpose::Login)
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        assert_eq!(s.purge_expired_auth().await.unwrap(), (2, 1));
+        assert_eq!(s.purge_expired_auth().await.unwrap(), (0, 0));
+        assert!(
+            s.session_lookup(&live, SessionKind::User)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            s.nonce_take(&fresh, NoncePurpose::Login)
+                .await
+                .unwrap()
+                .is_some()
         );
     }
 
