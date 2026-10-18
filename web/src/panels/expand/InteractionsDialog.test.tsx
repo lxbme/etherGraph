@@ -109,7 +109,7 @@ test("a synced contract is not synced again", async () => {
 });
 
 test("rows show the counterparty, asset symbols (max 3 plus +N) and Count is the default sort", async () => {
-  const assets = ["A", "B", "C", "D", "E"].map((s) => ({ asset: "0x" + s.charCodeAt(0).toString(16).repeat(20), symbol: s }));
+  const assets = ["A", "B", "C", "D", "E"].map((s) => ({ asset: "0x" + s.charCodeAt(0).toString(16).repeat(20), symbol: s, trust: { level: "unknown" as const, impersonates: null, reason: null } }));
   const spy = vi.spyOn(api, "counterparties").mockResolvedValue({ items: [cp(1, { assets })], total: 1 });
   mount();
   const row = (await screen.findByRole("checkbox", { name: addr(1) })).closest("tr")!;

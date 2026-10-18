@@ -26,6 +26,7 @@ tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 ts-rs = { workspace = true }
+unicode-normalization = "0.1.25"
 
 [dev-dependencies]
 alloy-sol-types = { workspace = true }

@@ -35,7 +35,7 @@ const node = (address: string, synced: boolean): NodeSummaryDto => ({
 });
 const edge: EdgeDto = {
   from: A, to: B, asset: null, asset_kind: "native", count: 3, sum: "1000", first_ts: "", last_ts: "",
-  decimals: 18, symbol: "ETH",
+  decimals: 18, symbol: "ETH", trust: { level: "listed", impersonates: null, reason: null },
 };
 const data: GraphResponseDto = { nodes: [node(A, true), node(B, false)], edges: [edge], omitted: {}, coverage: {} };
 

@@ -12,7 +12,7 @@ function edge(p: Partial<EdgeDto> & { count: number }): EdgeDto {
   return {
     from: A, to: B, asset: null, asset_kind: "native", sum: "1",
     first_ts: "2024-01-01T00:00:00Z", last_ts: "2024-01-02T00:00:00Z",
-    decimals: 18, symbol: null, ...p,
+    decimals: 18, symbol: null, trust: { level: "listed", impersonates: null, reason: null }, ...p,
   };
 }
 const none = new Set<string>();

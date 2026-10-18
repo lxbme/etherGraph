@@ -12,7 +12,12 @@
       "amount": "2000000000000000000",
       "token_id": null,
       "decimals": 18,
-      "symbol": null
+      "symbol": null,
+      "trust": {
+        "level": "listed",
+        "impersonates": null,
+        "reason": null
+      }
     },
     {
       "tx_hash": "0x7e57000000000000000000000000000000000000000000000000000000000002",
@@ -26,7 +31,12 @@
       "amount": "1500000000000000000",
       "token_id": null,
       "decimals": 18,
-      "symbol": null
+      "symbol": null,
+      "trust": {
+        "level": "listed",
+        "impersonates": null,
+        "reason": null
+      }
     },
     {
       "tx_hash": "0x7e57000000000000000000000000000000000000000000000000000000000003",
@@ -40,7 +50,12 @@
       "amount": "1500000000000000000",
       "token_id": null,
       "decimals": 18,
-      "symbol": null
+      "symbol": null,
+      "trust": {
+        "level": "listed",
+        "impersonates": null,
+        "reason": null
+      }
     }
   ],
   "next_cursor": null

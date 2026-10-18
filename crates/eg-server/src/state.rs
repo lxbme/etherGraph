@@ -11,6 +11,7 @@ use tokio::sync::Notify;
 
 use crate::config::Config;
 use crate::head::HeadCache;
+use crate::trust::TrustCache;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -21,6 +22,7 @@ pub struct AppState {
     pub ctx: JobCtx,
     pub cfg: Arc<Config>,
     pub head: Arc<HeadCache>,
+    pub trust: Arc<TrustCache>,
 }
 
 impl AppState {
@@ -47,6 +49,7 @@ impl AppState {
             ctx,
             cfg,
             head: Arc::new(HeadCache::default()),
+            trust: Arc::new(TrustCache::default()),
         }
     }
 }

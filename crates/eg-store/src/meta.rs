@@ -76,6 +76,19 @@ fn kind_str(k: AccountKind) -> &'static str {
     }
 }
 
+fn token_from_raw((a, kind, name, symbol, decimals): TokenRaw) -> Result<TokenInfo> {
+    Ok(TokenInfo {
+        address: bytes_to_addr(&a),
+        kind: TransferKind::from_i16(kind)
+            .ok_or_else(|| StoreError::Invalid(format!("unknown kind {kind}")))?,
+        name,
+        symbol,
+        decimals: decimals
+            .map(|d| u8::try_from(d).map_err(|_| StoreError::Invalid(format!("decimals {d}"))))
+            .transpose()?,
+    })
+}
+
 fn keys(addrs: &[Address]) -> Vec<Vec<u8>> {
     addrs.iter().copied().map(addr_to_bytes).collect()
 }
@@ -244,23 +257,19 @@ impl Store {
         .bind(keys(addrs))
         .fetch_all(&self.pool)
         .await?;
-        rows.into_iter()
-            .map(|(a, kind, name, symbol, decimals)| {
-                Ok(TokenInfo {
-                    address: bytes_to_addr(&a),
-                    kind: TransferKind::from_i16(kind)
-                        .ok_or_else(|| StoreError::Invalid(format!("unknown kind {kind}")))?,
-                    name,
-                    symbol,
-                    decimals: decimals
-                        .map(|d| {
-                            u8::try_from(d)
-                                .map_err(|_| StoreError::Invalid(format!("decimals {d}")))
-                        })
-                        .transpose()?,
-                })
-            })
-            .collect()
+        rows.into_iter().map(token_from_raw).collect()
+    }
+
+    /// Every token row of `kind`, by address.
+    pub async fn tokens_of_kind(&self, kind: TransferKind) -> Result<Vec<TokenInfo>> {
+        let rows: Vec<TokenRaw> = sqlx::query_as(
+            "SELECT address, kind, name, symbol, decimals FROM tokens \
+             WHERE kind = $1 ORDER BY address",
+        )
+        .bind(kind.as_i16())
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter().map(token_from_raw).collect()
     }
 
     /// Stores what a TokenMeta run found and marks every token as attempted
@@ -391,6 +400,31 @@ mod tests {
             creation_tx: None,
             meta_fetched_at: Utc::now() - CD::days(age_days),
         }
+    }
+
+    #[sqlx::test]
+    async fn tokens_of_kind_lists_every_row_of_the_kind(pool: PgPool) {
+        let store = Store::from_pool(pool);
+        let tok = |n: u8, kind: TransferKind| TokenInfo {
+            address: Address::repeat_byte(n),
+            kind,
+            name: Some(format!("T{n}")),
+            symbol: None,
+            decimals: None,
+        };
+        store
+            .upsert_tokens(&[
+                tok(2, TransferKind::Erc20),
+                tok(1, TransferKind::Erc20),
+                tok(3, TransferKind::Erc721),
+            ])
+            .await
+            .unwrap();
+        let got = store.tokens_of_kind(TransferKind::Erc20).await.unwrap();
+        assert_eq!(
+            got,
+            [tok(1, TransferKind::Erc20), tok(2, TransferKind::Erc20)]
+        );
     }
 
     #[sqlx::test]

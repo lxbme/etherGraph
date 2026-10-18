@@ -176,7 +176,12 @@
         "trace_path": null,
         "log_index": null,
         "decimals": 18,
-        "symbol": "ETH"
+        "symbol": "ETH",
+        "trust": {
+          "level": "listed",
+          "impersonates": null,
+          "reason": null
+        }
       },
       {
         "seq": 2,
@@ -189,7 +194,12 @@
         "trace_path": null,
         "log_index": 3,
         "decimals": 6,
-        "symbol": "USDT"
+        "symbol": "USDT",
+        "trust": {
+          "level": "listed",
+          "impersonates": null,
+          "reason": null
+        }
       },
       {
         "seq": 3,
@@ -202,7 +212,12 @@
         "trace_path": null,
         "log_index": 4,
         "decimals": 18,
-        "symbol": "WETH"
+        "symbol": "WETH",
+        "trust": {
+          "level": "unknown",
+          "impersonates": null,
+          "reason": null
+        }
       },
       {
         "seq": 4,
@@ -215,7 +230,12 @@
         "trace_path": null,
         "log_index": 6,
         "decimals": 6,
-        "symbol": "USDT"
+        "symbol": "USDT",
+        "trust": {
+          "level": "listed",
+          "impersonates": null,
+          "reason": null
+        }
       },
       {
         "seq": 5,
@@ -228,7 +248,12 @@
         "trace_path": "0",
         "log_index": null,
         "decimals": 18,
-        "symbol": "ETH"
+        "symbol": "ETH",
+        "trust": {
+          "level": "listed",
+          "impersonates": null,
+          "reason": null
+        }
       },
       {
         "seq": 6,
@@ -241,7 +266,12 @@
         "trace_path": "0_1",
         "log_index": null,
         "decimals": 18,
-        "symbol": "ETH"
+        "symbol": "ETH",
+        "trust": {
+          "level": "listed",
+          "impersonates": null,
+          "reason": null
+        }
       },
       {
         "seq": 7,
@@ -254,7 +284,12 @@
         "trace_path": "0_1_0",
         "log_index": null,
         "decimals": 18,
-        "symbol": "ETH"
+        "symbol": "ETH",
+        "trust": {
+          "level": "listed",
+          "impersonates": null,
+          "reason": null
+        }
       }
     ],
     "events": [],

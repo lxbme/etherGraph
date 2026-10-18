@@ -14,7 +14,8 @@ const UNK = "0x" + "cc".repeat(20);
 
 const edge = (o: Partial<EdgeDto>): EdgeDto => ({
   from: A, to: B, asset: null, asset_kind: "native", count: 1, sum: "1",
-  first_ts: "2024-01-01T00:00:00Z", last_ts: "2024-01-02T00:00:00Z", decimals: 18, symbol: null, ...o,
+  first_ts: "2024-01-01T00:00:00Z", last_ts: "2024-01-02T00:00:00Z", decimals: 18, symbol: null,
+  trust: { level: "listed", impersonates: null, reason: null }, ...o,
 });
 
 let qc: QueryClient;

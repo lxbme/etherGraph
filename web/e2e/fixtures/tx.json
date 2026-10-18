@@ -111,7 +111,12 @@
         "trace_path": null,
         "log_index": null,
         "decimals": 18,
-        "symbol": null
+        "symbol": null,
+        "trust": {
+          "level": "listed",
+          "impersonates": null,
+          "reason": null
+        }
       },
       {
         "seq": 1,
@@ -124,7 +129,12 @@
         "trace_path": "0",
         "log_index": null,
         "decimals": 18,
-        "symbol": null
+        "symbol": null,
+        "trust": {
+          "level": "listed",
+          "impersonates": null,
+          "reason": null
+        }
       },
       {
         "seq": 2,
@@ -137,7 +147,12 @@
         "trace_path": null,
         "log_index": 12,
         "decimals": 6,
-        "symbol": "USDT"
+        "symbol": "USDT",
+        "trust": {
+          "level": "listed",
+          "impersonates": null,
+          "reason": null
+        }
       }
     ],
     "events": [],

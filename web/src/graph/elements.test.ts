@@ -21,7 +21,7 @@ function dto(p: Partial<EdgeDto> = {}): EdgeDto {
   return {
     from: A, to: B, asset: null, asset_kind: "native", count: 1, sum: "1",
     first_ts: "2024-01-01T00:00:00Z", last_ts: "2024-01-02T00:00:00Z",
-    decimals: 18, symbol: null, ...p,
+    decimals: 18, symbol: null, trust: { level: "listed", impersonates: null, reason: null }, ...p,
   };
 }
 function vedge(p: Partial<VisualEdge> = {}): VisualEdge {

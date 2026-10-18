@@ -7,11 +7,12 @@ use std::collections::HashMap;
 use axum::Json;
 use axum::extract::State;
 use eg_core::filter::{EdgeFilter, TimeRange};
+use eg_core::types::TransferKind;
 use eg_store::{AccountKindFilter, CounterpartySort};
 use serde::Deserialize;
 
 use crate::dto::{
-    AssetRefDto, CounterpartyDto, CounterpartyPageDto, asset_meta, hex_addr, rfc3339,
+    AssetRefDto, CounterpartyDto, CounterpartyPageDto, asset_meta, asset_trust, hex_addr, rfc3339,
 };
 use crate::error::{ApiError, invalid};
 use crate::nodes::{enqueue_missing_names, load_nodes, token_map};
@@ -104,6 +105,7 @@ pub async fn list(
     assets.sort();
     assets.dedup();
     let tokens = token_map(&s.store, &assets).await?;
+    let trust = s.trust.get(&s.store).await;
     let nodes = load_nodes(
         &s.store,
         &addrs,
@@ -125,9 +127,16 @@ pub async fn list(
             assets: r
                 .assets
                 .iter()
-                .map(|a| AssetRefDto {
-                    asset: a.map(hex_addr),
-                    symbol: asset_meta(*a, &tokens).1,
+                .map(|&a| {
+                    // The stored standard, else ERC-20 (ETH ignores the kind).
+                    let kind = a
+                        .and_then(|a| tokens.get(&a))
+                        .map_or(TransferKind::Erc20, |t| t.kind);
+                    AssetRefDto {
+                        asset: a.map(hex_addr),
+                        symbol: asset_meta(a, &tokens).1,
+                        trust: asset_trust(&trust, a, kind, &tokens),
+                    }
                 })
                 .collect(),
         })

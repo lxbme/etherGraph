@@ -12,4 +12,5 @@ pub mod nodes;
 pub mod parse;
 pub mod routes;
 pub mod state;
+pub mod trust;
 pub mod txdetail;

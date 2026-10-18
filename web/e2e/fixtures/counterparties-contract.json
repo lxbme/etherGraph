@@ -22,7 +22,12 @@
         {
           "asset": null,
           "symbol": "ETH",
-          "decimals": 18
+          "decimals": 18,
+          "trust": {
+            "level": "listed",
+            "impersonates": null,
+            "reason": null
+          }
         }
       ]
     },
@@ -48,7 +53,12 @@
         {
           "asset": null,
           "symbol": "ETH",
-          "decimals": 18
+          "decimals": 18,
+          "trust": {
+            "level": "listed",
+            "impersonates": null,
+            "reason": null
+          }
         }
       ]
     },
@@ -74,7 +84,12 @@
         {
           "asset": null,
           "symbol": "ETH",
-          "decimals": 18
+          "decimals": 18,
+          "trust": {
+            "level": "listed",
+            "impersonates": null,
+            "reason": null
+          }
         }
       ]
     }

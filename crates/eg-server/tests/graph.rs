@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use common::{delete, get, post_json, test_app};
 use eg_core::source::{Priority, SourceError, TokenInfo};
 use eg_core::types::{AccountKind, Transfer, TransferKind, assign_sub_ids};
+use eg_server::import_tokens::{TokenFormat, import_tokens};
 use eg_server::state::AppState;
 use eg_store::{AccountRow, EnsRow, EnsStatus, JobKind};
 use serde_json::{Value, json};
@@ -222,6 +223,79 @@ async fn search_ens_unresolved_404(pool: PgPool) {
 // ---------------------------------------------------------------- graph
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
+async fn graph_edges_carry_each_assets_trust(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let fake = Address::repeat_byte(0xfa);
+    let spam = Address::repeat_byte(0x5a);
+    let labeled = Address::repeat_byte(0x5b);
+    let plain = Address::repeat_byte(0x5c);
+    let list = format!(
+        r#"{{"tokens":[{{"chainId":1,"address":"{}","symbol":"USDT","name":"Tether USD"}}]}}"#,
+        hex(USDT)
+    );
+    import_tokens(&state.store, TokenFormat::Uniswap, list.as_bytes())
+        .await
+        .unwrap();
+    let csv = format!(
+        "address,chainId,label,name,symbol,website,image\n{},1,spam-token,Spam,SPM,,x\n",
+        hex(spam)
+    );
+    import_tokens(&state.store, TokenFormat::EthLabels, csv.as_bytes())
+        .await
+        .unwrap();
+    state
+        .store
+        .replace_import("d", &[(labeled, "Fake airdrop".into(), "scam".into())])
+        .await
+        .unwrap();
+    token(&state, fake, "USDT", Some(6)).await;
+    token(&state, plain, "PLN", Some(18)).await;
+    seed(
+        &state,
+        vec![
+            tr(1, C, A, None, U256::from(5), 0),
+            tr(2, B, C, Some(USDT), U256::from(9), 10),
+            tr(3, B, C, Some(fake), U256::from(9), 20),
+            tr(4, B, C, Some(spam), U256::from(9), 30),
+            tr(5, B, C, Some(labeled), U256::from(9), 40),
+            tr(6, B, C, Some(plain), U256::from(9), 50),
+        ],
+    )
+    .await;
+    let (s, b) = post_json(&app, "/api/graph/edges", &json!({"addresses": [hex(C)]})).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let trust = |asset: Value| {
+        b["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["asset"] == asset)
+            .unwrap()["trust"]
+            .clone()
+    };
+    let level = |l: &str| json!({"level": l, "impersonates": null, "reason": null});
+    assert_eq!(trust(Value::Null), level("listed"));
+    assert_eq!(trust(json!(hex(USDT))), level("listed"));
+    assert_eq!(
+        trust(json!(hex(fake))),
+        json!({
+            "level": "suspicious",
+            "impersonates": {"address": hex(USDT), "symbol": "USDT", "name": "Tether USD"},
+            "reason": null,
+        })
+    );
+    assert_eq!(
+        trust(json!(hex(spam))),
+        json!({"level": "scam", "impersonates": null, "reason": "spam-token"})
+    );
+    assert_eq!(
+        trust(json!(hex(labeled))),
+        json!({"level": "scam", "impersonates": null, "reason": "scam-label"})
+    );
+    assert_eq!(trust(json!(hex(plain))), level("unknown"));
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_edges_returns_nodes_and_enqueues_meta(pool: PgPool) {
     let (app, state, _) = test_app(pool);
     seed(
@@ -265,6 +339,7 @@ async fn graph_edges_returns_nodes_and_enqueues_meta(pool: PgPool) {
             "count": 2, "sum": "12",
             "first_ts": "2023-11-14T22:13:20.000Z", "last_ts": "2023-11-14T22:13:30.000Z",
             "decimals": 18, "symbol": "ETH",
+            "trust": {"level": "listed", "impersonates": null, "reason": null},
         })
     );
     let usdt = edges.iter().find(|e| e["asset"] == hex(USDT)).unwrap();
@@ -736,6 +811,7 @@ async fn transfers_paginate_and_filter(pool: PgPool) {
             "kind": "native", "block_number": 104, "ts": "2023-11-14T22:13:50.000Z",
             "from": hex(B), "to": c, "asset": null, "amount": "4", "token_id": null,
             "decimals": 18, "symbol": "ETH",
+            "trust": {"level": "listed", "impersonates": null, "reason": null},
         })
     );
     let cursor = b["next_cursor"].as_str().unwrap().to_owned();
@@ -1223,8 +1299,10 @@ async fn counterparties_sort_page_kind_and_limits(pool: PgPool) {
     assert_eq!(b["items"][1]["node"]["kind"], "contract");
     assert!(b["items"][0]["last_ts"].as_str().unwrap().ends_with('Z'));
     let assets = b["items"][0]["assets"].as_array().unwrap();
-    assert!(assets.contains(&json!({"asset": null, "symbol": "ETH"})));
-    assert!(assets.contains(&json!({"asset": hex(USDT), "symbol": "USDT"})));
+    let listed = json!({"level": "listed", "impersonates": null, "reason": null});
+    let unknown = json!({"level": "unknown", "impersonates": null, "reason": null});
+    assert!(assets.contains(&json!({"asset": null, "symbol": "ETH", "trust": listed})));
+    assert!(assets.contains(&json!({"asset": hex(USDT), "symbol": "USDT", "trust": unknown})));
 
     let (_, b) = get(&app, &format!("{base}?sort=count_asc&limit=2&offset=1")).await;
     assert_eq!(b["total"], 3);

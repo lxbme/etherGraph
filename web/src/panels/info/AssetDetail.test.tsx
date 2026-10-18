@@ -11,7 +11,7 @@ const USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7";
 const dto = (o: Partial<TokenDetailDto> = {}): TokenDetailDto => ({
   address: USDT, standard: "erc20", name: "Tether USD", symbol: "USDT", decimals: 6, contract_name: "TetherToken",
   identified: true, source_verified: true, lists: { uniswap: true, coingecko: true }, tags: ["bridged-token"],
-  website: "https://tether.to", ...o,
+  website: "https://tether.to", trust: { level: "listed", impersonates: null, reason: null }, ...o,
 });
 
 function renderDetail(props: { asset: string | null; tokenId?: string; tokenKind?: "erc20" | "erc721" | "erc1155" }, tab = "graph") {

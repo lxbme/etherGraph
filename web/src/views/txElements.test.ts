@@ -14,7 +14,7 @@ const node = (address: string): NodeSummaryDto => ({
 });
 export const flow = (over: Partial<FlowDto> = {}): FlowDto => ({
   seq: 1, from: A, to: B, asset: USDT, amount: "12500000", token_id: null, kind: "erc20",
-  trace_path: null, log_index: 0, decimals: 6, symbol: "USDT", ...over,
+  trace_path: null, log_index: 0, decimals: 6, symbol: "USDT", trust: { level: "listed", impersonates: null, reason: null }, ...over,
 });
 const dto = (over: Partial<TxFlowDto> = {}): TxFlowDto => ({
   tx: {

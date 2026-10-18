@@ -43,7 +43,7 @@ const node = (address: string, over: Partial<NodeSummaryDto> = {}): NodeSummaryD
 });
 const flow: FlowDto = {
   seq: 1, from: A, to: B, asset: USDT, amount: "12500000", token_id: null, kind: "erc20",
-  trace_path: null, log_index: 0, decimals: 6, symbol: "USDT",
+  trace_path: null, log_index: 0, decimals: 6, symbol: "USDT", trust: { level: "listed", impersonates: null, reason: null },
 };
 const bar = () => within(screen.getByTestId("tx-summary-bar"));
 const detail = () => within(screen.getByTestId("tx-detail"));

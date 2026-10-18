@@ -43,9 +43,24 @@ struct ListToken {
     #[serde(rename = "chainId")]
     chain_id: u64,
     address: String,
+    /// Kept only when a string: a malformed symbol or name does not drop the token.
+    #[serde(default)]
+    symbol: serde_json::Value,
+    #[serde(default)]
+    name: serde_json::Value,
 }
 
-/// Mainnet tokens of a token-list JSON, one row per address with `tag`.
+/// A list's symbol or name: trimmed, `None` when blank or a placeholder.
+fn meta_text(s: &str) -> Option<String> {
+    let s = s.trim();
+    let placeholder = ["", "null", "undefined", "none"]
+        .iter()
+        .any(|p| s.eq_ignore_ascii_case(p));
+    (!placeholder).then(|| s.to_owned())
+}
+
+/// Mainnet tokens of a token-list JSON, one row per address with `tag` and
+/// the entry's symbol and name.
 /// Returns `(rows, skipped)`; other chains and malformed entries are skipped.
 fn parse_token_list(
     reader: impl Read,
@@ -57,16 +72,18 @@ fn parse_token_list(
     let mut seen = std::collections::HashSet::new();
     let mut skipped = 0u64;
     for v in list.tokens {
-        let addr = serde_json::from_value::<ListToken>(v)
+        let token = serde_json::from_value::<ListToken>(v)
             .ok()
             .filter(|t| t.chain_id == 1)
-            .and_then(|t| lenient_address(&t.address));
-        match addr {
-            Some(a) if seen.insert(a) => rows.push(TokenTagRow {
+            .and_then(|t| Some((lenient_address(&t.address)?, t)));
+        match token {
+            Some((a, t)) if seen.insert(a) => rows.push(TokenTagRow {
                 address: a,
                 source: source.into(),
                 tag: tag.into(),
                 website: None,
+                symbol: t.symbol.as_str().and_then(meta_text),
+                name: t.name.as_str().and_then(meta_text),
             }),
             _ => skipped += 1,
         }
@@ -80,10 +97,13 @@ struct CsvRecord {
     #[serde(rename = "chainId")]
     chain_id: u64,
     label: String,
+    name: String,
+    symbol: String,
     website: String,
 }
 
-/// Mainnet rows of the eth-labels tokens CSV: tag = lowercased `label`.
+/// Mainnet rows of the eth-labels tokens CSV: tag = lowercased `label`, with
+/// the row's symbol and name.
 fn parse_eth_labels(reader: impl Read, source: &str) -> anyhow::Result<(Vec<TokenTagRow>, u64)> {
     let mut csv = csv::ReaderBuilder::new()
         .trim(csv::Trim::All)
@@ -107,18 +127,20 @@ fn parse_eth_labels(reader: impl Read, source: &str) -> anyhow::Result<(Vec<Toke
             let site = r.website.trim();
             let website = (site.starts_with("http://") || site.starts_with("https://"))
                 .then(|| site.to_owned());
-            Some((addr, tag, website))
+            Some((addr, tag, website, meta_text(&r.symbol), meta_text(&r.name)))
         });
-        let Some((address, tag, website)) = parsed else {
+        let Some((address, tag, website, symbol, name)) = parsed else {
             skipped += 1;
             continue;
         };
         match index.get(&(address, tag.clone())) {
             Some(&i) => {
-                // A repeated (address, tag) keeps the first non-NULL website.
-                if rows[i].website.is_none() {
-                    rows[i].website = website;
-                }
+                // A repeated (address, tag) keeps the first non-NULL website,
+                // symbol and name.
+                let row = &mut rows[i];
+                row.website = row.website.take().or(website);
+                row.symbol = row.symbol.take().or(symbol);
+                row.name = row.name.take().or(name);
                 skipped += 1;
             }
             None => {
@@ -128,6 +150,8 @@ fn parse_eth_labels(reader: impl Read, source: &str) -> anyhow::Result<(Vec<Toke
                     source: source.into(),
                     tag,
                     website,
+                    symbol,
+                    name,
                 });
             }
         }
@@ -244,6 +268,48 @@ mod tests {
         assert!(rows.iter().all(|r| r.source == "eth-labels"));
         // 1 other chain, 3 repeated (address, tag), 4 placeholders, 1 bad address.
         assert_eq!(skipped, 1 + 3 + 4 + 1);
+    }
+
+    #[test]
+    fn token_list_keeps_symbol_and_name() {
+        let json = format!(
+            r#"{{"tokens":[
+              {{"chainId":1,"address":"{A}","symbol":"USDT","name":"Tether USD"}},
+              {{"chainId":1,"address":"{B}","symbol":"  ","name":7}}
+            ]}}"#
+        );
+        let (rows, skipped) = parse_tokens(TokenFormat::Coingecko, json.as_bytes()).unwrap();
+        assert_eq!(skipped, 0);
+        let got: Vec<_> = rows
+            .iter()
+            .map(|r| (r.symbol.as_deref(), r.name.as_deref()))
+            .collect();
+        assert_eq!(got, [(Some("USDT"), Some("Tether USD")), (None, None)]);
+    }
+
+    #[test]
+    fn eth_labels_keeps_symbol_and_name() {
+        let csv = format!(
+            "address,chainId,label,name,symbol,website,image\n\
+             {A},1,spam-token,Tether USD,USDT,,x\n\
+             {A},1,meme,null,,,x\n\
+             {B},1,meme,,,,x\n\
+             {B},1,meme,Late,LT,,x\n"
+        );
+        let (rows, _) = parse_tokens(TokenFormat::EthLabels, csv.as_bytes()).unwrap();
+        let got: Vec<_> = rows
+            .iter()
+            .map(|r| (r.tag.as_str(), r.symbol.as_deref(), r.name.as_deref()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("spam-token", Some("USDT"), Some("Tether USD")),
+                ("meme", None, None),
+                // A repeated (address, tag) fills what the first row lacked.
+                ("meme", Some("LT"), Some("Late")),
+            ]
+        );
     }
 
     #[test]

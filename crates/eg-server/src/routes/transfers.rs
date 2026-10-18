@@ -115,8 +115,12 @@ pub async fn list(
     assets.sort();
     assets.dedup();
     let tokens = token_map(&s.store, &assets).await?;
+    let trust = s.trust.get(&s.store).await;
     Ok(Json(TransferPageDto {
-        items: items.iter().map(|t| TransferDto::new(t, &tokens)).collect(),
+        items: items
+            .iter()
+            .map(|t| TransferDto::new(t, &tokens, &trust))
+            .collect(),
         next_cursor: next.map(|c| c.encode()),
     }))
 }

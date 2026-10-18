@@ -74,6 +74,16 @@ impl Store {
         rows.iter().map(label_from_row).collect()
     }
 
+    /// Distinct addresses with a label of `category`, from any source.
+    pub async fn addresses_with_category(&self, category: &str) -> Result<Vec<Address>> {
+        let rows: Vec<(Vec<u8>,)> =
+            sqlx::query_as("SELECT DISTINCT address FROM labels WHERE category = $1")
+                .bind(category)
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows.into_iter().map(|(a,)| bytes_to_addr(&a)).collect())
+    }
+
     /// Replaces all labels of `import:<dataset>` in one transaction; returns the
     /// number inserted.
     pub async fn replace_import(&self, dataset: &str, rows: &[ImportRow]) -> Result<u64> {
@@ -114,6 +124,31 @@ impl Store {
 mod tests {
     use crate::*;
     use sqlx::PgPool;
+
+    #[sqlx::test]
+    async fn addresses_with_category_spans_sources(pool: PgPool) {
+        let store = Store::from_pool(pool);
+        let (a, b, c) = (
+            Address::repeat_byte(1),
+            Address::repeat_byte(2),
+            Address::repeat_byte(3),
+        );
+        store
+            .replace_import(
+                "d",
+                &[
+                    (a, "Fake".into(), "scam".into()),
+                    (a, "Fake 2".into(), "scam".into()),
+                    (c, "Dex".into(), "dex".into()),
+                ],
+            )
+            .await
+            .unwrap();
+        store.add_user_label(b, "phish", "scam").await.unwrap();
+        let mut got = store.addresses_with_category("scam").await.unwrap();
+        got.sort();
+        assert_eq!(got, [a, b]);
+    }
 
     #[sqlx::test]
     async fn delete_import_label_rejected(pool: PgPool) {

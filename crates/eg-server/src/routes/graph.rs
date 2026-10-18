@@ -111,6 +111,7 @@ pub async fn edges(
     assets.sort();
     assets.dedup();
     let tokens = token_map(&s.store, &assets).await?;
+    let trust = s.trust.get(&s.store).await;
     let loaded = load_nodes(&s.store, &nodes, &degree, s.ctx.cfg.hot_neighbor_threshold).await?;
     enqueue_missing_meta(&s, &centers, &nodes, &assets).await;
 
@@ -123,7 +124,11 @@ pub async fn edges(
         .collect();
     Ok(Json(GraphResponseDto {
         nodes: loaded.nodes,
-        edges: res.edges.iter().map(|e| EdgeDto::new(e, &tokens)).collect(),
+        edges: res
+            .edges
+            .iter()
+            .map(|e| EdgeDto::new(e, &tokens, &trust))
+            .collect(),
         omitted: res
             .omitted
             .iter()

@@ -18,7 +18,7 @@ pub use jobs::{JobKind, JobRow, JobStatus, NewJob};
 pub use labels::LabelRow;
 pub use meta::{AccountRow, EnsRow, EnsStatus};
 pub use stats::{AccountKindFilter, CounterpartyRow, CounterpartySort, StatsRow};
-pub use token_tags::TokenTagRow;
+pub use token_tags::{ListedTokenRow, TokenTagRow};
 pub use txs::TxRow;
 pub use workspaces::{WorkspaceMeta, WorkspaceRow};
 

@@ -171,6 +171,14 @@ async fn serve(path: &Path, source: Option<SourceMode>) -> anyhow::Result<()> {
     let store = Store::connect(&cfg.server.database_url)
         .await
         .context("connecting to the database")?;
+    match store.listed_symbol_counts().await {
+        Ok((listed, with_symbol)) if listed > 0 && with_symbol == 0 => tracing::warn!(
+            "the Uniswap/CoinGecko token lists carry no symbols; re-run `eg-server import-tokens` \
+             for them to enable impersonation detection"
+        ),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(error = %e, "checking the token lists failed"),
+    }
     let reset = store.reset_running().await?;
     if reset > 0 {
         tracing::info!(jobs = reset, "requeued jobs left running by a previous run");

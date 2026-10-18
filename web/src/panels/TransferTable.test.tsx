@@ -19,11 +19,13 @@ const USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
 
 const edge = (o: Partial<EdgeDto>): EdgeDto => ({
   from: A, to: B, asset: null, asset_kind: "native", count: 1, sum: "1000000000000000000",
-  first_ts: "2024-01-01T00:00:00Z", last_ts: "2024-01-02T00:00:00Z", decimals: 18, symbol: null, ...o,
+  first_ts: "2024-01-01T00:00:00Z", last_ts: "2024-01-02T00:00:00Z", decimals: 18, symbol: null,
+  trust: { level: "listed", impersonates: null, reason: null }, ...o,
 });
 const tr = (o: Partial<TransferDto>): TransferDto => ({
   tx_hash: "0x" + "11".repeat(32), sub_id: "0", kind: "native", block_number: 1, ts: "2024-01-01T00:00:00Z",
-  from: A, to: B, asset: null, amount: "1000000000000000000", token_id: null, decimals: 18, symbol: null, ...o,
+  from: A, to: B, asset: null, amount: "1000000000000000000", token_id: null, decimals: 18, symbol: null,
+  trust: { level: "listed", impersonates: null, reason: null }, ...o,
 });
 
 let qc: QueryClient;

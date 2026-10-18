@@ -42,6 +42,7 @@ pub async fn tx(
     token_addrs.sort();
     token_addrs.dedup();
     let tokens = token_map(&s.store, &token_addrs).await?;
+    let trust = s.trust.get(&s.store).await;
     let nodes = load_nodes(
         &s.store,
         &f.participants,
@@ -99,7 +100,11 @@ pub async fn tx(
                 .as_ref()
                 .map(|c| DecodedCallDto::new(c, f.call_via_delegate)),
             nodes,
-            flows: f.flows.iter().map(|fl| FlowDto::new(fl, &tokens)).collect(),
+            flows: f
+                .flows
+                .iter()
+                .map(|fl| FlowDto::new(fl, &tokens, &trust))
+                .collect(),
             events: f.events.iter().map(DecodedEventDto::from).collect(),
             completeness,
         }),

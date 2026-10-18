@@ -155,8 +155,8 @@ test("edge detail toggles the pair expansion", async () => {
   const data: GraphResponseDto = {
     nodes: [],
     edges: [
-      { from: A, to: B, asset: null, asset_kind: "native", count: 3, sum: "1500000000000000000", first_ts: "", last_ts: "", decimals: 18, symbol: "ETH" },
-      { from: B, to: A, asset: "0x" + "cc".repeat(20), asset_kind: "erc20", count: 1, sum: "2000000", first_ts: "", last_ts: "", decimals: 6, symbol: "USDC" },
+      { from: A, to: B, asset: null, asset_kind: "native", count: 3, sum: "1500000000000000000", first_ts: "", last_ts: "", decimals: 18, symbol: "ETH", trust: { level: "listed", impersonates: null, reason: null } },
+      { from: B, to: A, asset: "0x" + "cc".repeat(20), asset_kind: "erc20", count: 1, sum: "2000000", first_ts: "", last_ts: "", decimals: 6, symbol: "USDC", trust: { level: "listed", impersonates: null, reason: null } },
     ],
     omitted: {}, coverage: {},
   };

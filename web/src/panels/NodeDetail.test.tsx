@@ -95,7 +95,7 @@ test("follows the spec hierarchy: kind, address with copy, tags, key/value grid,
 test("transactions and neighbours come from the canvas edges", async () => {
   act(() => useGraph.getState().setCenters([A]));
   renderDetail(undefined, wallet);
-  const e = { asset: null, asset_kind: "native", sum: "1", first_ts: "", last_ts: "", decimals: 18, symbol: null } as const;
+  const e = { asset: null, asset_kind: "native", sum: "1", first_ts: "", last_ts: "", decimals: 18, symbol: null, trust: { level: "listed", impersonates: null, reason: null } } as const;
   const data: GraphResponseDto = {
     nodes: [], omitted: {}, coverage: {},
     edges: [{ ...e, from: A, to: B, count: 3 }, { ...e, from: C, to: A, count: 4 }, { ...e, from: B, to: A, count: 2 }, { ...e, from: B, to: C, count: 9 }],

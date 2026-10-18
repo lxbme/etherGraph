@@ -138,11 +138,12 @@ function defaultHandlers(): Map<RouteKey, Handler> {
           ? {
               address, standard: "erc20", name: "Tether USD", symbol: "USDT", decimals: 6, contract_name: "TetherToken",
               identified: true, source_verified: true, lists: { uniswap: true, coingecko: true }, tags: ["stablecoin"],
-              website: "https://tether.to",
+              website: "https://tether.to", trust: { level: "listed", impersonates: null, reason: null },
             }
           : {
               address, standard: "unknown", name: null, symbol: null, decimals: null, contract_name: null,
               identified: false, source_verified: null, lists: { uniswap: false, coingecko: false }, tags: [], website: null,
+              trust: { level: "unknown", impersonates: null, reason: null },
             };
         return { json };
       },

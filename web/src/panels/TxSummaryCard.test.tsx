@@ -16,6 +16,7 @@ const H = "0x" + "11".repeat(32);
 const row: TransferDto = {
   tx_hash: H, sub_id: "0", kind: "native", block_number: 1, ts: "2024-01-01T00:00:00Z",
   from: A, to: B, asset: null, amount: "1000000000000000000", token_id: null, decimals: 18, symbol: null,
+  trust: { level: "listed", impersonates: null, reason: null },
 };
 const flow = (): TxFlowDto => ({
   tx: {

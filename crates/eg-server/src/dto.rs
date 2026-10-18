@@ -8,10 +8,12 @@ use std::collections::{BTreeMap, HashMap};
 use chrono::{DateTime, SecondsFormat, Utc};
 use eg_core::filter::Edge;
 use eg_core::source::{Priority, TokenInfo};
-use eg_core::types::{Address, Transfer};
+use eg_core::types::{Address, Transfer, TransferKind};
 use eg_store::{JobRow, LabelRow, SyncRow};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+use crate::trust::TrustIndex;
 
 pub fn rfc3339(t: DateTime<Utc>) -> String {
     t.to_rfc3339_opts(SecondsFormat::Millis, true)
@@ -327,6 +329,7 @@ pub struct EdgeDto {
     /// 18 for ETH; null when the token's decimals are unknown.
     pub decimals: Option<u8>,
     pub symbol: Option<String>,
+    pub trust: TrustDto,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -432,6 +435,7 @@ pub struct TransferDto {
     pub token_id: Option<String>,
     pub decimals: Option<u8>,
     pub symbol: Option<String>,
+    pub trust: TrustDto,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -448,6 +452,7 @@ pub struct AssetRefDto {
     /// Token address; null for ETH.
     pub asset: Option<String>,
     pub symbol: Option<String>,
+    pub trust: TrustDto,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -470,6 +475,62 @@ pub struct CounterpartyPageDto {
     pub total: u64,
 }
 
+/// How far a token can be trusted.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct TrustDto {
+    /// `listed`: ETH or on the Uniswap/CoinGecko list; `scam`: tagged spam or
+    /// labelled scam; `suspicious`: copies a listed token's symbol or name.
+    #[ts(type = r#""listed" | "unknown" | "suspicious" | "scam""#)]
+    pub level: String,
+    /// Set for `suspicious`: the listed token copied.
+    pub impersonates: Option<ImpersonatedDto>,
+    /// Set for `scam`.
+    #[ts(type = r#""spam-token" | "scam-label" | null"#)]
+    pub reason: Option<String>,
+}
+
+impl TrustDto {
+    fn level(level: &str) -> Self {
+        Self {
+            level: level.into(),
+            impersonates: None,
+            reason: None,
+        }
+    }
+
+    pub fn listed() -> Self {
+        Self::level("listed")
+    }
+
+    pub fn unknown() -> Self {
+        Self::level("unknown")
+    }
+
+    pub fn suspicious(impersonates: ImpersonatedDto) -> Self {
+        Self {
+            impersonates: Some(impersonates),
+            ..Self::level("suspicious")
+        }
+    }
+
+    pub fn scam(reason: &str) -> Self {
+        Self {
+            reason: Some(reason.into()),
+            ..Self::level("scam")
+        }
+    }
+}
+
+/// The listed token a suspicious token copies.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ImpersonatedDto {
+    pub address: String,
+    pub symbol: Option<String>,
+    pub name: Option<String>,
+}
+
 pub fn hex_addr(a: Address) -> String {
     format!("{a:#x}")
 }
@@ -487,8 +548,18 @@ pub fn asset_meta(
     }
 }
 
+/// Trust level of an asset moved as `kind`, with the token row from `tokens`.
+pub fn asset_trust(
+    trust: &TrustIndex,
+    asset: Option<Address>,
+    kind: TransferKind,
+    tokens: &HashMap<Address, TokenInfo>,
+) -> TrustDto {
+    trust.classify(asset, kind, asset.and_then(|a| tokens.get(&a)))
+}
+
 impl EdgeDto {
-    pub fn new(e: &Edge, tokens: &HashMap<Address, TokenInfo>) -> Self {
+    pub fn new(e: &Edge, tokens: &HashMap<Address, TokenInfo>, trust: &TrustIndex) -> Self {
         let (decimals, symbol) = asset_meta(e.asset, tokens);
         Self {
             from: hex_addr(e.from),
@@ -501,12 +572,13 @@ impl EdgeDto {
             last_ts: rfc3339(e.last_ts),
             decimals,
             symbol,
+            trust: asset_trust(trust, e.asset, e.asset_kind, tokens),
         }
     }
 }
 
 impl TransferDto {
-    pub fn new(t: &Transfer, tokens: &HashMap<Address, TokenInfo>) -> Self {
+    pub fn new(t: &Transfer, tokens: &HashMap<Address, TokenInfo>, trust: &TrustIndex) -> Self {
         let (decimals, symbol) = asset_meta(t.asset, tokens);
         Self {
             tx_hash: format!("{:#x}", t.tx_hash),
@@ -521,6 +593,7 @@ impl TransferDto {
             token_id: t.token_id.map(|v| v.to_string()),
             decimals,
             symbol,
+            trust: asset_trust(trust, t.asset, t.kind, tokens),
         }
     }
 }
@@ -691,6 +764,7 @@ pub struct FlowDto {
     pub log_index: Option<u64>,
     pub decimals: Option<u8>,
     pub symbol: Option<String>,
+    pub trust: TrustDto,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -760,7 +834,11 @@ impl From<&eg_decode::DecodedEvent> for DecodedEventDto {
 }
 
 impl FlowDto {
-    pub fn new(f: &eg_ingest::Flow, tokens: &HashMap<Address, TokenInfo>) -> Self {
+    pub fn new(
+        f: &eg_ingest::Flow,
+        tokens: &HashMap<Address, TokenInfo>,
+        trust: &TrustIndex,
+    ) -> Self {
         let (decimals, symbol) = asset_meta(f.asset, tokens);
         Self {
             seq: f.seq,
@@ -774,6 +852,7 @@ impl FlowDto {
             log_index: f.log_index,
             decimals,
             symbol,
+            trust: asset_trust(trust, f.asset, f.kind, tokens),
         }
     }
 }
@@ -884,4 +963,5 @@ pub struct TokenDetailDto {
     pub tags: Vec<String>,
     /// First website recorded by eth-labels.
     pub website: Option<String>,
+    pub trust: TrustDto,
 }

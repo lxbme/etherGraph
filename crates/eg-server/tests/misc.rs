@@ -144,7 +144,9 @@ async fn tx_pending_then_ready(pool: PgPool) {
     assert_eq!(flows[0]["kind"], "native");
     assert_eq!(flows[0]["symbol"], "ETH");
     assert_eq!(flows[0]["decimals"], 18);
+    assert_eq!(flows[0]["trust"]["level"], "listed");
     assert_eq!(flows[1]["kind"], "erc20");
+    assert_eq!(flows[1]["trust"]["level"], "unknown");
     assert_eq!(flows[1]["asset"], format!("{TOKEN:#x}"));
     assert_eq!(flows[1]["amount"], "100");
     assert_eq!(flows[1]["log_index"], 3);

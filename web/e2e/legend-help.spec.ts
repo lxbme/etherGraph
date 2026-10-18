@@ -3,7 +3,7 @@ import { A, B, C, D, expect, fixtures, test } from "./mockApi";
 import graphFiltered from "./fixtures/graph-filtered.json" with { type: "json" };
 
 const GRAPH = "POST /api/graph/edges";
-const NFT = { from: C, to: D, asset: "0x5eed000000000000000000000000000000000009", asset_kind: "erc721", count: 1, sum: "1", first_ts: "2024-01-10T08:00:00Z", last_ts: "2024-03-02T12:30:00Z", decimals: null, symbol: "PUNK" };
+const NFT = { from: C, to: D, asset: "0x5eed000000000000000000000000000000000009", asset_kind: "erc721", count: 1, sum: "1", first_ts: "2024-01-10T08:00:00Z", last_ts: "2024-03-02T12:30:00Z", decimals: null, symbol: "PUNK", trust: { level: "unknown", impersonates: null, reason: null } };
 
 async function openGraph(page: import("@playwright/test").Page) {
   await page.goto("/?e2e=1");

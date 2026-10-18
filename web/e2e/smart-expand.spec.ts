@@ -54,6 +54,7 @@ function mockBigWallet(mock: MockApi) {
         edges.push({
           from: center, to: n.node.address, asset: null, asset_kind: "native", count: n.count,
           sum: "1000000000000000000", first_ts: "2026-01-01T00:00:00Z", last_ts: n.last_ts, decimals: 18, symbol: null,
+          trust: { level: "listed", impersonates: null, reason: null },
         });
       }
       if (sorted.length > limit) omitted[center] = sorted.length - limit;

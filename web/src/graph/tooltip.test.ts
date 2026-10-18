@@ -70,6 +70,7 @@ describe("nodeTooltip", () => {
 describe("edgeTooltip", () => {
   const edge = (asset: string | null, count: number, symbol: string | null) => ({
     from: "0xa", to: "0xb", asset, asset_kind: asset ? "erc20" : "native", count, sum: "1", first_ts: "", last_ts: "", decimals: 18, symbol,
+    trust: { level: "listed", impersonates: null, reason: null },
   }) as const;
   test("one line per asset plus the width note", () => {
     const v: VisualEdge = {
@@ -122,7 +123,7 @@ test("delegationTooltip: what it is and signer → delegate by name", () => {
 test("flowTooltip: names, symbol, fixed amount, order, kind", () => {
   const f: FlowDto = {
     seq: 2, from: "0xaaaa", to: "0xbbbb", asset: "0xdac17f958d2ee523a2206206994597c13d831ec7", amount: "1234567", token_id: null,
-    kind: "erc20", trace_path: null, log_index: 1, decimals: 6, symbol: "USDT",
+    kind: "erc20", trace_path: null, log_index: 1, decimals: 6, symbol: "USDT", trust: { level: "listed", impersonates: null, reason: null },
   };
   const ls = flowTooltip(f, new Map([["0xaaaa", "Alice"]]));
   const s = text(ls);
@@ -137,7 +138,7 @@ test("flowTooltip: names, symbol, fixed amount, order, kind", () => {
 test("flowTooltip: seq 0 is a circled zero", () => {
   const f: FlowDto = {
     seq: 0, from: "0xaaaa", to: "0xbbbb", asset: null, amount: "1", token_id: null,
-    kind: "native", trace_path: null, log_index: null, decimals: 18, symbol: null,
+    kind: "native", trace_path: null, log_index: null, decimals: 18, symbol: null, trust: { level: "listed", impersonates: null, reason: null },
   };
   expect(text(flowTooltip(f, new Map()))).toContain("Order ⓪");
 });
@@ -147,6 +148,7 @@ test("flowTooltip keeps the full NFT token id", () => {
   const f: FlowDto = {
     seq: 1, from: "0xaaaa", to: "0xbbbb", asset: "0xdac17f958d2ee523a2206206994597c13d831ec7", amount: "1", token_id: id,
     kind: "erc721", trace_path: null, log_index: 1, decimals: null, symbol: "ENS",
+    trust: { level: "unknown", impersonates: null, reason: null },
   };
   expect(text(flowTooltip(f, new Map()))).toContain(id);
 });

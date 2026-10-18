@@ -63,6 +63,12 @@ pub async fn detail(
 
     // A stored kind wins; without a tokens row the caller's hint stands in.
     let kind = token.as_ref().map(|t| t.kind).or(q.kind);
+    // An unknown standard is classified like an ERC-20.
+    let trust = s.trust.get(&s.store).await.classify(
+        Some(addr),
+        kind.unwrap_or(TransferKind::Erc20),
+        token.as_ref(),
+    );
     let standard = match kind {
         Some(TransferKind::Erc20) => "erc20",
         Some(TransferKind::Erc721) => "erc721",
@@ -85,5 +91,6 @@ pub async fn detail(
         tags: labels,
         // The first by tag order (the store sorts by address, source, tag), not by file order.
         website: from_source("eth-labels").find_map(|t| t.website.clone()),
+        trust,
     }))
 }

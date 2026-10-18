@@ -64,7 +64,12 @@
       "first_ts": "2024-01-10T08:00:00Z",
       "last_ts": "2024-03-02T12:30:00Z",
       "decimals": 18,
-      "symbol": null
+      "symbol": null,
+      "trust": {
+        "level": "listed",
+        "impersonates": null,
+        "reason": null
+      }
     },
     {
       "from": "0xd00d000000000000000000000000000000000004",
@@ -76,7 +81,12 @@
       "first_ts": "2024-01-10T08:00:00Z",
       "last_ts": "2024-03-02T12:30:00Z",
       "decimals": 18,
-      "symbol": null
+      "symbol": null,
+      "trust": {
+        "level": "listed",
+        "impersonates": null,
+        "reason": null
+      }
     }
   ],
   "omitted": {},
