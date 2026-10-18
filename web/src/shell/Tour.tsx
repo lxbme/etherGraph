@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import { useT, type MsgKey } from "../i18n";
+import { useAdminRoute } from "./hashRoute";
 import { setReplayTourHandler } from "./tourBus";
 
 /** localStorage key set once the tour was finished or skipped ("1"). */
@@ -67,6 +68,8 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(v, hi
 export function Tour() {
   const t = useT();
   const step = useTour((s) => s.step);
+  // Paused under the admin page: its targets are hidden there, and its keys belong to that page.
+  const paused = useAdminRoute((s) => s.open);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const bubble = useRef<HTMLDivElement>(null);
@@ -83,16 +86,16 @@ export function Tour() {
     return () => clearTimeout(timer);
   }, []);
 
-  const id = step === null ? null : STEPS[step];
+  const id = step === null || paused ? null : STEPS[step];
   const target = id ? findTarget(id) : null;
 
   // A step whose target is missing is skipped; with no target left at all the tour ends unmarked.
   useEffect(() => {
-    if (step === null || target) return;
+    if (step === null || paused || target) return;
     const anyLeft = STEPS.some((s, i) => i >= step && findTarget(s));
     if (!anyLeft && step === 0) useTour.setState({ step: null });
     else useTour.getState().next();
-  }, [step, target]);
+  }, [step, paused, target]);
 
   // Measure the target now and whenever the window resizes.
   useLayoutEffect(() => {

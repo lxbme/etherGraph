@@ -6,6 +6,7 @@ import { useInfo } from "../panels/info/infoStore";
 import { useUi } from "../panels/uiStore";
 import { HelpDrawer } from "./HelpDrawer";
 import { useTabs } from "./tabs";
+import { useAdminRoute } from "./hashRoute";
 import { setReplayTourHandler } from "./tourBus";
 import { TopBar } from "./TopBar";
 import { useQuota } from "./statusStore";
@@ -27,6 +28,7 @@ beforeEach(() => {
   useQuota.setState({ quota: null });
 });
 afterEach(() => {
+  useAdminRoute.setState({ open: false });
   setReplayTourHandler(null);
   vi.restoreAllMocks();
 });
@@ -195,4 +197,14 @@ test("the Assets section explains asset details, where the tags come from and ho
   expect(zh).toHaveTextContent("源码已验证");
   expect(zh).toHaveTextContent("Etherscan 的源码验证");
   expect(zh).toHaveTextContent("eg-server import-tokens --format uniswap|coingecko|eth-labels --file data/tokens/<file>");
+});
+
+test("opening the admin page closes the drawer", async () => {
+  const user = userEvent.setup();
+  render(<Host />);
+  await user.click(screen.getByRole("button", { name: "Help" }));
+  expect(screen.getByRole("dialog", { name: "Help" })).toBeInTheDocument();
+  act(() => useAdminRoute.setState({ open: true }));
+  expect(screen.queryByRole("dialog", { name: "Help" })).toBeNull();
+  expect(useUi.getState().helpOpen).toBe(false);
 });

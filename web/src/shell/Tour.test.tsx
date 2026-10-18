@@ -4,6 +4,7 @@ import { useLocale } from "../i18n";
 import { useUi } from "../panels/uiStore";
 import { HelpDrawer } from "./HelpDrawer";
 import { TOUR_DONE_KEY, Tour, useTour } from "./Tour";
+import { useAdminRoute } from "./hashRoute";
 import { setReplayTourHandler } from "./tourBus";
 import { TopBar } from "./TopBar";
 import { Legend } from "../views/Legend";
@@ -32,6 +33,7 @@ beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });
 afterEach(() => {
+  useAdminRoute.setState({ open: false });
   vi.useRealTimers();
   setReplayTourHandler(null);
   vi.restoreAllMocks();
@@ -143,4 +145,29 @@ test("the bubble's body describes it; a resize does not pull focus back to Next"
   // A new step does take focus.
   await user.click(screen.getByRole("button", { name: "Next" }));
   expect(screen.getByRole("button", { name: "Next" })).toHaveFocus();
+});
+
+test("the admin page pauses the tour: hidden, its Escape does nothing and it is not marked done; it comes back after", async () => {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  render(<><Targets /><Tour /></>);
+  await begin();
+  expect(screen.getByRole("dialog", { name: "Search an address" })).toBeInTheDocument();
+  act(() => useAdminRoute.setState({ open: true }));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  await user.keyboard("{Escape}");
+  expect(localStorage.getItem(TOUR_DONE_KEY)).toBeNull();
+  expect(useTour.getState().step).toBe(0);
+  act(() => useAdminRoute.setState({ open: false }));
+  expect(screen.getByRole("dialog", { name: "Search an address" })).toBeInTheDocument();
+});
+
+test("a tour starting while the admin page is open waits for it to close", async () => {
+  useAdminRoute.setState({ open: true });
+  render(<><Targets /><Tour /></>);
+  await begin();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(useTour.getState().step).toBe(0);
+  expect(localStorage.getItem(TOUR_DONE_KEY)).toBeNull();
+  act(() => useAdminRoute.setState({ open: false }));
+  expect(screen.getByRole("dialog", { name: "Search an address" })).toBeInTheDocument();
 });

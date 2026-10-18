@@ -104,3 +104,26 @@ test("a user the server does not know is reported in the dialog", async () => {
   await userEvent.click(within(dialog).getByRole("button", { name: "Sign and apply" }));
   expect(await within(dialog).findByRole("alert")).toHaveTextContent("Not found");
 });
+
+test("saving the quota a user already has is not offered (no override equal to the default is pinned)", async () => {
+  const api = stubAdminApi();
+  renderTable();
+  const user = await userRow(USER);
+  await userEvent.click(within(user).getByRole("button", { name: `Edit the daily quota of ${USER}` }));
+  const own = within(user).getByRole("spinbutton", { name: `Daily quota of ${USER}` });
+  expect(own).toHaveValue(1000);
+  expect(within(user).getByRole("button", { name: "Save" })).toBeDisabled();
+  await userEvent.clear(own);
+  await userEvent.type(own, "1001");
+  expect(within(user).getByRole("button", { name: "Save" })).toBeEnabled();
+
+  const admin = await userRow(ADMIN);
+  await userEvent.click(within(admin).getByRole("button", { name: `Edit the daily quota of ${ADMIN}` }));
+  const def = within(admin).getByRole("spinbutton", { name: `Daily quota of ${ADMIN}` });
+  // On the default (5,000): saving 5,000 would pin an own quota equal to it.
+  await waitFor(() => expect(within(admin).getByRole("button", { name: "Save" })).toBeDisabled());
+  await userEvent.clear(def);
+  await userEvent.type(def, "4000");
+  expect(within(admin).getByRole("button", { name: "Save" })).toBeEnabled();
+  expect(api.calls.some((c) => c.path === "/api/admin/actions/nonce")).toBe(false);
+});

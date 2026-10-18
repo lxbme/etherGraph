@@ -8,6 +8,7 @@ import { siweMessage } from "../auth/siweAdapter";
 import { useAuth } from "../auth/useMe";
 import { useAdminRoute } from "../shell/hashRoute";
 import { ADMIN, ADMIN_CHECKSUMMED, OVERVIEW, actionMessage, adminMe, json, refused, stubAdminApi } from "./adminApi.testutil";
+import { Toasts, clearToasts } from "../shell/Toasts";
 import { AdminPage } from "./AdminView";
 import { useAdminMode } from "./adminMode";
 import { useActionConfirm } from "./useAdminAction";
@@ -35,6 +36,7 @@ function renderAdmin() {
   return render(
     <QueryClientProvider client={queryClient}>
       <AdminPage />
+      <Toasts />
     </QueryClientProvider>,
   );
 }
@@ -58,6 +60,7 @@ afterEach(() => {
   useActionConfirm.setState({ current: null, requesting: false });
   useAdminRoute.setState({ open: false });
   queryClient.clear();
+  clearToasts();
 });
 
 test("a user who is not an admin finds nothing here, and no admin API is called", async () => {
@@ -65,6 +68,9 @@ test("a user who is not an admin finds nothing here, and no admin API is called"
   const api = stubAdminApi();
   renderAdmin();
   expect(screen.getByRole("heading", { name: "Not found" })).toBeInTheDocument();
+  // Nothing says there is an admin page here.
+  expect(screen.queryByRole("heading", { name: "Admin" })).toBeNull();
+  expect(screen.queryByText("Admin")).toBeNull();
   expect(screen.queryByRole("button", { name: "Enter admin mode" })).toBeNull();
   expect(api.calls.filter((c) => c.path.startsWith("/api/admin"))).toEqual([]);
 });
@@ -144,6 +150,19 @@ test("leaving admin mode ends it on the server", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Leave admin mode" }));
   expect(await screen.findByRole("button", { name: "Enter admin mode" })).toBeInTheDocument();
   expect(api.calls.some((c) => c.method === "DELETE" && c.path === "/api/admin/session")).toBe(true);
+});
+
+test("a failed leave says so and keeps what the server says (still in admin mode)", async () => {
+  const api = stubAdminApi({ "DELETE /api/admin/session": () => json(500, { error: { code: "internal", message: "db down" } }) });
+  renderAdmin();
+  await screen.findByRole("heading", { name: "Overview" });
+  await userEvent.click(screen.getByRole("button", { name: "Leave admin mode" }));
+
+  expect(await screen.findByText("Internal server error")).toBeInTheDocument();
+  await waitFor(() => expect(api.calls.filter((c) => c.method === "GET" && c.path === "/api/admin/session")).toHaveLength(2));
+  expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+  expect(useAdminMode.getState().status).toBe("on");
+  expect(screen.queryByRole("button", { name: "Enter admin mode" })).toBeNull();
 });
 
 test("the overview shows server usage and the settings", async () => {

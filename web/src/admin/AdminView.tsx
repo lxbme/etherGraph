@@ -29,8 +29,8 @@ import { WhitelistPanel } from "./WhitelistPanel";
 const MAX_TIMER = 2 ** 31 - 1;
 
 /**
- * `#/admin`: the admin panel (spec §7) for configured admins; anyone else finds nothing here (and the
- * admin API is never called for them).
+ * `#/admin`: the admin panel (spec §7) for configured admins; anyone else finds only "not found" here
+ * (nothing names an admin page, and the admin API is never called for them).
  */
 export function AdminPage() {
   const t = useT();
@@ -42,7 +42,7 @@ export function AdminPage() {
         <span className="topbar__logo">
           <BrandLockup />
         </span>
-        <h1 className="admin__title">{t("admin.title")}</h1>
+        {admin && <h1 className="admin__title">{t("admin.title")}</h1>}
         <span className="topbar__spacer" />
         {admin && <ModeStatus />}
         <button className="btn" onClick={leaveAdmin}>
@@ -77,7 +77,7 @@ function ModeStatus() {
       <span className="chip" title={formatLocalTime(expiresAt)}>
         {t("admin.mode.until", { time: formatTime(expiresAt) })}
       </span>
-      <button className="btn" onClick={() => void exitAdminMode().catch(() => {})}>
+      <button className="btn" onClick={() => void exitAdminMode()}>
         {t("admin.mode.exit")}
       </button>
     </>
@@ -245,6 +245,16 @@ function Overview() {
 export function ActionConfirmDialog() {
   const t = useT();
   const cur = useActionConfirm((s) => s.current);
+  const open = cur !== null;
+  // On the document: while the wallet is asked, focus has left the (disabled) Sign button.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") cancelAdminAction();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
   if (!cur) return null;
   const title = t("admin.confirm.title");
   const failed = cur.phase === "failed";
@@ -255,9 +265,6 @@ export function ActionConfirmDialog() {
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") cancelAdminAction();
-        }}
       >
         <h3 className="dialog__title">{title}</h3>
         <p className="dialog__summary">{t("admin.confirm.hint")}</p>
@@ -276,7 +283,7 @@ export function ActionConfirmDialog() {
             </button>
           ) : (
             <>
-              <button type="button" className="btn" disabled={cur.phase !== "confirm"} onClick={cancelAdminAction}>
+              <button type="button" className="btn" disabled={cur.phase === "submitting"} onClick={cancelAdminAction}>
                 {t("common.cancel")}
               </button>
               <button

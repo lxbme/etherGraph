@@ -10,6 +10,7 @@ import { DOC_IDS } from "../panels/info/docs";
 import { useDocs } from "../panels/info/StandardDoc";
 import { useUi } from "../panels/uiStore";
 import { Legend } from "../views/Legend";
+import { useAdminRoute } from "./hashRoute";
 import { useQuota } from "./statusStore";
 import { useTabs } from "./tabs";
 import { useTheme } from "./theme";
@@ -75,7 +76,12 @@ const SECTIONS: SectionId[] = ["reading", "expanding", "selecting", "identifying
 /** The "?" drawer: how to read the graph, expansion rules, the tx view, the standards pages, shortcuts, data and quotas. */
 export function HelpDrawer() {
   const open = useUi((s) => s.helpOpen);
-  return open ? <HelpDrawerPanel /> : null;
+  const admin = useAdminRoute((s) => s.open);
+  // The admin page covers the app: the drawer (and its document key handler) closes with it.
+  useEffect(() => {
+    if (admin) useUi.setState({ helpOpen: false });
+  }, [admin]);
+  return open && !admin ? <HelpDrawerPanel /> : null;
 }
 
 function HelpDrawerPanel() {

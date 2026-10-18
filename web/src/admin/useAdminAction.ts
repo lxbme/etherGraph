@@ -11,6 +11,8 @@ import { adminCall, adminErrorText, adminKeys, isAdminModeGone, isUserRejection,
 
 /** The action waiting in the confirm dialog: the server's message for it, signed only on confirm. */
 export interface PendingAction {
+  /** This run of the dialog (late wallet answers for an earlier one are told apart by it). */
+  id: number;
   action: AdminAction;
   nonce: string;
   /** The exact text the wallet signs, shown verbatim. */
@@ -27,6 +29,8 @@ interface ActionConfirmState {
 }
 
 export const useActionConfirm = create<ActionConfirmState>(() => ({ current: null, requesting: false }));
+
+let nextId = 1;
 
 /** Settles the promise `runAdminAction` returned for the pending action. */
 let settle: ((r: AdminActionResultDto | null) => void) | null = null;
@@ -70,15 +74,19 @@ export async function runAdminAction(action: AdminAction): Promise<AdminActionRe
     settle = resolve;
     useActionConfirm.setState({
       requesting: false,
-      current: { action, nonce: issued.nonce, message: issued.message, phase: "confirm", error: null },
+      current: { id: nextId++, action, nonce: issued.nonce, message: issued.message, phase: "confirm", error: null },
     });
   });
 }
 
-/** Closes the confirm dialog without signing (or after a failure); the issued nonce is never used. */
+/**
+ * Closes the confirm dialog without submitting: before signing, while the wallet is still asked (a
+ * signature arriving later is dropped, see confirmAdminAction), or after a failure. The issued nonce is
+ * never used. Not while the signed action is being submitted.
+ */
 export function cancelAdminAction(): void {
   const cur = useActionConfirm.getState().current;
-  if (cur && (cur.phase === "confirm" || cur.phase === "failed")) finish(null);
+  if (cur && cur.phase !== "submitting") finish(null);
 }
 
 /** Signs the pending action's message with the signed-in address's wallet and submits it. */
@@ -87,18 +95,21 @@ export async function confirmAdminAction(): Promise<void> {
   const me = useAuth.getState().me;
   if (!cur || cur.phase !== "confirm" || !me) return;
   update({ phase: "signing" });
+  /** Still this action's dialog: not cancelled, nor admin mode ended, while the wallet was asked. */
+  const current = () => useActionConfirm.getState().current?.id === cur.id;
   let signature: string;
   try {
     signature = await signAs(me.address, cur.message);
   } catch (e) {
+    if (!current()) return;
     if (isUserRejection(e)) {
       finish(null);
       toast(t("admin.notSigned"));
     } else update({ phase: "failed", error: adminErrorText(e) });
     return;
   }
-  // Admin mode may have ended while the wallet was open.
-  if (useActionConfirm.getState().current?.nonce !== cur.nonce) return;
+  // A signature for a dialog that is gone is never submitted.
+  if (!current()) return;
   update({ phase: "submitting" });
   try {
     const result = await adminCall(api.adminAction({ action: cur.action, nonce: cur.nonce, signature }));

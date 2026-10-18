@@ -4,7 +4,7 @@ import { api } from "../api/endpoints";
 import type { AdminUserDto } from "../api/generated/AdminUserDto";
 import { useT } from "../i18n";
 import { formatCount, formatLocalTime, formatTime } from "../lib/format";
-import { adminCall, adminErrorText, adminKeys, parseCalls } from "./adminMode";
+import { adminCall, adminErrorText, adminKeys, parseCalls, useAdminOverview } from "./adminMode";
 import { useAdminAction } from "./useAdminAction";
 
 /** Every user with usage figures only (never what they looked up); quota and session controls are signed actions. */
@@ -59,9 +59,13 @@ function UserRow({ user: u, editing, onEdit }: { user: AdminUserDto; editing: bo
   const { run, busy } = useAdminAction();
   const [draft, setDraft] = useState(String(u.quota_limit));
   const calls = parseCalls(draft);
+  // What saving would replace: the user's own quota, or the default they are on (saving that value would
+  // only pin an own quota equal to it).
+  const current = u.quota_override ?? useAdminOverview().data?.default_quota ?? u.quota_limit;
+  const canSave = calls !== null && calls !== current && !busy;
   const save = async (e: FormEvent) => {
     e.preventDefault();
-    if (calls === null || busy) return;
+    if (!canSave || calls === null) return;
     if (await run({ type: "SetUserQuota", address: u.address, calls })) onEdit(false);
   };
   return (
@@ -91,7 +95,7 @@ function UserRow({ user: u, editing, onEdit }: { user: AdminUserDto; editing: bo
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
             />
-            <button className="btn btn--compact btn--primary" type="submit" disabled={calls === null || busy}>
+            <button className="btn btn--compact btn--primary" type="submit" disabled={!canSave}>
               {t("admin.save")}
             </button>
             <button className="btn btn--compact" type="button" onClick={() => onEdit(false)}>

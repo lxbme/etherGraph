@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { getAccount, signMessage } from "wagmi/actions";
@@ -145,4 +145,49 @@ test("the controls stay busy while a confirm is open", async () => {
   await openConfirm();
   expect(screen.getByRole("button", { name: "go" })).toBeDisabled();
   await waitFor(() => expect(useActionConfirm.getState().current?.nonce).toBe("n1"));
+});
+
+describe("cancelling while the wallet is asked to sign", () => {
+  /** signMessage held until the test settles it. */
+  function heldSignature() {
+    let resolve!: (s: `0x${string}`) => void;
+    let reject!: (e: unknown) => void;
+    vi.mocked(signMessage).mockReturnValue(new Promise((res, rej) => ((resolve = res), (reject = rej))));
+    return { resolve: (s: `0x${string}`) => resolve(s), reject: (e: unknown) => reject(e) };
+  }
+
+  test.each([
+    ["the Cancel button", () => userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }))],
+    ["Escape", async () => void fireEvent.keyDown(document, { key: "Escape" })],
+  ])("%s closes the dialog; a signature arriving later is dropped", async (_, cancel) => {
+    const api = stubAdminApi();
+    const held = heldSignature();
+    const dialog = await openConfirm();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Sign and apply" }));
+    expect(within(dialog).getByText("Waiting for your wallet…")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeEnabled();
+    await cancel();
+
+    expect(await screen.findByText("nothing")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    held.resolve("0xlate");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(api.submitted()).toEqual([]);
+  });
+
+  test("a refusal arriving after cancel does not touch the next action's dialog", async () => {
+    stubAdminApi();
+    const held = heldSignature();
+    const dialog = await openConfirm();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Sign and apply" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await screen.findByText("nothing");
+    // The next action's dialog is open when the wallet finally refuses the first one.
+    await userEvent.click(screen.getByRole("button", { name: "go" }));
+    const next = await screen.findByRole("dialog", { name: "Sign this change" });
+    held.reject(Object.assign(new Error("User rejected the request."), { code: 4001 }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(next).toBeInTheDocument();
+    expect(useActionConfirm.getState().current?.phase).toBe("confirm");
+  });
 });

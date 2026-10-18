@@ -8,6 +8,7 @@ import { queryClient } from "../api/queryClient";
 import { siweMessage } from "../auth/siweAdapter";
 import { wagmiConfig } from "../auth/wagmi";
 import { t, type MsgKey } from "../i18n";
+import { toast } from "../shell/Toasts";
 
 /**
  * Admin mode (spec §8): a separate signature on top of the login session, an hour long. `checking` until
@@ -83,14 +84,20 @@ export async function enterAdminMode(address: string): Promise<void> {
   useAdminMode.setState({ status: "on", expiresAt: s.expires_at, ended: false, error: null });
 }
 
-/** Leaves admin mode on the server (the login session stays). */
+/**
+ * Leaves admin mode on the server (the login session stays). When the server could not end it, says so
+ * and shows what the server reports instead of pretending it is off.
+ */
 export async function exitAdminMode(): Promise<void> {
   try {
     await api.adminExit();
-  } finally {
-    useAdminMode.setState({ status: "off", expiresAt: null, ended: false, error: null });
-    queryClient.removeQueries({ queryKey: adminKeys.all });
+  } catch (e) {
+    toast(adminErrorText(e), "error");
+    await checkAdminMode();
+    return;
   }
+  useAdminMode.setState({ status: "off", expiresAt: null, ended: false, error: null });
+  queryClient.removeQueries({ queryKey: adminKeys.all });
 }
 
 /** The connected wallet is not the signed-in address (or none is connected): it cannot sign for it. */

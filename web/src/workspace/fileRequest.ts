@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { create } from "zustand";
+import { useAdminRoute } from "../shell/hashRoute";
 import type { FileKind } from "./file";
 
 /**
@@ -33,7 +34,10 @@ export function clearImport(): void {
 
 const hasFiles = (e: DragEvent) => e.dataTransfer?.types.includes("Files") ?? false;
 
-/** A file dropped anywhere on the window is imported (the browser would otherwise open it in place of the app). */
+/**
+ * A file dropped anywhere on the window is imported (the browser would otherwise open it in place of the app);
+ * on the admin page it is only kept from opening.
+ */
 export function useFileDrop(): void {
   useEffect(() => {
     const onDragOver = (e: DragEvent) => {
@@ -44,6 +48,8 @@ export function useFileDrop(): void {
     const onDrop = (e: DragEvent) => {
       if (!hasFiles(e)) return;
       e.preventDefault();
+      // The admin page covers the workspace: a file dropped there must not replace it unseen.
+      if (useAdminRoute.getState().open) return;
       const file = e.dataTransfer?.files[0];
       if (file) requestImport(file);
     };
