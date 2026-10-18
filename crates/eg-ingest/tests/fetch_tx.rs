@@ -539,6 +539,30 @@ async fn unrecovered_delegate_is_no_participant_and_not_identified(pool: PgPool)
     assert!(!flow.participants.contains(&stray));
 }
 
+/// The real authorization of mainnet tx 0x4f85…bb8c: SENDER → DELEGATE, nonce 2.
+fn real_auth() -> Value {
+    json!({"chainId": "0x1", "address": format!("{DELEGATE:#x}"), "nonce": "0x2", "yParity": "0x0",
+        "r": "0x6d3ecfb34878c8ad3edebf5c137af1156a68e7340093454d4386ccc7465d0571",
+        "s": "0x6d80a00a79df8879470ac42c6e89fba6c951d1aaa9601dfce50499993e391300"})
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_third_party_signer_is_a_participant_with_its_delegate(pool: PgPool) {
+    let e = env(pool);
+    // A relayer (FROM) submits SENDER's authorization in a call to TO.
+    let mut row = stored_tx(HASH, 100);
+    row.raw_tx =
+        json!({"type": "0x4", "nonce": "0x7", "input": "0x", "authorizationList": [real_auth()]});
+    e.ctx.store.upsert_transaction(&row).await.unwrap();
+    let flow = load_tx_flow(&e.ctx.store, HASH).await.unwrap().unwrap();
+    assert_eq!(flow.participants, vec![FROM, TO, SENDER, DELEGATE]);
+    assert_eq!(flow.delegations.len(), 1);
+    assert_eq!(
+        (flow.delegations[0].authority, flow.delegations[0].delegate),
+        (SENDER, DELEGATE)
+    );
+}
+
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn delegate_abi_decodes_the_call_once_stored(pool: PgPool) {
     let e = env(pool);
@@ -549,10 +573,9 @@ async fn delegate_abi_decodes_the_call_once_stored(pool: PgPool) {
     let mut row = stored_tx(HASH, 100);
     row.from = SENDER;
     row.to = Some(SENDER);
-    row.raw_tx = json!({"type": "0x4", "input": input, "authorizationList": [{
-        "chainId": "0x1", "address": format!("{DELEGATE:#x}"), "nonce": "0x2", "yParity": "0x0",
-        "r": "0x6d3ecfb34878c8ad3edebf5c137af1156a68e7340093454d4386ccc7465d0571",
-        "s": "0x6d80a00a79df8879470ac42c6e89fba6c951d1aaa9601dfce50499993e391300"}]});
+    // Tx nonce 1, authorization nonce 2: the sender's authorization applies.
+    row.raw_tx = json!({"type": "0x4", "nonce": "0x1", "input": input,
+        "authorizationList": [real_auth()]});
     e.ctx.store.upsert_transaction(&row).await.unwrap();
 
     let flow = load_tx_flow(&e.ctx.store, HASH).await.unwrap().unwrap();

@@ -11,7 +11,7 @@ use eg_decode::decode_transfer_logs;
 use eg_store::{JobRow, JobStatus, TxRow};
 use serde::Deserialize;
 
-use crate::authorization::{authorizations, auto_meta_parties};
+use crate::authorization::{authorizations, auto_meta_parties, effective_delegations, tx_nonce};
 use crate::enqueue::{enqueue_meta, enqueue_tokens};
 use crate::events::Event;
 use crate::runner::{JobCtx, JobError, JobHandler};
@@ -147,11 +147,9 @@ impl JobHandler for FetchTxHandler {
             .await?;
 
         // The rest are identified on demand (`POST /api/identify`).
-        let parties = auto_meta_parties(
-            tx.from,
-            tx.to.or(receipt.contract_address),
-            &authorizations(&tx.json),
-        );
+        let delegations =
+            effective_delegations(&authorizations(&tx.json), tx.from, tx_nonce(&tx.json));
+        let parties = auto_meta_parties(tx.from, tx.to.or(receipt.contract_address), &delegations);
         let stale = ctx
             .store
             .addrs_needing_meta(&parties, ctx.cfg.meta_ttl)

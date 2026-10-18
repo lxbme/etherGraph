@@ -56,7 +56,7 @@ pub async fn tx(
     let created = f.tx.raw_receipt["contractAddress"]
         .as_str()
         .and_then(|a| a.parse::<Address>().ok());
-    let parties = auto_meta_parties(f.tx.from, f.tx.to.or(created), &f.authorizations);
+    let parties = auto_meta_parties(f.tx.from, f.tx.to.or(created), &f.delegations);
     enqueue_missing_meta(&s, &parties, &f.participants, &token_addrs).await;
     let block = s.store.block(f.tx.block_number).await?;
     if block.is_none() {
@@ -87,7 +87,13 @@ pub async fn tx(
                 method: f.call.as_ref().map(|c| c.name.clone()),
                 selector: f.tx.selector.map(alloy_primitives::hex::encode_prefixed),
             },
-            detail: tx_detail(&f.tx, block.as_ref(), head, &f.authorizations),
+            detail: tx_detail(
+                &f.tx,
+                block.as_ref(),
+                head,
+                &f.authorizations,
+                &f.delegations,
+            ),
             call: f
                 .call
                 .as_ref()

@@ -36,7 +36,8 @@
       "contract_created": null,
       "revert_reason": null,
       "input": "0x7ff36ab5",
-      "authorizations": []
+      "authorizations": [],
+      "delegations": []
     },
     "call": {
       "signature": "swapExactETHForTokens(uint256,address[],address,uint256)",

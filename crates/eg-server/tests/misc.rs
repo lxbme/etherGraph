@@ -261,7 +261,7 @@ fn set_code_row() -> TxRow {
     row.to = Some(SENDER);
     row.success = true;
     row.revert_reason = None;
-    row.raw_tx = json!({"hash": format!("{HASH:#x}"), "type": "0x4", "input": input,
+    row.raw_tx = json!({"hash": format!("{HASH:#x}"), "type": "0x4", "nonce": "0x1", "input": input,
         "authorizationList": [
             {"chainId": "0x1", "address": format!("{DELEGATE:#x}"), "nonce": "0x2", "yParity": "0x0",
              "r": "0x6d3ecfb34878c8ad3edebf5c137af1156a68e7340093454d4386ccc7465d0571",
@@ -297,6 +297,11 @@ async fn set_code_tx_lists_authorizations_and_decodes_with_the_delegate_abi(pool
             {"chain_id": "0", "delegate": format!("{:#x}", Address::ZERO), "nonce": "3",
              "authority": null},
         ])
+    );
+    // Tx nonce 1, authorization nonce 2: SENDER's delegation takes effect.
+    assert_eq!(
+        f["detail"]["delegations"],
+        json!([{"authority": format!("{SENDER:#x}"), "delegate": format!("{DELEGATE:#x}")}])
     );
     // The recovered delegate is a node; OTHER (no recovered signer) and the
     // zero address are not.
@@ -338,6 +343,40 @@ async fn set_code_tx_lists_authorizations_and_decodes_with_the_delegate_abi(pool
     assert_eq!(f["tx"]["method"], "foo");
     assert_eq!(f["call"]["name"], "foo");
     assert_eq!(f["call"]["via_delegate"], format!("{DELEGATE:#x}"));
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_third_party_signer_and_its_delegate_are_nodes(pool: PgPool) {
+    let (app, state, _fake) = test_app(pool);
+    // A relayer sends SENDER's authorization in a call to OTHER.
+    let mut row = set_code_row();
+    let relayer = Address::repeat_byte(0x5a);
+    row.from = relayer;
+    row.to = Some(OTHER);
+    row.raw_tx["nonce"] = json!("0x9");
+    state.store.upsert_transaction(&row).await.unwrap();
+    let (st, v) = get(&app, &format!("/api/tx/{HASH:#x}")).await;
+    assert_eq!(st, StatusCode::OK);
+    let f = &v["flow"];
+    let nodes: Vec<&str> = f["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| n["address"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        nodes,
+        vec![
+            format!("{relayer:#x}"),
+            format!("{OTHER:#x}"),
+            format!("{SENDER:#x}"),
+            format!("{DELEGATE:#x}")
+        ]
+    );
+    assert_eq!(
+        f["detail"]["delegations"],
+        json!([{"authority": format!("{SENDER:#x}"), "delegate": format!("{DELEGATE:#x}")}])
+    );
 }
 
 /// Repeats `GET uri` until `detail.confirmations` is set.

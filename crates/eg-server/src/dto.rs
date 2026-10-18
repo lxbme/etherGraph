@@ -613,6 +613,29 @@ pub struct TxDetailDto {
     pub input: String,
     /// EIP-7702 authorization list in tx order; empty for other tx types.
     pub authorizations: Vec<AuthorizationDto>,
+    /// The delegation each recovered signer holds after the list applies
+    /// (at most 16): for the sender, the entries its nonce chain from the tx
+    /// nonce + 1 accepts; for any other signer, its last entry. Cleared
+    /// delegations are left out.
+    pub delegations: Vec<DelegationDto>,
+}
+
+/// An EIP-7702 delegation in effect after a set-code transaction.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DelegationDto {
+    pub authority: String,
+    /// Never the zero address.
+    pub delegate: String,
+}
+
+impl From<&eg_ingest::Delegation> for DelegationDto {
+    fn from(d: &eg_ingest::Delegation) -> Self {
+        Self {
+            authority: hex_addr(d.authority),
+            delegate: hex_addr(d.delegate),
+        }
+    }
 }
 
 /// One EIP-7702 authorization of a set-code (type 4) transaction.

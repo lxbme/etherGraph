@@ -1,7 +1,7 @@
 //! EIP-7702 authorization list of a set-code (type 4) transaction, read from
 //! the stored raw tx JSON, with each signer recovered from its signature.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use alloy_primitives::{Address, B256, Signature, U256, keccak256};
 use alloy_rlp::{Encodable, Header};
@@ -9,6 +9,12 @@ use serde_json::Value;
 
 /// Delegates identified automatically per transaction, besides from and to.
 pub const MAX_AUTO_DELEGATES: usize = 8;
+/// Entries whose signer is recovered per transaction (one signature recovery
+/// each, on every read); later entries are listed without a signer.
+pub const MAX_RECOVERED: usize = 64;
+/// Effective delegations drawn per transaction; each adds its signer and its
+/// delegate as nodes.
+pub const MAX_DELEGATIONS: usize = 16;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Authorization {
@@ -17,10 +23,19 @@ pub struct Authorization {
     /// authority's delegation.
     pub delegate: Address,
     pub nonce: U256,
-    /// The recovered signer; `None` when the signature does not recover or the
+    /// The recovered signer; `None` when the signature does not recover, the
     /// entry cannot be valid on mainnet (chain id other than 0 or 1, nonce
-    /// of 2^64 − 1 or more).
+    /// of 2^64 − 1 or more) or comes after the first [`MAX_RECOVERED`].
     pub authority: Option<Address>,
+}
+
+/// The delegation a signer is left with once a transaction's authorization
+/// list has been applied.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Delegation {
+    pub authority: Address,
+    /// Never zero: a cleared delegation is no delegation.
+    pub delegate: Address,
 }
 
 /// EIP-7702 `MAGIC`: the prefix byte of the signed authorization message.
@@ -66,7 +81,8 @@ fn quantity(entry: &Value, key: &str) -> Option<U256> {
     U256::from_str_radix(s.strip_prefix("0x").unwrap_or(s), 16).ok()
 }
 
-fn entry(e: &Value) -> Option<Authorization> {
+/// An entry with its signer recovered when `recover`.
+fn entry(e: &Value, recover: bool) -> Option<Authorization> {
     let chain_id = quantity(e, "chainId")?;
     let delegate = e.get("address")?.as_str()?.parse().ok()?;
     let nonce = quantity(e, "nonce")?;
@@ -85,7 +101,7 @@ fn entry(e: &Value) -> Option<Authorization> {
             y_parity,
         ))
     };
-    let authority = if valid {
+    let authority = if valid && recover {
         signature().and_then(|sig| recover_authority(chain_id, delegate, nonce, sig))
     } else {
         None
@@ -100,38 +116,96 @@ fn entry(e: &Value) -> Option<Authorization> {
 
 /// The `authorizationList` of a raw tx in order; empty when the tx has none.
 /// An entry without a readable chain id, address or nonce is left out; one
-/// without a usable signature is kept with no authority.
+/// without a usable signature, or after the first [`MAX_RECOVERED`] entries,
+/// is kept with no authority.
 pub fn authorizations(raw_tx: &Value) -> Vec<Authorization> {
-    raw_tx
-        .get("authorizationList")
-        .and_then(Value::as_array)
-        .map_or_else(Vec::new, |list| list.iter().filter_map(entry).collect())
+    let Some(list) = raw_tx.get("authorizationList").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut recovered = 0;
+    list.iter()
+        .filter_map(|e| {
+            let a = entry(e, recovered < MAX_RECOVERED)?;
+            recovered += 1;
+            Some(a)
+        })
+        .collect()
 }
 
-/// The non-zero delegates of the entries whose signer was recovered,
-/// deduplicated, in list order. An entry without a signer never takes
-/// effect, so its delegate is no participant and is not identified.
-pub fn delegates(auths: &[Authorization]) -> Vec<Address> {
+/// The tx's own nonce (`nonce` of the raw tx); `None` when absent or malformed.
+pub fn tx_nonce(raw_tx: &Value) -> Option<U256> {
+    quantity(raw_tx, "nonce")
+}
+
+/// The delegation each recovered signer holds after the list is applied in
+/// order, in the order of the signers' first applying entries; a signer whose
+/// delegation ends cleared (zero delegate) has none. An entry without a
+/// signer never applies.
+///
+/// EIP-7702 applies an entry only when its nonce equals the signer's current
+/// nonce, which then increments. Only the sender's nonce is known: the list is
+/// processed after the tx has used its own nonce, so the sender's chain starts
+/// at `sender_nonce + 1` and is simulated. Any other signer's current nonce is
+/// unknown, so its last entry wins — an approximation that also counts an
+/// entry the EVM would skip for a stale nonce. The sender too falls back to
+/// its last entry when `sender_nonce` is unknown.
+pub fn effective_delegations(
+    auths: &[Authorization],
+    sender: Address,
+    sender_nonce: Option<U256>,
+) -> Vec<Delegation> {
+    let mut sender_next = sender_nonce.map(|n| n.saturating_add(U256::from(1)));
+    let mut signers = Vec::new();
+    let mut current = HashMap::new();
+    for a in auths {
+        let Some(authority) = a.authority else {
+            continue;
+        };
+        if authority == sender
+            && let Some(next) = sender_next.as_mut()
+        {
+            if a.nonce != *next {
+                continue;
+            }
+            *next = next.saturating_add(U256::from(1));
+        }
+        if current.insert(authority, a.delegate).is_none() {
+            signers.push(authority);
+        }
+    }
+    signers
+        .into_iter()
+        .map(|authority| Delegation {
+            authority,
+            delegate: current[&authority],
+        })
+        .filter(|d| !d.delegate.is_zero())
+        .collect()
+}
+
+/// The distinct delegates of `delegations`, in order.
+pub fn delegates(delegations: &[Delegation]) -> Vec<Address> {
     let mut seen = HashSet::new();
-    auths
+    delegations
         .iter()
-        .filter(|a| a.authority.is_some())
-        .map(|a| a.delegate)
-        .filter(|d| !d.is_zero() && seen.insert(*d))
+        .map(|d| d.delegate)
+        .filter(|d| seen.insert(*d))
         .collect()
 }
 
 /// The addresses of a tx identified automatically: its sender, its recipient
-/// (or the contract it created) and its first [`MAX_AUTO_DELEGATES`]
-/// delegates. Everything else is identified on demand.
+/// (or the contract it created) and the first [`MAX_AUTO_DELEGATES`]
+/// delegates of its drawn (first [`MAX_DELEGATIONS`]) effective delegations.
+/// Everything else is identified on demand.
 pub fn auto_meta_parties(
     from: Address,
     to_or_created: Option<Address>,
-    auths: &[Authorization],
+    delegations: &[Delegation],
 ) -> Vec<Address> {
+    let drawn = &delegations[..delegations.len().min(MAX_DELEGATIONS)];
     std::iter::once(from)
         .chain(to_or_created)
-        .chain(delegates(auths).into_iter().take(MAX_AUTO_DELEGATES))
+        .chain(delegates(drawn).into_iter().take(MAX_AUTO_DELEGATES))
         .collect()
 }
 
@@ -302,43 +376,153 @@ pub(crate) mod tests {
         assert!(authorizations(&json!("not an object")).is_empty());
     }
 
-    #[test]
-    fn delegates_skip_zero_repeats_and_unrecovered_signers() {
-        let a = |d: Address, signed: bool| Authorization {
+    fn auth(authority: Option<Address>, delegate: Address, nonce: u64) -> Authorization {
+        Authorization {
             chain_id: U256::from(1),
-            delegate: d,
-            nonce: U256::ZERO,
-            authority: signed.then_some(SENDER),
-        };
-        let (x, y, z) = (
-            Address::repeat_byte(1),
-            Address::repeat_byte(2),
-            Address::repeat_byte(3),
+            delegate,
+            nonce: U256::from(nonce),
+            authority,
+        }
+    }
+
+    fn d(authority: Address, delegate: Address) -> Delegation {
+        Delegation {
+            authority,
+            delegate,
+        }
+    }
+
+    const X: Address = Address::repeat_byte(1);
+    const Y: Address = Address::repeat_byte(2);
+    const K: Address = Address::repeat_byte(0x4b);
+    const J: Address = Address::repeat_byte(0x4a);
+
+    #[test]
+    fn the_sender_follows_its_nonce_chain_from_tx_nonce_plus_one() {
+        let eff = |auths: &[Authorization]| effective_delegations(auths, K, Some(U256::from(1)));
+        // Mainnet 0x4f85…bb8c: tx nonce 1, one entry with nonce 2 → applies.
+        assert_eq!(eff(&[auth(Some(K), X, 2)]), vec![d(K, X)]);
+        // The second entry repeats nonce 2, which is spent by then: X stays.
+        assert_eq!(
+            eff(&[auth(Some(K), X, 2), auth(Some(K), Y, 2)]),
+            vec![d(K, X)]
         );
+        // Consecutive nonces both apply: the later one wins.
+        assert_eq!(
+            eff(&[auth(Some(K), X, 2), auth(Some(K), Y, 3)]),
+            vec![d(K, Y)]
+        );
+        // Nonce 1 is the tx's own, already used: nothing applies.
+        assert_eq!(eff(&[auth(Some(K), X, 1)]), vec![]);
+        // A skipped entry does not advance the nonce.
+        assert_eq!(
+            eff(&[auth(Some(K), X, 5), auth(Some(K), Y, 2)]),
+            vec![d(K, Y)]
+        );
+        // An entry without a signer neither applies nor advances the nonce.
+        assert_eq!(eff(&[auth(None, Y, 2), auth(Some(K), X, 2)]), vec![d(K, X)]);
+    }
+
+    #[test]
+    fn an_applying_zero_delegate_clears_the_delegation() {
+        let sender = |auths: &[Authorization]| effective_delegations(auths, K, Some(U256::ZERO));
+        assert_eq!(
+            sender(&[auth(Some(K), X, 1), auth(Some(K), Address::ZERO, 2)]),
+            vec![]
+        );
+        // A clearing entry with a stale nonce is skipped.
+        assert_eq!(
+            sender(&[auth(Some(K), X, 1), auth(Some(K), Address::ZERO, 1)]),
+            vec![d(K, X)]
+        );
+        // Another signer: the last entry wins, nonce unchecked.
+        let other = effective_delegations(
+            &[auth(Some(J), X, 0), auth(Some(J), Address::ZERO, 0)],
+            K,
+            Some(U256::ZERO),
+        );
+        assert_eq!(other, vec![]);
+        let other = effective_delegations(
+            &[auth(Some(J), Address::ZERO, 9), auth(Some(J), X, 0)],
+            K,
+            Some(U256::ZERO),
+        );
+        assert_eq!(other, vec![d(J, X)]);
+    }
+
+    #[test]
+    fn other_signers_and_an_unknown_tx_nonce_keep_the_last_entry() {
         let auths = [
-            a(y, true),
-            a(Address::ZERO, true),
-            a(z, false),
-            a(x, true),
-            a(y, true),
+            auth(Some(J), X, 0),
+            auth(Some(K), X, 7),
+            auth(None, Y, 0),
+            auth(Some(J), Y, 0),
         ];
-        assert_eq!(delegates(&auths), vec![y, x]);
+        // K is no sender here: the last entry of each signer wins, in the
+        // order of the signers' first entries.
+        assert_eq!(
+            effective_delegations(&auths, Address::repeat_byte(0xee), Some(U256::ZERO)),
+            vec![d(J, Y), d(K, X)]
+        );
+        // The sender's nonce is unknown: last entry wins for it too.
+        assert_eq!(
+            effective_delegations(&auths, K, None),
+            vec![d(J, Y), d(K, X)]
+        );
+        assert_eq!(
+            effective_delegations(&auths, K, Some(U256::ZERO)),
+            vec![d(J, Y)]
+        );
+    }
+
+    #[test]
+    fn tx_nonce_reads_the_raw_tx() {
+        assert_eq!(tx_nonce(&json!({"nonce": "0x1"})), Some(U256::from(1)));
+        assert_eq!(tx_nonce(&json!({})), None);
+        assert_eq!(tx_nonce(&json!({"nonce": "junk"})), None);
+    }
+
+    #[test]
+    fn delegates_are_distinct_in_order() {
+        let ds = [d(K, Y), d(J, X), d(Address::repeat_byte(9), Y)];
+        assert_eq!(delegates(&ds), vec![Y, X]);
+    }
+
+    #[test]
+    fn only_the_first_entries_are_recovered() {
+        let k = key(4);
+        let entries: Vec<Value> = (0..MAX_RECOVERED as u64 + 3)
+            .map(|n| signed(&k, 1, DELEGATE, n))
+            .collect();
+        let auths = authorizations(&list(entries));
+        assert_eq!(auths.len(), MAX_RECOVERED + 3);
+        let me = Address::from_private_key(&k);
+        assert!(
+            auths[..MAX_RECOVERED]
+                .iter()
+                .all(|a| a.authority == Some(me))
+        );
+        assert!(auths[MAX_RECOVERED..].iter().all(|a| a.authority.is_none()));
+        // Entries left out for a missing field do not count.
+        let mut entries = vec![json!("junk"); 5];
+        entries.extend((0..MAX_RECOVERED as u64).map(|n| signed(&k, 1, DELEGATE, n)));
+        let auths = authorizations(&list(entries));
+        assert!(auths.iter().all(|a| a.authority == Some(me)));
     }
 
     #[test]
     fn auto_meta_parties_cap_the_delegates() {
-        let auths: Vec<Authorization> = (1u8..=10)
-            .map(|b| Authorization {
-                chain_id: U256::from(1),
-                delegate: Address::repeat_byte(b),
-                nonce: U256::ZERO,
-                authority: Some(SENDER),
-            })
+        let ds: Vec<Delegation> = (1u8..=10)
+            .map(|b| d(Address::repeat_byte(0x80 + b), Address::repeat_byte(b)))
             .collect();
         let from = Address::repeat_byte(0xf0);
         let mut want = vec![from, DELEGATE];
         want.extend((1u8..=8).map(Address::repeat_byte));
-        assert_eq!(auto_meta_parties(from, Some(DELEGATE), &auths), want);
+        assert_eq!(auto_meta_parties(from, Some(DELEGATE), &ds), want);
         assert_eq!(auto_meta_parties(from, None, &[]), vec![from]);
+        // Only the drawn delegations count: the first MAX_DELEGATIONS.
+        let mut ds = vec![d(K, X); MAX_DELEGATIONS];
+        ds.push(d(J, Y));
+        assert_eq!(auto_meta_parties(from, None, &ds), vec![from, X]);
     }
 }

@@ -11,7 +11,8 @@ pub mod runner;
 pub mod txflow;
 
 pub use authorization::{
-    Authorization, MAX_AUTO_DELEGATES, authorizations, auto_meta_parties, delegates,
+    Authorization, Delegation, MAX_AUTO_DELEGATES, MAX_DELEGATIONS, MAX_RECOVERED, authorizations,
+    auto_meta_parties, delegates, effective_delegations, tx_nonce,
 };
 pub use enqueue::{
     SyncDirection, enqueue_fetch_block, enqueue_fetch_tx, enqueue_meta, enqueue_meta_owned,
