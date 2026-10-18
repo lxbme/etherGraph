@@ -170,6 +170,16 @@ pub struct EdgeFilterDto {
     #[ts(optional = nullable, type = r#""in" | "out" | "both" | null"#)]
     pub direction: Option<String>,
     pub assets: Option<Vec<AssetFilterDto>>,
+    /// Leave out transfers of tokens classified suspicious or scam.
+    #[ts(optional = nullable)]
+    pub hide_suspicious: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct NodesRequestDto {
+    /// 1 to 2000 addresses.
+    pub addresses: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

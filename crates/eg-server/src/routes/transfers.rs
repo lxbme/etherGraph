@@ -106,6 +106,7 @@ pub async fn list(
                 kinds,
                 assets,
                 direction,
+                exclude_assets: Vec::new(),
             },
             cursor,
             limit,

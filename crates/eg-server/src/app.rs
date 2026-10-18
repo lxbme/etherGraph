@@ -1,6 +1,8 @@
 //! Router assembly.
 
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
+use axum::handler::Handler;
 use axum::http::StatusCode;
 use axum::routing::{delete, get, post};
 use tower_http::services::{ServeDir, ServeFile};
@@ -9,8 +11,8 @@ use tracing::Level;
 
 use crate::error::ApiError;
 use crate::routes::{
-    address, batches, counterparties, events, graph, identify, jobs, labels, probe, search, status,
-    sync, token, transfers, tx, workspaces,
+    address, batches, counterparties, events, graph, identify, jobs, labels, nodes, probe, search,
+    status, sync, token, transfers, tx, workspaces,
 };
 use crate::state::AppState;
 
@@ -31,6 +33,7 @@ pub fn router(state: AppState) -> Router {
         .route("/identify", post(identify::identify))
         .route("/probe", post(probe::probe))
         .route("/graph/edges", post(graph::edges))
+        .route("/nodes", post(nodes::nodes))
         .route("/transfers", get(transfers::list))
         .route("/tx/{hash}", get(tx::tx))
         .route("/tx/{hash}/raw", get(tx::raw))
@@ -38,12 +41,12 @@ pub fn router(state: AppState) -> Router {
         .route("/labels/{id}", delete(labels::delete))
         .route(
             "/workspaces",
-            get(workspaces::list).post(workspaces::create),
+            get(workspaces::list).post(workspaces::create.layer(big_body())),
         )
         .route(
             "/workspaces/{id}",
             get(workspaces::get)
-                .put(workspaces::update)
+                .put(workspaces::update.layer(big_body()))
                 .delete(workspaces::delete),
         )
         .fallback(api_not_found)
@@ -59,6 +62,13 @@ pub fn router(state: AppState) -> Router {
         .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
         .on_response(DefaultOnResponse::new().level(Level::INFO));
     app.layer(trace).with_state(state)
+}
+
+/// Largest workspace body (a canvas with imported snapshots can be big).
+const WORKSPACE_BODY_LIMIT: usize = 32 * 1024 * 1024;
+
+fn big_body() -> DefaultBodyLimit {
+    DefaultBodyLimit::max(WORKSPACE_BODY_LIMIT)
 }
 
 async fn method_not_allowed() -> ApiError {

@@ -619,6 +619,27 @@ async fn workspace_conflict_409(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
+async fn workspace_accepts_a_5_mib_state(pool: PgPool) {
+    let (app, _, _) = test_app(pool);
+    let big = "x".repeat(5 * 1024 * 1024);
+    let (st, w) = post_json(
+        &app,
+        "/api/workspaces",
+        &json!({"name": "big", "state": {"blob": big}}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{w}");
+    let uri = format!("/api/workspaces/{}", w["id"]);
+    let (st, v) = put_json(
+        &app,
+        &uri,
+        &json!({"name": "big", "state": {"blob": big}, "expected_updated_at": w["updated_at"]}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
 async fn workspace_get_then_put_with_returned_updated_at(pool: PgPool) {
     let (app, _, _) = test_app(pool);
     let (_, w) = post_json(&app, "/api/workspaces", &json!({"name": "a", "state": {}})).await;

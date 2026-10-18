@@ -30,7 +30,7 @@ pub async fn edges(
     ApiJson(req): ApiJson<GraphRequestDto>,
 ) -> Result<Json<GraphResponseDto>, ApiError> {
     let centers = parse_addresses(&req.addresses)?;
-    let filter = edge_filter(&s.store, req.filter.unwrap_or_default()).await?;
+    let filter = edge_filter(&s, req.filter.unwrap_or_default()).await?;
     let sort = match req.sort.as_deref() {
         None | Some("count") => SortBy::Count,
         Some("recent") => SortBy::Recent,
@@ -139,7 +139,7 @@ pub async fn edges(
 }
 
 /// Converts the request filter; `min_amount`s are scaled as in [`asset_filters`].
-async fn edge_filter(store: &Store, f: EdgeFilterDto) -> Result<EdgeFilter, ApiError> {
+async fn edge_filter(s: &AppState, f: EdgeFilterDto) -> Result<EdgeFilter, ApiError> {
     let time = f.time.unwrap_or_default();
     let time = TimeRange {
         from: time
@@ -166,12 +166,27 @@ async fn edge_filter(store: &Store, f: EdgeFilterDto) -> Result<EdgeFilter, ApiE
         let asset = a.asset.as_deref().map(parse_asset).transpose()?.flatten();
         parsed.push((asset, a.min_amount));
     }
-    let assets = asset_filters(store, parsed).await?;
+    let assets = asset_filters(&s.store, parsed).await?;
+    let exclude_assets = if f.hide_suspicious == Some(true) {
+        let mut v: Vec<Address> = s
+            .trust
+            .get(&s.store)
+            .await
+            .flagged
+            .iter()
+            .copied()
+            .collect();
+        v.sort();
+        v
+    } else {
+        Vec::new()
+    };
     Ok(EdgeFilter {
         time,
         kinds,
         direction,
         assets,
+        exclude_assets,
     })
 }
 

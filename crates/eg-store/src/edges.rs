@@ -84,6 +84,17 @@ pub(crate) fn push_filter(qb: &mut QueryBuilder<Postgres>, f: &EdgeFilter) {
         }
         qb.push(")");
     }
+    if !f.exclude_assets.is_empty() {
+        let ex: Vec<Vec<u8>> = f
+            .exclude_assets
+            .iter()
+            .copied()
+            .map(addr_to_bytes)
+            .collect();
+        qb.push(" AND (asset IS NULL OR asset <> ALL(")
+            .push_bind(ex)
+            .push("))");
+    }
 }
 
 pub(crate) fn to_u64(v: i64, what: &str) -> Result<u64> {

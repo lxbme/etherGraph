@@ -9,4 +9,8 @@ export type EdgeFilterDto = { time?: TimeRangeDto | null, kinds?: Array<"native"
 /**
  * Relative to the requested addresses; default `"both"`.
  */
-direction?: "in" | "out" | "both" | null, assets?: Array<AssetFilterDto> | null, };
+direction?: "in" | "out" | "both" | null, assets?: Array<AssetFilterDto> | null, 
+/**
+ * Leave out transfers of tokens classified suspicious or scam.
+ */
+hide_suspicious?: boolean | null, };

@@ -223,6 +223,101 @@ async fn search_ens_unresolved_404(pool: PgPool) {
 // ---------------------------------------------------------------- graph
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
+async fn hide_suspicious_filters_flagged_tokens_in_the_query(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let fake = Address::repeat_byte(0xfa);
+    let list = format!(
+        r#"{{"tokens":[{{"chainId":1,"address":"{}","symbol":"USDT","name":"Tether USD"}}]}}"#,
+        hex(USDT)
+    );
+    import_tokens(&state.store, TokenFormat::Uniswap, list.as_bytes())
+        .await
+        .unwrap();
+    token(&state, fake, "USDT", Some(6)).await;
+    seed(
+        &state,
+        vec![
+            tr(1, C, A, None, U256::from(5), 0),
+            tr(2, B, C, Some(USDT), U256::from(9), 10),
+            tr(3, B, C, Some(fake), U256::from(9), 20),
+            tr(4, B, C, Some(fake), U256::from(9), 30),
+        ],
+    )
+    .await;
+    let assets = |b: &Value| -> Vec<Value> {
+        let mut v: Vec<Value> = b["edges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["asset"].clone())
+            .collect();
+        v.sort_by_key(|x| x.to_string());
+        v
+    };
+    for filter in [json!({}), json!({"hide_suspicious": false})] {
+        let (s, b) = post_json(
+            &app,
+            "/api/graph/edges",
+            &json!({"addresses": [hex(C)], "filter": filter}),
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        assert_eq!(assets(&b).len(), 3, "{b}");
+    }
+    let (s, b) = post_json(
+        &app,
+        "/api/graph/edges",
+        &json!({"addresses": [hex(C)], "filter": {"hide_suspicious": true}}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let mut want = vec![Value::Null, json!(hex(USDT))];
+    want.sort_by_key(|x| x.to_string());
+    assert_eq!(assets(&b), want, "{b}");
+    // Filtered before the per-center limit: the one slot goes to a kept edge
+    // and nothing is counted as omitted for the excluded token.
+    let (s, b) = post_json(
+        &app,
+        "/api/graph/edges",
+        &json!({"addresses": [hex(C)], "filter": {"hide_suspicious": true},
+                "limit_per_address": 1, "sort": "count"}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["edges"].as_array().unwrap().len(), 1, "{b}");
+    assert_eq!(b["omitted"][hex(C)], json!(1), "{b}");
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn nodes_endpoint_returns_summaries_in_request_order_without_jobs(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    seed(&state, vec![tr(1, C, A, None, U256::from(5), 0)]).await;
+    let before = state.store.active_jobs().await.unwrap().len();
+    let (s, b) = post_json(
+        &app,
+        "/api/nodes",
+        &json!({"addresses": [hex(B), hex(C), hex(A)]}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let got: Vec<&str> = b
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| n["address"].as_str().unwrap())
+        .collect();
+    assert_eq!(got, [hex(B), hex(C), hex(A)]);
+    assert_eq!(state.store.active_jobs().await.unwrap().len(), before);
+    for n in [0usize, 2001] {
+        let addrs: Vec<String> = (0..n).map(|_| hex(A)).collect();
+        let (s, _) = post_json(&app, "/api/nodes", &json!({"addresses": addrs})).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{n} addresses");
+    }
+    let (s, _) = post_json(&app, "/api/nodes", &json!({"addresses": ["0x12"]})).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_edges_carry_each_assets_trust(pool: PgPool) {
     let (app, state, _) = test_app(pool);
     let fake = Address::repeat_byte(0xfa);

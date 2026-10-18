@@ -32,6 +32,8 @@ pub struct EdgeFilter {
     pub kinds: Vec<TransferKind>,
     pub direction: Direction,
     pub assets: Vec<AssetFilter>,
+    /// Token contracts whose transfers are left out (ETH is never excluded).
+    pub exclude_assets: Vec<Address>,
 }
 
 impl Default for EdgeFilter {
@@ -41,6 +43,7 @@ impl Default for EdgeFilter {
             kinds: Vec::new(),
             direction: Direction::Both,
             assets: Vec::new(),
+            exclude_assets: Vec::new(),
         }
     }
 }
