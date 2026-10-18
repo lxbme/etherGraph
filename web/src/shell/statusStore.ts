@@ -29,7 +29,12 @@ export const useQuota = create<{
 }));
 
 /** Job statuses that still count as running work. */
-export const ACTIVE_JOB_STATUSES: ReadonlySet<string> = new Set(["pending", "running", "paused_quota"]);
+export const ACTIVE_JOB_STATUSES: ReadonlySet<string> = new Set([
+  "pending",
+  "running",
+  "paused_quota",
+  "paused_user_quota",
+]);
 
 export const useJobProgress = create<{
   byId: Record<number, JobProgressEvent>;

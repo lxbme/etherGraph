@@ -16,6 +16,7 @@ const STATUSES: Record<JobDto["status"], MsgKey> = {
   pending: "job.status.pending",
   running: "job.status.running",
   paused_quota: "job.status.paused_quota",
+  paused_user_quota: "job.status.paused_user_quota",
   done: "job.status.done",
   failed: "job.status.failed",
   cancelled: "job.status.cancelled",

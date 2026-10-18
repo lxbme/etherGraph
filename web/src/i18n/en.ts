@@ -27,6 +27,7 @@ export const en = {
   "job.status.pending": "Pending",
   "job.status.running": "Running",
   "job.status.paused_quota": "Quota paused",
+  "job.status.paused_user_quota": "Waiting for tomorrow's quota",
   "job.status.done": "Done",
   "job.status.failed": "Failed",
   "job.status.cancelled": "Cancelled",

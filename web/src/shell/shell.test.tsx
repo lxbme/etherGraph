@@ -158,11 +158,12 @@ describe('toasts', () => {
 })
 
 describe('status stores', () => {
-  it('activeCount counts pending/running/paused_quota only', () => {
+  it('activeCount counts pending/running/paused_quota/paused_user_quota only', () => {
     const mk = (id: number, status: any) => ({ type: 'JobProgress' as const, job_id: id, kind: 'address_sync' as any, fetched: 0, cursor_block: null, status, error: null })
     const u = useJobProgress.getState().upsert
     u(mk(1, 'running')); u(mk(2, 'done')); u(mk(3, 'paused_quota')); u(mk(4, 'pending')); u(mk(1, 'running'))
-    expect(useJobProgress.getState().activeCount()).toBe(3)
+    u(mk(5, 'paused_user_quota')); u(mk(6, 'cancelled'))
+    expect(useJobProgress.getState().activeCount()).toBe(4)
   })
 })
 

@@ -60,7 +60,9 @@ pub struct JobDto {
         type = r#""sync_address" | "fetch_tx" | "contract_meta" | "resolve_names" | "token_meta" | "fetch_block""#
     )]
     pub kind: String,
-    #[ts(type = r#""pending" | "running" | "paused_quota" | "done" | "failed" | "cancelled""#)]
+    #[ts(
+        type = r#""pending" | "running" | "paused_quota" | "paused_user_quota" | "done" | "failed" | "cancelled""#
+    )]
     pub status: String,
     #[ts(type = r#""interactive" | "background" | "low""#)]
     pub priority: String,

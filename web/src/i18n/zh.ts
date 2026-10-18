@@ -29,6 +29,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "job.status.pending": "排队中",
   "job.status.running": "进行中",
   "job.status.paused_quota": "额度暂停",
+  "job.status.paused_user_quota": "等待明日额度",
   "job.status.done": "完成",
   "job.status.failed": "失败",
   "job.status.cancelled": "已取消",

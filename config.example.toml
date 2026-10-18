@@ -25,3 +25,16 @@ fixtures_dir = "fixtures"
 listen = "127.0.0.1:8080"
 database_url = "postgres://eg:eg@localhost:54329/eg"
 static_dir = "web/dist"
+
+[auth]
+# Scheme, host and port the browser opens (no trailing slash); login messages
+# and the Origin check of state-changing requests use it.
+public_origin = "http://127.0.0.1:8080"
+# Admin wallet addresses, e.g. ["0x…"]. Empty: nobody can enter admin mode.
+admins = []
+# Etherscan calls per user per day (admins can change it in the admin panel)
+default_daily_quota = 5000
+session_days = 7
+admin_session_minutes = 60
+# Only behind a reverse proxy you trust: take the client IP from X-Forwarded-For
+trust_forwarded_for = false

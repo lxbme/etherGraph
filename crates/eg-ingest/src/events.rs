@@ -183,7 +183,7 @@ mod tests {
         );
         assert_eq!(
             JobStatus::inline(&cfg),
-            r#""pending" | "running" | "paused_quota" | "done" | "failed" | "cancelled""#
+            r#""pending" | "running" | "paused_quota" | "paused_user_quota" | "done" | "failed" | "cancelled""#
         );
         assert_eq!(
             EnsStatus::inline(&cfg),

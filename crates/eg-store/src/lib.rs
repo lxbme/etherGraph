@@ -1,4 +1,5 @@
 //! eg-store: Postgres persistence.
+mod audit;
 mod blocks;
 pub mod convert;
 mod edges;
@@ -6,20 +7,27 @@ mod jobs;
 mod labels;
 mod meta;
 mod quota;
+mod sessions;
+mod settings;
 mod stats;
 mod token_tags;
 mod transfers;
 mod txs;
+mod users;
 mod workspaces;
 
+pub use audit::{AuditEntry, AuditFilter, AuditOutcome, AuditRow};
 pub use blocks::BlockRow;
 pub use edges::{TransferCursor, TransferQuery, TransferScope};
 pub use jobs::{JobKind, JobRow, JobStatus, NewJob};
 pub use labels::LabelRow;
 pub use meta::{AccountRow, EnsRow, EnsStatus};
+pub use sessions::{NoncePurpose, NonceRow, SessionKind, SessionRow};
+pub use settings::{SETTING_DEFAULT_DAILY_QUOTA, SETTING_OPEN_REGISTRATION};
 pub use stats::{AccountKindFilter, CounterpartyRow, CounterpartySort, StatsRow};
 pub use token_tags::{ListedTokenRow, TokenTagRow};
 pub use txs::TxRow;
+pub use users::{UserRow, UserUsageRow, WhitelistRow};
 pub use workspaces::{WorkspaceMeta, WorkspaceRow};
 
 use chrono::{DateTime, Utc};

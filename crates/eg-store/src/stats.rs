@@ -153,10 +153,11 @@ impl Store {
         .bind(batch)
         .execute(&mut *tx)
         .await?;
-        let live: Option<i64> = sqlx::query_scalar(
-            "UPDATE jobs SET cancel_requested = false \
-             WHERE id = $1 AND status IN ('pending', 'running', 'paused_quota') RETURNING id",
-        )
+        let live: Option<i64> = sqlx::query_scalar(concat!(
+            "UPDATE jobs SET cancel_requested = false WHERE id = $1 AND status IN ",
+            crate::jobs::active_statuses!(),
+            " RETURNING id"
+        ))
         .bind(job_id)
         .fetch_optional(&mut *tx)
         .await?;

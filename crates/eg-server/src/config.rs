@@ -18,6 +18,7 @@ pub struct Config {
     pub ens: EnsCfg,
     pub server: ServerCfg,
     pub source: SourceCfg,
+    pub auth: AuthCfg,
 }
 
 /// `Debug` prints the API key as `***`.
@@ -140,6 +141,82 @@ impl Default for SourceCfg {
     }
 }
 
+/// Wallet login, sessions and per-user limits.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuthCfg {
+    /// Scheme, host and port the browser uses (the SIWE domain/URI and the
+    /// required `Origin` of state-changing requests); no trailing slash.
+    pub public_origin: String,
+    /// Admin wallet addresses. Empty is allowed (with a startup warning):
+    /// nobody can enter admin mode.
+    pub admins: Vec<String>,
+    /// Etherscan calls per user per day until an admin changes the setting.
+    pub default_daily_quota: u32,
+    pub session_days: u32,
+    pub admin_session_minutes: u32,
+    /// Take the client IP from `X-Forwarded-For`'s first hop (behind a trusted
+    /// reverse proxy) instead of the socket peer.
+    pub trust_forwarded_for: bool,
+}
+
+impl Default for AuthCfg {
+    fn default() -> Self {
+        Self {
+            public_origin: "http://127.0.0.1:8080".into(),
+            admins: Vec::new(),
+            default_daily_quota: 5000,
+            session_days: 7,
+            admin_session_minutes: 60,
+            trust_forwarded_for: false,
+        }
+    }
+}
+
+/// Parses an address; mixed case must carry a valid EIP-55 checksum (a
+/// mistyped character is then caught), all-lower or all-upper hex need not.
+fn parse_admin(s: &str) -> anyhow::Result<Address> {
+    let hex = s.strip_prefix("0x").unwrap_or(s);
+    let mixed =
+        hex.chars().any(|c| c.is_ascii_lowercase()) && hex.chars().any(|c| c.is_ascii_uppercase());
+    if mixed {
+        Address::parse_checksummed(s, None).map_err(|e| anyhow::anyhow!("{e}"))
+    } else {
+        s.parse::<Address>().map_err(|e| anyhow::anyhow!("{e}"))
+    }
+}
+
+impl AuthCfg {
+    /// The configured admins; call after [`Config::validate`] (invalid
+    /// entries are skipped).
+    pub fn admin_addresses(&self) -> Vec<Address> {
+        self.admins
+            .iter()
+            .filter_map(|a| parse_admin(a).ok())
+            .collect()
+    }
+
+    fn validate(&self) -> anyhow::Result<()> {
+        for a in &self.admins {
+            parse_admin(a).with_context(|| format!("auth.admins: {a:?} is not a valid address"))?;
+        }
+        let origin = &self.public_origin;
+        let rest = origin
+            .strip_prefix("https://")
+            .or_else(|| origin.strip_prefix("http://"));
+        if !rest.is_some_and(|r| !r.is_empty() && !r.contains('/')) {
+            bail!("auth.public_origin must be scheme://host[:port] without a path, got {origin:?}");
+        }
+        if self.session_days == 0 {
+            bail!("auth.session_days must be > 0");
+        }
+        if self.admin_session_minutes == 0 {
+            bail!("auth.admin_session_minutes must be > 0");
+        }
+        Ok(())
+    }
+}
+
 impl Config {
     /// Reads `path`, applies environment overrides and validates.
     pub fn load(path: &Path) -> anyhow::Result<Self> {
@@ -198,6 +275,7 @@ impl Config {
         if self.sync.workers == 0 {
             bail!("sync.workers must be > 0");
         }
+        self.auth.validate()?;
         Ok(())
     }
 

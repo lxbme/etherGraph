@@ -171,6 +171,16 @@ async fn serve(path: &Path, source: Option<SourceMode>) -> anyhow::Result<()> {
     let store = Store::connect(&cfg.server.database_url)
         .await
         .context("connecting to the database")?;
+    // Labels and workspaces from before accounts existed belong to the first admin.
+    match cfg.auth.admin_addresses().first() {
+        Some(&admin) => {
+            let (labels, workspaces) = store.adopt_orphans(admin).await?;
+            if labels > 0 || workspaces > 0 {
+                tracing::info!(%admin, labels, workspaces, "assigned unowned data to the first admin");
+            }
+        }
+        None => tracing::warn!("auth.admins is empty: nobody can enter admin mode"),
+    }
     match store.listed_symbol_counts().await {
         Ok((listed, with_symbol)) if listed > 0 && with_symbol == 0 => tracing::warn!(
             "the Uniswap/CoinGecko token lists carry no symbols; re-run `eg-server import-tokens` \

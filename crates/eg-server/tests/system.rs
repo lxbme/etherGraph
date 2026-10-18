@@ -333,6 +333,67 @@ fn config_example_parses() {
         ing.multicall3.to_string(),
         "0xcA11bde05977b3631167028862bE2a173976CA11"
     );
+    assert_eq!(cfg.auth.public_origin, "http://127.0.0.1:8080");
+    assert!(cfg.auth.admins.is_empty());
+    assert_eq!(cfg.auth.default_daily_quota, 5000);
+    assert_eq!(cfg.auth.session_days, 7);
+    assert_eq!(cfg.auth.admin_session_minutes, 60);
+    assert!(!cfg.auth.trust_forwarded_for);
+}
+
+const AUTH_BASE: &str = "[etherscan]\napi_key = \"k\"\n[server]\ndatabase_url = \"x\"\n";
+
+#[test]
+fn config_auth_defaults_and_admins() {
+    let cfg = Config::parse(AUTH_BASE, env(&[])).unwrap();
+    assert_eq!(cfg.auth.public_origin, "http://127.0.0.1:8080");
+    assert!(cfg.auth.admins.is_empty());
+    assert!(cfg.auth.admin_addresses().is_empty());
+    assert_eq!(cfg.auth.default_daily_quota, 5000);
+    assert_eq!(cfg.auth.session_days, 7);
+    assert_eq!(cfg.auth.admin_session_minutes, 60);
+    assert!(!cfg.auth.trust_forwarded_for);
+
+    let text = format!(
+        "{AUTH_BASE}[auth]\npublic_origin = \"https://graph.example.org\"\n\
+         admins = [\"0xcA11bde05977b3631167028862bE2a173976CA11\", \
+         \"0x0000000000000000000000000000000000000001\"]\n\
+         default_daily_quota = 100\nsession_days = 1\nadmin_session_minutes = 5\n\
+         trust_forwarded_for = true\n"
+    );
+    let cfg = Config::parse(&text, env(&[])).unwrap();
+    assert_eq!(cfg.auth.public_origin, "https://graph.example.org");
+    assert_eq!(
+        cfg.auth.admin_addresses(),
+        [
+            "0xcA11bde05977b3631167028862bE2a173976CA11"
+                .parse::<alloy_primitives::Address>()
+                .unwrap(),
+            alloy_primitives::Address::with_last_byte(1),
+        ]
+    );
+    assert_eq!(cfg.auth.default_daily_quota, 100);
+    assert_eq!(cfg.auth.session_days, 1);
+    assert_eq!(cfg.auth.admin_session_minutes, 5);
+    assert!(cfg.auth.trust_forwarded_for);
+}
+
+#[test]
+fn config_rejects_bad_auth_values() {
+    for bad in [
+        "admins = [\"0x12\"]",
+        "admins = [\"not an address\"]",
+        // Mixed case with a wrong checksum is a typo, not a lower-case address.
+        "admins = [\"0xCA11bde05977b3631167028862bE2a173976CA11\"]",
+        "public_origin = \"127.0.0.1:8080\"",
+        "public_origin = \"http://127.0.0.1:8080/\"",
+        "session_days = 0",
+        "admin_session_minutes = 0",
+        "unknown_key = 1",
+    ] {
+        let text = format!("{AUTH_BASE}[auth]\n{bad}\n");
+        assert!(Config::parse(&text, env(&[])).is_err(), "{bad}");
+    }
 }
 
 fn env<'a>(vars: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {

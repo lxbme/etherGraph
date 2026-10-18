@@ -4,6 +4,7 @@ import { kindName, progressText, statusName } from "./jobText";
 test("job kinds and statuses are localised", () => {
   expect(kindName("resolve_names")).toBe("ENS resolve");
   expect(statusName("paused_quota")).toBe("Quota paused");
+  expect(statusName("paused_user_quota")).toBe("Waiting for tomorrow's quota");
 });
 
 test("values outside the DTO union (a newer server) are shown raw", () => {

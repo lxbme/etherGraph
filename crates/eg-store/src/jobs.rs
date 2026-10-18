@@ -52,6 +52,8 @@ pub enum JobStatus {
     Pending,
     Running,
     PausedQuota,
+    /// Waiting for its user's daily quota to reset.
+    PausedUserQuota,
     Done,
     Failed,
     Cancelled,
@@ -63,6 +65,7 @@ impl JobStatus {
             JobStatus::Pending => "pending",
             JobStatus::Running => "running",
             JobStatus::PausedQuota => "paused_quota",
+            JobStatus::PausedUserQuota => "paused_user_quota",
             JobStatus::Done => "done",
             JobStatus::Failed => "failed",
             JobStatus::Cancelled => "cancelled",
@@ -74,6 +77,7 @@ impl JobStatus {
             "pending" => JobStatus::Pending,
             "running" => JobStatus::Running,
             "paused_quota" => JobStatus::PausedQuota,
+            "paused_user_quota" => JobStatus::PausedUserQuota,
             "done" => JobStatus::Done,
             "failed" => JobStatus::Failed,
             "cancelled" => JobStatus::Cancelled,
@@ -108,6 +112,15 @@ pub struct JobRow {
     pub updated_at: DateTime<Utc>,
 }
 
+/// The statuses of an active job, as an SQL list; matches the `jobs_active_key`
+/// index predicate.
+macro_rules! active_statuses {
+    () => {
+        "('pending', 'running', 'paused_quota', 'paused_user_quota')"
+    };
+}
+pub(crate) use active_statuses;
+
 macro_rules! job_cols {
     () => {
         "id, key, kind, params, priority, status, progress, attempts, error, created_at, updated_at"
@@ -115,16 +128,18 @@ macro_rules! job_cols {
 }
 
 /// `UPDATE` cancelling the active jobs matching `$where`: pending and
-/// quota-paused ones become cancelled, running ones get `cancel_requested`.
+/// quota-paused (server or user) ones become cancelled, running ones get
+/// `cancel_requested`.
 /// Returns `(id, kind, status)` rows.
 macro_rules! cancel_active {
     ($where:literal) => {
         concat!(
             "UPDATE jobs SET updated_at = now(), \
-             status = CASE WHEN status IN ('pending', 'paused_quota') THEN 'cancelled' \
-             ELSE status END, \
+             status = CASE WHEN status = 'running' THEN status ELSE 'cancelled' END, \
              cancel_requested = (status = 'running') OR cancel_requested \
-             WHERE status IN ('pending', 'running', 'paused_quota') AND ",
+             WHERE status IN ",
+            active_statuses!(),
+            " AND ",
             $where,
             " RETURNING id, kind, status"
         )
@@ -174,17 +189,19 @@ fn job_row(r: &PgRow) -> Result<JobRow> {
 
 impl Store {
     /// Returns `(id, true)` for a new job, or the existing active job's
-    /// `(id, false)` when one with the same key is pending/running/paused. A
-    /// more urgent request raises the existing job's priority.
+    /// `(id, false)` when one with the same key is active (pending, running or
+    /// paused on either quota). A more urgent request raises the existing
+    /// job's priority.
     pub async fn enqueue(&self, j: &NewJob) -> Result<(i64, bool)> {
         // The conflicting job may finish between the INSERT and the SELECT, so retry.
         for _ in 0..5 {
-            let inserted: Option<i64> = sqlx::query_scalar(
+            let inserted: Option<i64> = sqlx::query_scalar(concat!(
                 "INSERT INTO jobs (key, kind, params, priority, status) \
                  VALUES ($1, $2, $3, $4, 'pending') \
-                 ON CONFLICT (key) WHERE status IN ('pending','running','paused_quota') \
-                 DO NOTHING RETURNING id",
-            )
+                 ON CONFLICT (key) WHERE status IN ",
+                active_statuses!(),
+                " DO NOTHING RETURNING id"
+            ))
             .bind(&j.key)
             .bind(j.kind.as_str())
             .bind(&j.params)
@@ -194,10 +211,10 @@ impl Store {
             if let Some(id) = inserted {
                 return Ok((id, true));
             }
-            let existing: Option<i64> = sqlx::query_scalar(
-                "SELECT id FROM jobs WHERE key = $1 \
-                 AND status IN ('pending','running','paused_quota')",
-            )
+            let existing: Option<i64> = sqlx::query_scalar(concat!(
+                "SELECT id FROM jobs WHERE key = $1 AND status IN ",
+                active_statuses!()
+            ))
             .bind(&j.key)
             .fetch_optional(&self.pool)
             .await?;
@@ -288,9 +305,10 @@ impl Store {
         Ok(res.rows_affected())
     }
 
-    /// Pending and quota-paused jobs become cancelled; running jobs get
-    /// `cancel_requested`. Returns the job's kind and resulting status (`Cancelled`, or `Running`
-    /// when only flagged); `None` for an unknown or finished job.
+    /// Pending and quota-paused (server or user) jobs become cancelled;
+    /// running jobs get `cancel_requested`. Returns the job's kind and
+    /// resulting status (`Cancelled`, or `Running` when only flagged); `None`
+    /// for an unknown or finished job.
     pub async fn cancel_job(&self, id: i64) -> Result<Option<(JobKind, JobStatus)>> {
         let row: Option<(i64, String, String)> = sqlx::query_as(cancel_active!("id = $1"))
             .bind(id)
@@ -357,8 +375,9 @@ impl Store {
         let sql = concat!(
             "SELECT ",
             job_cols!(),
-            " FROM jobs \
-             WHERE status IN ('pending','running','paused_quota') ORDER BY created_at, id"
+            " FROM jobs WHERE status IN ",
+            active_statuses!(),
+            " ORDER BY created_at, id"
         );
         let rows = sqlx::query(sql).fetch_all(&self.pool).await?;
         rows.iter().map(job_row).collect()
@@ -588,6 +607,38 @@ mod tests {
         assert!(s.active_jobs().await.unwrap().is_empty());
         assert_eq!(s.resume_paused().await.unwrap(), 0);
         assert_eq!(s.cancel_job(j.id).await.unwrap(), None);
+    }
+
+    #[sqlx::test]
+    async fn user_quota_paused_job_stays_active(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (id, _) = s.enqueue(&nj("a", Priority::Background)).await.unwrap();
+        sqlx::query("UPDATE jobs SET status = 'paused_user_quota' WHERE id = $1")
+            .bind(id)
+            .execute(s.pool())
+            .await
+            .unwrap();
+        assert!(s.claim_next().await.unwrap().is_none());
+        assert_eq!(
+            s.enqueue(&nj("a", Priority::Background)).await.unwrap(),
+            (id, false)
+        );
+        let dup = sqlx::query(
+            "INSERT INTO jobs (key, kind, params, priority, status) \
+             VALUES ('a', 'sync_address', '{}', 1, 'pending')",
+        )
+        .execute(s.pool())
+        .await;
+        assert!(dup.is_err(), "jobs_active_key must cover paused_user_quota");
+        let act = s.active_jobs().await.unwrap();
+        assert_eq!(act.len(), 1);
+        assert_eq!(act[0].status, JobStatus::PausedUserQuota);
+        assert_eq!(
+            s.cancel_job(id).await.unwrap(),
+            Some((JobKind::SyncAddress, JobStatus::Cancelled))
+        );
+        assert!(!s.cancel_requested(id).await.unwrap());
+        assert!(s.active_jobs().await.unwrap().is_empty());
     }
 
     #[sqlx::test]
