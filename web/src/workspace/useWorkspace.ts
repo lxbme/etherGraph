@@ -55,7 +55,8 @@ useGraph.subscribe((s, prev) => {
     s.sort !== prev.sort ||
     s.expandedPairs !== prev.expandedPairs ||
     s.ui !== prev.ui ||
-    s.limits !== prev.limits
+    s.limits !== prev.limits ||
+    s.frozen !== prev.frozen
   ) {
     graphVersion++;
     useWorkspace.getState().markDirty();
@@ -64,6 +65,8 @@ useGraph.subscribe((s, prev) => {
 
 const isTx = (t: Tab): t is TxTab => "kind" in t;
 const txIds = (tabs: Tab[]) => tabs.flatMap((t) => (isTx(t) ? [t.id] : [])).join(",");
+/** The tx tabs showing a snapshot. */
+const frozenTxIds = (tabs: Tab[]) => tabs.flatMap((t) => (isTx(t) && t.snapshot !== undefined ? [t.id] : [])).join(",");
 
 /** Marks the workspace changed (a persisted part of it moved on). */
 function noteChange(): void {
@@ -71,9 +74,11 @@ function noteChange(): void {
   useWorkspace.getState().markDirty();
 }
 
-// Opening or closing a tx tab marks the workspace dirty; its detail section, highlight or switching tabs do not (R3).
+// Opening or closing a tx tab, or refreshing its snapshot, marks the workspace dirty; its detail section,
+// highlight or switching tabs do not (R3).
 useTabs.subscribe((s, prev) => {
-  if (s.tabs !== prev.tabs && txIds(s.tabs) !== txIds(prev.tabs)) noteChange();
+  if (s.tabs === prev.tabs) return;
+  if (txIds(s.tabs) !== txIds(prev.tabs) || frozenTxIds(s.tabs) !== frozenTxIds(prev.tabs)) noteChange();
 });
 
 /** A tx tab's nodes were dragged. */
@@ -131,8 +136,8 @@ function captureTab(tab: TxTab): TxTabStateV2 {
   };
 }
 
-/** Reads positions and viewport from the live Cytoscape instance (falls back to the store). */
-function captureGraph(): WorkspaceStateV1 {
+/** Reads positions and viewport from the live Cytoscape instance (falls back to the store); a snapshot graph keeps its snapshot. */
+function captureGraph(): WorkspaceStateV2["graph"] {
   const cy = getMainCy();
   const nodes: string[] = [];
   const positions: Record<string, Pos> = {};
@@ -146,7 +151,9 @@ function captureGraph(): WorkspaceStateV1 {
     });
     viewport = { zoom: cy.zoom(), pan: { ...cy.pan() } };
   }
-  return serialize(useGraph.getState(), viewport, { nodes, positions });
+  const g = useGraph.getState();
+  const state = serialize(g, viewport, { nodes, positions });
+  return g.frozen ? { ...state, snapshot: g.frozen } : state;
 }
 
 const asJson = (s: WorkspaceStateV2) => s as unknown as JsonValue;
@@ -286,6 +293,8 @@ function applyState({ graph: state, tabs, active }: WorkspaceStateV2): void {
     ui,
     limits: state.limits,
   });
+  // A snapshot view stays one until it is refreshed from the chain.
+  if (state.snapshot) useGraph.getState().freeze(state.snapshot);
   applyViewportLater(state, ++restoreGen);
   useTabs.getState().activate(active);
 }

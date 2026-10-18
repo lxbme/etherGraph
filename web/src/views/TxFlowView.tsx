@@ -20,17 +20,20 @@ import { TxBatchBar } from "../panels/TxBatchBar";
 import { useInfo } from "../panels/info/infoStore";
 import { useUi } from "../panels/uiStore";
 import { useJobProgress } from "../shell/statusStore";
-import { useTabs } from "../shell/tabs";
+import { useTabs, useTxSnapshot } from "../shell/tabs";
 import { useTheme } from "../shell/theme";
 import { markTxLayoutChanged } from "../workspace/useWorkspace";
+import { fileLabelsOf, overlayNodes, useLiveIdentities } from "../workspace/snapshot";
 import { CanvasTools, IdentifyAllButton, type CanvasExport } from "./CanvasTools";
 import { GraphTooltip } from "./GraphTooltip";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
+import { SnapshotBanner } from "./SnapshotBanner";
 import { assetOnlyAddresses, assetViewForEdge, assetViewForNode, delegationsOf, txElements } from "./txElements";
 import { TxDetailTabs } from "./txdetail/TxDetailTabs";
 import { TxSummaryBar } from "./txdetail/TxSummaryBar";
 
 const NOOP = () => {};
+const NO_ADDRS: string[] = [];
 
 /**
  * The active tx tab's node detail, shown in the app's right panel (so the flow canvas keeps its width):
@@ -40,6 +43,11 @@ export function TxNodeDetail({ hash }: { hash: string }) {
   const selected = useUi((s) => s.txSelection[hash.toLowerCase()] ?? null);
   const selectTx = useUi((s) => s.selectTx);
   const t = useT();
+  const snapshot = useTxSnapshot(hash);
+  const fileLabels = useMemo(
+    () => (selected && snapshot ? fileLabelsOf(snapshot.flow.nodes, selected) : undefined),
+    [selected, snapshot],
+  );
   if (!selected) {
     return (
       <div className="detail">
@@ -49,7 +57,7 @@ export function TxNodeDetail({ hash }: { hash: string }) {
   }
   return (
     <div className="detail">
-      <NodeDetail key={selected} address={selected} onNavigate={(a) => selectTx(hash, a)} />
+      <NodeDetail key={selected} address={selected} onNavigate={(a) => selectTx(hash, a)} fileLabels={fileLabels} />
       <button
         type="button"
         className="btn txview__add"
@@ -61,14 +69,25 @@ export function TxNodeDetail({ hash }: { hash: string }) {
   );
 }
 
-/** The transaction tab: summary bar, fund-flow graph and detail tabs; its node detail lives in the right panel. */
+/**
+ * The transaction tab: summary bar, fund-flow graph and detail tabs; its node detail lives in the right panel.
+ * A tab with a snapshot shows the file's flow (no tx request) with the receiver's live identities, until refreshed.
+ */
 export function TxFlowView({ hash }: { hash: string }) {
+  const snapshot = useTxSnapshot(hash);
   const q = useQuery({
     queryKey: qk.tx(hash),
     queryFn: () => api.tx(hash),
+    enabled: !snapshot,
     // Safety net behind the TxReady SSE invalidation.
     refetchInterval: (query) => (query.state.data?.status === "pending" ? 5000 : false),
   });
+  const snapshotAddrs = useMemo(() => (snapshot ? snapshot.flow.nodes.map((n) => n.address) : NO_ADDRS), [snapshot]);
+  const live = useLiveIdentities(snapshotAddrs);
+  const snapshotFlow = useMemo(
+    () => (snapshot ? { ...snapshot.flow, nodes: overlayNodes(snapshot.flow.nodes, live) } : null),
+    [snapshot, live],
+  );
   const jobId = q.data?.job_id ?? null;
   const job = useJobProgress((s) => (jobId === null ? undefined : s.byId[jobId]));
   const theme = useTheme((s) => s.resolved);
@@ -87,7 +106,7 @@ export function TxFlowView({ hash }: { hash: string }) {
     const entry = s.tabs.find((x) => x.id === hash.toLowerCase());
     return entry && "kind" in entry ? entry.layout : undefined;
   });
-  const flow = q.data?.status === "ready" ? q.data.flow : null;
+  const flow = snapshotFlow ?? (q.data?.status === "ready" ? q.data.flow : null);
   const elements = useMemo(
     () => (flow ? txElements(flow, selected, highlightedSeq) : []),
     [flow, selected, highlightedSeq, locale], // labels are translated when built
@@ -145,7 +164,7 @@ export function TxFlowView({ hash }: { hash: string }) {
     [hash, box],
   );
 
-  if (q.isError) {
+  if (!snapshot && q.isError) {
     return (
       <div className="placeholder" role="alert">
         {messageFor(q.error)}{" "}
@@ -177,6 +196,9 @@ export function TxFlowView({ hash }: { hash: string }) {
   return (
     <div className="txview" data-testid="tx-view">
       <div className="txview__main">
+        {snapshot && (
+          <SnapshotBanner exportedAt={snapshot.exported_at} onRefresh={() => useTabs.getState().refreshTx(hash.toLowerCase())} />
+        )}
         <TxSummaryBar flow={flow} />
         {flow.completeness === "fund_flow" && <div className="txview__banner">{t("tx.banner")}</div>}
         <div className="txview__graph" ref={graphRef}>

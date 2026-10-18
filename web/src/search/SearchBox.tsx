@@ -2,10 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api/endpoints";
 import { ApiError, messageFor } from "../api/errors";
 import { useT, type MsgKey } from "../i18n";
-import { qk, queryClient } from "../api/queryClient";
 import { isShortcut } from "../graph/shortcuts";
+import { syncCenter } from "../graph/nodeActions";
 import { useGraph } from "../graph/store";
-import { toast } from "../shell/Toasts";
 import { useTabs } from "../shell/tabs";
 import { classifyInput } from "./classify";
 
@@ -33,14 +32,13 @@ export function SearchBox() {
 
   const openAddress = (addr: string) => {
     const a = addr.toLowerCase();
-    useGraph.getState().revealCenter(a);
     useTabs.getState().activate("graph");
-    useGraph.getState().select({ kind: "node", address: a });
-    // The profile it returns is what the detail panel shows: seed its cache instead of fetching again.
-    api
-      .address(a, { sync: "auto" })
-      .then((p) => queryClient.setQueryData(qk.address(a), p))
-      .catch((e) => toast(messageFor(e), "error"));
+    // A snapshot graph is refreshed from the chain first (after a confirm).
+    useGraph.getState().guardLive(() => {
+      useGraph.getState().revealCenter(a);
+      useGraph.getState().select({ kind: "node", address: a });
+      syncCenter(a);
+    });
   };
 
   const submit = async () => {

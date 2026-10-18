@@ -24,6 +24,8 @@ import { useLocale } from "./i18n";
 import { saveStatusLabel, useUnsavedChangesPrompt, useWorkspace } from "./workspace/useWorkspace";
 import { registerExpansionEffects } from "./panels/expand/expansion";
 import { AddressGraph } from "./views/AddressGraph";
+import { GraphSnapshotBanner, LiveConfirm } from "./views/SnapshotBanner";
+import { registerSnapshotEffects } from "./workspace/snapshot";
 
 export function App() {
   return (
@@ -34,7 +36,10 @@ export function App() {
 }
 
 function Shell() {
-  useEffect(() => registerExpansionEffects(), []);
+  useEffect(() => {
+    registerExpansionEffects();
+    registerSnapshotEffects();
+  }, []);
   useHashRouting();
   useEvents();
   useUnsavedChangesPrompt();
@@ -56,6 +61,7 @@ function Shell() {
       <div className="main">
         <div className="main__left">
           <div className="main__graph" hidden={!!tx}>
+            <GraphSnapshotBanner />
             <ResizableSplit top={<AddressGraph />} bottom={<TransferTable />} />
           </div>
           {tabs.map(
@@ -78,6 +84,7 @@ function Shell() {
       <StatusBar saveStatus={wsStatus} />
       <HelpDrawer />
       <Tour />
+      <LiveConfirm />
       <Toasts />
     </div>
   );

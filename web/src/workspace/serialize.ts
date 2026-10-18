@@ -2,6 +2,7 @@ import { t } from "../i18n";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
 import { withFirstBatch, type GraphState, type Pos, type SortKey } from "../graph/store";
 import type { TxDetailTab } from "../shell/tabs";
+import { isGraphSnapshot, isTxSnapshot, type GraphSnapshot, type TxSnapshot } from "./snapshot";
 
 export interface WorkspaceStateV1 {
   nodes: { address: string; x?: number; y?: number; pinned: boolean; hidden: boolean; note: string }[];
@@ -16,10 +17,6 @@ export interface WorkspaceStateV1 {
 }
 
 export type Viewport = { zoom: number; pan: { x: number; y: number } };
-
-/** Frozen view data (Task 7 gives it a shape); carried through saving and loading unchanged. */
-export type TxSnapshot = unknown;
-export type GraphSnapshot = unknown;
 
 /** An open transaction tab: its detail section and the layout of its flow graph. */
 export interface TxTabStateV2 {
@@ -128,6 +125,7 @@ export function deserialize(v: unknown, schemaVersion: number): Parsed<Workspace
     }
     if (tab.positions !== undefined && !isPositions(tab.positions)) return bad(t("ws.err.field", { field: "positions" }));
     if (tab.viewport !== undefined && !isViewport(tab.viewport)) return bad(t("ws.err.field", { field: "viewport" }));
+    if (tab.snapshot !== undefined && !isTxSnapshot(tab.snapshot)) return bad(t("ws.err.field", { field: "snapshot" }));
     tabs.push({ ...(tab as unknown as TxTabStateV2), hash });
   }
   const active = isStr(v.active) ? lc(v.active) : null;
@@ -137,7 +135,7 @@ export function deserialize(v: unknown, schemaVersion: number): Parsed<Workspace
   return { ok: true, state: { graph: graph.state, tabs, active } };
 }
 
-/** Validates the graph part (a v1 state); unknown fields such as `snapshot` are kept as they are. */
+/** Validates the graph part (a v1 state, plus an optional `snapshot`); unknown fields are kept as they are. */
 function deserializeGraph(v: unknown): Parsed<WorkspaceStateV1 & { snapshot?: GraphSnapshot }> {
   if (!isObj(v)) return bad(t("ws.err.data"));
   const { nodes, centers, expanded_pairs, filter, viewport } = v;
@@ -163,6 +161,7 @@ function deserializeGraph(v: unknown): Parsed<WorkspaceStateV1 & { snapshot?: Gr
   if (v.limits !== undefined && !(isObj(v.limits) && Object.values(v.limits).every(isLimit))) {
     return bad(t("ws.err.field", { field: "limits" }));
   }
+  if (v.snapshot !== undefined && !isGraphSnapshot(v.snapshot)) return bad(t("ws.err.field", { field: "snapshot" }));
   // Centers saved without a limit (older states) get the first batch of a new center.
   const stored: Record<string, number> = {};
   for (const [k, n] of Object.entries((v.limits ?? {}) as Record<string, number>)) stored[lc(k)] = n;

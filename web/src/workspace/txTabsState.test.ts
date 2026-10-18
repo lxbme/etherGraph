@@ -148,13 +148,32 @@ describe("tx tabs round-trip", () => {
     expect(useWorkspace.getState()).toMatchObject({ id: 7, updatedAt: "T5", dirty: false });
   });
 
-  test("snapshots are carried through unchanged", async () => {
-    const snap = { flow: { anything: [1, 2] }, captured_at: "T" };
-    const state = { graph: { ...v1(), snapshot: { edges: ["e"] } }, tabs: [{ hash: H1, snapshot: snap }], active: "graph" };
+  test("snapshots are carried through unchanged: the graph opens frozen, the tab keeps its snapshot", async () => {
+    const meta = { exported_at: "2026-10-01T12:00:00Z", includes: { labels: true, notes: false } };
+    const node = {
+      address: B, kind: "eoa", display_name: null, ens: null, contract_name: null, labels: [], partial: false,
+      syncing: false, synced: true, hot: false, identified: true, nonce: null, balance: null,
+    };
+    const snap = { ...meta, flow: { tx: { hash: H1 }, nodes: [node], flows: [], events: [] }, raw: null };
+    const graphSnap = { ...meta, data: { nodes: [node], edges: [], omitted: {}, coverage: {} } };
+    const state = { graph: { ...v1(), snapshot: graphSnap }, tabs: [{ hash: H1, snapshot: snap }], active: "graph" };
     expect(deserialize(json(state), 2)).toEqual({ ok: true, state });
     m.workspace.mockResolvedValue(dto({ state: json(state) as never }));
     await loadWorkspace(7);
-    expect(captureState().tabs).toEqual([{ hash: H1, snapshot: snap }]);
+    expect(g().frozen).toEqual(graphSnap);
+    const saved = captureState();
+    expect(saved.tabs).toEqual([{ hash: H1, snapshot: snap }]);
+    expect(saved.graph.snapshot).toEqual(graphSnap);
+    // A live graph saves no snapshot.
+    g().unfreeze();
+    expect(captureState().graph).not.toHaveProperty("snapshot");
+  });
+
+  test("malformed snapshots are rejected", () => {
+    const state = { graph: { ...v1(), snapshot: { edges: ["e"] } }, tabs: [], active: "graph" };
+    expect(deserialize(json(state), 2)).toMatchObject({ ok: false });
+    const tab = { graph: v1(), tabs: [{ hash: H1, snapshot: { flow: {} } }], active: "graph" };
+    expect(deserialize(json(tab), 2)).toMatchObject({ ok: false });
   });
 
   test("a tab whose canvas is not live keeps its saved layout; a hidden canvas keeps the saved viewport", async () => {
@@ -211,6 +230,20 @@ describe("dirty (R3)", () => {
     saved();
     useTabs.getState().close(H1);
     expect(dirty()).toBe(true);
+  });
+
+  test("refreshing a snapshot (graph or tx tab) from the chain marks dirty", () => {
+    const meta = { exported_at: "2026-10-01T12:00:00Z", includes: { labels: false, notes: false } };
+    g().freeze({ ...meta, data: { nodes: [], edges: [], omitted: {}, coverage: {} } });
+    useTabs.getState().restoreTx([{ hash: H1, snapshot: { ...meta, flow: {} as never, raw: null } }], "graph");
+    saved();
+    g().unfreeze();
+    expect(dirty()).toBe(true);
+    saved();
+    useTabs.getState().refreshTx(H1);
+    expect(dirty()).toBe(true);
+    const tab = useTabs.getState().tabs[1];
+    expect(tab && "kind" in tab ? tab.snapshot : "missing").toBeUndefined();
   });
 
   test("a tx tab opened while a save is in flight keeps the workspace dirty", async () => {

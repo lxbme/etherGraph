@@ -225,3 +225,35 @@ test("edge detail toggles the pair expansion", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Collapse parallel edges" }));
   expect(useGraph.getState().expandedPairs.size).toBe(0);
 });
+
+test("on a snapshot, the file's labels show as 'From file' with no delete or edit, and never reach the label API", async () => {
+  vi.spyOn(api, "address").mockResolvedValue(profile([{ id: 2, text: "mine", category: "other", source: "user" }]));
+  vi.spyOn(api, "nodes").mockResolvedValue([]);
+  const del = vi.spyOn(api, "deleteLabel").mockResolvedValue(undefined as never);
+  const fileLabel: LabelDto = { id: -1, text: "sender's tag", category: "cex", source: "file" };
+  act(() => {
+    useGraph.getState().freeze({
+      exported_at: "2026-10-01T12:00:00Z",
+      includes: { labels: true, notes: false },
+      data: { nodes: [{ ...profile().node, labels: [fileLabel] }], edges: [], omitted: {}, coverage: {} },
+    });
+    useGraph.getState().select({ kind: "node", address: A });
+  });
+  renderPanel();
+  const tag = (await screen.findByText("sender's tag")).closest(".tag") as HTMLElement;
+  expect(tag).toHaveAttribute("title", "CEX · From file");
+  expect(within(tag).queryByRole("button")).toBeNull();
+  // The receiver's own label stays deletable; deleting it touches only its id.
+  const mine = screen.getByText("mine").closest(".tag") as HTMLElement;
+  fireEvent.click(within(mine).getByRole("button", { name: "Delete label" }));
+  await waitFor(() => expect(del).toHaveBeenCalledTimes(1));
+  expect(del).toHaveBeenCalledWith(2);
+});
+
+test("a `file` label is never deletable, even if it reached the live list", async () => {
+  vi.spyOn(api, "address").mockResolvedValue(profile([{ id: 0, text: "odd", category: "other", source: "file" }]));
+  act(() => useGraph.getState().select({ kind: "node", address: A }));
+  renderPanel();
+  const tag = (await screen.findByText("odd")).closest(".tag") as HTMLElement;
+  expect(within(tag).queryByRole("button")).toBeNull();
+});

@@ -1,6 +1,7 @@
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
+import { qk, queryClient } from "../api/queryClient";
 import { t } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { toast } from "../shell/Toasts";
@@ -9,13 +10,27 @@ import { useGraph } from "./store";
 
 const lc = (s: string) => s.toLowerCase();
 
-/** Sync (or refresh) one address; `direction: "older"` pulls earlier records. */
+/** Sync (or refresh) one address of the address graph (after a refresh from the chain when it shows a snapshot); `direction: "older"` pulls earlier records. */
 export function syncNode(addr: string, direction?: "older"): void {
   const a = lc(addr);
+  useGraph.getState().guardLive(() => {
+    api
+      .sync(direction ? { addresses: [a], direction } : { addresses: [a] })
+      .then(() => toast(t(direction ? "sync.startedOlder" : "sync.startedAddr", { addr: shortAddr(a) })))
+      .catch((err) => toast(messageFor(err), "error"));
+  });
+}
+
+/**
+ * The request sent when an address becomes a center: its profile, syncing it when it has never been synced.
+ * The profile seeds the detail panel's cache.
+ */
+export function syncCenter(addr: string): void {
+  const a = lc(addr);
   api
-    .sync(direction ? { addresses: [a], direction } : { addresses: [a] })
-    .then(() => toast(t(direction ? "sync.startedOlder" : "sync.startedAddr", { addr: shortAddr(a) })))
-    .catch((err) => toast(messageFor(err), "error"));
+    .address(a, { sync: "auto" })
+    .then((p) => queryClient.setQueryData(qk.address(a), p))
+    .catch((e) => toast(messageFor(e), "error"));
 }
 
 /**
@@ -23,13 +38,15 @@ export function syncNode(addr: string, direction?: "older"): void {
  * A list is one history step and one toast with the count.
  */
 export function addToGraph(addr: string | string[]): void {
-  if (typeof addr === "string") {
-    useGraph.getState().revealCenter(addr);
-    toast(t("tx.added"));
-    return;
-  }
-  useGraph.getState().revealCenters(addr);
-  toast(t("batch.added", { count: new Set(addr.map(lc)).size }));
+  useGraph.getState().guardLive(() => {
+    if (typeof addr === "string") {
+      useGraph.getState().revealCenter(addr);
+      toast(t("tx.added"));
+      return;
+    }
+    useGraph.getState().revealCenters(addr);
+    toast(t("batch.added", { count: new Set(addr.map(lc)).size }));
+  });
 }
 
 export function togglePin(addr: string): void {

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { Pos } from "../graph/store";
-import type { TxSnapshot, Viewport } from "../workspace/serialize";
+import type { Viewport } from "../workspace/serialize";
+import type { TxSnapshot } from "../workspace/snapshot";
 
 /** The detail section shown under a transaction's flow graph. */
 export type TxDetailTab = "overview" | "input" | "transfers" | "internal" | "logs" | "raw";
@@ -15,6 +16,7 @@ export type TxTab = {
   detailTab?: TxDetailTab;
   highlightedSeq?: number | null;
   layout?: TxLayout;
+  /** File data shown instead of the tx request until the tab is refreshed from the chain. */
   snapshot?: TxSnapshot;
   /** Set on tabs restored from a workspace: a new value gives the tab a fresh view (so its layout applies). */
   restored?: number;
@@ -36,6 +38,8 @@ interface TabsState {
   setHighlightedSeq(id: string, seq: number | null): void;
   /** Replaces every tx tab with these and activates `active` (the graph tab when it is not one of them). */
   restoreTx(tabs: TxTabInit[], active: string): void;
+  /** "Refresh from chain": drops a tx tab's snapshot, so it loads the tx like any tab; no-op for unknown ids. */
+  refreshTx(id: string): void;
   /** Closes every tx tab. */
   closeAllTx(): void;
 }
@@ -77,5 +81,20 @@ export const useTabs = create<TabsState>((set, get) => ({
     });
     set({ tabs: [{ id: "graph" }, ...tx], active: tx.some((t) => t.id === active) ? active : "graph" });
   },
+  refreshTx: (id) => {
+    set((s) => ({
+      tabs: s.tabs.map((t) => {
+        if (t.id !== id || !("kind" in t) || t.snapshot === undefined) return t;
+        const { snapshot: _dropped, ...rest } = t;
+        return rest;
+      }),
+    }));
+  },
   closeAllTx: () => set({ tabs: [{ id: "graph" }], active: "graph" }),
 }));
+
+/** The snapshot a tx tab shows instead of live data (undefined when live or not an open tab). */
+export function useTxSnapshot(hash: string): TxSnapshot | undefined {
+  const id = hash.toLowerCase();
+  return useTabs((s) => s.tabs.find((x): x is TxTab => x.id === id && "kind" in x)?.snapshot);
+}

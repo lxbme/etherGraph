@@ -6,6 +6,7 @@ import type { NewLabelDto } from "../api/generated/NewLabelDto";
 import { qk } from "../api/queryClient";
 import { t, useT } from "../i18n";
 import { toast } from "../shell/Toasts";
+import { FILE_SOURCE } from "../workspace/snapshot";
 
 type Category = NewLabelDto["category"];
 
@@ -20,8 +21,9 @@ export const HUED_CATEGORIES: readonly string[] = CATEGORIES.filter((c) => c !==
 /** The dataset a label came from (`import:eth-labels` gives `eth-labels`); null for a user label. */
 export const labelDataset = (source: string): string | null => (source.startsWith("import:") ? source.slice("import:".length) : null);
 
-/** Provenance text for an imported label; null for a user label. */
+/** Provenance text for an imported label or one that came in a snapshot file; null for a user label. */
 export function labelProvenance(source: string): string | null {
+  if (source === FILE_SOURCE) return t("label.source.file");
   const ds = labelDataset(source);
   if (ds === null) return null;
   return ds === "eth-labels-xchain" ? t("label.source.xchain", { dataset: "eth-labels" }) : t("label.source.dataset", { dataset: ds });
@@ -78,6 +80,7 @@ export function LabelEditor({ addresses, onClose }: { addresses: string[]; onClo
       await Promise.all([
         ...todo.map((a) => qc.invalidateQueries({ queryKey: qk.address(a) })),
         qc.invalidateQueries({ queryKey: ["graph"] }),
+        qc.invalidateQueries({ queryKey: ["nodes"] }),
         qc.invalidateQueries({ queryKey: ["tx"] }),
       ]);
       const first = errors.find((e) => e !== null);

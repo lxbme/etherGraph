@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import type { EdgeDto } from "../api/generated/EdgeDto";
+import type { LabelDto } from "../api/generated/LabelDto";
 import type { SyncStatusDto } from "../api/generated/SyncStatusDto";
 import { qk } from "../api/queryClient";
 import { neighborsOf } from "../graph/neighbors";
@@ -44,14 +45,17 @@ function Time({ iso }: { iso: string }) {
 function AddrButton({ addr, onNavigate }: { addr: string; onNavigate?: (addr: string) => void }) {
   const addCenter = useGraph((s) => s.addCenter);
   const select = useGraph((s) => s.select);
+  const guardLive = useGraph((s) => s.guardLive);
   return (
     <button
       className="detail__link num"
       title={addr}
       onClick={() => {
         if (onNavigate) return onNavigate(addr.toLowerCase());
-        addCenter(addr);
-        select({ kind: "node", address: addr.toLowerCase() });
+        guardLive(() => {
+          addCenter(addr);
+          select({ kind: "node", address: addr.toLowerCase() });
+        });
       }}
     >
       {shortAddr(addr)}
@@ -80,7 +84,23 @@ function Note({ address }: { address: string }) {
   );
 }
 
-export function NodeDetail({ address, onNavigate }: { address: string; onNavigate?: (addr: string) => void }) {
+/** Only the receiver's own labels can be deleted: never an imported one, nor one that came in a file. */
+const deletable = (l: LabelDto) => l.source === "user" && l.id > 0;
+const NO_LABELS: LabelDto[] = [];
+
+/**
+ * The receiver's live profile of `address`. `fileLabels`: labels a snapshot file carries for it, shown after the
+ * live ones (read-only, never sent to the label API).
+ */
+export function NodeDetail({
+  address,
+  onNavigate,
+  fileLabels = NO_LABELS,
+}: {
+  address: string;
+  onNavigate?: (addr: string) => void;
+  fileLabels?: LabelDto[];
+}) {
   const qc = useQueryClient();
   const openTx = useTabs((s) => s.openTx);
   const t = useT();
@@ -101,6 +121,7 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
       Promise.all([
         qc.invalidateQueries({ queryKey: qk.address(address) }),
         qc.invalidateQueries({ queryKey: ["graph"] }),
+        qc.invalidateQueries({ queryKey: ["nodes"] }),
       ]),
   });
 
@@ -117,7 +138,8 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
   const covered = KINDS.filter((k) => coverage.get(k.value)?.to_block != null).length;
   const stats = canvasStats(address, graph?.edges ?? []);
   const balance = n.balance != null ? formatFixed(n.balance, 18, "eth") : null;
-  const categories = [...new Set(n.labels.map((l) => l.category))];
+  const labels = [...n.labels, ...fileLabels];
+  const categories = [...new Set(labels.map((l) => l.category))];
   const syncKey: MsgKey = n.syncing ? "sync.syncing" : n.synced ? "sync.ok" : "node.notSynced";
 
   return (
@@ -139,17 +161,16 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
         ))}
         <span className="tag tag--neutral">{t(syncKey)}</span>
         {n.partial && <span className="tag tag--neutral" title={partialTitle || undefined}>{t("node.partialSync")}</span>}
-        {n.labels.map((l) => {
+        {labels.map((l, i) => {
           const provenance = labelProvenance(l.source);
-          const imported = provenance !== null;
           return (
             <span
-              key={l.id}
+              key={`${l.source}:${l.id}:${i}`}
               className="tag"
-              title={imported ? `${categoryName(l.category)} · ${provenance}` : categoryName(l.category)}
+              title={provenance !== null ? `${categoryName(l.category)} · ${provenance}` : categoryName(l.category)}
             >
               {l.text}
-              {!imported && (
+              {deletable(l) && (
                 <button type="button" className="tag__remove" aria-label={t("label.delete")} onClick={() => del.mutate(l.id)}>
                   <X size={12} />
                 </button>

@@ -87,8 +87,13 @@ export function useEvents(): void {
     const invalidateAddresses = (addrs: Set<string>) => {
       for (const a of addrs) void qc.invalidateQueries({ queryKey: qk.address(a) });
     };
-    const dataChanged = coalescer((addrs) => {
+    // A snapshot's nodes carry the receiver's live identities: they refetch whenever the graph does.
+    const invalidateGraph = () => {
       void qc.invalidateQueries({ queryKey: ["graph"] });
+      void qc.invalidateQueries({ queryKey: ["nodes"] });
+    };
+    const dataChanged = coalescer((addrs) => {
+      invalidateGraph();
       invalidateAddresses(addrs);
       void qc.invalidateQueries({
         predicate: (q) => q.queryKey[0] === "transfers" && transfersTouch(q.queryKey[1], addrs),
@@ -99,7 +104,7 @@ export function useEvents(): void {
       });
     }, graphBusy);
     const metaChanged = coalescer((addrs) => {
-      void qc.invalidateQueries({ queryKey: ["graph"] });
+      invalidateGraph();
       invalidateAddresses(addrs);
       for (const a of addrs) void qc.invalidateQueries({ queryKey: qk.token(a) });
       // A tx's flow nodes carry their type and name: refetch the cached txs these addresses take part in.

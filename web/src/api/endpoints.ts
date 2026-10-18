@@ -10,6 +10,8 @@ import type { JobDto } from "./generated/JobDto";
 import type { LabelDto } from "./generated/LabelDto";
 import type { NewLabelDto } from "./generated/NewLabelDto";
 import type { NewWorkspaceDto } from "./generated/NewWorkspaceDto";
+import type { NodeSummaryDto } from "./generated/NodeSummaryDto";
+import type { NodesRequestDto } from "./generated/NodesRequestDto";
 import type { ProbeRequestDto } from "./generated/ProbeRequestDto";
 import type { ProbeResponseDto } from "./generated/ProbeResponseDto";
 import type { SearchResultDto } from "./generated/SearchResultDto";
@@ -103,6 +105,9 @@ export const api = {
     request<CounterpartyPageDto>("GET", `/api/address/${encodeURIComponent(addr)}/counterparties`, {
       query: { sort: p.sort, limit: num(p.limit), offset: num(p.offset), kind: p.kind, from: p.from, to: p.to },
     }),
+  /** The receiver's own summaries of 1 to 2000 addresses, in request order; no side effects. */
+  nodes: (addresses: string[]) =>
+    request<NodeSummaryDto[]>("POST", "/api/nodes", { body: { addresses } satisfies NodesRequestDto }),
   /** Queues type/name lookups for the given addresses (1 to 500). */
   identify: (body: IdentifyRequestDto) => request<IdentifyResponseDto>("POST", "/api/identify", { body }),
   /** Releases a batch's jobs; only jobs left without any other owner are cancelled. */

@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "../api/endpoints";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import { qk } from "../api/queryClient";
+import { overlayNodes, useLiveIdentities } from "../workspace/snapshot";
 import { useAssetRegistry } from "./assetRegistry";
 import { useGraph, type GraphState } from "./store";
 
@@ -38,13 +39,25 @@ function preferred(shown: GraphResponseDto | undefined): string[] {
     .slice(0, MAX_PREFER);
 }
 
-/** Edges around the current centers. No request while there are no centers; keeps the previous result while a new key loads. */
+const NO_ADDRS: string[] = [];
+
+/**
+ * Edges around the current centers. No request while there are no centers; keeps the previous result while a new key loads.
+ * A snapshot (frozen) graph is the file's data with no graph request, its nodes carrying the receiver's live identities.
+ */
 export function useGraphData(): { data?: GraphResponseDto; isFetching: boolean; error: unknown } {
   const centers = useGraph((s) => s.centers);
   const filter = useGraph((s) => s.filter);
   const sort = useGraph((s) => s.sort);
   const limits = useGraph((s) => s.limits);
-  const enabled = centers.length > 0;
+  const frozen = useGraph((s) => s.frozen);
+  const frozenAddrs = useMemo(() => (frozen ? frozen.data.nodes.map((n) => n.address) : NO_ADDRS), [frozen]);
+  const live = useLiveIdentities(frozenAddrs);
+  const frozenData = useMemo(
+    () => (frozen ? { ...frozen.data, nodes: overlayNodes(frozen.data.nodes, live) } : undefined),
+    [frozen, live],
+  );
+  const enabled = !frozen && centers.length > 0;
   // The result on screen when a request starts (the previous key's while a new one loads): read for `prefer`.
   const shown = useRef<GraphResponseDto | undefined>(undefined);
   const q = useQuery({
@@ -61,7 +74,9 @@ export function useGraphData(): { data?: GraphResponseDto; isFetching: boolean; 
   shown.current = q.data;
   const merge = useAssetRegistry((r) => r.merge);
   useEffect(() => {
-    if (q.data) merge(q.data.edges);
-  }, [q.data, merge]);
+    if (frozen) merge(frozen.data.edges);
+    else if (q.data) merge(q.data.edges);
+  }, [frozen, q.data, merge]);
+  if (frozenData) return { data: frozenData, isFetching: false, error: null };
   return { data: enabled ? q.data : undefined, isFetching: q.isFetching, error: q.error };
 }

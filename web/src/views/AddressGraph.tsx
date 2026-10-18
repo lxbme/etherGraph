@@ -68,6 +68,7 @@ export function AddressGraph() {
     [maxedKey],
   );
   const epoch = useGraph((s) => s.epoch);
+  const frozen = useGraph((s) => s.frozen !== null);
 
   const theme = useTheme((s) => s.resolved);
   const tr = useT();
@@ -211,10 +212,12 @@ export function AddressGraph() {
     const a = lc(id);
     const n = data?.nodes.find((x) => lc(x.address) === a);
     if (!n || n.synced || n.syncing) return;
-    api
-      .sync(n.kind === "contract" ? { addresses: [a], depth: "shallow" } : { addresses: [a] })
-      .then(() => toast(t("sync.startedAddr", { addr: shortAddr(a) })))
-      .catch((err) => toast(messageFor(err), "error"));
+    useGraph.getState().guardLive(() => {
+      api
+        .sync(n.kind === "contract" ? { addresses: [a], depth: "shallow" } : { addresses: [a] })
+        .then(() => toast(t("sync.startedAddr", { addr: shortAddr(a) })))
+        .catch((err) => toast(messageFor(err), "error"));
+    });
   };
 
   const onDragEnd = (positions: Record<string, Pos>) => {
@@ -280,14 +283,18 @@ export function AddressGraph() {
           y={menu.y}
           node={menu.node}
           data={data}
-          onExpand={() => setExpanding(menu.node)}
+          onExpand={() => {
+            // Expanding queues a sync batch: a snapshot is refreshed from the chain first.
+            const target = menu.node;
+            useGraph.getState().guardLive(() => setExpanding(target));
+          }}
           onBrowse={() => setBrowsing(menu.node)}
           onClose={closeMenu}
         />
       )}
       {expanding && <ExpandDialog node={expanding} onClose={closeExpand} />}
       {browsing && <InteractionsDialog contract={browsing} onClose={closeBrowse} />}
-      {centers.length === 0 && <div className="address-graph__empty">{tr("view.empty")}</div>}
+      {centers.length === 0 && !frozen && <div className="address-graph__empty">{tr("view.empty")}</div>}
       {centers.length > 0 && error != null && (
         <div className="address-graph__status address-graph__status--error" role="alert">{messageFor(error)}</div>
       )}

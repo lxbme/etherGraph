@@ -6,6 +6,7 @@ import { useCanvasMetrics } from "./canvasMetrics";
 import { runRedoEffect, runUndoEffect, type ExpandEffect } from "./historyEffects";
 import { pairKey } from "./pairKey";
 import { pushCapped } from "./undo";
+import type { GraphSnapshot } from "../workspace/snapshot";
 
 export { pairKey };
 
@@ -40,6 +41,21 @@ export interface GraphState {
   highlightTransfer: { from: string; to: string; asset: string | null } | null;
   /** Bumped by `reset` and `loadSnapshot`: a new canvas whose nodes have nothing to do with earlier ones. */
   epoch: number;
+  /** Data from a file shown instead of the graph query (a snapshot view); `reset` and `loadSnapshot` drop it. */
+  frozen: GraphSnapshot | null;
+  /** A graph-changing action waiting for the user to confirm a refresh from the chain. */
+  pendingLive: (() => void) | null;
+  /** Shows `s` instead of live data. Not history-tracked. */
+  freeze(s: GraphSnapshot): void;
+  /** Back to live data (the graph query runs again); the unfreeze handler syncs the centers. No-op when live. */
+  unfreeze(): void;
+  /**
+   * Runs `run` at once when live; on a snapshot, keeps it for a confirm instead ("Refresh from chain first?").
+   * Every action that changes centers, expanded pairs, filter, sort, limits or batches goes through this.
+   */
+  guardLive(run: () => void): void;
+  /** Answers the confirm: true refreshes (unfreezes) and then runs the pending action; false drops it. */
+  resolveLive(go: boolean): void;
   /** New centers (here and in `revealCenter`/`setCenters`/`loadSnapshot`) without a limit get `firstBatch()`. */
   addCenter(a: string): void;
   /** Makes `a` a shown center (adds it and/or unhides it) in one history step; no-op if it already is. */
@@ -103,6 +119,31 @@ interface HistoryEntry {
   snap?: Snapshot;
   positions?: Record<string, Pos>;
   effect?: ExpandEffect;
+}
+
+/** Called with the centers when a snapshot graph goes live (the app syncs them). The store has no network code. */
+let unfreezeHandler: ((centers: string[]) => void) | null = null;
+
+/** Registers the unfreeze handler; `null` unregisters it. */
+export function setUnfreezeHandler(h: ((centers: string[]) => void) | null): void {
+  unfreezeHandler = h;
+}
+
+/** Whether undoing/redoing to `snap` changes what the graph query asks for (or runs a batch effect). */
+function changesGraph(s: GraphState, entry: HistoryEntry): boolean {
+  if (entry.effect) return true;
+  const snap = entry.snap;
+  if (!snap) return false;
+  const sameSet = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every((k) => b.has(k));
+  const sameLimits = (a: Record<string, number>, b: Record<string, number>) =>
+    Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([k, n]) => b[k] === n);
+  return (
+    snap.centers.join(",") !== s.centers.join(",") ||
+    !sameSet(snap.expandedPairs, s.expandedPairs) ||
+    snap.filter !== s.filter ||
+    snap.sort !== s.sort ||
+    !sameLimits(snap.limits, s.limits)
+  );
 }
 
 const lc = (s: string) => s.toLowerCase();
@@ -203,6 +244,8 @@ const initial = () => ({
   limits: {} as Record<string, number>,
   selection: null as Selection,
   highlightTransfer: null as GraphState["highlightTransfer"],
+  frozen: null as GraphSnapshot | null,
+  pendingLive: null as (() => void) | null,
   _past: [] as HistoryEntry[],
   _future: [] as HistoryEntry[],
 });
@@ -242,16 +285,37 @@ export const useGraph = create<GraphState>()((set, get) => {
     ];
   };
 
+  /** `guardLive` for the store's own graph-changing actions. */
+  const live = (run: () => void) => get().guardLive(run);
+
   return {
     ...initial(),
     epoch: 0,
-    addCenter: (a) => {
-      const addr = lc(a);
-      if (get().centers.includes(addr)) return;
-      tracked((s) => ({ centers: [...s.centers, addr], limits: withFirstBatch(s.limits, [addr]) }));
+    freeze: (frozen) => set({ frozen }),
+    unfreeze: () => {
+      if (!get().frozen) return;
+      set({ frozen: null });
+      unfreezeHandler?.(get().centers);
     },
+    guardLive: (run) => {
+      if (get().frozen) set({ pendingLive: run });
+      else run();
+    },
+    resolveLive: (go) => {
+      const run = get().pendingLive;
+      set({ pendingLive: null });
+      if (!go || !run) return;
+      get().unfreeze();
+      run();
+    },
+    addCenter: (a) =>
+      live(() => {
+        const addr = lc(a);
+        if (get().centers.includes(addr)) return;
+        tracked((s) => ({ centers: [...s.centers, addr], limits: withFirstBatch(s.limits, [addr]) }));
+      }),
     revealCenter: (a) => get().revealCenters([a]),
-    revealCenters: (list) => {
+    revealCenters: (list) => live(() => {
       const s = get();
       const addrs = [...new Set(list.map(lc))];
       const added = addrs.filter((a) => !s.centers.includes(a));
@@ -262,18 +326,21 @@ export const useGraph = create<GraphState>()((set, get) => {
         ui: hidden.length > 0 ? applyUiPatch(cur.ui, hidden, { hidden: false }) : cur.ui,
         limits: withFirstBatch(cur.limits, addrs),
       }));
-    },
-    removeCenter: (a) => {
-      const addr = lc(a);
-      if (!get().centers.includes(addr)) return;
-      tracked((s) => ({ centers: s.centers.filter((c) => c !== addr) }));
-    },
-    setCenters: (list) =>
-      tracked((s) => {
-        const centers = [...new Set(list.map(lc))];
-        return { centers, limits: withFirstBatch(s.limits, centers) };
+    }),
+    removeCenter: (a) =>
+      live(() => {
+        const addr = lc(a);
+        if (!get().centers.includes(addr)) return;
+        tracked((s) => ({ centers: s.centers.filter((c) => c !== addr) }));
       }),
-    expand: (addresses, batch, k) => {
+    setCenters: (list) =>
+      live(() =>
+        tracked((s) => {
+          const centers = [...new Set(list.map(lc))];
+          return { centers, limits: withFirstBatch(s.limits, centers) };
+        }),
+      ),
+    expand: (addresses, batch, k) => live(() => {
       const addrs = [...new Set(addresses.map(lc))];
       if (addrs.length === 0) return;
       tracked(
@@ -290,24 +357,26 @@ export const useGraph = create<GraphState>()((set, get) => {
         },
         { kind: "expand", batch, addresses: addrs },
       );
-    },
-    raiseLimit: (center, by) => {
+    }),
+    raiseLimit: (center, by) => live(() => {
       if (!(Number.isFinite(by) && by > 0)) return;
       const a = lc(center);
       const cur = get().limits[a] ?? firstBatch();
       if (cur >= MAX_NEIGHBOUR_LIMIT) return;
       tracked((s) => ({ limits: { ...s.limits, [a]: Math.min(MAX_NEIGHBOUR_LIMIT, (s.limits[a] ?? cur) + by) } }));
-    },
-    setFilter: (f) => tracked(() => ({ filter: f })),
-    setSort: (sort) => tracked(() => ({ sort })),
-    applyFilter: (f, sort) => tracked(() => ({ filter: f, sort })),
+    }),
+    setFilter: (f) => live(() => tracked(() => ({ filter: f }))),
+    setSort: (sort) => live(() => tracked(() => ({ sort }))),
+    applyFilter: (f, sort) => live(() => tracked(() => ({ filter: f, sort }))),
     togglePair: (a, b) =>
-      tracked((s) => {
-        const key = pairKey(a, b);
-        const next = new Set(s.expandedPairs);
-        if (!next.delete(key)) next.add(key);
-        return { expandedPairs: next };
-      }),
+      live(() =>
+        tracked((s) => {
+          const key = pairKey(a, b);
+          const next = new Set(s.expandedPairs);
+          if (!next.delete(key)) next.add(key);
+          return { expandedPairs: next };
+        }),
+      ),
     setPinned: (addrs, v) => tracked((s) => ({ ui: applyUiPatch(s.ui, addrs, { pinned: v }) })),
     setHidden: (addrs, v) =>
       tracked((s) => {
@@ -348,6 +417,7 @@ export const useGraph = create<GraphState>()((set, get) => {
       const s = get();
       const entry = s._past[s._past.length - 1];
       if (!entry) return;
+      if (s.frozen && changesGraph(s, entry)) return live(() => get().undo());
       const [patch, counter] = applyEntry(s, entry);
       set({
         ...patch,
@@ -360,6 +430,7 @@ export const useGraph = create<GraphState>()((set, get) => {
       const s = get();
       const entry = s._future[s._future.length - 1];
       if (!entry) return;
+      if (s.frozen && changesGraph(s, entry)) return live(() => get().redo());
       const [patch, counter] = applyEntry(s, entry);
       set({
         ...patch,

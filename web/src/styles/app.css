@@ -972,6 +972,21 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .txview__tag { padding: 0 var(--sp-2); font-size: var(--fs-11); color: var(--fg-muted); border: 1px solid var(--line); border-radius: var(--radius); }
 .txview__banner { padding: var(--sp-2) var(--sp-3); font-size: var(--fs-12); color: var(--fg-muted); background: var(--bg); border-bottom: 1px solid var(--line); }
 .txview__graph { flex: 1; min-height: var(--h-graph-min); position: relative; }
+/* A snapshot (frozen) view's bar above its canvas (views/SnapshotBanner): informational, not a warning. */
+.snapshot-banner {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--h-control);
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-12);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  border-bottom: 1px solid var(--line);
+}
+.snapshot-banner__text { flex: 1; min-width: 0; }
 /* No refreshing dot to keep clear on the tx canvas. */
 .txview__graph .canvas-tools { right: var(--sp-3); }
 

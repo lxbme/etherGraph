@@ -94,3 +94,11 @@ test("token sends the kind hint only when given", async () => {
   expect(f.mock.calls[0]![0]).toBe("/api/token/0xabc");
   expect(f.mock.calls[1]![0]).toBe("/api/token/0xabc?kind=erc721");
 });
+
+test("nodes posts the addresses and returns the summaries", async () => {
+  const f = vi.fn().mockImplementation(async () => new Response("[]", { status: 200 }));
+  vi.stubGlobal("fetch", f);
+  await api.nodes(["0xabc", "0xdef"]);
+  expect(f.mock.calls[0]![0]).toBe("/api/nodes");
+  expect(f.mock.calls[0]![1]).toMatchObject({ method: "POST", body: JSON.stringify({ addresses: ["0xabc", "0xdef"] }) });
+});

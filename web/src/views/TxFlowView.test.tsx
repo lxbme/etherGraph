@@ -30,9 +30,10 @@ vi.mock("../graph/CytoscapeView", () => ({
   },
 }));
 vi.mock("../panels/NodeDetail", () => ({
-  NodeDetail: ({ address, onNavigate }: { address: string; onNavigate?: (a: string) => void }) => (
+  NodeDetail: ({ address, onNavigate, fileLabels }: { address: string; onNavigate?: (a: string) => void; fileLabels?: { text: string }[] }) => (
     <div>
       detail:{address}
+      {fileLabels && fileLabels.length > 0 && <span>file-labels:{fileLabels.map((l) => l.text).join(",")}</span>}
       <button onClick={() => onNavigate?.("0x" + "cc".repeat(20))}>impl-link</button>
     </div>
   ),
@@ -589,5 +590,77 @@ describe("token-contract nodes and EIP-7702", () => {
     const legend = within(container.querySelector(".txview__graph")!).getByTestId("legend");
     expect(within(legend).queryByText("Token contract (dotted link)")).toBeNull();
     expect(within(legend).queryByText("Delegation (EIP-7702)")).toBeNull();
+  });
+});
+
+describe("a snapshot tab (frozen)", () => {
+  const fileLabel = { id: -1, text: "sender says hi", category: "other", source: "file" };
+  const snapshotFlow = (): TxFlowDto => ({
+    ...ready().flow!,
+    nodes: [node(A, { labels: [fileLabel] }), node(B, { kind: "unknown", contract_name: null })],
+  });
+  const withSnapshot = (raw: { tx: unknown; receipt: unknown } | null) =>
+    useTabs.setState({
+      tabs: [
+        { id: "graph" },
+        {
+          id: HASH, kind: "tx", hash: HASH,
+          snapshot: { exported_at: "2026-10-01T12:00:00Z", includes: { labels: true, notes: false }, flow: snapshotFlow(), raw: raw as never },
+        },
+      ],
+      active: HASH,
+    });
+
+  test("shows the file's flow with no tx request, a banner and live identities", async () => {
+    const tx = vi.spyOn(api, "tx").mockResolvedValue(ready());
+    const nodes = vi.spyOn(api, "nodes").mockImplementation(async (addrs) =>
+      addrs.map((a) => (a === B ? node(B, { kind: "contract", contract_name: "Router", display_name: "Router" }) : node(a, { kind: "unknown", synced: false }))),
+    );
+    withSnapshot(null);
+    renderView();
+    await screen.findByTestId("tx-summary-bar");
+    const local = new Date("2026-10-01T12:00:00Z");
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const when = `${local.getFullYear()}-${pad(local.getMonth() + 1)}-${pad(local.getDate())} ${pad(local.getHours())}:${pad(local.getMinutes())}:${pad(local.getSeconds())}`;
+    expect(screen.getByText(`Snapshot from a file · exported ${when}`)).toBeInTheDocument();
+    // B's name comes from the receiver's own data.
+    expect(await bar().findByText("Router")).toBeInTheDocument();
+    expect(nodes).toHaveBeenCalledWith([A, B]);
+    expect(tx).not.toHaveBeenCalled();
+    // The node detail shows the file's own labels for the selected node.
+    act(() => useUi.getState().selectTx(HASH, A));
+    expect(within(screen.getByTestId("aside")).getByText("file-labels:sender says hi")).toBeInTheDocument();
+  });
+
+  test("Refresh from chain drops the snapshot and loads the tx", async () => {
+    vi.spyOn(api, "nodes").mockResolvedValue([]);
+    const tx = vi.spyOn(api, "tx").mockResolvedValue(ready({ nodes: [node(A), node(B, { contract_name: "LiveRouter", kind: "contract" })] }));
+    withSnapshot(null);
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "Refresh from chain" }));
+    await waitFor(() => expect(tx).toHaveBeenCalledWith(HASH));
+    await screen.findByTestId("tx-summary-bar");
+    expect(await bar().findByText("LiveRouter")).toBeInTheDocument();
+    expect(screen.queryByText(/Snapshot from a file/)).toBeNull();
+    const tab = useTabs.getState().tabs.find((t) => t.id === HASH);
+    expect(tab && "kind" in tab ? tab.snapshot : "missing").toBeUndefined();
+  });
+
+  test("Raw shows the file's raw data with no request; a snapshot without it says so", async () => {
+    vi.spyOn(api, "nodes").mockResolvedValue([]);
+    const raw = vi.spyOn(api, "txRaw").mockResolvedValue({ tx: {}, receipt: {} });
+    withSnapshot({ tx: { nonce: "0xfile" }, receipt: { status: "0x1" } });
+    const { unmount } = renderView();
+    await screen.findByTestId("tx-summary-bar");
+    detailTab("Raw");
+    expect(detail().getByText(/0xfile/)).toBeInTheDocument();
+    unmount();
+
+    withSnapshot(null);
+    renderView();
+    await screen.findByTestId("tx-summary-bar");
+    detailTab("Raw");
+    expect(detail().getByText("This snapshot has no raw data")).toBeInTheDocument();
+    expect(raw).not.toHaveBeenCalled();
   });
 });

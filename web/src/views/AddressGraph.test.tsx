@@ -10,7 +10,7 @@ import { useCanvasMetrics } from "../graph/canvasMetrics";
 import { openFakePopover, pressEscape } from "../graph/fakePopover.testutil";
 import { useBoxSelection } from "../graph/boxSelection";
 import type { CytoscapeViewProps } from "../graph/CytoscapeView";
-import { pairKey, useGraph } from "../graph/store";
+import { pairKey, setUnfreezeHandler, useGraph } from "../graph/store";
 import { Toasts } from "../shell/Toasts";
 import { DetailPanel } from "../panels/DetailPanel";
 import { useInfo } from "../panels/info/infoStore";
@@ -18,7 +18,9 @@ import { useUi } from "../panels/uiStore";
 import { exportImage } from "../graph/exportImage";
 import { download } from "../lib/download";
 import { useWorkspace } from "../workspace/useWorkspace";
+import { registerSnapshotEffects } from "../workspace/snapshot";
 import { AddressGraph } from "./AddressGraph";
+import { GraphSnapshotBanner, LiveConfirm } from "./SnapshotBanner";
 
 vi.mock("../graph/exportImage", async (orig) => ({ ...(await orig<typeof import("../graph/exportImage")>()), exportImage: vi.fn() }));
 vi.mock("../lib/download", async (orig) => ({ ...(await orig<typeof import("../lib/download")>()), download: vi.fn() }));
@@ -604,4 +606,100 @@ test("tapping a node or an edge clears the graph tab's info stack; the backgroun
   act(() => useInfo.getState().open("graph", doc));
   act(() => props().onTapEdge(A, B, "e1"));
   expect(useInfo.getState().stacks["graph"]).toEqual([]);
+});
+
+describe("a frozen (snapshot) graph", () => {
+  const SNAP = {
+    exported_at: "2026-10-01T12:00:00Z",
+    includes: { labels: false, notes: false },
+    data,
+  };
+  const CONFIRM = "This view is a snapshot from a file. Refresh it from the chain first?";
+
+  function mountFrozen() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    act(() => {
+      useGraph.getState().setCenters([A]);
+      useGraph.getState().freeze(SNAP);
+    });
+    const r = render(
+      <QueryClientProvider client={qc}>
+        <GraphSnapshotBanner />
+        <AddressGraph />
+        <LiveConfirm />
+        <Toasts />
+      </QueryClientProvider>,
+    );
+    act(() => props().onReady?.(fakeCy().cy));
+    return r;
+  }
+
+  let address: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    registerSnapshotEffects();
+    vi.spyOn(api, "nodes").mockResolvedValue([]);
+    address = vi.spyOn(api, "address").mockResolvedValue({} as never);
+  });
+  afterEach(() => setUnfreezeHandler(null));
+
+  test("draws the file's data with no graph request, under a banner", () => {
+    mountFrozen();
+    expect(ids()).toEqual(expect.arrayContaining([A, B]));
+    expect(api.graphEdges).not.toHaveBeenCalled();
+    expect(screen.getByText(/^Snapshot from a file · exported /)).toBeInTheDocument();
+  });
+
+  test("a graph-changing action asks first: cancel keeps the snapshot, Refresh reloads and then runs it", async () => {
+    mountFrozen();
+    act(() => props().onDblTapEdge(A, B));
+    const dialog = screen.getByRole("dialog", { name: "Refresh from chain" });
+    expect(within(dialog).getByText(CONFIRM)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(useGraph.getState().frozen).not.toBeNull();
+    expect(useGraph.getState().expandedPairs.size).toBe(0);
+    expect(api.graphEdges).not.toHaveBeenCalled();
+
+    act(() => props().onDblTapEdge(A, B));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Refresh from chain" }));
+    expect(useGraph.getState().frozen).toBeNull();
+    expect(useGraph.getState().expandedPairs.has(pairKey(A, B))).toBe(true);
+    await waitFor(() => expect(api.graphEdges).toHaveBeenCalled());
+    // The centers get the request the app sends when a center is added (it syncs those not yet synced).
+    expect(address).toHaveBeenCalledWith(A, { sync: "auto" });
+    expect(screen.queryByText(/^Snapshot from a file/)).toBeNull();
+  });
+
+  test("syncing a node and opening the expansion dialog wait for the refresh", async () => {
+    const sync = vi.spyOn(api, "sync").mockResolvedValue({ jobs: [] } as never);
+    mountFrozen();
+    act(() => props().onDblTapNode(B));
+    expect(sync).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+
+    act(() => props().onCxtNode(A, { x: 1, y: 1 }));
+    act(() => screen.getByRole("menuitem", { name: "Expand neighbors…" }).click());
+    expect(screen.queryByRole("dialog", { name: /Expand neighbors/ })).toBeNull();
+    expect(screen.getByRole("dialog", { name: "Refresh from chain" })).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    expect(sync).not.toHaveBeenCalled();
+  });
+
+  test("the banner's Refresh from chain goes live at once", async () => {
+    mountFrozen();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh from chain" }));
+    expect(useGraph.getState().frozen).toBeNull();
+    await waitFor(() => expect(api.graphEdges).toHaveBeenCalled());
+    expect(address).toHaveBeenCalledWith(A, { sync: "auto" });
+  });
+
+  test("hide, pin and drag work on the snapshot", () => {
+    mountFrozen();
+    act(() => props().onDragEnd({ [A]: { x: 5, y: 6 } }));
+    act(() => useGraph.getState().setPinned([A], true));
+    act(() => useGraph.getState().setHidden([B], true));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(useGraph.getState().frozen).not.toBeNull();
+    expect(ids()).not.toContain(B);
+  });
 });

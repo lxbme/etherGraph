@@ -130,3 +130,53 @@ test("raising a limit refetches; a new prefer set alone does not", async () => {
   await waitFor(() => expect(result.current.isFetching).toBe(false));
   expect(spy).toHaveBeenCalledTimes(2);
 });
+
+describe("a frozen (snapshot) graph", () => {
+  const fileLabel = { id: -1, text: "sender's note", category: "other", source: "file" };
+  const snap = {
+    exported_at: "2026-10-01T12:00:00Z",
+    includes: { labels: true, notes: false },
+    data: {
+      nodes: [node(A), { ...node(B), kind: "unknown" as const, labels: [fileLabel] }],
+      edges: [],
+      omitted: {},
+      coverage: {},
+    },
+  };
+
+  test("shows the file's data with no graph request, and live identities over it", async () => {
+    const edges = vi.spyOn(api, "graphEdges").mockResolvedValue(resp(A));
+    const nodes = vi.spyOn(api, "nodes").mockImplementation(async (addrs) =>
+      addrs.map((a) => (a === B ? { ...node(B), kind: "contract" as const, contract_name: "Pool", display_name: "Pool" } : { ...node(a), kind: "unknown" as const, synced: false })),
+    );
+    act(() => {
+      useGraph.getState().setCenters([A]);
+      useGraph.getState().freeze(snap);
+    });
+    const { result } = renderHook(() => useGraphData(), { wrapper });
+    expect(result.current.data?.nodes.map((n) => n.address)).toEqual([A, B]);
+    await waitFor(() => expect(result.current.data?.nodes[1]?.kind).toBe("contract"));
+    const b = result.current.data!.nodes[1]!;
+    expect(b.display_name).toBe("Pool");
+    expect(b.labels).toEqual([fileLabel]);
+    // A has no live identity: the file node stays.
+    expect(result.current.data!.nodes[0]).toEqual(node(A));
+    expect(nodes).toHaveBeenCalledWith([A, B]);
+    expect(edges).not.toHaveBeenCalled();
+    expect(result.current.isFetching).toBe(false);
+  });
+
+  test("refresh (unfreeze) runs the normal graph query", async () => {
+    const edges = vi.spyOn(api, "graphEdges").mockResolvedValue(resp(A));
+    vi.spyOn(api, "nodes").mockResolvedValue([]);
+    act(() => {
+      useGraph.getState().setCenters([A]);
+      useGraph.getState().freeze(snap);
+    });
+    const { result } = renderHook(() => useGraphData(), { wrapper });
+    expect(edges).not.toHaveBeenCalled();
+    act(() => useGraph.getState().unfreeze());
+    await waitFor(() => expect(result.current.data).toEqual(resp(A)));
+    expect(edges).toHaveBeenCalledTimes(1);
+  });
+});

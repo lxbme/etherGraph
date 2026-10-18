@@ -19,6 +19,8 @@ export const queryClient = new QueryClient({
 export const qk = {
   graph: (centers: string[], filter: unknown) => ["graph", centers, filter],
   address: (a: string) => ["address", a],
+  /** Live summaries of a snapshot's nodes (`addrs` sorted). */
+  nodes: (addrs: string[]) => ["nodes", addrs],
   tx: (h: string) => ["tx", h],
   token: (a: string) => ["token", a],
   txRaw: (h: string) => ["txRaw", h],

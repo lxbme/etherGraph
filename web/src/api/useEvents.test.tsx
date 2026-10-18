@@ -148,6 +148,18 @@ test("events for addresses not on the canvas are ignored", () => {
   expect(spy).toHaveBeenCalledWith({ queryKey: qk.address(B) });
 });
 
+test("the live identities of snapshot nodes refetch with the graph", () => {
+  useGraph.getState().addCenter(A);
+  mount();
+  const spy = vi.spyOn(qc, "invalidateQueries");
+  send({ type: "AddressDataChanged", address: A });
+  advance(500);
+  expect(callsFor(spy, "nodes")).toBe(1);
+  send({ type: "MetaUpdated", addresses: [B] });
+  advance(500);
+  expect(callsFor(spy, "nodes")).toBe(2);
+});
+
 test("NamesResolved and MetaUpdated are coalesced into one graph + address invalidation", () => {
   mount();
   const spy = vi.spyOn(qc, "invalidateQueries");
