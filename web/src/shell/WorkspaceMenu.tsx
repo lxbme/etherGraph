@@ -6,6 +6,7 @@ import type { WorkspaceMetaDto } from "../api/generated/WorkspaceMetaDto";
 import { t, useT } from "../i18n";
 import { getMainCy } from "../graph/cyRegistry";
 import { formatLocalTime, formatTime } from "../lib/format";
+import { clearSaveRequest, useSaveRequest } from "../workspace/saveRequest";
 import { SCHEMA_VERSION } from "../workspace/serialize";
 import {
   captureState,
@@ -214,6 +215,16 @@ export function WorkspaceMenu() {
       if ((await saveCurrent()) === "conflict") setDialog({ kind: "conflict" });
       else toast(t("ws.status.saved"));
     });
+  // A save / save-as shortcut (see saveRequest) does exactly what the menu item does.
+  const saveRequest = useSaveRequest((s) => s.pending);
+  useEffect(() => {
+    if (!saveRequest) return;
+    clearSaveRequest();
+    if (busy) return;
+    if (saveRequest.kind === "save") void doSave();
+    else setDialog({ kind: "name", purpose: "saveAs" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- acts once per request
+  }, [saveRequest]);
   const submitName = (purpose: "save" | "saveAs" | "rename", n: string) => {
     setDialog(null);
     return run(async () => {

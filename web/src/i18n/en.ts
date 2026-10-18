@@ -536,6 +536,8 @@ export const en = {
   "help.data.body3": "Syncs are shallow: the latest {records} records per category (transactions, internal transfers, token and NFT transfers). “Fetch older records” loads the history behind them.",
   "help.data.body4": "Synced records are kept in the local database and read from there. “Sync / refresh” fetches only what is new since the last sync.",
   "shortcut.search": "Focus search",
+  "shortcut.save": "Save workspace",
+  "shortcut.saveAs": "Save workspace as…",
   "shortcut.undo": "Undo",
   "shortcut.redo": "Redo",
   "shortcut.sync": "Sync / refresh",

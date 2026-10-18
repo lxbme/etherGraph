@@ -4,7 +4,8 @@ import { useUi } from "../panels/uiStore";
 import { useTabs } from "../shell/tabs";
 import { useBoxSelection } from "./boxSelection";
 import { focusNode, hideNode, syncNode, togglePin } from "./nodeActions";
-import { shortcutFor, type ShortcutId } from "./shortcuts";
+import { requestSave } from "../workspace/saveRequest";
+import { isShortcut, shortcutFor, type ShortcutId } from "./shortcuts";
 import { graphSelection, useGraph } from "./store";
 
 function isTyping(t: EventTarget | null): boolean {
@@ -13,11 +14,19 @@ function isTyping(t: EventTarget | null): boolean {
   return /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable;
 }
 
-/** Whether the key belongs to something else: a text field being typed in, or an open dialog / popover / menu. */
-function keyOwnedElsewhere(e: KeyboardEvent): boolean {
-  if (isTyping(e.target)) return true;
+function overlayOpen(e: KeyboardEvent): boolean {
   const t = e.target as Element | null;
   return !!(document.querySelector('[role="dialog"],[role="menu"]') || t?.closest?.('[role="dialog"],[role="menu"]'));
+}
+
+/** Whether the key belongs to something else: a text field being typed in, or an open dialog / popover / menu. */
+function keyOwnedElsewhere(e: KeyboardEvent): boolean {
+  return isTyping(e.target) || overlayOpen(e);
+}
+
+/** Save / Save as: always taken from the browser (it would save the page), but acted on only with no overlay open. */
+function isSaveKey(e: KeyboardEvent): boolean {
+  return isShortcut(e, "save") || isShortcut(e, "saveAs");
 }
 
 /**
@@ -29,7 +38,10 @@ function keyOwnedElsewhere(e: KeyboardEvent): boolean {
  */
 export function listenShortcutKeys(onKey: (e: KeyboardEvent) => void): () => void {
   const listener = (e: KeyboardEvent) => {
-    if (!keyOwnedElsewhere(e)) onKey(e);
+    if (isSaveKey(e)) {
+      e.preventDefault();
+      if (!overlayOpen(e)) onKey(e); // saving from a text field is fine
+    } else if (!keyOwnedElsewhere(e)) onKey(e);
   };
   window.addEventListener("keydown", listener, true);
   return () => window.removeEventListener("keydown", listener, true);
@@ -43,6 +55,8 @@ interface Ctx {
 
 /** What each SHORTCUTS entry does ("search" belongs to the search box); `false`: nothing to do, the key is not consumed. */
 const HANDLERS: Record<Exclude<ShortcutId, "search">, (c: Ctx) => void | false> = {
+  save: () => requestSave("save"),
+  saveAs: () => requestSave("saveAs"),
   undo: () => useGraph.getState().undo(),
   redo: () => useGraph.getState().redo(),
   sync: (c) => syncNode(c.address),
@@ -57,7 +71,7 @@ const HANDLERS: Record<Exclude<ShortcutId, "search">, (c: Ctx) => void | false> 
 };
 
 /**
- * Keyboard shortcuts from the SHORTCUTS table: undo/redo, Escape (clears the box selection), and node keys
+ * Keyboard shortcuts from the SHORTCUTS table: save / save as (any tab), undo/redo, Escape (clears the box selection), and node keys
  * on the selected node.
  * Inactive while typing or while a dialog / popover / menu is open (listenShortcutKeys), and while a tx tab is
  * shown (the address graph they act on is hidden then).
@@ -66,9 +80,9 @@ export function useShortcuts(getData: () => GraphResponseDto | undefined): void 
   useEffect(
     () =>
       listenShortcutKeys((e) => {
-        if (useTabs.getState().active !== "graph") return;
         const hit = shortcutFor(e);
         if (!hit || hit.id === "search") return;
+        if (useTabs.getState().active !== "graph" && hit.id !== "save" && hit.id !== "saveAs") return;
         let address = "";
         if (hit.scope === "node") {
           const sel = graphSelection(useGraph.getState().selection);

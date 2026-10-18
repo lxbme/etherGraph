@@ -128,6 +128,70 @@ describe("useShortcuts stays out of the way", () => {
   });
 });
 
+describe("save shortcuts", () => {
+  async function saveSetup() {
+    const { useShortcuts } = await import("./useShortcuts");
+    const { useSaveRequest } = await import("../workspace/saveRequest");
+    const { useTabs } = await import("../shell/tabs");
+    useTabs.setState({ tabs: [{ id: "graph" }], active: "graph" });
+    useSaveRequest.setState({ pending: null });
+    function Host() {
+      useShortcuts(() => undefined);
+      return null;
+    }
+    render(<Host />);
+    return useSaveRequest;
+  }
+  const press = (target: Element, init: KeyboardEventInit) => {
+    const ev = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init });
+    target.dispatchEvent(ev);
+    return ev;
+  };
+
+  test("Mod+S from a text field is taken from the browser and requests a save", async () => {
+    const store = await saveSetup();
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    try {
+      const ev = press(input, { key: "s", ctrlKey: true });
+      expect(ev.defaultPrevented).toBe(true);
+      expect(store.getState().pending?.kind).toBe("save");
+    } finally {
+      input.remove();
+    }
+  });
+
+  test("Mod+S with a dialog open is taken from the browser but saves nothing", async () => {
+    const store = await saveSetup();
+    const dlg = document.createElement("div");
+    dlg.setAttribute("role", "dialog");
+    document.body.appendChild(dlg);
+    try {
+      const ev = press(document.body, { key: "s", ctrlKey: true });
+      expect(ev.defaultPrevented).toBe(true);
+      expect(store.getState().pending).toBeNull();
+    } finally {
+      dlg.remove();
+    }
+  });
+
+  test("Shift+Mod+S requests save-as, also on a tx tab", async () => {
+    const store = await saveSetup();
+    const { useTabs } = await import("../shell/tabs");
+    act(() => useTabs.setState({ active: "0x" + "12".repeat(32) }));
+    const ev = press(document.body, { key: "S", ctrlKey: true, shiftKey: true });
+    expect(ev.defaultPrevented).toBe(true);
+    expect(store.getState().pending?.kind).toBe("saveAs");
+  });
+
+  test("Ctrl+Alt+S does nothing", async () => {
+    const store = await saveSetup();
+    const ev = press(document.body, { key: "s", ctrlKey: true, altKey: true });
+    expect(ev.defaultPrevented).toBe(false);
+    expect(store.getState().pending).toBeNull();
+  });
+});
+
 test("matchesCombo needs the exact modifiers; Mod accepts Ctrl or ⌘", () => {
   expect(matchesCombo({ key: "z", ctrlKey: true, metaKey: false, shiftKey: false, altKey: false }, "Mod+Z")).toBe(true);
   expect(matchesCombo({ key: "z", ctrlKey: false, metaKey: true, shiftKey: false, altKey: false }, "Mod+Z")).toBe(true);

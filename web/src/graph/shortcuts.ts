@@ -1,6 +1,6 @@
 import type { MsgKey } from "../i18n";
 
-export type ShortcutId = "search" | "undo" | "redo" | "sync" | "pin" | "hide" | "focus" | "label" | "clearSelection";
+export type ShortcutId = "search" | "undo" | "redo" | "sync" | "pin" | "hide" | "focus" | "label" | "clearSelection" | "save" | "saveAs";
 
 export interface Shortcut {
   id: ShortcutId;
@@ -19,6 +19,8 @@ export const SHORTCUTS: ReadonlyArray<Shortcut> = [
   { id: "search", keys: ["Mod+K"], scope: "global", label: "shortcut.search" },
   { id: "undo", keys: ["Mod+Z"], scope: "global", label: "shortcut.undo" },
   { id: "redo", keys: ["Shift+Mod+Z", "Ctrl+Y"], scope: "global", label: "shortcut.redo" },
+  { id: "save", keys: ["Mod+S"], scope: "global", label: "shortcut.save" },
+  { id: "saveAs", keys: ["Shift+Mod+S"], scope: "global", label: "shortcut.saveAs" },
   { id: "sync", keys: ["S"], scope: "node", label: "shortcut.sync" },
   { id: "pin", keys: ["P"], scope: "node", label: "shortcut.pin" },
   { id: "hide", keys: ["H"], scope: "node", label: "shortcut.hide" },

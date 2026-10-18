@@ -1,10 +1,11 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "../api/endpoints";
 import { ApiError } from "../api/errors";
 import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
 import { useGraph } from "../graph/store";
+import { requestSave } from "../workspace/saveRequest";
 import { useWorkspace } from "../workspace/useWorkspace";
 import { serialize } from "../workspace/serialize";
 import { WorkspaceMenu, safeFileName } from "./WorkspaceMenu";
@@ -34,6 +35,23 @@ async function pick(label: string) {
 }
 
 describe("WorkspaceMenu", () => {
+  test("a save request on an unnamed workspace opens the name dialog; a save-as request opens it too", async () => {
+    render(<WorkspaceMenu />);
+    act(() => requestSave("save"));
+    expect(await screen.findByRole("dialog", { name: "Workspace name" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    act(() => requestSave("saveAs"));
+    expect(await screen.findByRole("dialog", { name: "Workspace name" })).toBeInTheDocument();
+  });
+
+  test("a save request on a saved workspace saves it", async () => {
+    m.updateWorkspace.mockResolvedValue(dto());
+    useWorkspace.setState({ id: 7, name: "w", updatedAt: "T1" });
+    render(<WorkspaceMenu />);
+    act(() => requestSave("save"));
+    await waitFor(() => expect(m.updateWorkspace).toHaveBeenCalled());
+  });
+
   test("the dropdown closes on an outside mousedown and on Escape", async () => {
     render(
       <>

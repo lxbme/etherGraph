@@ -538,6 +538,8 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "help.data.body3": "同步都是浅同步：每类记录（普通交易、内部转账、代币和 NFT 转账）只拉取最新的 {records} 条。“继续拉更早的记录”可以补齐更早的历史。",
   "help.data.body4": "已同步的记录保存在本地数据库中，之后直接从这里读取。“同步 / 刷新”只拉取上次同步之后的新记录。",
   "shortcut.search": "聚焦搜索框",
+  "shortcut.save": "保存工作区",
+  "shortcut.saveAs": "工作区另存为…",
   "shortcut.undo": "撤销",
   "shortcut.redo": "重做",
   "shortcut.sync": "同步 / 刷新",
