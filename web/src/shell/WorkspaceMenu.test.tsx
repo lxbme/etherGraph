@@ -174,8 +174,10 @@ describe("WorkspaceMenu", () => {
       expect(names).toEqual(["ethergraph-untitled.json"]);
       expect(created[0]!.type).toBe("application/json");
       const body = JSON.parse(await created[0]!.text());
-      expect(body.state.centers).toEqual([A]);
-      expect(body.state.viewport).toEqual({ zoom: 2, pan: { x: 1, y: 2 } });
+      expect(body.schema_version).toBe(2);
+      expect(body.state.graph.centers).toEqual([A]);
+      expect(body.state.graph.viewport).toEqual({ zoom: 2, pan: { x: 1, y: 2 } });
+      expect(body.state.tabs).toEqual([]);
       expect(URL.revokeObjectURL).toHaveBeenCalled();
     });
   });

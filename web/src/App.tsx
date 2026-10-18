@@ -61,7 +61,8 @@ function Shell() {
           {tabs.map(
             (t) =>
               "kind" in t && (
-                <div key={t.hash} className="main__tx" hidden={t.id !== active}>
+                // A tab restored from a workspace gets a fresh view, which applies its saved layout.
+                <div key={`${t.hash}:${t.restored ?? 0}`} className="main__tx" hidden={t.id !== active}>
                   <TxFlowView hash={t.hash} />
                 </div>
               ),

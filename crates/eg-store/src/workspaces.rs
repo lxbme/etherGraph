@@ -59,15 +59,17 @@ impl Store {
     pub async fn create_workspace(
         &self,
         name: &str,
+        schema_version: i32,
         state: &serde_json::Value,
     ) -> Result<WorkspaceRow> {
         let sql = concat!(
-            "INSERT INTO workspaces (name, schema_version, state) VALUES ($1, 1, $2) \
+            "INSERT INTO workspaces (name, schema_version, state) VALUES ($1, $2, $3) \
              RETURNING ",
             ws_cols!()
         );
         let row = sqlx::query(sql)
             .bind(name)
+            .bind(schema_version)
             .bind(state)
             .fetch_one(&self.pool)
             .await?;
@@ -86,15 +88,18 @@ impl Store {
 
     /// Optimistic update: succeeds only if `updated_at` still equals
     /// `expected_updated_at`; otherwise `Conflict` (or `NotFound` if gone).
+    /// A `None` schema version keeps the stored one.
     pub async fn update_workspace(
         &self,
         id: i64,
         name: &str,
+        schema_version: Option<i32>,
         state: &serde_json::Value,
         expected_updated_at: DateTime<Utc>,
     ) -> Result<WorkspaceRow> {
         let sql = concat!(
-            "UPDATE workspaces SET name = $2, state = $3, updated_at = now() \
+            "UPDATE workspaces SET name = $2, state = $3, updated_at = now(), \
+             schema_version = COALESCE($5, schema_version) \
              WHERE id = $1 AND updated_at = $4 RETURNING ",
             ws_cols!()
         );
@@ -103,6 +108,7 @@ impl Store {
             .bind(name)
             .bind(state)
             .bind(expected_updated_at)
+            .bind(schema_version)
             .fetch_optional(&self.pool)
             .await?;
         match row {
@@ -143,29 +149,29 @@ mod tests {
     #[sqlx::test]
     async fn workspace_optimistic_conflict(pool: PgPool) {
         let s = Store::from_pool(pool);
-        let w = s.create_workspace("a", &json!({"v": 1})).await.unwrap();
+        let w = s.create_workspace("a", 1, &json!({"v": 1})).await.unwrap();
         assert_eq!(w.schema_version, 1);
         assert_eq!(
             s.get_workspace(w.id).await.unwrap().updated_at,
             w.updated_at
         );
         let w2 = s
-            .update_workspace(w.id, "b", &json!({"v": 2}), w.updated_at)
+            .update_workspace(w.id, "b", None, &json!({"v": 2}), w.updated_at)
             .await
             .unwrap();
         assert_eq!((w2.name.as_str(), &w2.state), ("b", &json!({"v": 2})));
         assert!(w2.updated_at > w.updated_at);
         let err = s
-            .update_workspace(w.id, "c", &json!({}), w.updated_at)
+            .update_workspace(w.id, "c", None, &json!({}), w.updated_at)
             .await
             .unwrap_err();
         assert!(matches!(err, StoreError::Conflict));
         // fresh timestamp round-trips exactly
-        s.update_workspace(w.id, "d", &json!({}), w2.updated_at)
+        s.update_workspace(w.id, "d", None, &json!({}), w2.updated_at)
             .await
             .unwrap();
         let err = s
-            .update_workspace(999, "x", &json!({}), w.updated_at)
+            .update_workspace(999, "x", None, &json!({}), w.updated_at)
             .await
             .unwrap_err();
         assert!(matches!(err, StoreError::NotFound));
@@ -174,11 +180,11 @@ mod tests {
     #[sqlx::test]
     async fn workspace_list_get_delete(pool: PgPool) {
         let s = Store::from_pool(pool);
-        let a = s.create_workspace("a", &json!({})).await.unwrap();
-        let b = s.create_workspace("b", &json!({})).await.unwrap();
+        let a = s.create_workspace("a", 1, &json!({})).await.unwrap();
+        let b = s.create_workspace("b", 1, &json!({})).await.unwrap();
         let l = s.list_workspaces().await.unwrap();
         assert_eq!(l.iter().map(|m| m.id).collect::<Vec<_>>(), vec![b.id, a.id]);
-        s.update_workspace(a.id, "a2", &json!({}), a.updated_at)
+        s.update_workspace(a.id, "a2", None, &json!({}), a.updated_at)
             .await
             .unwrap();
         let l = s.list_workspaces().await.unwrap();

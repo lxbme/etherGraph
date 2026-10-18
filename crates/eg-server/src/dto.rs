@@ -908,6 +908,10 @@ pub struct WorkspaceMetaDto {
 #[ts(export)]
 pub struct NewWorkspaceDto {
     pub name: String,
+    /// Version of the client's state format, at least 1; default 1.
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub schema_version: Option<i32>,
     /// Must be a JSON object.
     pub state: serde_json::Value,
 }
@@ -916,6 +920,10 @@ pub struct NewWorkspaceDto {
 #[ts(export)]
 pub struct UpdateWorkspaceDto {
     pub name: String,
+    /// Version of the client's state format, at least 1; absent keeps the stored one.
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub schema_version: Option<i32>,
     /// Must be a JSON object.
     pub state: serde_json::Value,
     /// The `updated_at` last read; a mismatch is a 409 conflict.

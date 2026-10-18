@@ -1,6 +1,7 @@
 import { t } from "../i18n";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
 import { withFirstBatch, type GraphState, type Pos, type SortKey } from "../graph/store";
+import type { TxDetailTab } from "../shell/tabs";
 
 export interface WorkspaceStateV1 {
   nodes: { address: string; x?: number; y?: number; pinned: boolean; hidden: boolean; note: string }[];
@@ -14,8 +15,30 @@ export interface WorkspaceStateV1 {
   viewport: { zoom: number; pan: { x: number; y: number } };
 }
 
+export type Viewport = { zoom: number; pan: { x: number; y: number } };
+
+/** Frozen view data (Task 7 gives it a shape); carried through saving and loading unchanged. */
+export type TxSnapshot = unknown;
+export type GraphSnapshot = unknown;
+
+/** An open transaction tab: its detail section and the layout of its flow graph. */
+export interface TxTabStateV2 {
+  hash: string;
+  detail_tab?: TxDetailTab;
+  positions?: Record<string, Pos>;
+  viewport?: Viewport;
+  snapshot?: TxSnapshot;
+}
+
+export interface WorkspaceStateV2 {
+  graph: WorkspaceStateV1 & { snapshot?: GraphSnapshot };
+  tabs: TxTabStateV2[];
+  /** "graph" or the hash of one of `tabs`. */
+  active: string;
+}
+
 export const DEFAULT_VIEWPORT: WorkspaceStateV1["viewport"] = { zoom: 1, pan: { x: 0, y: 0 } };
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export interface SerializeOpts {
   /** Addresses currently on the canvas (e.g. the live Cytoscape nodes); centers are always included. */
@@ -74,12 +97,48 @@ const isStr = (v: unknown): v is string => typeof v === "string";
 const isStrArr = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr);
 const isLimit = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 1;
 
-export function deserialize(
-  v: unknown,
-  schemaVersion: number,
-): { ok: true; state: WorkspaceStateV1 } | { ok: false; reason: string } {
-  const bad = (reason: string) => ({ ok: false as const, reason });
+const DETAIL_TABS: readonly string[] = ["overview", "input", "transfers", "internal", "logs", "raw"];
+const TX_HASH = /^0x[0-9a-f]{64}$/i;
+const isViewport = (v: unknown): v is Viewport =>
+  isObj(v) && isNum(v.zoom) && v.zoom > 0 && isObj(v.pan) && isNum(v.pan.x) && isNum(v.pan.y);
+const isPositions = (v: unknown): v is Record<string, Pos> =>
+  isObj(v) && Object.values(v).every((p) => isObj(p) && isNum(p.x) && isNum(p.y));
+
+type Parsed<T> = { ok: true; state: T } | { ok: false; reason: string };
+const bad = (reason: string) => ({ ok: false as const, reason });
+
+/** Validates a saved state of `schemaVersion` (1: the graph alone, which opens with no tx tabs). */
+export function deserialize(v: unknown, schemaVersion: number): Parsed<WorkspaceStateV2> {
+  if (schemaVersion === 1) {
+    const r = deserializeGraph(v);
+    return r.ok ? { ok: true, state: { graph: r.state, tabs: [], active: "graph" } } : r;
+  }
   if (schemaVersion !== SCHEMA_VERSION) return bad(t("ws.err.version"));
+  if (!isObj(v)) return bad(t("ws.err.data"));
+  const graph = deserializeGraph(v.graph);
+  if (!graph.ok) return graph;
+  if (!Array.isArray(v.tabs)) return bad(t("ws.err.field", { field: "tabs" }));
+  const tabs: TxTabStateV2[] = [];
+  for (const tab of v.tabs as unknown[]) {
+    if (!isObj(tab) || !isStr(tab.hash) || !TX_HASH.test(tab.hash)) return bad(t("ws.err.field", { field: "tabs" }));
+    const hash = lc(tab.hash);
+    if (tabs.some((x) => x.hash === hash)) return bad(t("ws.err.field", { field: "tabs" }));
+    if (tab.detail_tab !== undefined && !(isStr(tab.detail_tab) && DETAIL_TABS.includes(tab.detail_tab))) {
+      return bad(t("ws.err.field", { field: "detail_tab" }));
+    }
+    if (tab.positions !== undefined && !isPositions(tab.positions)) return bad(t("ws.err.field", { field: "positions" }));
+    if (tab.viewport !== undefined && !isViewport(tab.viewport)) return bad(t("ws.err.field", { field: "viewport" }));
+    tabs.push({ ...(tab as unknown as TxTabStateV2), hash });
+  }
+  const active = isStr(v.active) ? lc(v.active) : null;
+  if (active === null || (active !== "graph" && !tabs.some((x) => x.hash === active))) {
+    return bad(t("ws.err.field", { field: "active" }));
+  }
+  return { ok: true, state: { graph: graph.state, tabs, active } };
+}
+
+/** Validates the graph part (a v1 state); unknown fields such as `snapshot` are kept as they are. */
+function deserializeGraph(v: unknown): Parsed<WorkspaceStateV1 & { snapshot?: GraphSnapshot }> {
   if (!isObj(v)) return bad(t("ws.err.data"));
   const { nodes, centers, expanded_pairs, filter, viewport } = v;
   if (!Array.isArray(nodes)) return bad(t("ws.err.field", { field: "nodes" }));

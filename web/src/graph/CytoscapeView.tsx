@@ -1,6 +1,6 @@
 import cytoscape from "cytoscape";
 import { useEffect, useRef, type JSX } from "react";
-import { createRefitGuard, fitClamped, setFitInset } from "./refit";
+import { createRefitGuard, fitClamped, restoreViewport, setFitInset, setRefitGuard } from "./refit";
 import { runDagreLayout, runIncrementalLayout } from "./layout";
 
 type Pos = { x: number; y: number };
@@ -45,6 +45,11 @@ export interface CytoscapeViewProps {
    * remembered, so they are laid out afresh if they show up again.
    */
   positionsEpoch?: number;
+  /**
+   * A saved layout (`dagre-lr` only), used once when the canvas first gets elements: when every node has a
+   * saved position they are placed there instead of laid out, then the saved viewport (if any) is applied.
+   */
+  initialLayout?: { positions?: Record<string, Pos>; viewport?: { zoom: number; pan: Pos } };
 }
 
 const classStr = (c: cytoscape.ElementDefinition["classes"]) =>
@@ -256,6 +261,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       { fitOnResize: propsRef.current.layout === "dagre-lr" },
     );
     refitRef.current = refit;
+    setRefitGuard(cy, refit);
     const onUserViewport = () => refit.noteUserViewport();
     // A pointer gesture is the user's viewport only if it actually panned or zoomed (a tap or node drag is not).
     let gesture: { zoom: number; x: number; y: number } | null = null;
@@ -295,6 +301,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       window.removeEventListener("pointerup", onPointerUp, true);
       window.removeEventListener("pointercancel", onPointerUp, true);
       refitRef.current = null;
+      setRefitGuard(cy, null);
       cy.destroy();
       cyRef.current = null;
     };
@@ -322,6 +329,8 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
     if (before !== null && before !== left && cy.nodes().nonempty()) refitRef.current?.refitUnlessUserMoved();
   }, [props.fitInsetLeft]);
 
+  /** Whether the canvas has had elements (the saved layout is then spent). */
+  const filledRef = useRef(false);
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
@@ -343,10 +352,20 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
         staleRef.current.delete(id);
       }
     }
+    const saved = filledRef.current ? undefined : props.initialLayout;
+    if (cy.nodes().nonempty()) filledRef.current = true;
     if (props.layout === "dagre-lr") {
       if (r.structureChanged) {
-        runDagreLayout(cy);
-        refitRef.current?.noteLayout();
+        const pos = saved?.positions;
+        if (pos && cy.nodes().map((n) => n.id()).every((id) => !!pos[id])) {
+          cy.batch(() => cy.nodes().forEach((n) => void n.position({ ...pos[n.id()]! })));
+          refitRef.current?.noteLayout();
+          if (saved.viewport) restoreViewport(cy, saved.viewport);
+          else fitClamped(cy, 30);
+        } else {
+          runDagreLayout(cy);
+          refitRef.current?.noteLayout();
+        }
       }
     } else {
       if (r.newNodeIds.length > 0) {

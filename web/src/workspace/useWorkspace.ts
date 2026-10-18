@@ -5,13 +5,22 @@ import { ApiError, messageFor } from "../api/errors";
 import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
 import type { JsonValue } from "../api/generated/serde_json/JsonValue";
 import { t } from "../i18n";
-import { getMainCy } from "../graph/cyRegistry";
+import { getMainCy, getTxCy } from "../graph/cyRegistry";
 import { isMoreId } from "../graph/elements";
+import { restoreViewport } from "../graph/refit";
 import { pairKey, useGraph, type NodeUi, type Pos } from "../graph/store";
 import { useInfo } from "../panels/info/infoStore";
-import { useTabs } from "../shell/tabs";
+import { useTabs, type Tab, type TxTab, type TxTabInit } from "../shell/tabs";
 import { toast } from "../shell/Toasts";
-import { DEFAULT_VIEWPORT, deserialize, serialize, type WorkspaceStateV1 } from "./serialize";
+import {
+  DEFAULT_VIEWPORT,
+  deserialize,
+  SCHEMA_VERSION,
+  serialize,
+  type TxTabStateV2,
+  type WorkspaceStateV1,
+  type WorkspaceStateV2,
+} from "./serialize";
 
 interface WorkspaceStore {
   id: number | null;
@@ -53,6 +62,25 @@ useGraph.subscribe((s, prev) => {
   }
 });
 
+const isTx = (t: Tab): t is TxTab => "kind" in t;
+const txIds = (tabs: Tab[]) => tabs.flatMap((t) => (isTx(t) ? [t.id] : [])).join(",");
+
+/** Marks the workspace changed (a persisted part of it moved on). */
+function noteChange(): void {
+  graphVersion++;
+  useWorkspace.getState().markDirty();
+}
+
+// Opening or closing a tx tab marks the workspace dirty; its detail section, highlight or switching tabs do not (R3).
+useTabs.subscribe((s, prev) => {
+  if (s.tabs !== prev.tabs && txIds(s.tabs) !== txIds(prev.tabs)) noteChange();
+});
+
+/** A tx tab's nodes were dragged. */
+export function markTxLayoutChanged(): void {
+  noteChange();
+}
+
 /** Asks the browser to confirm leaving the page while the workspace has unsaved changes. */
 export function useUnsavedChangesPrompt(): void {
   useEffect(() => {
@@ -72,8 +100,39 @@ export function saveStatusLabel(w: Pick<WorkspaceStore, "id" | "dirty">): string
   return w.dirty ? t("ws.status.dirty") : t("ws.status.saved");
 }
 
+/** The graph and every open tx tab, with layouts read from the live canvases. */
+export function captureState(): WorkspaceStateV2 {
+  const { tabs, active } = useTabs.getState();
+  return { graph: captureGraph(), tabs: tabs.filter(isTx).map(captureTab), active };
+}
+
+/**
+ * A tx tab with its canvas's node positions and viewport; a canvas not showing the flow yet keeps the
+ * layout the tab was restored with, and one without a size (laid out while hidden) its saved viewport.
+ */
+function captureTab(tab: TxTab): TxTabStateV2 {
+  let { positions, viewport } = tab.layout ?? {};
+  const cy = getTxCy(tab.hash);
+  if (cy && cy.nodes().nonempty()) {
+    const live: Record<string, Pos> = {};
+    cy.nodes().forEach((n) => {
+      const p = n.position();
+      live[n.id()] = { x: p.x, y: p.y };
+    });
+    positions = live;
+    if (cy.width() > 0 && cy.height() > 0) viewport = { zoom: cy.zoom(), pan: { ...cy.pan() } };
+  }
+  return {
+    hash: tab.hash,
+    ...(tab.detailTab ? { detail_tab: tab.detailTab } : {}),
+    ...(positions ? { positions } : {}),
+    ...(viewport ? { viewport } : {}),
+    ...(tab.snapshot !== undefined ? { snapshot: tab.snapshot } : {}),
+  };
+}
+
 /** Reads positions and viewport from the live Cytoscape instance (falls back to the store). */
-export function captureState(): WorkspaceStateV1 {
+function captureGraph(): WorkspaceStateV1 {
   const cy = getMainCy();
   const nodes: string[] = [];
   const positions: Record<string, Pos> = {};
@@ -90,7 +149,7 @@ export function captureState(): WorkspaceStateV1 {
   return serialize(useGraph.getState(), viewport, { nodes, positions });
 }
 
-const asJson = (s: WorkspaceStateV1) => s as unknown as JsonValue;
+const asJson = (s: WorkspaceStateV2) => s as unknown as JsonValue;
 
 /** Marks saved, unless the graph changed while the request was in flight. */
 function commitSaved(w: WorkspaceDto, versionAtSave: number): void {
@@ -100,7 +159,7 @@ function commitSaved(w: WorkspaceDto, versionAtSave: number): void {
 
 export async function saveNew(name: string): Promise<void> {
   const v = graphVersion;
-  const w = await api.createWorkspace({ name, state: asJson(captureState()) });
+  const w = await api.createWorkspace({ name, schema_version: SCHEMA_VERSION, state: asJson(captureState()) });
   commitSaved(w, v);
 }
 
@@ -112,7 +171,12 @@ export async function saveCurrent(): Promise<"saved" | "conflict"> {
   if (id == null || name == null || updatedAt == null) throw new Error("no current workspace");
   const v = graphVersion;
   try {
-    const w = await api.updateWorkspace(id, { name, state: asJson(captureState()), expected_updated_at: updatedAt });
+    const w = await api.updateWorkspace(id, {
+      name,
+      schema_version: SCHEMA_VERSION,
+      state: asJson(captureState()),
+      expected_updated_at: updatedAt,
+    });
     commitSaved(w, v);
     return "saved";
   } catch (err) {
@@ -129,6 +193,7 @@ export async function overwriteCurrent(): Promise<void> {
   const v = graphVersion;
   const w = await api.updateWorkspace(id, {
     name,
+    schema_version: SCHEMA_VERSION,
     state: asJson(captureState()),
     expected_updated_at: latest.updated_at,
   });
@@ -141,7 +206,12 @@ export async function renameCurrent(name: string): Promise<"saved" | "conflict">
   if (id == null || updatedAt == null) throw new Error("no current workspace");
   try {
     const cur = await api.workspace(id);
-    const w = await api.updateWorkspace(id, { name, state: cur.state, expected_updated_at: updatedAt });
+    const w = await api.updateWorkspace(id, {
+      name,
+      schema_version: cur.schema_version,
+      state: cur.state,
+      expected_updated_at: updatedAt,
+    });
     const { dirty } = useWorkspace.getState();
     useWorkspace.getState().setCurrent(w);
     if (dirty) useWorkspace.getState().markDirty();
@@ -164,6 +234,7 @@ export async function deleteWorkspace(id: number): Promise<void> {
 export function newWorkspace(): void {
   restoreGen++;
   useInfo.getState().close("graph");
+  useTabs.getState().closeAllTx();
   useGraph.getState().reset();
   useWorkspace.getState().clear();
 }
@@ -176,7 +247,7 @@ function applyViewportLater(state: WorkspaceStateV1, gen: number): void {
     if (gen !== restoreGen) return;
     const cy = getMainCy();
     if (cy && (expected.length === 0 || expected.some((a) => cy.getElementById(a).nonempty()))) {
-      cy.viewport({ zoom: state.viewport.zoom, pan: state.viewport.pan });
+      restoreViewport(cy, state.viewport);
     } else if (++tries < 100) {
       setTimeout(attempt, 50);
     }
@@ -184,9 +255,19 @@ function applyViewportLater(state: WorkspaceStateV1, gen: number): void {
   setTimeout(attempt, 0);
 }
 
-function applyState(state: WorkspaceStateV1): void {
-  // The restored canvas (and its saved viewport) belongs to the graph tab: show it first.
-  useTabs.getState().activate("graph");
+/** A saved tx tab as a tab entry (absent fields stay absent). */
+function txInit({ hash, detail_tab, positions, viewport, snapshot }: TxTabStateV2): TxTabInit {
+  return {
+    hash,
+    ...(detail_tab ? { detailTab: detail_tab } : {}),
+    ...(positions || viewport ? { layout: { ...(positions ? { positions } : {}), ...(viewport ? { viewport } : {}) } } : {}),
+    ...(snapshot !== undefined ? { snapshot } : {}),
+  };
+}
+
+function applyState({ graph: state, tabs, active }: WorkspaceStateV2): void {
+  // The saved tx tabs replace the open ones; the graph is restored with its tab shown, then the saved tab is.
+  useTabs.getState().restoreTx(tabs.map(txInit), "graph");
   const ui: Record<string, NodeUi> = {};
   for (const n of state.nodes) {
     ui[n.address.toLowerCase()] = {
@@ -206,6 +287,7 @@ function applyState(state: WorkspaceStateV1): void {
     limits: state.limits,
   });
   applyViewportLater(state, ++restoreGen);
+  useTabs.getState().activate(active);
 }
 
 /** Opens a workspace; false (with a toast, canvas untouched) when it cannot be loaded. */

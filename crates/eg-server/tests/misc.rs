@@ -1318,3 +1318,49 @@ async fn import_tokens_refuses_an_empty_parse_and_keeps_the_source(pool: PgPool)
     let rows = store.token_tags(&[a.parse().unwrap()]).await.unwrap();
     assert_eq!(rows.len(), 1);
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn workspace_stores_the_schema_version_it_is_given(pool: PgPool) {
+    let (app, _, _) = test_app(pool);
+    // Absent: version 1 (clients that predate the field).
+    let (st, w) = post_json(&app, "/api/workspaces", &json!({"name": "a", "state": {}})).await;
+    assert_eq!(st, StatusCode::CREATED, "{w}");
+    assert_eq!(w["schema_version"], 1);
+
+    let (st, w) = post_json(
+        &app,
+        "/api/workspaces",
+        &json!({"name": "b", "schema_version": 2, "state": {}}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{w}");
+    assert_eq!(w["schema_version"], 2);
+    let uri = format!("/api/workspaces/{}", w["id"]);
+
+    // An update without a version keeps the stored one; with one, replaces it.
+    let (st, w) = put_json(
+        &app,
+        &uri,
+        &json!({"name": "b", "state": {}, "expected_updated_at": w["updated_at"]}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{w}");
+    assert_eq!(w["schema_version"], 2);
+    let (st, w) = put_json(
+        &app,
+        &uri,
+        &json!({"name": "b", "schema_version": 3, "state": {}, "expected_updated_at": w["updated_at"]}),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{w}");
+    let (_, cur) = get(&app, &uri).await;
+    assert_eq!(cur["schema_version"], 3);
+
+    let (st, v) = post_json(
+        &app,
+        "/api/workspaces",
+        &json!({"name": "c", "schema_version": 0, "state": {}}),
+    )
+    .await;
+    assert_eq!((st, code(&v)), (StatusCode::BAD_REQUEST, "invalid_input"));
+}

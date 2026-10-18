@@ -3,6 +3,10 @@ import type { JsonValue } from "./serde_json/JsonValue";
 
 export type UpdateWorkspaceDto = { name: string, 
 /**
+ * Version of the client's state format, at least 1; absent keeps the stored one.
+ */
+schema_version?: number | null, 
+/**
  * Must be a JSON object.
  */
 state: JsonValue, 

@@ -17,7 +17,10 @@ import type { TokenDetailDto } from "../src/api/generated/TokenDetailDto";
 import type { TransferPageDto } from "../src/api/generated/TransferPageDto";
 import type { TxRawDto } from "../src/api/generated/TxRawDto";
 import type { TxResponseDto } from "../src/api/generated/TxResponseDto";
+import type { NewWorkspaceDto } from "../src/api/generated/NewWorkspaceDto";
+import type { UpdateWorkspaceDto } from "../src/api/generated/UpdateWorkspaceDto";
 import type { WorkspaceDto } from "../src/api/generated/WorkspaceDto";
+import type { WorkspaceMetaDto } from "../src/api/generated/WorkspaceMetaDto";
 import addressJson from "./fixtures/address.json" with { type: "json" };
 import counterpartiesJson from "./fixtures/counterparties.json" with { type: "json" };
 import counterpartiesContractJson from "./fixtures/counterparties-contract.json" with { type: "json" };
@@ -72,6 +75,9 @@ const notFound = (message: string): Reply => ({ status: 404, json: { error: { co
 
 function defaultHandlers(): Map<RouteKey, Handler> {
   let nextWorkspaceId = 1;
+  /** Saved workspaces (kept across page reloads within a test). */
+  const workspaces = new Map<number, WorkspaceDto>();
+  const workspaceId = (url: URL) => Number(url.pathname.split("/").pop());
   const nodes = new Map(fixtures.graph.nodes.map((n) => [n.address, n]));
   return new Map<RouteKey, Handler>([
     ["GET /api/status", () => ({ json: fixtures.status })],
@@ -148,21 +154,54 @@ function defaultHandlers(): Map<RouteKey, Handler> {
         return { json };
       },
     ],
-    ["GET /api/workspaces", () => ({ json: [] })],
+    [
+      "GET /api/workspaces",
+      () => ({
+        json: [...workspaces.values()].map(({ id, name, updated_at }) => ({ id, name, updated_at }) satisfies WorkspaceMetaDto),
+      }),
+    ],
+    [
+      "GET /api/workspaces/*",
+      (_req, url) => {
+        const w = workspaces.get(workspaceId(url));
+        return w ? { json: w } : notFound("unknown workspace");
+      },
+    ],
     [
       "POST /api/workspaces",
       (req) => {
-        const body = req.postDataJSON() as { name: string; state: WorkspaceDto["state"] };
+        const body = req.postDataJSON() as NewWorkspaceDto;
         const now = new Date().toISOString();
         const w: WorkspaceDto = {
           id: nextWorkspaceId++,
           name: body.name,
-          schema_version: 1,
+          schema_version: body.schema_version ?? 1,
           state: body.state,
           created_at: now,
           updated_at: now,
         };
+        workspaces.set(w.id, w);
         return { status: 201, json: w };
+      },
+    ],
+    [
+      "PUT /api/workspaces/*",
+      (req, url) => {
+        const cur = workspaces.get(workspaceId(url));
+        if (!cur) return notFound("unknown workspace");
+        const body = req.postDataJSON() as UpdateWorkspaceDto;
+        if (body.expected_updated_at !== cur.updated_at) {
+          return { status: 409, json: { error: { code: "conflict", message: "changed elsewhere" } } };
+        }
+        const w: WorkspaceDto = {
+          ...cur,
+          name: body.name,
+          schema_version: body.schema_version ?? cur.schema_version,
+          state: body.state,
+          updated_at: new Date(Date.parse(cur.updated_at) + 1).toISOString(),
+        };
+        workspaces.set(w.id, w);
+        return { json: w };
       },
     ],
   ]);

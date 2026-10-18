@@ -33,6 +33,16 @@ fn check_state(state: &serde_json::Value) -> Result<(), ApiError> {
     }
 }
 
+/// A client state format version, when given, is at least 1.
+fn check_version(v: Option<i32>) -> Result<(), ApiError> {
+    match v {
+        Some(n) if n < 1 => Err(invalid(format!(
+            "schema_version must be at least 1, got {n}"
+        ))),
+        _ => Ok(()),
+    }
+}
+
 pub async fn list(State(s): State<AppState>) -> Result<Json<Vec<WorkspaceMetaDto>>, ApiError> {
     let rows = s.store.list_workspaces().await?;
     Ok(Json(rows.iter().map(WorkspaceMetaDto::from).collect()))
@@ -44,7 +54,11 @@ pub async fn create(
 ) -> Result<(StatusCode, Json<WorkspaceDto>), ApiError> {
     let name = valid_name(&body.name)?;
     check_state(&body.state)?;
-    let row = s.store.create_workspace(name, &body.state).await?;
+    check_version(body.schema_version)?;
+    let row = s
+        .store
+        .create_workspace(name, body.schema_version.unwrap_or(1), &body.state)
+        .await?;
     Ok((StatusCode::CREATED, Json(WorkspaceDto::from(&row))))
 }
 
@@ -62,10 +76,11 @@ pub async fn update(
 ) -> Result<Json<WorkspaceDto>, ApiError> {
     let name = valid_name(&body.name)?;
     check_state(&body.state)?;
+    check_version(body.schema_version)?;
     let expected = parse_time(&body.expected_updated_at, "expected_updated_at")?;
     let row = s
         .store
-        .update_workspace(id, name, &body.state, expected)
+        .update_workspace(id, name, body.schema_version, &body.state, expected)
         .await?;
     Ok(Json(WorkspaceDto::from(&row)))
 }

@@ -101,11 +101,16 @@ test("search → edge → transfers → tx tab → back → filter → save", as
   await expect(page.getByText("Workspace: Saved")).toBeVisible();
   const saved = mock.requests("POST /api/workspaces");
   expect(saved).toHaveLength(1);
-  const body = saved[0]!.postDataJSON() as { name: string; state: { centers: string[]; filter: unknown; nodes: { address: string }[] } };
+  const body = saved[0]!.postDataJSON() as {
+    name: string;
+    state: { graph: { centers: string[]; filter: unknown; nodes: { address: string }[] }; tabs: { hash: string }[] };
+  };
   expect(body.name).toBe("e2e workspace");
-  expect(body.state.centers).toEqual([A]);
-  expect(body.state.filter).toEqual({ assets: [{ asset: null, min_amount: "1" }] });
-  expect(body.state.nodes.map((n) => n.address).sort()).toEqual([A, B, D].sort());
+  expect(body.state.graph.centers).toEqual([A]);
+  expect(body.state.graph.filter).toEqual({ assets: [{ asset: null, min_amount: "1" }] });
+  expect(body.state.graph.nodes.map((n) => n.address).sort()).toEqual([A, B, D].sort());
+  // The tx tab opened above is saved with the workspace.
+  expect(body.state.tabs.map((t) => t.hash)).toEqual([TX]);
 
   expect(mock.unhandled).toEqual([]);
 });

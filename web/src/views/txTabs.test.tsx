@@ -8,16 +8,22 @@ import { queryClient } from "../api/queryClient";
 import { useGraph } from "../graph/store";
 import { useUi } from "../panels/uiStore";
 import { useTabs } from "../shell/tabs";
+import { serialize } from "../workspace/serialize";
+import { loadWorkspace, useWorkspace } from "../workspace/useWorkspace";
 
 // One mocked canvas per mount, identified by the first node id of its elements.
-const h = vi.hoisted(() => ({ byFirst: {} as Record<string, CytoscapeViewProps> }));
-vi.mock("../graph/CytoscapeView", () => ({
-  CytoscapeView: (p: CytoscapeViewProps) => {
-    const first = String(p.elements[0]?.data.id ?? "none");
-    h.byFirst[first] = p;
-    return <div data-testid="cy" data-first={first} />;
-  },
-}));
+const h = vi.hoisted(() => ({ byFirst: {} as Record<string, CytoscapeViewProps>, mounts: 0 }));
+vi.mock("../graph/CytoscapeView", async () => {
+  const { useEffect } = await import("react");
+  return {
+    CytoscapeView: (p: CytoscapeViewProps) => {
+      useEffect(() => void h.mounts++, []);
+      const first = String(p.elements[0]?.data.id ?? "none");
+      h.byFirst[first] = p;
+      return <div data-testid="cy" data-first={first} />;
+    },
+  };
+});
 vi.mock("../api/useEvents", () => ({ useEvents: () => {} }));
 vi.mock("../panels/NodeDetail", () => ({ NodeDetail: ({ address }: { address: string }) => <div>detail:{address}</div> }));
 
@@ -95,4 +101,28 @@ test("on a tx tab the right panel shows only that tab's detail, never the graph'
   act(() => useTabs.getState().activate("graph"));
   expect(screen.getAllByText(/^detail:/)).toHaveLength(1);
   expect(screen.getByText(`detail:${A}`)).toBeInTheDocument();
+});
+
+test("a tx canvas gets its tab's saved layout; a node drag marks the workspace dirty; opening a workspace re-creates an open tab", async () => {
+  vi.spyOn(api, "tx").mockResolvedValue(resp(A, B, H1));
+  render(<App />);
+  act(() => useTabs.getState().openTx(H1));
+  await vi.waitFor(() => expect(h.byFirst[A]).toBeDefined());
+  expect(h.byFirst[A]!.initialLayout).toBeUndefined();
+
+  useWorkspace.getState().setCurrent({ id: 7, name: "w", updated_at: "T1" });
+  act(() => h.byFirst[A]!.onDragEnd({ [A]: { x: 1, y: 2 } }));
+  expect(useWorkspace.getState().dirty).toBe(true);
+
+  const layout = { positions: { [A]: { x: 1, y: 2 }, [B]: { x: 3, y: 4 } }, viewport: { zoom: 2, pan: { x: 5, y: 6 } } };
+  const graph = JSON.parse(JSON.stringify(serialize(useGraph.getState(), { zoom: 1, pan: { x: 0, y: 0 } })));
+  vi.spyOn(api, "workspace").mockResolvedValue({
+    id: 8, name: "v", schema_version: 2, created_at: "T0", updated_at: "T2",
+    state: { graph, tabs: [{ hash: H1, ...layout }], active: H1 },
+  });
+  const before = h.mounts;
+  await act(() => loadWorkspace(8));
+  await vi.waitFor(() => expect(h.byFirst[A]!.initialLayout).toEqual(layout));
+  expect(h.mounts).toBeGreaterThan(before);
+  expect(useTabs.getState().active).toBe(H1);
 });

@@ -49,6 +49,24 @@ export function fitClamped(cy: cytoscape.Core, padding: number | Padding): void 
   });
 }
 
+/** Each mounted canvas's refit guard (see CytoscapeView). */
+const guards = new WeakMap<cytoscape.Core, { noteUserViewport(): void }>();
+
+/** Registers (or with null, drops) the refit guard of `cy`. */
+export function setRefitGuard(cy: cytoscape.Core, guard: { noteUserViewport(): void } | null): void {
+  if (guard) guards.set(cy, guard);
+  else guards.delete(cy);
+}
+
+/**
+ * Sets a saved viewport. The canvas then keeps it like one the user moved to: showing or resizing the
+ * canvas (e.g. its tab was hidden while it loaded) does not fit it again.
+ */
+export function restoreViewport(cy: cytoscape.Core, viewport: { zoom: number; pan: { x: number; y: number } }): void {
+  cy.viewport({ zoom: viewport.zoom, pan: { ...viewport.pan } });
+  guards.get(cy)?.noteUserViewport();
+}
+
 export interface RefitDeps {
   /** Current container size in CSS pixels. */
   size(): { width: number; height: number };

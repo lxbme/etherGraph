@@ -22,6 +22,7 @@ import { useUi } from "../panels/uiStore";
 import { useJobProgress } from "../shell/statusStore";
 import { useTabs } from "../shell/tabs";
 import { useTheme } from "../shell/theme";
+import { markTxLayoutChanged } from "../workspace/useWorkspace";
 import { CanvasTools, IdentifyAllButton, type CanvasExport } from "./CanvasTools";
 import { GraphTooltip } from "./GraphTooltip";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
@@ -80,6 +81,11 @@ export function TxFlowView({ hash }: { hash: string }) {
   const highlightedSeq = useTabs((s) => {
     const entry = s.tabs.find((x) => x.id === hash.toLowerCase());
     return entry && "kind" in entry ? (entry.highlightedSeq ?? null) : null;
+  });
+  /** The layout this tab was restored with (a workspace); the canvas uses it once. */
+  const savedLayout = useTabs((s) => {
+    const entry = s.tabs.find((x) => x.id === hash.toLowerCase());
+    return entry && "kind" in entry ? entry.layout : undefined;
   });
   const flow = q.data?.status === "ready" ? q.data.flow : null;
   const elements = useMemo(
@@ -206,7 +212,8 @@ export function TxFlowView({ hash }: { hash: string }) {
             }}
             onSelectionChange={box.getState().set}
             selectMode={selectMode}
-            onDragEnd={NOOP}
+            onDragEnd={markTxLayoutChanged}
+            initialLayout={savedLayout}
             onReady={(cy) => {
               registerTxCy(hash, cy);
               box.getState().bindCanvas(() => cy.$(":selected").unselect());

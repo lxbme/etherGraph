@@ -30,7 +30,12 @@ vi.mock("../api/endpoints", () => ({
     deleteWorkspace: vi.fn(),
   },
 }));
-vi.mock("../graph/cyRegistry", () => ({ getMainCy: vi.fn(() => null), setMainCy: vi.fn() }));
+vi.mock("../graph/cyRegistry", () => ({
+  getMainCy: vi.fn(() => null),
+  setMainCy: vi.fn(),
+  getTxCy: vi.fn(() => null),
+  registerTxCy: vi.fn(),
+}));
 const m = vi.mocked(api);
 
 const A = "0x" + "a".repeat(40);
@@ -67,7 +72,7 @@ describe("serialize", () => {
     expect(s.nodes.find((n) => n.address === A)).toMatchObject({ x: 1, y: 2 });
     expect(s.nodes.find((n) => n.address === B)).toMatchObject({ x: 5, y: 6, pinned: true, note: "hi" });
     const r = deserialize(JSON.parse(JSON.stringify(s)), 1);
-    expect(r).toEqual({ ok: true, state: s });
+    expect(r).toEqual({ ok: true, state: { graph: s, tabs: [], active: "graph" } });
   });
 
   test("only canvas nodes and flagged nodes are included", () => {
@@ -79,7 +84,8 @@ describe("serialize", () => {
 
   test("deserialize rejects unknown schema_version and malformed state", () => {
     const good = serialize(g(), VP);
-    expect(deserialize(good, 2).ok).toBe(false);
+    expect(deserialize(good, 3).ok).toBe(false);
+    expect(deserialize(good, 2).ok).toBe(false); // a v1 state is not a v2 one
     expect(deserialize(null, 1).ok).toBe(false);
     expect(deserialize({ ...good, centers: [1] }, 1).ok).toBe(false);
     expect(deserialize({ ...good, viewport: { zoom: NaN, pan: { x: 0, y: 0 } } }, 1).ok).toBe(false);
@@ -97,7 +103,8 @@ describe("saving", () => {
     await saveNew("w");
     expect(m.createWorkspace).toHaveBeenCalledWith({
       name: "w",
-      state: expect.objectContaining({ centers: [A] }),
+      schema_version: 2,
+      state: { graph: expect.objectContaining({ centers: [A] }), tabs: [], active: "graph" },
     });
     expect(useWorkspace.getState()).toMatchObject({ id: 7, name: "w", updatedAt: "T1", dirty: false });
 
@@ -105,6 +112,7 @@ describe("saving", () => {
     await expect(saveCurrent()).resolves.toBe("saved");
     expect(m.updateWorkspace).toHaveBeenCalledWith(7, {
       name: "w",
+      schema_version: 2,
       state: expect.any(Object),
       expected_updated_at: "T1",
     });
@@ -168,7 +176,7 @@ describe("loading", () => {
     expect(g().canUndo()).toBe(false);
     expect(useWorkspace.getState()).toMatchObject({ id: 7, updatedAt: "T5", dirty: false });
 
-    m.workspace.mockResolvedValue(dto({ id: 8, schema_version: 2 }));
+    m.workspace.mockResolvedValue(dto({ id: 8, schema_version: 3 }));
     await expect(loadWorkspace(8)).resolves.toBe(false);
     expect(g().centers).toEqual([A]);
     expect(useWorkspace.getState().id).toBe(7);
@@ -216,7 +224,7 @@ describe("sort persistence", () => {
     g().applyFilter({ hide_suspicious: true, direction: "out" }, "count");
     const s = serialize(g(), VP);
     expect(s.filter).toEqual({ hide_suspicious: true, direction: "out" });
-    expect(deserialize(JSON.parse(JSON.stringify(s)), 1)).toEqual({ ok: true, state: s });
+    expect(deserialize(JSON.parse(JSON.stringify(s)), 1)).toEqual({ ok: true, state: { graph: s, tabs: [], active: "graph" } });
     g().reset();
     m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(s)) }));
     await loadWorkspace(7);
@@ -234,7 +242,7 @@ describe("sort persistence", () => {
     g().applyFilter({}, "recent");
     const s = serialize(g(), VP);
     expect(s.sort).toBe("recent");
-    expect(deserialize(JSON.parse(JSON.stringify(s)), 1)).toEqual({ ok: true, state: s });
+    expect(deserialize(JSON.parse(JSON.stringify(s)), 1)).toEqual({ ok: true, state: { graph: s, tabs: [], active: "graph" } });
     g().reset();
     m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(s)) }));
     await loadWorkspace(7);
@@ -330,7 +338,7 @@ describe("workspace copy", () => {
   });
   test("deserialize failure reasons are English", () => {
     expect(deserialize(null, 1)).toEqual({ ok: false, reason: "Invalid workspace data" });
-    expect(deserialize({}, 2)).toEqual({ ok: false, reason: "Unsupported workspace version" });
+    expect(deserialize({}, 3)).toEqual({ ok: false, reason: "Unsupported workspace version" });
   });
 });
 
@@ -352,7 +360,7 @@ describe("limits", () => {
     const { limits: _omit, ...legacy } = serialize(g(), VP);
     g().reset();
     const r = deserialize(JSON.parse(JSON.stringify(legacy)), 1);
-    expect(r.ok && r.state.limits).toEqual({ [A]: 29, [B]: 29 });
+    expect(r.ok && r.state.graph.limits).toEqual({ [A]: 29, [B]: 29 });
     m.workspace.mockResolvedValue(dto({ state: legacy as never }));
     await expect(loadWorkspace(7)).resolves.toBe(true);
     expect(g().limits).toEqual({ [A]: 29, [B]: 29 });
@@ -361,14 +369,14 @@ describe("limits", () => {
   test("legacy centers share the budget over an empty canvas, ignoring the nodes now visible (R12)", () => {
     useCanvasMetrics.getState().set({ visible: 40 });
     const r = deserialize({ ...serialize((g().setCenters([A, B]), g()), VP), limits: undefined }, 1);
-    expect(r.ok && r.state.limits).toEqual({ [A]: 29, [B]: 29 }); // (60 - 2) / 2, not (20 - 2) / 2
+    expect(r.ok && r.state.graph.limits).toEqual({ [A]: 29, [B]: 29 }); // (60 - 2) / 2, not (20 - 2) / 2
   });
 
   test("centers missing from limits get a first batch", () => {
     g().setCenters([A, B]);
     const s = { ...serialize(g(), VP), limits: { [A]: 12 } };
     const r = deserialize(JSON.parse(JSON.stringify(s)), 1);
-    expect(r.ok && r.state.limits).toEqual({ [A]: 12, [B]: 59 });
+    expect(r.ok && r.state.graph.limits).toEqual({ [A]: 12, [B]: 59 });
   });
 
   test("malformed limits are rejected with a translated reason", async () => {
