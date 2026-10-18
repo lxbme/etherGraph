@@ -161,7 +161,7 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
         )}
       </div>
       {del.isError && <div className="detail__error" role="alert">{messageFor(del.error)}</div>}
-      {editorFor === address && <LabelEditor address={address} onClose={closeEditor} />}
+      {editorFor === address && <LabelEditor addresses={[address]} onClose={closeEditor} />}
 
       {/* 4. Balance: only once probed. */}
       {balance && (

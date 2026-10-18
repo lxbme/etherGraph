@@ -29,7 +29,7 @@ function mount(onHover: Mock<HoverFn>) {
     <CytoscapeView
       elements={els} stylesheet={[] as unknown as cytoscape.StylesheetJson} layout="incremental"
       onTapNode={noop} onTapEdge={noop} onDblTapNode={noop} onDblTapEdge={noop} onCxtNode={noop}
-      onBoxSelect={noop} onDragEnd={noop} onHover={onHover} onReady={(c) => { cy = c; }}
+      onSelectionChange={noop} onDragEnd={noop} onHover={onHover} onReady={(c) => { cy = c; }}
     />,
   );
   onHover.mockClear(); // mounting pans/fits, which hides (a no-op)

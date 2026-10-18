@@ -20,7 +20,14 @@ export interface CytoscapeViewProps {
   onDblTapEdge(source: string, target: string): void;
   /** `pos` is the rendered position relative to the canvas container (not page/client coordinates). */
   onCxtNode(id: string, pos: Pos): void;
-  onBoxSelect(ids: string[]): void;
+  /**
+   * The natively selected nodes (box, Shift+click), lowercased and deduped; fired once per tick after any
+   * change. A plain tap on a node leaves nothing selected, a Shift+tap toggles that node, a background tap
+   * unselects all.
+   */
+  onSelectionChange(ids: string[]): void;
+  /** Plain drag box-selects instead of panning (Shift+drag always box-selects). */
+  selectMode?: boolean;
   /** A tap on empty canvas. */
   onTapBackground?(): void;
   onDragEnd(positions: Record<string, Pos>): void;
@@ -136,7 +143,8 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       style: propsRef.current.stylesheet,
       elements: [],
       boxSelectionEnabled: true,
-      selectionType: "single",
+      selectionType: "additive",
+      userPanningEnabled: !propsRef.current.selectMode,
       minZoom: 0.05,
       maxZoom: 4,
     });
@@ -147,12 +155,51 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
     // Deferred (microtask) callbacks must not fire after this instance was torn down.
     let alive = true;
 
+    // Only nodes take part in the selection.
+    cy.on("add", "edge", (e) => {
+      e.target.unselectify();
+    });
+    // Every select / unselect / removal in a tick is reported once, as the resulting selection.
+    let selFlush = false;
+    cy.on("select unselect remove", "node", () => {
+      if (selFlush) return;
+      selFlush = true;
+      queueMicrotask(() => {
+        selFlush = false;
+        if (alive) p().onSelectionChange([...new Set(cy.nodes(":selected").map((n) => n.id().toLowerCase()))]);
+      });
+    });
+
+    // In additive mode Cytoscape toggles a tapped node's selection right after the `tap` event (a real
+    // click only; an emitted tap does not). The fix-ups below are queued before that toggle can queue a
+    // selection report, so the report sees the settled state.
     cy.on("tap", "node", (e) => {
-      const ev = e.originalEvent as MouseEvent | undefined;
-      p().onTapNode(e.target.id(), { shift: !!ev?.shiftKey });
+      const node = e.target as cytoscape.NodeSingular;
+      const shift = !!(e.originalEvent as MouseEvent | undefined)?.shiftKey;
+      if (!node.selectable()) {
+        p().onTapNode(node.id(), { shift });
+        return;
+      }
+      if (shift) {
+        const was = node.selected();
+        queueMicrotask(() => {
+          if (alive && node.inside() && node.selected() === was) {
+            if (was) node.unselect();
+            else node.select();
+          }
+        });
+        return;
+      }
+      queueMicrotask(() => {
+        if (alive) cy.nodes(":selected").unselect();
+      });
+      cy.nodes(":selected").unselect();
+      p().onTapNode(node.id(), { shift });
     });
     cy.on("tap", (e) => {
-      if (e.target === cy) p().onTapBackground?.();
+      if (e.target !== cy) return;
+      if (!(e.originalEvent as MouseEvent | undefined)?.shiftKey) cy.nodes(":selected").unselect();
+      p().onTapBackground?.();
     });
     cy.on("tap", "edge", (e) => p().onTapEdge(e.target.data("source"), e.target.data("target")));
     cy.on("dbltap", "node", (e) => p().onDblTapNode(e.target.id()));
@@ -196,18 +243,6 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       }
       const pos = e.target.position();
       dragged[e.target.id()] = { x: pos.x, y: pos.y };
-    });
-
-    // `boxend` fires before the boxed elements emit `box`; collect them and flush afterwards.
-    let boxed: string[] | null = null;
-    cy.on("box", "node", (e) => boxed?.push(e.target.id()));
-    cy.on("boxend", () => {
-      boxed = [];
-      queueMicrotask(() => {
-        const ids = boxed ?? [];
-        boxed = null;
-        if (alive) p().onBoxSelect([...new Set(ids)]);
-      });
     });
 
     const refit = createRefitGuard(
@@ -269,6 +304,10 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
     if (!cy) return;
     cy.style(props.stylesheet);
   }, [props.stylesheet]);
+
+  useEffect(() => {
+    cyRef.current?.userPanningEnabled(!props.selectMode);
+  }, [props.selectMode]);
 
   // Before the elements effect, so the first layout's fit already keeps the inset clear.
   const insetRef = useRef<number | null>(null);

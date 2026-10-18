@@ -36,7 +36,7 @@ const noop = () => {};
 const props = (elements: cytoscape.ElementDefinition[], layout: CytoscapeViewProps["layout"] = "dagre-lr"): CytoscapeViewProps => ({
   elements, stylesheet: [] as unknown as cytoscape.StylesheetJson, layout,
   onTapNode: noop, onTapEdge: noop, onDblTapNode: noop, onDblTapEdge: noop, onCxtNode: noop,
-  onBoxSelect: noop, onDragEnd: noop,
+  onSelectionChange: noop, onDragEnd: noop,
 });
 const els: cytoscape.ElementDefinition[] = [{ group: "nodes", data: { id: "a" } }];
 

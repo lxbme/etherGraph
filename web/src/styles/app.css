@@ -245,6 +245,8 @@ button.chip:hover { color: var(--fg); }
   box-shadow: var(--shadow-pop);
   white-space: normal;
 }
+/* The popover is the editor's box. */
+.batch-bar__editor .label-editor { padding: 0; background: none; border: 0; }
 .popover__title { margin: 0; font-size: var(--fs-13); font-weight: 600; }
 
 .dropdown { position: relative; }
@@ -674,8 +676,16 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
   pointer-events: none;
 }
 .address-graph__status--error { color: var(--neg); }
-/* Left of the refreshing dot (right: --sp-3, width --sp-2), with a --sp-2 gap. */
-.address-graph__unhide { position: absolute; top: var(--sp-2); right: calc(var(--sp-3) + var(--sp-2) + var(--sp-2)); z-index: 5; font-size: var(--fs-12); padding: var(--sp-1) var(--sp-2); }
+/* Top-right canvas tools, left of the refreshing dot (right: --sp-3, width --sp-2) with a --sp-2 gap. */
+.canvas-tools {
+  position: absolute;
+  top: var(--sp-2);
+  right: calc(var(--sp-3) + var(--sp-2) + var(--sp-2));
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
 .address-graph__refreshing {
   position: absolute;
   top: var(--sp-3);
@@ -804,11 +814,13 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .filter__hint { width: 100%; color: var(--fg-muted); font-size: var(--fs-12); }
 .filter__actions { display: flex; justify-content: flex-end; gap: var(--sp-2); }
 
+/* Centred in the canvas; shifted inline to centre in the width the expanded legend leaves free. */
 .batch-bar {
   position: absolute;
   bottom: var(--sp-3);
   left: 50%;
   transform: translateX(-50%);
+  z-index: 5;
   display: flex;
   align-items: center;
   gap: var(--sp-2);
@@ -817,7 +829,25 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-pop);
+  font-size: var(--fs-12);
+  white-space: nowrap;
 }
+.batch-bar__count { color: var(--fg-muted); }
+.batch-bar__editor {
+  position: absolute;
+  bottom: calc(100% + var(--sp-2));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 320px;
+  padding: var(--sp-3);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pop);
+  box-shadow: var(--shadow-pop);
+  white-space: normal;
+}
+/* The popover is the editor's box. */
+.batch-bar__editor .label-editor { padding: 0; background: none; border: 0; }
 
 .dialog__list { margin: 0; padding: 0; list-style: none; overflow-y: auto; }
 .dialog__row { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) 0; cursor: pointer; }

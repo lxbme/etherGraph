@@ -44,6 +44,8 @@ export interface GraphState {
   addCenter(a: string): void;
   /** Makes `a` a shown center (adds it and/or unhides it) in one history step; no-op if it already is. */
   revealCenter(a: string): void;
+  /** `revealCenter` for several addresses, as one history step. */
+  revealCenters(a: string[]): void;
   removeCenter(a: string): void;
   setCenters(a: string[]): void;
   /** Adds `addresses` as shown centers with limit `k` (existing centers keep theirs) in one history step whose undo/redo runs the batch's effect. */
@@ -248,16 +250,17 @@ export const useGraph = create<GraphState>()((set, get) => {
       if (get().centers.includes(addr)) return;
       tracked((s) => ({ centers: [...s.centers, addr], limits: withFirstBatch(s.limits, [addr]) }));
     },
-    revealCenter: (a) => {
-      const addr = lc(a);
+    revealCenter: (a) => get().revealCenters([a]),
+    revealCenters: (list) => {
       const s = get();
-      const isCenter = s.centers.includes(addr);
-      const hidden = !!s.ui[addr]?.hidden;
-      if (isCenter && !hidden) return;
+      const addrs = [...new Set(list.map(lc))];
+      const added = addrs.filter((a) => !s.centers.includes(a));
+      const hidden = addrs.filter((a) => !!s.ui[a]?.hidden);
+      if (added.length === 0 && hidden.length === 0) return;
       tracked((cur) => ({
-        centers: isCenter ? cur.centers : [...cur.centers, addr],
-        ui: hidden ? applyUiPatch(cur.ui, [addr], { hidden: false }) : cur.ui,
-        limits: withFirstBatch(cur.limits, [addr]),
+        centers: added.length > 0 ? [...cur.centers, ...added] : cur.centers,
+        ui: hidden.length > 0 ? applyUiPatch(cur.ui, hidden, { hidden: false }) : cur.ui,
+        limits: withFirstBatch(cur.limits, addrs),
       }));
     },
     removeCenter: (a) => {

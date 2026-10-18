@@ -11,6 +11,7 @@ import { useLocale } from "../i18n";
 import { useJobProgress } from "../shell/statusStore";
 import { useTabs } from "../shell/tabs";
 import { useUi } from "../panels/uiStore";
+import { Toasts } from "../shell/Toasts";
 import { TxFlowView, TxNodeDetail } from "./TxFlowView";
 
 const h = vi.hoisted(() => ({ props: null as CytoscapeViewProps | null }));
@@ -325,4 +326,71 @@ test("clicking a token-transfer or internal-call row highlights its flow edge; c
   expect(edge("flow-2-1").classes).toContain("highlighted");
   expect(edge("flow-1-0").classes).not.toContain("highlighted");
   expect(useTabs.getState().tabs.find((t) => t.id === HASH)).toMatchObject({ highlightedSeq: 2 });
+});
+
+describe("box selection", () => {
+  /** A stand-in for the canvas handle: records native unselects. */
+  function fakeCy() {
+    const unselect = vi.fn();
+    return { cy: { $: vi.fn(() => ({ unselect })) } as unknown as import("cytoscape").Core, unselect };
+  }
+  async function selectBoth() {
+    vi.spyOn(api, "tx").mockResolvedValue(ready());
+    renderView();
+    await screen.findByTestId("cy");
+    const f = fakeCy();
+    act(() => h.props!.onReady?.(f.cy));
+    act(() => h.props!.onSelectionChange([A, B]));
+    return f;
+  }
+  const bar = () => within(screen.getByRole("toolbar", { name: "Batch actions" }));
+
+  test("shows the tx batch bar with the count; Add to graph makes them centers in one step with one toast", async () => {
+    await selectBoth();
+    expect(bar().getByText("2 nodes selected")).toBeInTheDocument();
+    expect(bar().queryByRole("button", { name: "Pin" })).toBeNull();
+    act(() => useGraph.getState().setHidden([B], true));
+    render(<Toasts />);
+    act(() => bar().getByRole("button", { name: "Add to graph" }).click());
+    expect(useGraph.getState().centers).toEqual([A, B]);
+    expect(useGraph.getState().ui[B]?.hidden).toBe(false);
+    expect(screen.getAllByText(/Added .*to the graph/)).toHaveLength(1);
+    expect(screen.getByText("Added 2 addresses to the graph")).toBeInTheDocument();
+    expect(screen.queryByRole("toolbar", { name: "Batch actions" })).toBeNull();
+    act(() => useGraph.getState().undo());
+    expect(useGraph.getState().centers).toEqual([]);
+    expect(useTabs.getState().active).toBe(HASH);
+  });
+
+  test("Add label opens one editor for the selected addresses; copy puts them on the clipboard", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    await selectBoth();
+    act(() => bar().getByRole("button", { name: "Add label" }).click());
+    expect(useUi.getState().labelEditorFor).toEqual([A, B]);
+    expect(bar().getByLabelText("Label text")).toBeInTheDocument();
+    await act(async () => bar().getByRole("button", { name: "Copy addresses" }).click());
+    expect(writeText).toHaveBeenCalledWith(`${A}\n${B}`);
+  });
+
+  test("Escape (while this tab is shown) and Cancel clear it, natively too", async () => {
+    const f = await selectBoth();
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(screen.queryByRole("toolbar", { name: "Batch actions" })).toBeNull();
+    expect(f.unselect).toHaveBeenCalled();
+
+    act(() => h.props!.onSelectionChange([A]));
+    act(() => useTabs.setState({ active: "graph" }));
+    act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(screen.getByRole("toolbar", { name: "Batch actions" })).toBeInTheDocument();
+    act(() => bar().getByRole("button", { name: "Cancel" }).click());
+    expect(screen.queryByRole("toolbar", { name: "Batch actions" })).toBeNull();
+  });
+
+  test("the canvas tools toggle select mode for this canvas", async () => {
+    await selectBoth();
+    expect(h.props!.selectMode).toBe(false);
+    act(() => screen.getByRole("button", { name: "Box select (Shift+drag)" }).click());
+    expect(h.props!.selectMode).toBe(true);
+  });
 });

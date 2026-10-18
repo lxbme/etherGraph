@@ -18,10 +18,18 @@ export function syncNode(addr: string, direction?: "older"): void {
     .catch((err) => toast(messageFor(err), "error"));
 }
 
-/** "Add to graph" everywhere: `addr` becomes a shown center of the address graph (unhidden if it was hidden). */
-export function addToGraph(addr: string): void {
-  useGraph.getState().revealCenter(addr);
-  toast(t("tx.added"));
+/**
+ * "Add to graph" everywhere: `addr` becomes a shown center of the address graph (unhidden if it was hidden).
+ * A list is one history step and one toast with the count.
+ */
+export function addToGraph(addr: string | string[]): void {
+  if (typeof addr === "string") {
+    useGraph.getState().revealCenter(addr);
+    toast(t("tx.added"));
+    return;
+  }
+  useGraph.getState().revealCenters(addr);
+  toast(t("batch.added", { count: new Set(addr.map(lc)).size }));
 }
 
 export function togglePin(addr: string): void {

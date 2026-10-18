@@ -9,15 +9,18 @@ export function isNarrow(): boolean {
 }
 
 interface UiState {
-  /** The address whose label editor was requested (L / context menu); cleared when the selection changes. */
-  labelEditorFor: string | null;
+  /**
+   * The label editor that was requested, cleared when the selection changes: one address (L / context menu /
+   * detail panel, shown in its node detail) or a list (a batch bar, shown above that bar).
+   */
+  labelEditorFor: string | string[] | null;
   /** Whether the right detail panel is shown. */
   detailOpen: boolean;
   /** Each tx tab's selected node, by tx hash. */
   txSelection: Record<string, string | null>;
   /** Whether the help drawer is open. */
   helpOpen: boolean;
-  openLabelEditor(addr: string): void;
+  openLabelEditor(addr: string | string[]): void;
   closeLabelEditor(): void;
   setDetailOpen(v: boolean): void;
   toggleDetail(): void;
@@ -33,7 +36,12 @@ export const useUi = create<UiState>((set, get) => ({
   detailOpen: !isNarrow(),
   txSelection: {},
   helpOpen: false,
-  openLabelEditor: (addr) => set({ labelEditorFor: addr.toLowerCase(), detailOpen: true }),
+  openLabelEditor: (addr) =>
+    set(
+      typeof addr === "string"
+        ? { labelEditorFor: addr.toLowerCase(), detailOpen: true }
+        : { labelEditorFor: [...new Set(addr.map((a) => a.toLowerCase()))] },
+    ),
   closeLabelEditor: () => set({ labelEditorFor: null }),
   setDetailOpen: (detailOpen) => set({ detailOpen }),
   toggleDetail: () => set((s) => ({ detailOpen: !s.detailOpen })),

@@ -1,10 +1,11 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import type { NewLabelDto } from "../api/generated/NewLabelDto";
 import { qk } from "../api/queryClient";
 import { t, useT } from "../i18n";
+import { toast } from "../shell/Toasts";
 
 type Category = NewLabelDto["category"];
 
@@ -30,24 +31,57 @@ export function labelProvenance(source: string): string | null {
 export const categoryName = (c: string): string => ((CATEGORIES as string[]).includes(c) ? t(`category.${c as Category}`) : c);
 
 const MAX = 64;
+/** Label requests in flight at once when one label goes to many addresses. */
+const MAX_IN_FLIGHT = 4;
 
-export function LabelEditor({ address, onClose }: { address: string; onClose: () => void }) {
+/** Runs `run` over `items` with at most `limit` at a time; resolves with each item's error (or null), in order. */
+async function settleLimited<T>(items: T[], limit: number, run: (item: T) => Promise<unknown>): Promise<unknown[]> {
+  const errors: unknown[] = items.map(() => null);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      try {
+        await run(items[i]!);
+      } catch (e) {
+        errors[i] = e ?? new Error("label request failed");
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return errors;
+}
+
+/** Adds one label (same text and category) to each of `addresses`; one toast with the count once all are saved. */
+export function LabelEditor({ addresses, onClose }: { addresses: string[]; onClose: () => void }) {
   const qc = useQueryClient();
   const tr = useT();
   const textId = useId();
   const [text, setText] = useState("");
   const [category, setCategory] = useState<Category>("other");
+  /** Addresses already labelled by an earlier, partly failed submit: a retry skips them. */
+  const done = useRef(new Set<string>());
   const trimmed = text.trim();
   const len = [...trimmed].length;
   const valid = len >= 1 && len <= MAX;
 
   const add = useMutation({
-    mutationFn: () => api.addLabel({ address, text: trimmed, category }),
-    onSuccess: async () => {
+    mutationFn: async () => {
+      const todo = addresses.filter((a) => !done.current.has(a));
+      const errors = await settleLimited(todo, MAX_IN_FLIGHT, async (address) => {
+        await api.addLabel({ address, text: trimmed, category });
+        done.current.add(address);
+      });
       await Promise.all([
-        qc.invalidateQueries({ queryKey: qk.address(address) }),
+        ...todo.map((a) => qc.invalidateQueries({ queryKey: qk.address(a) })),
         qc.invalidateQueries({ queryKey: ["graph"] }),
+        qc.invalidateQueries({ queryKey: ["tx"] }),
       ]);
+      const first = errors.find((e) => e !== null);
+      if (first !== undefined) throw first;
+    },
+    onSuccess: () => {
+      toast(t("label.saved", { count: addresses.length }));
       onClose();
     },
   });

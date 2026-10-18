@@ -25,6 +25,7 @@ import { shortAddr } from "../lib/address";
 import { toast } from "../shell/Toasts";
 import { useTheme } from "../shell/theme";
 import { GraphTooltip } from "./GraphTooltip";
+import { CanvasTools } from "./CanvasTools";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
 
 /** A second tap on the same "+N more" node within this window is part of a double-click. */
@@ -144,16 +145,15 @@ export function AddressGraph() {
   };
   /** Node positions at the moment they were grabbed: the "before" of a drag for undo. */
   const grabbed = useRef<Record<string, Pos>>({});
+  const selectMode = useBoxSelection((s) => s.selectMode);
 
-  // The store owns selection; drop Cytoscape's native :selected so the two never disagree.
-  const clearNativeSelection = () => {
-    cyRef.current?.$(":selected").unselect();
-  };
-  useEffect(() => {
-    clearNativeSelection();
-  }, [selection]);
-
-  useEffect(() => () => setMainCy(null), []);
+  useEffect(
+    () => () => {
+      setMainCy(null);
+      useBoxSelection.getState().bindCanvas(null);
+    },
+    [],
+  );
 
   // Canvas size and on-canvas node count feed the expansion budget.
   useEffect(() => {
@@ -174,6 +174,8 @@ export function AddressGraph() {
   const onReady = (cy: cytoscape.Core) => {
     cyRef.current = cy;
     setMainCy(cy);
+    // The box selection is the canvas's native selection: clearing it drops the ring too.
+    useBoxSelection.getState().bindCanvas(() => cy.$(":selected").unselect());
     cy.on("viewport", () => setMenu(null));
     cy.on("grab", "node", (e) => {
       const p = e.target.position();
@@ -234,11 +236,8 @@ export function AddressGraph() {
         onDblTapNode={onDblTapNode}
         onDblTapEdge={(a, b) => !isMoreId(a) && !isMoreId(b) && useGraph.getState().togglePair(a, b)}
         onCxtNode={onCxtNode}
-        onBoxSelect={(ids) => {
-          if (ids.length === 0) return;
-          useBoxSelection.getState().set(ids);
-          clearNativeSelection();
-        }}
+        onSelectionChange={(ids) => useBoxSelection.getState().set(ids)}
+        selectMode={selectMode}
         onDragEnd={onDragEnd}
         onReady={onReady}
         onHover={setHover}
@@ -246,16 +245,18 @@ export function AddressGraph() {
       />
       {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
       <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
-      <BatchBar />
-      {hiddenOnCanvas > 0 && (
-        <button
-          type="button"
-          className="btn address-graph__unhide"
-          onClick={() => useGraph.getState().setHidden([...hidden], false)}
-        >
-          {tr("view.showHidden", { count: hiddenOnCanvas })}
-        </button>
-      )}
+      <BatchBar insetLeft={legendCover} />
+      <CanvasTools selectMode={selectMode} onSelectModeChange={useBoxSelection.getState().setSelectMode}>
+        {hiddenOnCanvas > 0 && (
+          <button
+            type="button"
+            className="btn btn--compact"
+            onClick={() => useGraph.getState().setHidden([...hidden], false)}
+          >
+            {tr("view.showHidden", { count: hiddenOnCanvas })}
+          </button>
+        )}
+      </CanvasTools>
       {menu && data && (
         <ContextMenu
           x={menu.x}

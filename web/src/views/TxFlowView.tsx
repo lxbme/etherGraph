@@ -4,17 +4,22 @@ import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import { useLocale, useT } from "../i18n";
 import { qk } from "../api/queryClient";
+import { createBoxSelection } from "../graph/boxSelection";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { exposeTxCy } from "../graph/cyRegistry";
 import { txLegendFor } from "../graph/legend";
 import { callTooltip, flowTooltip, nodeTooltip, type TooltipLine } from "../graph/tooltip";
 import { addToGraph } from "../graph/nodeActions";
+import { isShortcut } from "../graph/shortcuts";
+import { keyOwnedElsewhere } from "../graph/useShortcuts";
 import { txFlowStylesheet } from "../graph/styles";
 import { NodeDetail } from "../panels/NodeDetail";
+import { TxBatchBar } from "../panels/TxBatchBar";
 import { useUi } from "../panels/uiStore";
 import { useJobProgress } from "../shell/statusStore";
 import { useTabs } from "../shell/tabs";
 import { useTheme } from "../shell/theme";
+import { CanvasTools } from "./CanvasTools";
 import { GraphTooltip } from "./GraphTooltip";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
 import { txElements } from "./txElements";
@@ -79,6 +84,20 @@ export function TxFlowView({ hash }: { hash: string }) {
     [flow, selected, highlightedSeq, locale], // labels are translated when built
   );
   const legend = useMemo(() => txLegendFor(elements, theme), [elements, theme]);
+  /** This tab's own box selection (each tx tab and the address graph have one). */
+  const [box] = useState(createBoxSelection);
+  const selectMode = box((s) => s.selectMode);
+  // Escape clears it while this tab is shown (the global shortcuts act on the address graph only).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (useTabs.getState().active !== hash.toLowerCase() || keyOwnedElsewhere(e)) return;
+      if (!isShortcut(e, "clearSelection") || box.getState().ids.length === 0) return;
+      box.getState().clear();
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [box, hash]);
   /** Canvas width the expanded legend covers from the left; fits keep it clear. */
   const [legendCover, setLegendCover] = useState(0);
   const [hover, setHover] = useState<{ kind: "node" | "edge"; id: string; pos: { x: number; y: number } } | null>(null);
@@ -98,9 +117,10 @@ export function TxFlowView({ hash }: { hash: string }) {
   useEffect(
     () => () => {
       exposeTxCy(hash, null);
+      box.getState().bindCanvas(null);
       useUi.getState().forgetTx(hash);
     },
-    [hash],
+    [hash, box],
   );
 
   if (q.isError) {
@@ -142,20 +162,29 @@ export function TxFlowView({ hash }: { hash: string }) {
             elements={elements}
             stylesheet={stylesheet}
             layout="dagre-lr"
-            onTapNode={(id) => setSelected(id.toLowerCase())}
+            onTapNode={(id) => {
+              box.getState().clear();
+              setSelected(id.toLowerCase());
+            }}
             onTapBackground={() => setSelected(null)}
             onTapEdge={NOOP}
             onDblTapNode={NOOP}
             onDblTapEdge={NOOP}
             onCxtNode={NOOP}
-            onBoxSelect={NOOP}
+            onSelectionChange={box.getState().set}
+            selectMode={selectMode}
             onDragEnd={NOOP}
-            onReady={(cy) => exposeTxCy(hash, cy)}
+            onReady={(cy) => {
+              exposeTxCy(hash, cy);
+              box.getState().bindCanvas(() => cy.$(":selected").unselect());
+            }}
             onHover={setHover}
             fitInsetLeft={legendCover}
           />
           {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
           <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
+          <CanvasTools selectMode={selectMode} onSelectModeChange={box.getState().setSelectMode} />
+          <TxBatchBar selection={box} insetLeft={legendCover} />
         </div>
         <TxDetailTabs flow={flow} />
       </div>

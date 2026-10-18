@@ -23,7 +23,7 @@ function setup() {
     <CytoscapeView
       elements={elements} stylesheet={[] as unknown as cytoscape.StylesheetJson} layout="incremental" positionsEpoch={epoch}
       onTapNode={noop} onTapEdge={noop} onDblTapNode={noop} onDblTapEdge={noop} onCxtNode={noop}
-      onBoxSelect={noop} onDragEnd={noop} onReady={(c) => { cy = c; }}
+      onSelectionChange={noop} onDragEnd={noop} onReady={(c) => { cy = c; }}
     />
   );
   const r = render(view(AC, 0));

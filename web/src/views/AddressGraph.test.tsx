@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type cytoscape from "cytoscape";
 import { api } from "../api/endpoints";
 import { ApiError } from "../api/errors";
@@ -144,18 +144,18 @@ test("hidden nodes and their edges are left out", async () => {
   expect(ids()).toEqual([A]);
 });
 
-test("tapping a node or an edge selects it and clears native selection", async () => {
+test("tapping a node selects it and drops the box selection (natively too); tapping an edge selects the pair", async () => {
   const { f } = await mountWithData();
+  act(() => props().onSelectionChange([A, B]));
   act(() => props().onTapNode(B, { shift: false }));
   expect(useGraph.getState().selection).toEqual({ kind: "node", address: B });
+  expect(useBoxSelection.getState().ids).toEqual([]);
   expect(f.$).toHaveBeenCalledWith(":selected");
   expect(f.unselect).toHaveBeenCalled();
   expect(props().elements.find((e) => e.data.id === B)?.classes).toContain("selected");
 
-  f.unselect.mockClear();
   act(() => props().onTapEdge(A, B));
   expect(useGraph.getState().selection).toEqual({ kind: "pair", a: A, b: B });
-  expect(f.unselect).toHaveBeenCalled();
 });
 
 test("double-clicking an unsynced node starts a sync and toasts", async () => {
@@ -197,13 +197,47 @@ test("double-clicking an edge toggles the pair", async () => {
   expect(ids()).toContain(`e:${A}>${B}:eth`);
 });
 
-test("box selection is stored and native selection cleared; empty boxes are ignored", async () => {
+test("the box selection mirrors the canvas's native selection", async () => {
   const { f } = await mountWithData();
-  act(() => props().onBoxSelect([A, B]));
+  act(() => props().onSelectionChange([A, B]));
   expect(useBoxSelection.getState().ids).toEqual([A, B]);
-  expect(f.unselect).toHaveBeenCalled();
-  act(() => props().onBoxSelect([]));
-  expect(useBoxSelection.getState().ids).toEqual([A, B]);
+  expect(f.unselect).not.toHaveBeenCalled(); // the ring stays on the canvas
+  act(() => props().onSelectionChange([B]));
+  expect(useBoxSelection.getState().ids).toEqual([B]);
+  act(() => props().onSelectionChange([]));
+  expect(useBoxSelection.getState().ids).toEqual([]);
+});
+
+test("the select-mode toggle in the canvas tools drives the canvas", async () => {
+  await mountWithData();
+  expect(props().selectMode).toBe(false);
+  const toggle = screen.getByRole("button", { name: "Box select (Shift+drag)" });
+  expect(toggle).toHaveAttribute("aria-pressed", "false");
+  expect(within(screen.getByRole("toolbar", { name: "Canvas tools" })).getByRole("button", { name: "Box select (Shift+drag)" })).toBe(toggle);
+  act(() => toggle.click());
+  expect(toggle).toHaveAttribute("aria-pressed", "true");
+  expect(props().selectMode).toBe(true);
+});
+
+test("a group drag of three selected nodes is one undo step (Ctrl+Z)", async () => {
+  const C = "0x" + "cc".repeat(20);
+  vi.mocked(api.graphEdges).mockResolvedValue({ ...data, nodes: [...data.nodes, node(C, true)] });
+  const { f } = await mountWithData();
+  await waitFor(() => expect(ids()).toContain(C));
+  act(() => props().onSelectionChange([A, B, C]));
+  const steps = useGraph.getState()._past.length;
+  // Grabbing one selected node grabs them all; they are dropped in the same tick.
+  f.grab(A, { x: 0, y: 0 });
+  f.grab(B, { x: 100, y: 0 });
+  f.grab(C, { x: 200, y: 0 });
+  act(() => props().onDragEnd({ [A]: { x: 10, y: 50 }, [B]: { x: 110, y: 50 }, [C]: { x: 210, y: 50 } }));
+  expect(useGraph.getState().ui[C]?.pos).toEqual({ x: 210, y: 50 });
+  expect(useGraph.getState()._past).toHaveLength(steps + 1);
+  act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true })); });
+  expect(useGraph.getState().ui[A]?.pos).toEqual({ x: 0, y: 0 });
+  expect(useGraph.getState().ui[B]?.pos).toEqual({ x: 100, y: 0 });
+  expect(useGraph.getState().ui[C]?.pos).toEqual({ x: 200, y: 0 });
+  expect(useGraph.getState()._past).toHaveLength(steps);
 });
 
 test("drag end stores positions and records an undoable move", async () => {
@@ -237,19 +271,72 @@ test("loading text only before the first data; background refetches use a subtle
   await waitFor(() => expect(screen.queryByLabelText("Updating")).toBeNull());
 });
 
-test("batch bar appears for 2+ box-selected nodes; background/node tap clears it", async () => {
+test("batch bar appears for 1+ box-selected nodes with the count; background/node tap clears it", async () => {
   await mountWithData();
-  act(() => props().onBoxSelect([A, B]));
+  act(() => props().onSelectionChange([A]));
+  expect(screen.getByText("1 node selected")).toBeInTheDocument();
+  act(() => props().onSelectionChange([A, B]));
   expect(screen.getByText("2 nodes selected")).toBeInTheDocument();
   act(() => props().onTapBackground?.());
   expect(screen.queryByText("2 nodes selected")).toBeNull();
-  act(() => props().onBoxSelect([A, B]));
+  act(() => props().onSelectionChange([A, B]));
   act(() => props().onTapNode(A, { shift: false }));
   expect(useBoxSelection.getState().ids).toEqual([]);
-  act(() => props().onBoxSelect([A, B]));
+  act(() => props().onSelectionChange([A, B]));
   act(() => screen.getByRole("button", { name: "Pin" }).click());
   expect(useGraph.getState().ui[A]?.pinned).toBe(true);
   expect(useGraph.getState().ui[B]?.pinned).toBe(true);
+});
+
+test("Escape clears the box selection and the canvas's native selection", async () => {
+  const { f } = await mountWithData();
+  act(() => props().onSelectionChange([A, B]));
+  expect(screen.getByRole("toolbar", { name: "Batch actions" })).toBeInTheDocument();
+  act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+  expect(screen.queryByRole("toolbar", { name: "Batch actions" })).toBeNull();
+  expect(useBoxSelection.getState().ids).toEqual([]);
+  expect(f.$).toHaveBeenCalledWith(":selected");
+  expect(f.unselect).toHaveBeenCalled();
+});
+
+test("batch bar: Unpin only while a selected node is pinned; hide, make centers, copy", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+  await mountWithData();
+  act(() => props().onSelectionChange([A, B]));
+  const bar = () => within(screen.getByRole("toolbar", { name: "Batch actions" }));
+  expect(bar().queryByRole("button", { name: "Unpin" })).toBeNull();
+  act(() => useGraph.getState().setPinned([B], true));
+  act(() => bar().getByRole("button", { name: "Unpin" }).click());
+  expect(useGraph.getState().ui[B]?.pinned).toBe(false);
+  expect(useBoxSelection.getState().ids).toEqual([]);
+
+  act(() => props().onSelectionChange([A, B]));
+  await act(async () => bar().getByRole("button", { name: "Copy addresses" }).click());
+  expect(writeText).toHaveBeenCalledWith(`${A}\n${B}`);
+  expect(await screen.findByText("Copied 2 addresses")).toBeInTheDocument();
+  expect(useBoxSelection.getState().ids).toEqual([A, B]); // copying keeps the selection
+
+  act(() => bar().getByRole("button", { name: "Expand as centers" }).click());
+  expect(useGraph.getState().centers).toEqual([A, B]);
+  act(() => props().onSelectionChange([B]));
+  act(() => bar().getByRole("button", { name: "Hide" }).click());
+  expect(useGraph.getState().ui[B]?.hidden).toBe(true);
+  expect(screen.queryByRole("toolbar", { name: "Batch actions" })).toBeNull();
+});
+
+test("batch bar: Add label opens one editor for all selected addresses", async () => {
+  const add = vi.spyOn(api, "addLabel").mockResolvedValue({ id: 1, text: "x", category: "other", source: "user" });
+  await mountWithData();
+  act(() => props().onSelectionChange([A, B]));
+  act(() => screen.getByRole("button", { name: "Add label" }).click());
+  expect(useUi.getState().labelEditorFor).toEqual([A, B]);
+  fireEvent.change(screen.getByLabelText("Label text"), { target: { value: "team" } });
+  await act(async () => screen.getByRole("button", { name: "Add" }).click());
+  await waitFor(() => expect(add).toHaveBeenCalledTimes(2));
+  expect(add.mock.calls.map((c) => c[0].address)).toEqual([A, B]);
+  expect(await screen.findByText("Added the label to 2 addresses")).toBeInTheDocument();
+  await waitFor(() => expect(useUi.getState().labelEditorFor).toBeNull());
 });
 
 test("right-clicking a node opens the menu; Escape closes it", async () => {
@@ -311,7 +398,9 @@ test("'Show hidden nodes (N)' appears while nodes are hidden and unhides them al
   expect(screen.queryByRole("button", { name: /Show hidden nodes/ })).toBeNull();
   act(() => useGraph.getState().setHidden([B], true));
   act(() => useGraph.getState().setHidden(["0x" + "cc".repeat(20)], true)); // not on the canvas: not counted
-  act(() => screen.getByRole("button", { name: "Show hidden nodes (1)" }).click());
+  // It sits in the top-right canvas tools group, so the two never overlap.
+  const tools = screen.getByRole("toolbar", { name: "Canvas tools" });
+  act(() => within(tools).getByRole("button", { name: "Show hidden nodes (1)" }).click());
   expect(ids()).toEqual([A, B, `c:${A}>${B}`]);
   expect(screen.queryByRole("button", { name: /Show hidden nodes/ })).toBeNull();
   act(() => useGraph.getState().undo());

@@ -1,6 +1,6 @@
 import type { MsgKey } from "../i18n";
 
-export type ShortcutId = "search" | "undo" | "redo" | "sync" | "pin" | "hide" | "focus" | "label";
+export type ShortcutId = "search" | "undo" | "redo" | "sync" | "pin" | "hide" | "focus" | "label" | "clearSelection";
 
 export interface Shortcut {
   id: ShortcutId;
@@ -24,6 +24,7 @@ export const SHORTCUTS: ReadonlyArray<Shortcut> = [
   { id: "hide", keys: ["H"], scope: "node", label: "shortcut.hide" },
   { id: "focus", keys: ["F"], scope: "node", label: "shortcut.focus" },
   { id: "label", keys: ["L"], scope: "node", label: "shortcut.label" },
+  { id: "clearSelection", keys: ["Escape"], scope: "global", label: "shortcut.clearSelection" },
 ];
 
 type KeyState = Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey" | "altKey">;
