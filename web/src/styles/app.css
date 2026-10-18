@@ -828,7 +828,10 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
   border-radius: var(--radius);
   box-shadow: var(--shadow-pop);
   font-size: var(--fs-12);
-  white-space: nowrap;
+  /* Wraps instead of running under the legend or past the canvas edge. */
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: calc(100% - var(--sp-3) * 2);
 }
 .batch-bar__count { color: var(--fg-muted); }
 .batch-bar__editor {

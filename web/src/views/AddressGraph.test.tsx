@@ -209,6 +209,26 @@ test("the box selection mirrors the canvas's native selection", async () => {
   expect(useBoxSelection.getState().ids).toEqual([]);
 });
 
+test("right-click keeps the box selection when the node is in it, drops it when not", async () => {
+  const { f } = await mountWithData();
+  act(() => props().onSelectionChange([A, B]));
+  act(() => props().onCxtNode(A, { x: 1, y: 1 }));
+  expect(useBoxSelection.getState().ids).toEqual([A, B]);
+  expect(f.unselect).not.toHaveBeenCalled();
+  act(() => props().onSelectionChange([B]));
+  act(() => props().onCxtNode(A, { x: 1, y: 1 }));
+  expect(useBoxSelection.getState().ids).toEqual([]);
+  expect(f.unselect).toHaveBeenCalled();
+});
+
+test("the dashed-ring legend row shows while nodes are box-selected", async () => {
+  await mountWithData();
+  act(() => screen.getByRole("button", { name: "Expand legend" }).click());
+  expect(screen.queryByText("In the box selection (dashed ring)")).toBeNull();
+  act(() => props().onSelectionChange([A]));
+  expect(screen.getByText("In the box selection (dashed ring)")).toBeInTheDocument();
+});
+
 test("the select-mode toggle in the canvas tools drives the canvas", async () => {
   await mountWithData();
   expect(props().selectMode).toBe(false);

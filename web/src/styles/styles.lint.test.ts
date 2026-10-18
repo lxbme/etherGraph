@@ -107,4 +107,10 @@ describe("app.css layout rules", () => {
   it("the legend is opaque: canvas content never shows through it", () => {
     expect(ruleBody(css, ".legend")).toMatch(/background:\s*var\(--bg\)\s*;/);
   });
+  it("the batch bar wraps and never grows past the canvas", () => {
+    const body = ruleBody(css, ".batch-bar");
+    expect(body).toMatch(/flex-wrap:\s*wrap/);
+    expect(body).toMatch(/max-width:\s*calc\(100%/);
+    expect(body).not.toMatch(/white-space:\s*nowrap/);
+  });
 });

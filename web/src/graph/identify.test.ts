@@ -64,10 +64,12 @@ test("a second call while one is in flight sends nothing", async () => {
     await gate;
     return { queued: 1, jobs: [] };
   });
+  const toast = vi.spyOn(toasts, "toast");
   const first = identifyAddresses([addr(1)]);
   expect(useIdentifying.getState().running).toBe(true);
   await identifyAddresses([addr(1)]);
   expect(identify).toHaveBeenCalledTimes(1);
+  expect(toast).toHaveBeenCalledWith("Identification is already running");
   release();
   await first;
   expect(useIdentifying.getState().running).toBe(false);
@@ -85,4 +87,11 @@ test("a later chunk failing after earlier ones were queued reports both", async 
   expect(toast.mock.calls[0]![0]).toMatch(/^Queued 500 addresses; the rest failed: /);
   expect(toast.mock.calls[0]![1]).toBe("error");
   expect(useIdentifying.getState().running).toBe(false);
+});
+
+test("the queued toast is singular for one address", async () => {
+  vi.spyOn(api, "identify").mockResolvedValue({ queued: 1, jobs: [] });
+  const toast = vi.spyOn(toasts, "toast");
+  await identifyAddresses([addr(1)]);
+  expect(toast).toHaveBeenCalledWith("Queued 1 address for identification");
 });

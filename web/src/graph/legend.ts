@@ -114,16 +114,19 @@ function present(els: cytoscape.ElementDefinition[]): Set<string> {
 }
 
 /** The legend for the address graph: only the encodings that `els` actually shows. */
-export function legendFor(els: cytoscape.ElementDefinition[], theme: Theme): LegendGroup[] {
+export function legendFor(els: cytoscape.ElementDefinition[], theme: Theme, boxSelected = 0): LegendGroup[] {
   if (els.length === 0) return [];
   const has = present(els);
+  // Box selection is native to the canvas, not an element class, so the caller reports its size.
+  if (boxSelected > 0) has.add("state/box-selected");
   return assemble(catalogue(theme), (g, id) => g !== "tx" && has.has(`${g}/${id}`));
 }
 
 /** The tx fund-flow legend: the node encodings in view, the call / flow edges and sequence numbers, and the asset colours present. */
-export function txLegendFor(els: cytoscape.ElementDefinition[], theme: Theme): LegendGroup[] {
+export function txLegendFor(els: cytoscape.ElementDefinition[], theme: Theme, boxSelected = 0): LegendGroup[] {
   if (els.length === 0) return [];
   const has = present(els);
+  if (boxSelected > 0) has.add("state/box-selected");
   return assemble(catalogue(theme), (g, id) => g === "tx" || (g !== "edge" && has.has(`${g}/${id}`)));
 }
 

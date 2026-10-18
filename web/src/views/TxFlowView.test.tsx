@@ -333,7 +333,9 @@ describe("box selection", () => {
   /** A stand-in for the canvas handle: records native unselects. */
   function fakeCy() {
     const unselect = vi.fn();
-    return { cy: { $: vi.fn(() => ({ unselect })) } as unknown as import("cytoscape").Core, unselect };
+    const handlers: Record<string, () => void> = {};
+    const on = vi.fn((ev: string, fn: () => void) => void (handlers[ev] = fn));
+    return { cy: { $: vi.fn(() => ({ unselect })), on } as unknown as import("cytoscape").Core, unselect, handlers };
   }
   async function selectBoth() {
     vi.spyOn(api, "tx").mockResolvedValue(ready());
@@ -345,6 +347,32 @@ describe("box selection", () => {
     return f;
   }
   const bar = () => within(screen.getByRole("toolbar", { name: "Batch actions" }));
+
+  test("right-click keeps the box selection when the node is in it, drops it when not", async () => {
+    const f = await selectBoth();
+    act(() => h.props!.onCxtNode(A, { x: 1, y: 1 }));
+    expect(screen.getByRole("toolbar", { name: "Batch actions" })).toBeInTheDocument();
+    expect(f.unselect).not.toHaveBeenCalled();
+    act(() => h.props!.onSelectionChange([B]));
+    act(() => h.props!.onCxtNode(A, { x: 1, y: 1 }));
+    expect(screen.queryByRole("toolbar", { name: "Batch actions" })).toBeNull();
+    expect(f.unselect).toHaveBeenCalled();
+  });
+
+  test("the box-selected row appears in the legend while nodes are box-selected", async () => {
+    await selectBoth();
+    expect(screen.getByText("In the box selection (dashed ring)")).toBeInTheDocument();
+    act(() => h.props!.onSelectionChange([]));
+    expect(screen.queryByText("In the box selection (dashed ring)")).toBeNull();
+  });
+
+  test("the tx menu closes when the viewport moves", async () => {
+    const f = await selectBoth();
+    act(() => h.props!.onCxtNode(A, { x: 1, y: 1 }));
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    act(() => f.handlers.viewport!());
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
 
   test("shows the tx batch bar with the count; Add to graph makes them centers in one step with one toast", async () => {
     await selectBoth();

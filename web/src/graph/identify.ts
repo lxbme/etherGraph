@@ -25,11 +25,15 @@ export const useIdentifying = create<{ running: boolean }>(() => ({ running: fal
 /**
  * Queues identification of `addrs` (deduped by lowercase) in chunks of at most 500 sharing one batch id,
  * then toasts the summed queued count (or that nothing needed it, or what was queued before a chunk failed).
- * Only one run at a time: a second call while one is in flight (a double click) is ignored.
+ * Only one run at a time: a second call while one is in flight is dropped with a toast.
  */
 export async function identifyAddresses(addrs: string[]): Promise<void> {
   const unique = [...new Set(addrs.map((a) => a.toLowerCase()))];
-  if (unique.length === 0 || useIdentifying.getState().running) return;
+  if (unique.length === 0) return;
+  if (useIdentifying.getState().running) {
+    toast(t("identify.busy"));
+    return;
+  }
   useIdentifying.setState({ running: true });
   const batch = newBatchId();
   let queued = 0;

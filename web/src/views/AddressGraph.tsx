@@ -88,7 +88,8 @@ export function AddressGraph() {
     () => (data ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer, limits }, data.omitted) : []),
     [data, visual, ui, centers, selection, highlightTransfer, limits],
   );
-  const legend = useMemo(() => legendFor(elements, theme), [elements, theme]);
+  const boxCount = useBoxSelection((s) => s.ids.length);
+  const legend = useMemo(() => legendFor(elements, theme, boxCount), [elements, theme, boxCount]);
   /** Canvas width the expanded legend covers from the left; fits keep it clear. */
   const [legendCover, setLegendCover] = useState(0);
 
@@ -142,7 +143,8 @@ export function AddressGraph() {
     const rect = rootRef.current?.getBoundingClientRect();
     if (!node) return;
     // The menu acts on this node, so it becomes the selection (the detail panel and L follow it).
-    useBoxSelection.getState().clear();
+    // Right-clicking a node inside the box selection keeps it; one outside drops it.
+    if (!useBoxSelection.getState().ids.includes(lc(id))) useBoxSelection.getState().clear();
     useGraph.getState().select({ kind: "node", address: lc(id) });
     setMenu({ x: pos.x + (rect?.left ?? 0), y: pos.y + (rect?.top ?? 0), node });
   };

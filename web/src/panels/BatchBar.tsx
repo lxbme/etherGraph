@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useBoxSelection } from "../graph/boxSelection";
-import { identifiable, identifyAddresses } from "../graph/identify";
+import { identifiable, identifyAddresses, useIdentifying } from "../graph/identify";
 import { useGraph } from "../graph/store";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { t, useT } from "../i18n";
@@ -93,7 +93,14 @@ export function identifyAction(
   const sel = new Set(ids);
   const addrs = identifiable(nodes.filter((n) => sel.has(n.address.toLowerCase())));
   if (addrs.length === 0) return [];
-  return [{ id: "identify", label: tr("batch.identify"), onClick: () => { void identifyAddresses(addrs); clear(); } }];
+  return [{ id: "identify", label: tr("batch.identify"), onClick: () => {
+        // A dropped call (a run is in flight) keeps the selection so the user can retry.
+        const dropped = useIdentifying.getState().running;
+        void identifyAddresses(addrs);
+        if (!dropped) clear();
+      },
+    },
+  ];
 }
 
 /** The address graph's batch bar, over its box selection. */

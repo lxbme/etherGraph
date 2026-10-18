@@ -139,3 +139,11 @@ test("a cross-chain label's name carries the cross-chain note", () => {
   expect(ls.find((l) => l.label === "Name")?.sub).toBe("eth-labels · from another EVM chain");
   expect(text(ls)).toContain("Category DEX");
 });
+
+test("the cross-chain note is left off when an ENS name, not the label, names the node", () => {
+  const ls = nodeTooltip(
+    node({ display_name: "vitalik.eth", labels: [{ id: 1, text: "Foo", category: "dex", source: "import:eth-labels-xchain" }] }),
+    {},
+  );
+  expect(ls.find((l) => l.label === "Name")?.sub).toBeUndefined();
+});

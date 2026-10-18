@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, within } from "@testing-library/react";
-import { BatchBarShell } from "./BatchBar";
+import { api } from "../api/endpoints";
+import { useIdentifying } from "../graph/identify";
+import { BatchBarShell, identifyAction } from "./BatchBar";
 import { useUi } from "./uiStore";
 
 const A = "0x" + "aa".repeat(20);
@@ -47,4 +49,19 @@ test("a batch label request goes away with its selection, so the same selection 
   expect(useUi.getState().labelEditorFor).toBeNull();
   rerender([A, B]);
   expect(screen.queryByLabelText("Label text")).toBeNull();
+});
+
+test("batch Identify keeps the selection when a run is already in flight, and clears it otherwise", async () => {
+  const identify = vi.spyOn(api, "identify").mockResolvedValue({ queued: 1, jobs: [] });
+  const n = { address: A, kind: "unknown", identified: false } as never;
+  const clear = vi.fn();
+  const [action] = identifyAction([A], [n], clear, () => "Identify type");
+  useIdentifying.setState({ running: true });
+  action!.onClick();
+  expect(identify).not.toHaveBeenCalled();
+  expect(clear).not.toHaveBeenCalled();
+  useIdentifying.setState({ running: false });
+  action!.onClick();
+  expect(clear).toHaveBeenCalledTimes(1);
+  await vi.waitFor(() => expect(identify).toHaveBeenCalled());
 });

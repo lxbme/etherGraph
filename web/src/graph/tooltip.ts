@@ -52,8 +52,9 @@ export function nodeTooltip(
   extra: { coverage?: SyncStatusDto[]; omitted?: number; degree?: number; center?: boolean; pinned?: boolean },
 ): TooltipLine[] {
   const lines: TooltipLine[] = [];
-  // Labels arrive best first, so the first one names the node; say when it is only known from another EVM chain.
-  const xchain = n.labels[0]?.source === "import:eth-labels-xchain" ? t("label.source.xchain", { dataset: "eth-labels" }) : null;
+  // Labels arrive best first, so the first one names the node (unless an ENS name does); say when that name is only known from another EVM chain.
+  const first = n.labels[0];
+  const xchain = first?.source === "import:eth-labels-xchain" && n.display_name === first.text ? t("label.source.xchain", { dataset: "eth-labels" }) : null;
   lines.push(
     n.display_name
       ? { label: t("tooltip.name"), value: n.display_name, ...(xchain && { sub: xchain }) }

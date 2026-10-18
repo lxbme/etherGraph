@@ -85,9 +85,10 @@ export function TxFlowView({ hash }: { hash: string }) {
     () => (flow ? txElements(flow, selected, highlightedSeq) : []),
     [flow, selected, highlightedSeq, locale], // labels are translated when built
   );
-  const legend = useMemo(() => txLegendFor(elements, theme), [elements, theme]);
   /** This tab's own box selection (each tx tab and the address graph have one). */
   const [box] = useState(createBoxSelection);
+  const boxCount = box((s) => s.ids.length);
+  const legend = useMemo(() => txLegendFor(elements, theme, boxCount), [elements, theme, boxCount]);
   const selectMode = box((s) => s.selectMode);
   // Escape clears it while this tab is shown (the global shortcuts act on the address graph only).
   useEffect(
@@ -179,7 +180,8 @@ export function TxFlowView({ hash }: { hash: string }) {
               const node = flow.nodes.find((n) => n.address.toLowerCase() === id.toLowerCase());
               if (!node) return;
               // The menu acts on this node, so it becomes the tab's selection.
-              box.getState().clear();
+              // Right-clicking a node inside the box selection keeps it; one outside drops it.
+              if (!box.getState().ids.includes(node.address.toLowerCase())) box.getState().clear();
               setSelected(node.address.toLowerCase());
               const rect = graphRef.current?.getBoundingClientRect();
               setMenu({ x: pos.x + (rect?.left ?? 0), y: pos.y + (rect?.top ?? 0), node });
@@ -190,6 +192,7 @@ export function TxFlowView({ hash }: { hash: string }) {
             onReady={(cy) => {
               exposeTxCy(hash, cy);
               box.getState().bindCanvas(() => cy.$(":selected").unselect());
+              cy.on("viewport", closeMenu);
             }}
             onHover={setHover}
             fitInsetLeft={legendCover}

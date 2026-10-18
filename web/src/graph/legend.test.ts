@@ -120,3 +120,9 @@ test("fullLegendGroups lists every entry", () => {
     tx: ["call", "flow", "seq"],
   });
 });
+
+test("a box selection count adds the dashed-ring row on both canvases", () => {
+  expect(ids(legendFor(base, "light", 0)).state).toBeUndefined();
+  expect(ids(legendFor(base, "light", 2)).state).toEqual(["box-selected"]);
+  expect(ids(txLegendFor(base, "light", 2)).state).toEqual(["box-selected"]);
+});
