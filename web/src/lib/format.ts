@@ -24,3 +24,14 @@ const CIRCLED = "⓪①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳
 export function circled(seq: number): string {
   return Number.isInteger(seq) && seq >= 0 && seq <= 20 ? [...CIRCLED][seq]! : `(${seq})`;
 }
+
+/** Cuts `s` to at most `max` characters, ending in "…" when it was cut. */
+export function ellipsize(s: string, max: number): string {
+  const cs = [...s];
+  return cs.length > max ? cs.slice(0, max - 1).join("") + "…" : s;
+}
+
+/** A token id over 12 characters becomes first 6 + "…" + last 4. */
+export function shortTokenId(id: string): string {
+  return id.length > 12 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id;
+}

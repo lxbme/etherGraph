@@ -6,7 +6,10 @@ import { t } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { assetClass } from "../lib/assets";
 import { formatAmount } from "../lib/amount";
-import { circled } from "../lib/format";
+import { circled, ellipsize, shortTokenId } from "../lib/format";
+
+/** Longest edge label, in characters; the tooltip and detail tables keep the full text. */
+export const EDGE_LABEL_MAX = 48;
 
 const lc = (s: string) => s.toLowerCase();
 export { circled };
@@ -18,16 +21,17 @@ export function flowSymbol(f: FlowDto): string {
 
 /** Amounts stay BigInt/string based; NFTs show their token id instead of an amount. */
 export function flowAmountText(f: FlowDto): string {
-  if ((f.kind === "erc721" || f.kind === "erc1155") && f.token_id !== null) return `#${f.token_id}`;
+  if ((f.kind === "erc721" || f.kind === "erc1155") && f.token_id !== null) return `#${shortTokenId(f.token_id)}`;
   return formatAmount(f.amount, f.decimals, { maxFrac: 4 }).text;
 }
 
 export function flowLabel(f: FlowDto): string {
-  return `${circled(f.seq)}  ${flowAmountText(f)} ${flowSymbol(f)}`;
+  return ellipsize(`${circled(f.seq)}  ${flowAmountText(f)} ${flowSymbol(f)}`, EDGE_LABEL_MAX);
 }
 
 export function callLabel(flow: TxFlowDto): string {
-  return flow.call?.name ?? (flow.tx.selector ? t("tx.undecodedSelector", { selector: flow.tx.selector }) : t("tx.call"));
+  const label = flow.call?.name ?? (flow.tx.selector ? t("tx.undecodedSelector", { selector: flow.tx.selector }) : t("tx.call"));
+  return ellipsize(label, EDGE_LABEL_MAX);
 }
 
 /**

@@ -121,3 +121,12 @@ test("flowTooltip: seq 0 is a circled zero", () => {
   };
   expect(text(flowTooltip(f, new Map()))).toContain("Order ⓪");
 });
+
+test("flowTooltip keeps the full NFT token id", () => {
+  const id = "90146019176740571409723734689185553745879426092891378571553900257744947220924";
+  const f: FlowDto = {
+    seq: 1, from: "0xaaaa", to: "0xbbbb", asset: "0xdac17f958d2ee523a2206206994597c13d831ec7", amount: "1", token_id: id,
+    kind: "erc721", trace_path: null, log_index: 1, decimals: null, symbol: "ENS",
+  };
+  expect(text(flowTooltip(f, new Map()))).toContain(id);
+});

@@ -1,7 +1,8 @@
 import type { FlowDto } from "../api/generated/FlowDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import type { TxFlowDto } from "../api/generated/TxFlowDto";
-import { circled, flowLabel, txElements } from "./txElements";
+import { callLabel, circled, flowLabel, txElements } from "./txElements";
+import { ellipsize, shortTokenId } from "../lib/format";
 
 const A = "0x" + "aa".repeat(20);
 const B = "0x" + "bb".repeat(20);
@@ -82,4 +83,27 @@ test("only the flow edge with the highlighted seq gets the highlighted class", (
   expect(els.find((e) => e.data.id === "flow-1-0")!.classes).toBe("asset-stable");
   expect(els.find((e) => e.data.id === "flow-2-1")!.classes).toBe("asset-stable highlighted");
   expect(txElements(dto(), null, null).find((e) => e.data.id === "flow-1-0")!.classes).toBe("asset-stable");
+});
+
+const ENS_ID = "90146019176740571409723734689185553745879426092891378571553900257744947220924";
+
+test("a 77-digit NFT token id is shortened in the edge label, a short one is not", () => {
+  expect(flowLabel(flow({ seq: 2, kind: "erc721", token_id: ENS_ID, amount: "1", decimals: null, symbol: "ENS" })))
+    .toBe("②  #901460…0924 ENS");
+  expect(flowLabel(flow({ kind: "erc721", token_id: "1234567890", amount: "1", decimals: null, symbol: "N" })))
+    .toBe("①  #1234567890 N");
+});
+
+test("ellipsize and shortTokenId", () => {
+  expect(ellipsize("abc", 3)).toBe("abc");
+  expect(ellipsize("abcdef", 4)).toBe("abc…");
+  expect(shortTokenId("123456789012")).toBe("123456789012");
+  expect(shortTokenId("1234567890123")).toBe("123456…0123");
+});
+
+test("a long call label is cut to 48 characters", () => {
+  const name = "x".repeat(80);
+  const label = callLabel(dto({ call: { name } } as Partial<TxFlowDto>));
+  expect([...label]).toHaveLength(48);
+  expect(label.endsWith("…")).toBe(true);
 });
