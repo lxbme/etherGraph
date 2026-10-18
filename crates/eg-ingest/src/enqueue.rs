@@ -13,7 +13,7 @@ use crate::runner::JobCtx;
 
 const META_CHUNK: usize = 20;
 
-/// Times [`enqueue_sync`] retries when the job it found ended before it could
+/// Times [`enqueue_owned`] retries when the job it found ended before it could
 /// be joined.
 const OWNER_ATTEMPTS: usize = 3;
 
@@ -69,15 +69,7 @@ pub async fn enqueue_sync(
         }),
         priority: p,
     };
-    for _ in 0..OWNER_ATTEMPTS {
-        let id = enqueue_one(ctx, job.clone()).await?;
-        if ctx.store.add_job_owner(id, owner).await? {
-            return Ok(id);
-        }
-    }
-    // A transient race, not bad input: the caller may simply retry.
-    tracing::warn!(key = %job.key, "enqueue kept racing with job cancellation");
-    Err(StoreError::Conflict)
+    enqueue_owned(ctx, job, owner).await
 }
 
 pub async fn enqueue_fetch_tx(ctx: &JobCtx, hash: TxHash) -> Result<i64, StoreError> {
@@ -127,6 +119,7 @@ fn chunk_key(prefix: &str, chunk: &[Address]) -> String {
     format!("{prefix}{}", &hex::encode(digest)[..16])
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn enqueue_chunks(
     ctx: &JobCtx,
     addrs: &[Address],
@@ -134,26 +127,49 @@ async fn enqueue_chunks(
     prefix: &str,
     kind: JobKind,
     field: &str,
+    priority: Priority,
+    owner: Option<&str>,
 ) -> Result<Vec<i64>, StoreError> {
     let mut ids = Vec::new();
     for chunk in sorted_unique(addrs).chunks(chunk_size.max(1)) {
         let list: Vec<String> = chunk.iter().map(|a| format!("{a:#x}")).collect();
-        let id = enqueue_one(
-            ctx,
-            NewJob {
-                key: chunk_key(prefix, chunk),
-                kind,
-                params: json!({ field: list }),
-                priority: Priority::Low,
-            },
-        )
-        .await?;
-        ids.push(id);
+        let job = NewJob {
+            key: chunk_key(prefix, chunk),
+            kind,
+            params: json!({ field: list }),
+            priority,
+        };
+        ids.push(enqueue_owned(ctx, job, owner).await?);
     }
     Ok(ids)
 }
 
+/// Enqueues (or joins) `job` and records `owner` as one of its owners; a job
+/// cancelled before the owner is recorded is enqueued afresh.
+async fn enqueue_owned(ctx: &JobCtx, job: NewJob, owner: Option<&str>) -> Result<i64, StoreError> {
+    for _ in 0..OWNER_ATTEMPTS {
+        let id = enqueue_one(ctx, job.clone()).await?;
+        if ctx.store.add_job_owner(id, owner).await? {
+            return Ok(id);
+        }
+    }
+    // A transient race, not bad input: the caller may simply retry.
+    tracing::warn!(key = %job.key, "enqueue kept racing with job cancellation");
+    Err(StoreError::Conflict)
+}
+
 pub async fn enqueue_meta(ctx: &JobCtx, addrs: &[Address]) -> Result<Vec<i64>, StoreError> {
+    enqueue_meta_owned(ctx, addrs, Priority::Low, None).await
+}
+
+/// Contract-metadata jobs in chunks of [`META_CHUNK`] at `priority`, each
+/// owned by `owner` (a batch id; `None` for a batch-less caller).
+pub async fn enqueue_meta_owned(
+    ctx: &JobCtx,
+    addrs: &[Address],
+    priority: Priority,
+    owner: Option<&str>,
+) -> Result<Vec<i64>, StoreError> {
     enqueue_chunks(
         ctx,
         addrs,
@@ -161,18 +177,40 @@ pub async fn enqueue_meta(ctx: &JobCtx, addrs: &[Address]) -> Result<Vec<i64>, S
         "meta:",
         JobKind::ContractMeta,
         "addresses",
+        priority,
+        owner,
     )
     .await
 }
 
 pub async fn enqueue_names(ctx: &JobCtx, addrs: &[Address]) -> Result<Vec<i64>, StoreError> {
     let n = ctx.cfg.multicall_batch_size;
-    enqueue_chunks(ctx, addrs, n, "ens:", JobKind::ResolveNames, "addresses").await
+    enqueue_chunks(
+        ctx,
+        addrs,
+        n,
+        "ens:",
+        JobKind::ResolveNames,
+        "addresses",
+        Priority::Low,
+        None,
+    )
+    .await
 }
 
 pub async fn enqueue_tokens(ctx: &JobCtx, tokens: &[Address]) -> Result<Vec<i64>, StoreError> {
     let n = ctx.cfg.multicall_batch_size;
-    enqueue_chunks(ctx, tokens, n, "token:", JobKind::TokenMeta, "tokens").await
+    enqueue_chunks(
+        ctx,
+        tokens,
+        n,
+        "token:",
+        JobKind::TokenMeta,
+        "tokens",
+        Priority::Low,
+        None,
+    )
+    .await
 }
 
 /// Whether a SyncAddress job for `addr` other than `except` is pending,

@@ -14,7 +14,7 @@ const IMPL = "0x" + "AB".repeat(20);
 const profile: AddressProfileDto = {
   node: {
     address: A, kind: "contract", display_name: null, ens: null, contract_name: "Proxy", labels: [],
-    partial: false, syncing: false, synced: true, hot: false, nonce: null, balance: null,
+    partial: false, syncing: false, synced: true, hot: false, identified: true, nonce: null, balance: null,
   },
   is_proxy: true, implementation: IMPL, creator: null, creation_tx: null, coverage: [], first_seen: null, last_seen: null,
 };
@@ -54,7 +54,7 @@ const wallet: AddressProfileDto = {
   node: {
     address: A, kind: "eoa", display_name: null, ens: null, contract_name: null,
     labels: [{ id: 1, text: "Hot wallet", category: "cex", source: "import:x" }],
-    partial: false, syncing: false, synced: true, hot: false, nonce: null, balance: null,
+    partial: false, syncing: false, synced: true, hot: false, identified: true, nonce: null, balance: null,
   },
   is_proxy: false, implementation: null, creator: null, creation_tx: null,
   coverage: [{ kind: "native", from_block: 1, to_block: 2, truncated: false, state: "ok", last_synced_at: null }],

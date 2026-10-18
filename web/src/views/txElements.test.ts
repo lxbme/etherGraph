@@ -9,7 +9,7 @@ const USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7";
 
 const node = (address: string): NodeSummaryDto => ({
   address, kind: "eoa", display_name: null, ens: null, contract_name: null, labels: [],
-  partial: false, syncing: false, synced: true, hot: false, nonce: null, balance: null,
+  partial: false, syncing: false, synced: true, hot: false, identified: true, nonce: null, balance: null,
 });
 export const flow = (over: Partial<FlowDto> = {}): FlowDto => ({
   seq: 1, from: A, to: B, asset: USDT, amount: "12500000", token_id: null, kind: "erc20",

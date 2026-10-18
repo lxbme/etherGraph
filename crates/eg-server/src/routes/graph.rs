@@ -86,7 +86,7 @@ pub async fn edges(
 
     // Nodes: the centers first, then other endpoints in edge order.
     let mut seen: HashSet<Address> = centers.iter().copied().collect();
-    let mut nodes = centers;
+    let mut nodes = centers.clone();
     let mut neighbours: HashMap<Address, HashSet<Address>> = HashMap::new();
     for e in &res.edges {
         for a in [e.from, e.to] {
@@ -112,7 +112,7 @@ pub async fn edges(
     assets.dedup();
     let tokens = token_map(&s.store, &assets).await?;
     let loaded = load_nodes(&s.store, &nodes, &degree, s.ctx.cfg.hot_neighbor_threshold).await?;
-    enqueue_missing_meta(&s, &nodes, &assets).await;
+    enqueue_missing_meta(&s, &centers, &nodes, &assets).await;
 
     let coverage = nodes
         .iter()

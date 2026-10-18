@@ -17,7 +17,7 @@ const addr = (n: number) => "0x" + n.toString(16).padStart(40, "0");
 const ME = addr(999);
 const node = (n: number, o: Partial<NodeSummaryDto> = {}): NodeSummaryDto => ({
   address: addr(n), kind: "unknown", display_name: null, ens: null, contract_name: null, labels: [],
-  partial: false, syncing: false, synced: false, hot: false, nonce: null, balance: null, ...o,
+  partial: false, syncing: false, synced: false, hot: false, identified: true, nonce: null, balance: null, ...o,
 });
 /** Counterparty n: n transfers with ME (so count_asc order is 1, 2, 3, …). */
 const cp = (n: number, o: Partial<NodeSummaryDto> = {}): CounterpartyDto => ({ node: node(n, o), count: n, last_ts: "", assets: [] });

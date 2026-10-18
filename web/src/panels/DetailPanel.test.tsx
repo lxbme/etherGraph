@@ -15,7 +15,7 @@ const B = "0x" + "bb".repeat(20);
 const profile = (labels: LabelDto[] = [], over: Partial<AddressProfileDto> = {}): AddressProfileDto => ({
   node: {
     address: A, kind: "contract", display_name: "Foo", ens: null, contract_name: "FooPool", labels,
-    partial: true, syncing: false, synced: false, hot: false, nonce: null, balance: null,
+    partial: true, syncing: false, synced: false, hot: false, identified: true, nonce: null, balance: null,
   },
   is_proxy: false, implementation: null, creator: null, creation_tx: null,
   coverage: [

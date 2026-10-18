@@ -155,7 +155,10 @@ async fn fetch_tx_persists_and_enqueues_meta(pool: PgPool) {
     assert!(kinds.contains(&TransferKind::Erc20));
     assert!(kinds.contains(&TransferKind::Internal));
     assert!(transfers.iter().any(|t| t.sub_id == "top"));
-    assert!(count(&e, "SELECT count(*) FROM jobs WHERE kind = 'contract_meta'").await >= 1);
+    assert_eq!(
+        count(&e, "SELECT count(*) FROM jobs WHERE kind = 'contract_meta'").await,
+        1
+    );
     assert_eq!(
         count(&e, "SELECT count(*) FROM jobs WHERE kind = 'token_meta'").await,
         1
@@ -420,4 +423,53 @@ async fn fetch_block_announces_every_stored_tx_of_the_block(pool: PgPool) {
     }
     announced.sort();
     assert_eq!(announced, vec![HASH, other]);
+}
+
+async fn meta_params(e: &Env) -> Vec<serde_json::Value> {
+    sqlx::query_scalar("SELECT params FROM jobs WHERE kind = 'contract_meta'")
+        .fetch_all(e.ctx.store.pool())
+        .await
+        .unwrap()
+}
+
+fn sorted_hex(addrs: &[Address]) -> serde_json::Value {
+    let mut v: Vec<String> = addrs.iter().map(|a| format!("{a:#x}")).collect();
+    v.sort();
+    json!(v)
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn auto_meta_covers_only_tx_from_and_to(pool: PgPool) {
+    let e = env(pool);
+    let tx = raw_tx(None);
+    let (from, to) = (tx.from, tx.to.unwrap());
+    // Log emitters and internal-transfer parties are not identified.
+    let mut logs = vec![erc20_log()];
+    for b in [0x31u8, 0x32, 0x33] {
+        let mut l = erc20_log();
+        l.address = Address::repeat_byte(b);
+        logs.push(l);
+    }
+    e.fake
+        .add_tx(tx, receipt(true, 7, logs), vec![internal()], ts());
+    run(&e, &format!("{HASH:#x}")).await.unwrap();
+    let jobs = meta_params(&e).await;
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0]["addresses"], sorted_hex(&[from, to]));
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn auto_meta_for_creation_is_from_and_created_contract(pool: PgPool) {
+    let e = env(pool);
+    let created = address!("0x1111111111111111111111111111111111111111");
+    let mut tx = raw_tx(None);
+    tx.to = None;
+    let from = tx.from;
+    let mut r = receipt(true, 7, vec![erc20_log()]);
+    r.contract_address = Some(created);
+    e.fake.add_tx(tx, r, vec![], ts());
+    run(&e, &format!("{HASH:#x}")).await.unwrap();
+    let jobs = meta_params(&e).await;
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0]["addresses"], sorted_hex(&[from, created]));
 }

@@ -91,7 +91,7 @@ test("a cancelled graph query aborts its HTTP request", async () => {
 
 const node = (address: string) => ({
   address, kind: "eoa" as const, display_name: null, ens: null, contract_name: null, labels: [],
-  partial: false, syncing: false, synced: true, hot: false, nonce: null, balance: null,
+  partial: false, syncing: false, synced: true, hot: false, identified: true, nonce: null, balance: null,
 });
 
 test("sends center limits and prefers the visible non-center nodes of the shown result", async () => {

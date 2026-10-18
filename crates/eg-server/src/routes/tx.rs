@@ -50,7 +50,15 @@ pub async fn tx(
     )
     .await?
     .nodes;
-    enqueue_missing_meta(&s, &f.participants, &token_addrs).await;
+    // Only the tx's own parties are identified automatically: the sender and
+    // the recipient (or the contract the tx created).
+    let created = f.tx.raw_receipt["contractAddress"]
+        .as_str()
+        .and_then(|a| a.parse::<Address>().ok());
+    let parties: Vec<Address> = std::iter::once(f.tx.from)
+        .chain(f.tx.to.or(created))
+        .collect();
+    enqueue_missing_meta(&s, &parties, &f.participants, &token_addrs).await;
     let block = s.store.block(f.tx.block_number).await?;
     if block.is_none() {
         // Fetched before headers were kept; the job key dedupes repeat views.

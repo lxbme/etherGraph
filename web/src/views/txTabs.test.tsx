@@ -27,7 +27,7 @@ const A = "0x" + "aa".repeat(20);
 const B = "0x" + "bb".repeat(20);
 const node = (address: string): NodeSummaryDto => ({
   address, kind: "eoa", display_name: null, ens: null, contract_name: null, labels: [],
-  partial: false, syncing: false, synced: true, hot: false, nonce: null, balance: null,
+  partial: false, syncing: false, synced: true, hot: false, identified: true, nonce: null, balance: null,
 });
 const resp = (from: string, to: string, hash: string): TxResponseDto => ({
   status: "ready", job_id: null,

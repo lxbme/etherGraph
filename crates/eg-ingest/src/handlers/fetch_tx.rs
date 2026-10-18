@@ -145,17 +145,15 @@ impl JobHandler for FetchTxHandler {
             })
             .await?;
 
-        let mut seen = HashSet::new();
-        let participants: Vec<Address> = [tx.from]
+        // Only the tx's own parties are identified automatically; the rest are
+        // identified on demand (`POST /api/identify`).
+        let parties: Vec<Address> = [tx.from]
             .into_iter()
             .chain(tx.to.or(receipt.contract_address))
-            .chain(transfers.iter().flat_map(|t| [t.from, t.to]))
-            .chain(receipt.logs.iter().map(|l| l.address))
-            .filter(|a| seen.insert(*a))
             .collect();
         let stale = ctx
             .store
-            .addrs_needing_meta(&participants, ctx.cfg.meta_ttl)
+            .addrs_needing_meta(&parties, ctx.cfg.meta_ttl)
             .await?;
         enqueue_meta(ctx, &stale).await?;
         let tokens: Vec<Address> = transfers

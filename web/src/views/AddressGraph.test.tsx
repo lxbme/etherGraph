@@ -29,7 +29,7 @@ const B = "0x" + "bb".repeat(20);
 
 const node = (address: string, synced: boolean): NodeSummaryDto => ({
   address, kind: "eoa", display_name: null, ens: null, contract_name: null, labels: [],
-  partial: false, syncing: false, synced, hot: false, nonce: null, balance: null,
+  partial: false, syncing: false, synced, hot: false, identified: true, nonce: null, balance: null,
 });
 const edge: EdgeDto = {
   from: A, to: B, asset: null, asset_kind: "native", count: 3, sum: "1000", first_ts: "", last_ts: "",

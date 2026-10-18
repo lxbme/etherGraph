@@ -10,6 +10,7 @@
     "syncing": false,
     "synced": true,
     "hot": false,
+    "identified": true,
     "nonce": null,
     "balance": null
   },

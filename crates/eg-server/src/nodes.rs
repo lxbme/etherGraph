@@ -135,6 +135,7 @@ pub fn summarize(
         syncing: sync.iter().any(|r| r.state == SyncState::Syncing),
         synced,
         hot,
+        identified: account.is_some_and(|a| a.meta_fetched_at.timestamp() > 0),
         nonce: None,
         balance: None,
     }
@@ -156,12 +157,18 @@ pub async fn token_map(
         .collect())
 }
 
-/// Enqueues Low-priority metadata, ENS and token jobs for the addresses and
-/// tokens that need them. Failures are logged and never surface to the caller.
-pub async fn enqueue_missing_meta(s: &AppState, addrs: &[Address], tokens: &[Address]) {
+/// Enqueues Low-priority metadata jobs for the `meta_addrs` and ENS and token
+/// jobs for the `addrs` and `tokens` that need them. Failures are logged and
+/// never surface to the caller.
+pub async fn enqueue_missing_meta(
+    s: &AppState,
+    meta_addrs: &[Address],
+    addrs: &[Address],
+    tokens: &[Address],
+) {
     let cfg = &s.ctx.cfg;
     let result: Result<(), StoreError> = async {
-        let meta = s.store.addrs_needing_meta(addrs, cfg.meta_ttl).await?;
+        let meta = s.store.addrs_needing_meta(meta_addrs, cfg.meta_ttl).await?;
         if !meta.is_empty() {
             enqueue_meta(&s.ctx, &meta).await?;
         }

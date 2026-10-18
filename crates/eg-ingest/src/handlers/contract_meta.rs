@@ -5,7 +5,6 @@ use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
 use chrono::Utc;
-use eg_core::source::Priority;
 use eg_core::types::{AccountKind, Address};
 use eg_store::{AccountRow, JobRow};
 use serde::Deserialize;
@@ -35,7 +34,7 @@ impl JobHandler for ContractMetaHandler {
             .store
             .addrs_needing_meta(&addrs, ctx.cfg.meta_ttl)
             .await?;
-        let p = Priority::Low;
+        let p = job.priority;
 
         let mut creations = HashMap::new();
         for chunk in addrs.chunks(CREATION_CHUNK) {

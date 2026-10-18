@@ -161,6 +161,20 @@ async fn tx_pending_then_ready(pool: PgPool) {
         assert!(nodes.contains(&format!("{a:#x}").as_str()), "{a}");
     }
 
+    // Only the tx's from and to are identified automatically; the log
+    // emitter and the internal-transfer party are not.
+    let (_, jobs) = get(&app, "/api/jobs").await;
+    let meta: Vec<&Value> = jobs
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|j| j["kind"] == "contract_meta")
+        .collect();
+    assert_eq!(meta.len(), 1, "{jobs}");
+    let mut want = vec![format!("{FROM:#x}"), format!("{TO:#x}")];
+    want.sort();
+    assert_eq!(meta[0]["params"]["addresses"], json!(want));
+
     let ev = &f["events"][0];
     assert_eq!(ev["address"], format!("{TOKEN:#x}"));
     assert_eq!(ev["log_index"], 3);
@@ -986,4 +1000,97 @@ async fn cancelling_a_running_job_lists_it_but_leaves_the_event_to_the_runner(po
     assert_eq!(b, json!({"cancelled": [by_batch, background]}));
     assert!(state.store.cancel_requested(background).await.unwrap());
     assert!(rx.try_recv().is_err(), "no JobProgress for running jobs");
+}
+
+// ------------------------------------------------------------------ identify
+
+fn fresh_account(addr: Address) -> eg_store::AccountRow {
+    let mut r = account_row(addr, eg_core::types::AccountKind::Eoa);
+    r.meta_fetched_at = Utc::now();
+    r
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn identify_rejects_bad_sizes_and_batches(pool: PgPool) {
+    let (app, _state, _) = test_app(pool);
+    let (st, b) = post_json(&app, "/api/identify", &json!({"addresses": []})).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST, "{b}");
+    assert_eq!(code(&b), "invalid_input");
+    let many: Vec<String> = (0..501u32)
+        .map(|i| format!("{:#x}", Address::from_word(B256::from(U256::from(i + 1)))))
+        .collect();
+    let (st, b) = post_json(&app, "/api/identify", &json!({"addresses": many})).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST, "{b}");
+    assert_eq!(code(&b), "invalid_input");
+    let body = json!({"addresses": [format!("{FROM:#x}")], "batch": "bad batch!"});
+    let (st, b) = post_json(&app, "/api/identify", &body).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST, "{b}");
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn identify_queues_only_addresses_needing_meta(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    state
+        .store
+        .upsert_accounts(&[fresh_account(OTHER)])
+        .await
+        .unwrap();
+    let body = json!({
+        "addresses": [format!("{FROM:#x}"), format!("{OTHER:#x}"), format!("{TO:#x}")],
+        "batch": "idf-1",
+    });
+    let (st, b) = post_json(&app, "/api/identify", &body).await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    assert_eq!(b["queued"], 2);
+    let jobs = b["jobs"].as_array().unwrap();
+    assert_eq!(jobs.len(), 1);
+    let id = jobs[0].as_i64().unwrap();
+    let job = state.store.job(id).await.unwrap().unwrap();
+    assert_eq!(job.priority, Priority::Interactive);
+    let mut want = vec![format!("{FROM:#x}"), format!("{TO:#x}")];
+    want.sort();
+    assert_eq!(job.params["addresses"], json!(want));
+    let listed = active_job(&app, id).await.unwrap();
+    assert_eq!(listed["batches"], json!(["idf-1"]));
+
+    let (st, b) = delete(&app, "/api/batches/idf-1").await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    assert_eq!(b, json!({"cancelled": [id]}));
+    assert!(active_job(&app, id).await.is_none());
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn identify_with_nothing_to_do_queues_nothing(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    state
+        .store
+        .upsert_accounts(&[fresh_account(OTHER)])
+        .await
+        .unwrap();
+    let body = json!({"addresses": [format!("{OTHER:#x}")]});
+    let (st, b) = post_json(&app, "/api/identify", &body).await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    assert_eq!(b, json!({"queued": 0, "jobs": []}));
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn node_identified_follows_real_metadata(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let identified = |g: &Value| g["nodes"][0]["identified"].clone();
+    let req = json!({"addresses": [format!("{TOKEN:#x}")]});
+    let (_, g) = post_json(&app, "/api/graph/edges", &req).await;
+    assert_eq!(identified(&g), false);
+    state
+        .store
+        .set_kind_if_unknown(&[(TOKEN, eg_core::types::AccountKind::Contract)])
+        .await
+        .unwrap();
+    let (_, g) = post_json(&app, "/api/graph/edges", &req).await;
+    assert_eq!(g["nodes"][0]["kind"], "contract");
+    assert_eq!(identified(&g), false);
+    let mut row = account_row(TOKEN, eg_core::types::AccountKind::Contract);
+    row.meta_fetched_at = Utc::now();
+    state.store.upsert_accounts(&[row]).await.unwrap();
+    let (_, g) = post_json(&app, "/api/graph/edges", &req).await;
+    assert_eq!(identified(&g), true);
 }

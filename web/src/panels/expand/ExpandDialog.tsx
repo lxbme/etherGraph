@@ -63,7 +63,7 @@ interface Source {
 /** A summary for an address the cached graph does not know (preset candidates). */
 const placeholder = (address: string): NodeSummaryDto => ({
   address, kind: "unknown", display_name: null, ens: null, contract_name: null, labels: [],
-  partial: false, syncing: false, synced: false, hot: false, nonce: null, balance: null,
+  partial: false, syncing: false, synced: false, hot: false, identified: false, nonce: null, balance: null,
 });
 
 /** The graph result currently on the canvas, if cached. */

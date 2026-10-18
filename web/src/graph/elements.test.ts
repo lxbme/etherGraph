@@ -14,7 +14,7 @@ const USDT = "0xdac17f958d2ee523a2206206994597c13d831ec7";
 function node(p: Partial<NodeSummaryDto> = {}): NodeSummaryDto {
   return {
     address: A, kind: "eoa", display_name: null, ens: null, contract_name: null,
-    labels: [], partial: false, syncing: false, synced: true, hot: false, nonce: null, balance: null, ...p,
+    labels: [], partial: false, syncing: false, synced: true, hot: false, identified: true, nonce: null, balance: null, ...p,
   };
 }
 function dto(p: Partial<EdgeDto> = {}): EdgeDto {

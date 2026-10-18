@@ -10,8 +10,8 @@ pub mod runner;
 pub mod txflow;
 
 pub use enqueue::{
-    SyncDirection, enqueue_fetch_block, enqueue_fetch_tx, enqueue_meta, enqueue_names,
-    enqueue_sync, enqueue_tokens, other_sync_active,
+    SyncDirection, enqueue_fetch_block, enqueue_fetch_tx, enqueue_meta, enqueue_meta_owned,
+    enqueue_names, enqueue_sync, enqueue_tokens, other_sync_active,
 };
 pub use estimate::{Estimate, estimate, remaining_calls};
 pub use events::{Event, EventBus, NameItem};

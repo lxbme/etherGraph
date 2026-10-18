@@ -78,7 +78,7 @@ pub async fn profile(
             tracing::warn!(error = %e, address = %hex_addr(addr), "enqueueing sync failed");
         }
     }
-    enqueue_missing_meta(&s, &[addr], &[]).await;
+    enqueue_missing_meta(&s, &[addr], &[addr], &[]).await;
 
     Ok(Json(AddressProfileDto {
         node,

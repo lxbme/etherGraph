@@ -12,7 +12,7 @@ import { InteractionsDialog } from "./InteractionsDialog";
 const addr = (n: number) => "0x" + n.toString(16).padStart(40, "0");
 const node = (n: number, o: Partial<NodeSummaryDto> = {}): NodeSummaryDto => ({
   address: addr(n), kind: "eoa", display_name: null, ens: null, contract_name: null, labels: [],
-  partial: false, syncing: false, synced: true, hot: false, nonce: null, balance: null, ...o,
+  partial: false, syncing: false, synced: true, hot: false, identified: true, nonce: null, balance: null, ...o,
 });
 const contract = node(999, { kind: "contract" });
 const cp = (n: number, o: Partial<CounterpartyDto> = {}): CounterpartyDto => ({

@@ -261,6 +261,8 @@ pub struct NodeSummaryDto {
     pub synced: bool,
     /// Exchange/DeFi label or more neighbours than `hot_neighbor_threshold`.
     pub hot: bool,
+    /// Real metadata has been fetched (a probe-marked kind does not count).
+    pub identified: bool,
     /// Outgoing transaction count from the probe cache; null when never probed.
     #[ts(type = "number | null")]
     pub nonce: Option<u64>,
@@ -387,6 +389,26 @@ pub struct SyncResponseDto {
     pub per_address: Option<HashMap<String, u32>>,
     #[ts(type = "Array<number> | null")]
     pub jobs: Option<Vec<i64>>,
+}
+
+// ------------------------------------------------------------------ identify
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export, optional_fields = nullable)]
+pub struct IdentifyRequestDto {
+    /// 1 to 500 addresses.
+    pub addresses: Vec<String>,
+    /// Batch owning the jobs: 1 to 64 characters of `[A-Za-z0-9-]`.
+    pub batch: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct IdentifyResponseDto {
+    /// Addresses that needed identification and were queued.
+    pub queued: u32,
+    #[ts(type = "Array<number>")]
+    pub jobs: Vec<i64>,
 }
 
 // ------------------------------------------------------------------ transfers
@@ -707,7 +729,9 @@ impl FlowDto {
 pub struct NewLabelDto {
     pub address: String,
     pub text: String,
-    #[ts(type = r#""cex" | "dex" | "defi" | "bridge" | "mixer" | "scam" | "sanctioned" | "hacker" | "mev" | "fund" | "nft" | "staking" | "other""#)]
+    #[ts(
+        type = r#""cex" | "dex" | "defi" | "bridge" | "mixer" | "scam" | "sanctioned" | "hacker" | "mev" | "fund" | "nft" | "staking" | "other""#
+    )]
     pub category: String,
 }
 

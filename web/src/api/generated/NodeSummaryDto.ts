@@ -24,6 +24,10 @@ synced: boolean,
  */
 hot: boolean, 
 /**
+ * Real metadata has been fetched (a probe-marked kind does not count).
+ */
+identified: boolean, 
+/**
  * Outgoing transaction count from the probe cache; null when never probed.
  */
 nonce: number | null, 

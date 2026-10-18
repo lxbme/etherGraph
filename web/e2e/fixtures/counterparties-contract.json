@@ -12,6 +12,7 @@
         "syncing": false,
         "synced": false,
         "hot": false,
+        "identified": true,
         "nonce": null,
         "balance": null
       },
@@ -37,6 +38,7 @@
         "syncing": false,
         "synced": false,
         "hot": false,
+        "identified": true,
         "nonce": null,
         "balance": null
       },
@@ -62,6 +64,7 @@
         "syncing": false,
         "synced": false,
         "hot": false,
+        "identified": true,
         "nonce": null,
         "balance": null
       },

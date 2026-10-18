@@ -3,6 +3,7 @@ pub mod batches;
 pub mod counterparties;
 pub mod events;
 pub mod graph;
+pub mod identify;
 pub mod jobs;
 pub mod labels;
 pub mod probe;

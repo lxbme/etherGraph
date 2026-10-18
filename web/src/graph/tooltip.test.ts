@@ -6,7 +6,7 @@ import type { VisualEdge } from "./visualEdges";
 
 const node = (o: Partial<NodeSummaryDto> = {}): NodeSummaryDto => ({
   address: "0x1111111111111111111111111111111111111111", kind: "eoa", display_name: null, ens: null,
-  contract_name: null, labels: [], partial: false, syncing: false, synced: false, hot: false, nonce: null, balance: null, ...o,
+  contract_name: null, labels: [], partial: false, syncing: false, synced: false, hot: false, identified: true, nonce: null, balance: null, ...o,
 });
 const text = (ls: { label?: string; value: string }[]) => ls.map((l) => `${l.label ?? ""} ${l.value}`).join("\n");
 

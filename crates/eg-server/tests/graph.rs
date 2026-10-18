@@ -278,7 +278,9 @@ async fn graph_edges_returns_nodes_and_enqueues_meta(pool: PgPool) {
     let meta = jobs_of(&state, JobKind::ContractMeta).await;
     let names = jobs_of(&state, JobKind::ResolveNames).await;
     let tokens = jobs_of(&state, JobKind::TokenMeta).await;
-    assert!(!meta.is_empty());
+    // Only the center is identified automatically.
+    assert_eq!(meta.len(), 1);
+    assert_eq!(meta[0].params["addresses"], json!([hex(C)]));
     assert!(!names.is_empty());
     assert_eq!(tokens.len(), 1);
     assert_eq!(tokens[0].params["tokens"], json!([hex(USDT)]));
@@ -286,6 +288,34 @@ async fn graph_edges_returns_nodes_and_enqueues_meta(pool: PgPool) {
         assert_eq!(j.priority, Priority::Low);
     }
     assert!(jobs_of(&state, JobKind::SyncAddress).await.is_empty());
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn graph_auto_meta_only_for_the_center(pool: PgPool) {
+    let (app, state, _) = test_app(pool);
+    let others = [A, B, USDT, Address::repeat_byte(0x77)];
+    seed(
+        &state,
+        others
+            .iter()
+            .enumerate()
+            .map(|(i, o)| tr(i as u8 + 1, C, *o, None, U256::from(1), 0))
+            .collect(),
+    )
+    .await;
+    let (s, b) = post_json(&app, "/api/graph/edges", &json!({"addresses": [hex(C)]})).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["nodes"].as_array().unwrap().len(), 5);
+    let meta = jobs_of(&state, JobKind::ContractMeta).await;
+    assert_eq!(meta.len(), 1);
+    assert_eq!(meta[0].params["addresses"], json!([hex(C)]));
+    // Names are still resolved for every node.
+    let names = jobs_of(&state, JobKind::ResolveNames).await;
+    let listed: usize = names
+        .iter()
+        .map(|j| j.params["addresses"].as_array().unwrap().len())
+        .sum();
+    assert_eq!(listed, 5);
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
@@ -380,12 +410,10 @@ async fn graph_node_flags_and_names(pool: PgPool) {
         })
     );
     assert!(cov[0]["last_synced_at"].is_string());
-    // Fresh metadata / ENS rows are not re-enqueued.
-    let meta = jobs_of(&state, JobKind::ContractMeta).await;
-    assert_eq!(meta.len(), 1);
-    let mut want = vec![hex(A), hex(B)];
-    want.sort();
-    assert_eq!(meta[0].params["addresses"], json!(want));
+    // The center has fresh metadata; neighbours are never auto-identified.
+    assert!(jobs_of(&state, JobKind::ContractMeta).await.is_empty());
+    assert_eq!(c["identified"], true);
+    assert_eq!(a["identified"], false);
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
