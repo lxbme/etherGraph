@@ -6,9 +6,7 @@ use std::collections::HashMap;
 use axum::Json;
 use axum::extract::State;
 use eg_core::types::{Address, TransferKind};
-use eg_ingest::{
-    MAX_AUTO_DELEGATES, delegates, enqueue_fetch_block, enqueue_fetch_tx, load_tx_flow,
-};
+use eg_ingest::{auto_meta_parties, enqueue_fetch_block, enqueue_fetch_tx, load_tx_flow};
 
 use crate::dto::{
     DecodedCallDto, DecodedEventDto, FlowDto, TxFlowDto, TxMetaDto, TxRawDto, TxResponseDto,
@@ -58,14 +56,7 @@ pub async fn tx(
     let created = f.tx.raw_receipt["contractAddress"]
         .as_str()
         .and_then(|a| a.parse::<Address>().ok());
-    let parties: Vec<Address> = std::iter::once(f.tx.from)
-        .chain(f.tx.to.or(created))
-        .chain(
-            delegates(&f.authorizations)
-                .into_iter()
-                .take(MAX_AUTO_DELEGATES),
-        )
-        .collect();
+    let parties = auto_meta_parties(f.tx.from, f.tx.to.or(created), &f.authorizations);
     enqueue_missing_meta(&s, &parties, &f.participants, &token_addrs).await;
     let block = s.store.block(f.tx.block_number).await?;
     if block.is_none() {

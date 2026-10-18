@@ -298,7 +298,8 @@ async fn set_code_tx_lists_authorizations_and_decodes_with_the_delegate_abi(pool
              "authority": null},
         ])
     );
-    // The delegates are nodes; the zero address is not.
+    // The recovered delegate is a node; OTHER (no recovered signer) and the
+    // zero address are not.
     let nodes: Vec<&str> = f["nodes"]
         .as_array()
         .unwrap()
@@ -307,16 +308,13 @@ async fn set_code_tx_lists_authorizations_and_decodes_with_the_delegate_abi(pool
         .collect();
     assert_eq!(
         nodes,
-        vec![
-            format!("{SENDER:#x}"),
-            format!("{DELEGATE:#x}"),
-            format!("{OTHER:#x}")
-        ]
+        vec![format!("{SENDER:#x}"), format!("{DELEGATE:#x}")]
     );
     // The delegate's ABI is not known yet: the method stays undecoded.
     assert!(f["call"].is_null());
     assert!(f["tx"]["method"].is_null());
-    // The delegates are identified automatically, like the tx's own parties.
+    // The recovered delegate is identified automatically, like the tx's own
+    // parties; OTHER is not.
     let (_, jobs) = get(&app, "/api/jobs").await;
     let meta: Vec<&Value> = jobs
         .as_array()
@@ -325,11 +323,7 @@ async fn set_code_tx_lists_authorizations_and_decodes_with_the_delegate_abi(pool
         .filter(|j| j["kind"] == "contract_meta")
         .collect();
     assert_eq!(meta.len(), 1, "{jobs}");
-    let mut want = vec![
-        format!("{SENDER:#x}"),
-        format!("{DELEGATE:#x}"),
-        format!("{OTHER:#x}"),
-    ];
+    let mut want = vec![format!("{SENDER:#x}"), format!("{DELEGATE:#x}")];
     want.sort();
     assert_eq!(meta[0]["params"]["addresses"], json!(want));
 

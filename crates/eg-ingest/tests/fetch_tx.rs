@@ -478,16 +478,33 @@ fn unsigned_auth(delegate: Address) -> Value {
     json!({"chainId": "0x1", "address": format!("{delegate:#x}"), "nonce": "0x0"})
 }
 
+/// An authorization signed by the key `[byte; 32]`.
+fn signed_auth(byte: u8, delegate: Address) -> Value {
+    let key = k256::ecdsa::SigningKey::from_slice(&[byte; 32]).unwrap();
+    let hash = eg_ingest::authorization::authorization_hash(U256::from(1), delegate, U256::ZERO);
+    let (sig, recid) = key.sign_prehash_recoverable(hash.as_slice()).unwrap();
+    let sig = alloy_primitives::Signature::from_signature_and_parity(sig, recid.is_y_odd());
+    json!({"chainId": "0x1", "address": format!("{delegate:#x}"), "nonce": "0x0",
+        "yParity": if sig.v() { "0x1" } else { "0x0" },
+        "r": format!("{:#x}", sig.r()), "s": format!("{:#x}", sig.s())})
+}
+
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn auto_meta_adds_up_to_eight_delegates(pool: PgPool) {
     let e = env(pool);
     let mut tx = raw_tx(None);
     let (from, to) = (tx.from, tx.to.unwrap());
     let delegates: Vec<Address> = (1u8..=10).map(|b| Address::repeat_byte(0x40 + b)).collect();
-    let mut list: Vec<Value> = delegates.iter().map(|d| unsigned_auth(*d)).collect();
-    // A revocation and a repeated delegate do not use up the cap.
-    list.insert(1, unsigned_auth(Address::ZERO));
-    list.insert(2, unsigned_auth(delegates[0]));
+    let mut list: Vec<Value> = delegates
+        .iter()
+        .zip(1u8..)
+        .map(|(d, k)| signed_auth(k, *d))
+        .collect();
+    // A revocation, a repeated delegate and an entry whose signer does not
+    // recover do not use up the cap.
+    list.insert(1, signed_auth(20, Address::ZERO));
+    list.insert(2, signed_auth(21, delegates[0]));
+    list.insert(3, unsigned_auth(Address::repeat_byte(0x99)));
     tx.json["type"] = json!("0x4");
     tx.json["authorizationList"] = json!(list);
     e.fake.add_tx(tx, receipt(true, 7, vec![]), vec![], ts());
@@ -501,6 +518,26 @@ async fn auto_meta_adds_up_to_eight_delegates(pool: PgPool) {
 
 const SENDER: Address = address!("0xe461dd07cbf41b8020a2e9f50255bf85bf1c4905");
 const DELEGATE: Address = address!("0x612373d7003d694220f7800eeaf8e3924c0951d3");
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn unrecovered_delegate_is_no_participant_and_not_identified(pool: PgPool) {
+    let e = env(pool);
+    let mut tx = raw_tx(None);
+    let (from, to) = (tx.from, tx.to.unwrap());
+    let stray = Address::repeat_byte(0x99);
+    tx.json["type"] = json!("0x4");
+    tx.json["authorizationList"] = json!([unsigned_auth(stray)]);
+    e.fake.add_tx(tx, receipt(true, 7, vec![]), vec![], ts());
+    run(&e, &format!("{HASH:#x}")).await.unwrap();
+    let jobs = meta_params(&e).await;
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0]["addresses"], sorted_hex(&[from, to]));
+    let flow = load_tx_flow(&e.ctx.store, HASH).await.unwrap().unwrap();
+    assert_eq!(flow.authorizations.len(), 1);
+    assert_eq!(flow.authorizations[0].delegate, stray);
+    assert_eq!(flow.authorizations[0].authority, None);
+    assert!(!flow.participants.contains(&stray));
+}
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn delegate_abi_decodes_the_call_once_stored(pool: PgPool) {

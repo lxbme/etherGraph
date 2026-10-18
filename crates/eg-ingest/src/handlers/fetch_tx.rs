@@ -11,7 +11,7 @@ use eg_decode::decode_transfer_logs;
 use eg_store::{JobRow, JobStatus, TxRow};
 use serde::Deserialize;
 
-use crate::authorization::{MAX_AUTO_DELEGATES, authorizations, delegates};
+use crate::authorization::{authorizations, auto_meta_parties};
 use crate::enqueue::{enqueue_meta, enqueue_tokens};
 use crate::events::Event;
 use crate::runner::{JobCtx, JobError, JobHandler};
@@ -146,18 +146,12 @@ impl JobHandler for FetchTxHandler {
             })
             .await?;
 
-        // Only the tx's own parties and its first EIP-7702 delegates are
-        // identified automatically; the rest are identified on demand
-        // (`POST /api/identify`).
-        let parties: Vec<Address> = [tx.from]
-            .into_iter()
-            .chain(tx.to.or(receipt.contract_address))
-            .chain(
-                delegates(&authorizations(&tx.json))
-                    .into_iter()
-                    .take(MAX_AUTO_DELEGATES),
-            )
-            .collect();
+        // The rest are identified on demand (`POST /api/identify`).
+        let parties = auto_meta_parties(
+            tx.from,
+            tx.to.or(receipt.contract_address),
+            &authorizations(&tx.json),
+        );
         let stale = ctx
             .store
             .addrs_needing_meta(&parties, ctx.cfg.meta_ttl)

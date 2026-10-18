@@ -19,7 +19,7 @@ pub struct Authorization {
     pub nonce: U256,
     /// The recovered signer; `None` when the signature does not recover or the
     /// entry cannot be valid on mainnet (chain id other than 0 or 1, nonce
-    /// beyond 64 bits).
+    /// of 2^64 − 1 or more).
     pub authority: Option<Address>,
 }
 
@@ -59,18 +59,20 @@ pub fn recover_authority(
         .ok()
 }
 
-/// A `0x` hex quantity; `None` when absent or malformed.
+/// A hex quantity (`0x` prefix optional, as in `txdetail`); `None` when
+/// absent or malformed.
 fn quantity(entry: &Value, key: &str) -> Option<U256> {
     let s = entry.get(key)?.as_str()?;
-    U256::from_str_radix(s.strip_prefix("0x")?, 16).ok()
+    U256::from_str_radix(s.strip_prefix("0x").unwrap_or(s), 16).ok()
 }
 
 fn entry(e: &Value) -> Option<Authorization> {
     let chain_id = quantity(e, "chainId")?;
     let delegate = e.get("address")?.as_str()?.parse().ok()?;
     let nonce = quantity(e, "nonce")?;
+    // EIP-7702: the nonce must be below 2^64 − 1.
     let valid =
-        (chain_id.is_zero() || chain_id == U256::from(CHAIN_ID)) && nonce <= U256::from(u64::MAX);
+        (chain_id.is_zero() || chain_id == U256::from(CHAIN_ID)) && nonce < U256::from(u64::MAX);
     let signature = || {
         let y_parity = match quantity(e, "yParity")? {
             p if p.is_zero() => false,
@@ -106,13 +108,30 @@ pub fn authorizations(raw_tx: &Value) -> Vec<Authorization> {
         .map_or_else(Vec::new, |list| list.iter().filter_map(entry).collect())
 }
 
-/// The non-zero delegates, deduplicated, in list order.
+/// The non-zero delegates of the entries whose signer was recovered,
+/// deduplicated, in list order. An entry without a signer never takes
+/// effect, so its delegate is no participant and is not identified.
 pub fn delegates(auths: &[Authorization]) -> Vec<Address> {
     let mut seen = HashSet::new();
     auths
         .iter()
+        .filter(|a| a.authority.is_some())
         .map(|a| a.delegate)
         .filter(|d| !d.is_zero() && seen.insert(*d))
+        .collect()
+}
+
+/// The addresses of a tx identified automatically: its sender, its recipient
+/// (or the contract it created) and its first [`MAX_AUTO_DELEGATES`]
+/// delegates. Everything else is identified on demand.
+pub fn auto_meta_parties(
+    from: Address,
+    to_or_created: Option<Address>,
+    auths: &[Authorization],
+) -> Vec<Address> {
+    std::iter::once(from)
+        .chain(to_or_created)
+        .chain(delegates(auths).into_iter().take(MAX_AUTO_DELEGATES))
         .collect()
 }
 
@@ -236,6 +255,8 @@ pub(crate) mod tests {
         });
         let mut huge_nonce = signed(&k, 1, DELEGATE, 0);
         huge_nonce["nonce"] = json!("0x10000000000000000");
+        // EIP-7702 requires nonce < 2^64 − 1.
+        let max_nonce = signed(&k, 1, DELEGATE, u64::MAX);
 
         let auths = authorizations(&list(vec![
             bad_r,
@@ -246,8 +267,9 @@ pub(crate) mod tests {
             wrong_chain,
             high_s,
             huge_nonce,
+            max_nonce,
         ]));
-        assert_eq!(auths.len(), 8);
+        assert_eq!(auths.len(), 9);
         assert!(auths.iter().all(|a| a.authority.is_none()), "{auths:?}");
         assert_eq!(auths[5].chain_id, U256::from(5));
         assert_eq!(auths[7].nonce, U256::from(1u128 << 64));
@@ -281,15 +303,42 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn delegates_skip_zero_and_repeats() {
-        let a = |d: Address| Authorization {
+    fn delegates_skip_zero_repeats_and_unrecovered_signers() {
+        let a = |d: Address, signed: bool| Authorization {
             chain_id: U256::from(1),
             delegate: d,
             nonce: U256::ZERO,
-            authority: None,
+            authority: signed.then_some(SENDER),
         };
-        let (x, y) = (Address::repeat_byte(1), Address::repeat_byte(2));
-        let auths = [a(y), a(Address::ZERO), a(x), a(y)];
+        let (x, y, z) = (
+            Address::repeat_byte(1),
+            Address::repeat_byte(2),
+            Address::repeat_byte(3),
+        );
+        let auths = [
+            a(y, true),
+            a(Address::ZERO, true),
+            a(z, false),
+            a(x, true),
+            a(y, true),
+        ];
         assert_eq!(delegates(&auths), vec![y, x]);
+    }
+
+    #[test]
+    fn auto_meta_parties_cap_the_delegates() {
+        let auths: Vec<Authorization> = (1u8..=10)
+            .map(|b| Authorization {
+                chain_id: U256::from(1),
+                delegate: Address::repeat_byte(b),
+                nonce: U256::ZERO,
+                authority: Some(SENDER),
+            })
+            .collect();
+        let from = Address::repeat_byte(0xf0);
+        let mut want = vec![from, DELEGATE];
+        want.extend((1u8..=8).map(Address::repeat_byte));
+        assert_eq!(auto_meta_parties(from, Some(DELEGATE), &auths), want);
+        assert_eq!(auto_meta_parties(from, None, &[]), vec![from]);
     }
 }

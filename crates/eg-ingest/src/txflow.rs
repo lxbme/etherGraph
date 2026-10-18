@@ -91,7 +91,7 @@ fn input_of(tx: &TxRow) -> Option<Bytes> {
 
 /// Every address a transaction touches, deduplicated in this order: sender,
 /// recipient, created contract (receipt `contractAddress`), the endpoints of
-/// `transfers`, log emitters, then the non-zero EIP-7702 delegates.
+/// `transfers`, log emitters, then the EIP-7702 delegates (see `delegates`).
 /// `receipt` is the parsed `raw_receipt`.
 fn participants<'a>(
     tx: &TxRow,
@@ -456,12 +456,12 @@ mod tests {
             real_auth(),
             signed(&k, 1, Address::ZERO, 0),
             signed(&k, 1, other, 1),
-            // An unrecoverable entry still names its delegate.
+            // An entry whose signer does not recover is no participant.
             {"chainId": "0x1", "address": format!("{C:#x}"), "nonce": "0x0"},
             real_auth(),
         ]});
         let f = build_tx_flow(&t, &[], &HashMap::new(), &HashMap::new());
-        assert_eq!(f.participants, vec![A, B, DELEGATE, other, C]);
+        assert_eq!(f.participants, vec![A, B, DELEGATE, other]);
         let signers: Vec<_> = f.authorizations.iter().map(|a| a.authority).collect();
         let kaddr = Address::from_private_key(&k);
         assert_eq!(
@@ -492,6 +492,17 @@ mod tests {
         let f = build_tx_flow(&t, &[], &abis, &HashMap::new());
         assert_eq!(f.call.unwrap().name, "foo");
         assert_eq!(f.call_via_delegate, None);
+    }
+
+    #[test]
+    fn sponsored_call_uses_the_delegate_abi_of_to() {
+        // Someone else sends the tx; `to` (SENDER) is the authority.
+        let (mut t, abi) = self_call(vec![real_auth()]);
+        t.from = A;
+        let abis = HashMap::from([(DELEGATE, abi)]);
+        let f = build_tx_flow(&t, &[], &abis, &HashMap::new());
+        assert_eq!(f.call.unwrap().name, "foo");
+        assert_eq!(f.call_via_delegate, Some(DELEGATE));
     }
 
     #[test]
