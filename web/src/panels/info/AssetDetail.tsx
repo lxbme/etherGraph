@@ -89,6 +89,7 @@ function TokenDetail({ tab, address, tokenId }: { tab: string; address: string; 
   const d = q.data;
   const std = STANDARD_DOC[d.standard];
   const fungible = d.standard !== "erc721" && d.standard !== "erc1155";
+  const site = d.website && isHttp(d.website) ? d.website : null;
   const dash = <span className="detail__muted">—</span>;
   return (
     <div className="detail__section">
@@ -116,13 +117,9 @@ function TokenDetail({ tab, address, tokenId }: { tab: string; address: string; 
           </a>
         </Row>
         {d.contract_name && <Row label="info.asset.contractName">{d.contract_name}</Row>}
-        {d.website && (
+        {site && (
           <Row label="info.asset.website">
-            {isHttp(d.website) ? (
-              <a className="detail__link" href={d.website} target="_blank" rel="noopener noreferrer">{d.website}</a>
-            ) : (
-              d.website
-            )}
+            <a className="detail__link" href={site} target="_blank" rel="noopener noreferrer">{site}</a>
           </Row>
         )}
         {tokenId && (

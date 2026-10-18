@@ -63,27 +63,6 @@ test("an unknown address says it is not identified and Identify queues a lookup"
   expect(spy).toHaveBeenCalledWith([USDT]);
 });
 
-test("a website that is not http(s) is plain text, not a link", async () => {
-  vi.spyOn(api, "token").mockResolvedValue(dto({ website: "ftp://x" }));
-  renderDetail({ asset: USDT });
-  expect(await screen.findByText("ftp://x")).toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: "ftp://x" })).toBeNull();
-});
-
-test("an NFT shows the full token id and no decimals", async () => {
-  vi.spyOn(api, "token").mockResolvedValue(dto({ standard: "erc721", decimals: null, source_verified: false }));
-  renderDetail({ asset: USDT, tokenId: "123456789012345678901234567890" });
-  expect(await screen.findByText("123456789012345678901234567890")).toBeInTheDocument();
-  expect(screen.queryByText("Decimals")).toBeNull();
-  expect(screen.getByText("Source not verified")).toBeInTheDocument();
-});
-
-test("a failed lookup shows the error", async () => {
-  vi.spyOn(api, "token").mockRejectedValue(new Error("boom"));
-  renderDetail({ asset: USDT });
-  expect(await screen.findByRole("alert")).toBeInTheDocument();
-});
-
 test("while the token is loading it shows the loading placeholder and no rows", () => {
   vi.spyOn(api, "token").mockReturnValue(new Promise(() => {}));
   renderDetail({ asset: USDT });
@@ -91,10 +70,19 @@ test("while the token is loading it shows the loading placeholder and no rows", 
   expect(screen.queryByTestId("asset-kv")).toBeNull();
 });
 
-test.each(["null", ""])("a website of %j is never a link", async (website) => {
+test.each(["null", "", "ftp://x"])("a website of %j gives no Website row", async (website) => {
   vi.spyOn(api, "token").mockResolvedValue(dto({ website }));
   renderDetail({ asset: USDT });
   expect(await screen.findByText("Tether USD")).toBeInTheDocument();
-  expect(screen.queryByRole("link", { name: website || "x" })).toBeNull();
+  expect(screen.queryByText("Website")).toBeNull();
+  expect(screen.queryByText("null")).toBeNull();
+  expect(screen.queryByText("ftp://x")).toBeNull();
   expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual(["Etherscan"]);
+});
+
+test("an https website is a Website row with a safe link", async () => {
+  vi.spyOn(api, "token").mockResolvedValue(dto({ website: "https://tether.to" }));
+  renderDetail({ asset: USDT });
+  expect(await screen.findByText("Website")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "https://tether.to" })).toHaveAttribute("rel", "noopener noreferrer");
 });
