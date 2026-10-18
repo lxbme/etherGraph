@@ -19,6 +19,7 @@ use eg_ingest::handlers::FetchTxHandler;
 use eg_ingest::{JobHandler, enqueue_fetch_tx};
 use eg_server::eth_labels::import_eth_labels;
 use eg_server::import_labels::import_labels;
+use eg_server::import_tokens::{TokenFormat, import_tokens};
 use eg_store::{Store, TxRow};
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -1102,4 +1103,39 @@ async fn node_identified_follows_real_metadata(pool: PgPool) {
     state.store.upsert_accounts(&[row]).await.unwrap();
     let (_, g) = post_json(&app, "/api/graph/edges", &req).await;
     assert_eq!(identified(&g), true);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn import_tokens_replaces_only_its_source(pool: PgPool) {
+    let store = Store::from_pool(pool);
+    let a = "0x00000000000000000000000000000000000000a1";
+    let list = format!(
+        r#"{{"tokens":[{{"chainId":1,"address":"{a}"}},{{"chainId":56,"address":"{a}"}}]}}"#
+    );
+    let csv = format!(
+        "address,chainId,label,name,symbol,website,image\n{a},1,stablecoin,N,S,https://a.io,x\n"
+    );
+    assert_eq!(
+        import_tokens(&store, TokenFormat::EthLabels, csv.as_bytes())
+            .await
+            .unwrap(),
+        (1, 0)
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            import_tokens(&store, TokenFormat::Uniswap, list.as_bytes())
+                .await
+                .unwrap(),
+            (1, 1)
+        );
+    }
+    let rows = store.token_tags(&[a.parse().unwrap()]).await.unwrap();
+    let got: Vec<_> = rows
+        .iter()
+        .map(|r| (r.source.as_str(), r.tag.as_str()))
+        .collect();
+    assert_eq!(
+        got,
+        [("eth-labels", "stablecoin"), ("uniswap", "default-list")]
+    );
 }

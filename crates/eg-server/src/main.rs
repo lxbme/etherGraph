@@ -13,6 +13,7 @@ use eg_ingest::{Runner, default_handlers};
 use eg_server::app::router;
 use eg_server::background::{persist_quota, spawn_background};
 use eg_server::config::{Config, SourceMode};
+use eg_server::import_tokens::TokenFormat;
 use eg_server::state::AppState;
 use eg_store::Store;
 use tracing_subscriber::EnvFilter;
@@ -50,6 +51,18 @@ enum Cmd {
         #[arg(value_name = "CSV")]
         csv_pos: Option<PathBuf>,
     },
+    /// Replace the token tags of one list (Uniswap, CoinGecko or eth-labels).
+    ImportTokens {
+        #[arg(long, default_value = "config.toml")]
+        config: PathBuf,
+        #[arg(long, value_enum)]
+        format: TokenFormat,
+        /// The list file (`--file <path>` or positional).
+        #[arg(long = "file", value_name = "PATH", conflicts_with = "file_pos")]
+        file_flag: Option<PathBuf>,
+        #[arg(value_name = "FILE")]
+        file_pos: Option<PathBuf>,
+    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -78,6 +91,17 @@ async fn main() -> anyhow::Result<()> {
                 .or(csv_pos)
                 .context("a CSV path is required (--csv <path>)")?;
             import_labels_cmd(&config, format, dataset.as_deref(), &csv).await
+        }
+        Cmd::ImportTokens {
+            config,
+            format,
+            file_flag,
+            file_pos,
+        } => {
+            let file = file_flag
+                .or(file_pos)
+                .context("a file path is required (--file <path>)")?;
+            import_tokens_cmd(&config, format, &file).await
         }
     }
 }
@@ -116,6 +140,23 @@ async fn import_labels_cmd(
             println!("imported {mainnet} mainnet, {xchain} cross-chain, skipped {skipped}");
         }
     }
+    Ok(())
+}
+
+async fn import_tokens_cmd(config: &Path, format: TokenFormat, path: &Path) -> anyhow::Result<()> {
+    let cfg = Config::read(config)?;
+    anyhow::ensure!(
+        !cfg.server.database_url.trim().is_empty(),
+        "server.database_url (or DATABASE_URL) is required"
+    );
+    let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let store = Store::connect(&cfg.server.database_url)
+        .await
+        .context("connecting to the database")?;
+    let (imported, skipped) =
+        eg_server::import_tokens::import_tokens(&store, format, std::io::BufReader::new(file))
+            .await?;
+    println!("imported {imported}, skipped {skipped}");
     Ok(())
 }
 
