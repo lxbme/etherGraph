@@ -1,7 +1,7 @@
 import { ScanSearch, SquareDashedMousePointer } from "lucide-react";
 import type { ReactNode } from "react";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
-import { identifiable, identifyAddresses } from "../graph/identify";
+import { identifiable, identifyAddresses, useIdentifying } from "../graph/identify";
 import { useT } from "../i18n";
 
 /**
@@ -40,12 +40,14 @@ export function CanvasTools({
 export function IdentifyAllButton({ nodes }: { nodes: readonly NodeSummaryDto[] }) {
   const t = useT();
   const addrs = identifiable(nodes);
+  const running = useIdentifying((s) => s.running);
   if (addrs.length === 0) return null;
   return (
     <button
       type="button"
       className="btn btn--compact"
       title={t("tools.identifyAllHint")}
+      disabled={running}
       onClick={() => void identifyAddresses(addrs)}
     >
       <ScanSearch size={14} />

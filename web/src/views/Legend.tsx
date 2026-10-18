@@ -68,7 +68,7 @@ function SwatchSvg({ swatch }: { swatch: Swatch }) {
   if (swatch.kind === "node") {
     body = (
       <>
-        {swatch.ring && <NodeShape shape={swatch.shape} inset={-1} fill="none" stroke={swatch.ring} strokeWidth={1.5} />}
+        {swatch.ring && <NodeShape shape={swatch.shape} inset={-1} fill="none" stroke={swatch.ring} strokeWidth={1.5} strokeDasharray={swatch.ringDashed ? "2.5 1.5" : undefined} />}
         <NodeShape
           shape={swatch.shape}
           inset={swatch.ring ? 2 : 0}

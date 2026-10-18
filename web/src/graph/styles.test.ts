@@ -150,10 +150,16 @@ describe("graphStylesheet", () => {
     const s = sheet();
     expect(styleOf(s, "node.synced")["border-style"]).toBe("solid");
     expect(styleOf(s, "node.unsynced")["border-style"]).toBe("dashed");
-    const sel = styleOf(s, "node.selected, node:selected");
+    const sel = styleOf(s, "node.selected");
     expect(sel["outline-color"]).toBe("#1f5eff");
     expect(sel["outline-width"]).toBe(2);
     expect(sel).not.toHaveProperty("border-color"); // the node keeps its own stroke
+    // The box selection is a dashed ring, clearly distinct from the solid detail-selection ring.
+    const box = styleOf(s, "node:selected");
+    expect(box["outline-style"]).toBe("dashed");
+    expect(box["outline-width"]).toBeGreaterThan(sel["outline-width"] as number);
+    expect(box["outline-color"]).toBe("#1f5eff");
+    expect(sel["outline-style"]).toBe("solid");
   });
 
   test("a user label is a tag icon, not a ring", () => {
@@ -300,7 +306,8 @@ describe("graphStylesheet", () => {
     const s = sheet("dark");
     expect(styleOf(s, "node.cat-cex")["border-color"]).toBe("#123456");
     expect(styleOf(s, "node.cat-cex")["background-color"]).toBe(categoryColors("dark").cex.fill);
-    expect(styleOf(s, "node.selected, node:selected")["outline-color"]).toBe("#abcdef");
+    expect(styleOf(s, "node.selected")["outline-color"]).toBe("#abcdef");
+    expect(styleOf(s, "node:selected")["outline-color"]).toBe("#abcdef");
     expect(styleOf(s, "node.center")["background-color"]).toBe("#abcdef");
   });
 

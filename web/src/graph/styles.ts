@@ -291,9 +291,14 @@ function graphBlocks(theme: Theme): Block[] {
       },
     },
     {
-      // A ring outside the border, so the selected node keeps its own fill and stroke (the center's white ring too).
-      selector: "node.selected, node:selected",
-      style: { "outline-color": state.selectedRing, "outline-width": 2, "outline-offset": 2, "outline-opacity": 1 },
+      // The box selection (native :selected): a thicker dashed ring, so it never reads as the detail selection.
+      selector: "node:selected",
+      style: { "outline-color": state.selectedRing, "outline-style": "dashed", "outline-width": 3, "outline-offset": 2, "outline-opacity": 1 },
+    },
+    {
+      // The detail selection: a solid ring outside the border, so the node keeps its own fill and stroke (the center's white ring too). Wins over the box ring.
+      selector: "node.selected",
+      style: { "outline-color": state.selectedRing, "outline-style": "solid", "outline-width": 2, "outline-offset": 2, "outline-opacity": 1 },
     },
 
     {

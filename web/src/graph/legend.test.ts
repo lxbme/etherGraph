@@ -74,6 +74,8 @@ describe("legendFor", () => {
     expect(item(g, "state", "unsynced").swatch).toMatchObject({ kind: "node", dashed: true });
     expect(item(g, "state", "pinned").swatch).toEqual({ kind: "icon", svg: iconSvgs("dark").pin });
     expect(item(g, "state", "selected").swatch).toMatchObject({ kind: "node", ring: expect.any(String) });
+    expect(ids(g).state).not.toContain("box-selected"); // native selection carries no class: full legend only
+    expect(item(fullLegendGroups("light"), "state", "box-selected").swatch).toMatchObject({ kind: "node", ring: expect.any(String), ringDashed: true });
   });
 
   test("a merged edge badge adds the ×N row; more edges alone show no edge group", () => {
@@ -112,7 +114,7 @@ test("fullLegendGroups lists every entry", () => {
   expect(ids(fullLegendGroups("light"))).toEqual({
     shape: ["eoa", "contract", "unknown"],
     category: ["cex", "dex", "defi", "bridge", "mixer", "scam", "hacker", "mev", "fund", "nft", "staking", "none"],
-    state: ["center", "unsynced", "selected", "user-label", "pinned", "syncing", "partial", "more"],
+    state: ["center", "unsynced", "selected", "box-selected", "user-label", "pinned", "syncing", "partial", "more"],
     asset: ["eth", "stable", "erc20", "nft", "other"],
     edge: ["width", "badge"],
     tx: ["call", "flow", "seq"],

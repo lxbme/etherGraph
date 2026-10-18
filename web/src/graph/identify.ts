@@ -1,3 +1,4 @@
+import { create } from "zustand";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
@@ -22,18 +23,24 @@ export function identifiable(nodes: readonly NodeSummaryDto[]): string[] {
  * Queues identification of `addrs` (deduped by lowercase) in chunks of at most 500 sharing one batch id,
  * then toasts the summed queued count (or that nothing needed it).
  */
+export const useIdentifying = create<{ running: boolean }>(() => ({ running: false }));
+
+/** Only one run at a time: a second call while one is in flight (a double click) is ignored. */
 export async function identifyAddresses(addrs: string[]): Promise<void> {
   const unique = [...new Set(addrs.map((a) => a.toLowerCase()))];
-  if (unique.length === 0) return;
+  if (unique.length === 0 || useIdentifying.getState().running) return;
+  useIdentifying.setState({ running: true });
   const batch = newBatchId();
+  let queued = 0;
   try {
-    let queued = 0;
     for (let i = 0; i < unique.length; i += IDENTIFY_CHUNK) {
       const r = await api.identify({ addresses: unique.slice(i, i + IDENTIFY_CHUNK), batch });
       queued += r.queued;
     }
     toast(queued > 0 ? t("identify.queued", { count: queued }) : t("identify.none"));
   } catch (err) {
-    toast(messageFor(err), "error");
+    toast(queued > 0 ? t("identify.partial", { count: queued, reason: messageFor(err) }) : messageFor(err), "error");
+  } finally {
+    useIdentifying.setState({ running: false });
   }
 }

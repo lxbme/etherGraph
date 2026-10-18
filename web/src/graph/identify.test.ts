@@ -2,7 +2,7 @@ import { api } from "../api/endpoints";
 import { ApiError } from "../api/errors";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { clearToasts } from "../shell/Toasts";
-import { identifyAddresses, needsIdentify } from "./identify";
+import { identifyAddresses, needsIdentify, useIdentifying } from "./identify";
 import * as toasts from "../shell/Toasts";
 
 const node = (kind: NodeSummaryDto["kind"], identified: boolean): NodeSummaryDto => ({
@@ -55,4 +55,34 @@ test("a failing request toasts the mapped error", async () => {
   await identifyAddresses([addr(1)]);
   expect(toast).toHaveBeenCalledTimes(1);
   expect(toast.mock.calls[0]![1]).toBe("error");
+});
+
+test("a second call while one is in flight sends nothing", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const identify = vi.spyOn(api, "identify").mockImplementation(async () => {
+    await gate;
+    return { queued: 1, jobs: [] };
+  });
+  const first = identifyAddresses([addr(1)]);
+  expect(useIdentifying.getState().running).toBe(true);
+  await identifyAddresses([addr(1)]);
+  expect(identify).toHaveBeenCalledTimes(1);
+  release();
+  await first;
+  expect(useIdentifying.getState().running).toBe(false);
+  await identifyAddresses([addr(2)]);
+  expect(identify).toHaveBeenCalledTimes(2);
+});
+
+test("a later chunk failing after earlier ones were queued reports both", async () => {
+  vi.spyOn(api, "identify")
+    .mockResolvedValueOnce({ queued: 500, jobs: [] })
+    .mockRejectedValueOnce(new ApiError("internal", 500, "boom"));
+  const toast = vi.spyOn(toasts, "toast");
+  await identifyAddresses(Array.from({ length: 700 }, (_, i) => addr(i + 1)));
+  expect(toast).toHaveBeenCalledTimes(1);
+  expect(toast.mock.calls[0]![0]).toMatch(/^Queued 500 addresses; the rest failed: /);
+  expect(toast.mock.calls[0]![1]).toBe("error");
+  expect(useIdentifying.getState().running).toBe(false);
 });

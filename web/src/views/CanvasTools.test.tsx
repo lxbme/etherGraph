@@ -1,5 +1,7 @@
 import { act, render, screen, within } from "@testing-library/react";
-import { CanvasTools } from "./CanvasTools";
+import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
+import { useIdentifying } from "../graph/identify";
+import { CanvasTools, IdentifyAllButton } from "./CanvasTools";
 
 test("a toolbar with the select-mode toggle (aria-pressed) and room for more tools", () => {
   const onSelectModeChange = vi.fn();
@@ -19,4 +21,14 @@ test("a toolbar with the select-mode toggle (aria-pressed) and room for more too
   expect(screen.getByRole("button", { name: "Box select (Shift+drag)" })).toHaveAttribute("aria-pressed", "true");
   act(() => screen.getByRole("button", { name: "Box select (Shift+drag)" }).click());
   expect(onSelectModeChange).toHaveBeenLastCalledWith(false);
+});
+
+test("Identify all is disabled while an identification run is in flight", () => {
+  const nodes = [{ address: "0x" + "1".repeat(40), kind: "unknown", identified: false }] as unknown as NodeSummaryDto[];
+  render(<IdentifyAllButton nodes={nodes} />);
+  const button = screen.getByRole("button", { name: /Identify all \(1\)/ });
+  expect(button).toBeEnabled();
+  act(() => useIdentifying.setState({ running: true }));
+  expect(button).toBeDisabled();
+  act(() => useIdentifying.setState({ running: false }));
 });

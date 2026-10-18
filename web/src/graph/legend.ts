@@ -5,7 +5,7 @@ import { NODE_SHAPE, assetColors, categoryColors, iconSvgs, stateColors, type Ca
 
 export type LegendGroupId = "shape" | "category" | "state" | "asset" | "edge" | "tx";
 export type Swatch =
-  | { kind: "node"; shape: string; fill: string; stroke: string; dashed?: boolean; ring?: string }
+  | { kind: "node"; shape: string; fill: string; stroke: string; dashed?: boolean; ring?: string; ringDashed?: boolean }
   | { kind: "edge"; color: string; width?: number; dashed?: boolean; badge?: string }
   /** The "+N more" placeholder: a dashed pill with `text` inside. */
   | { kind: "pill"; fill: string; stroke: string; text: string }
@@ -16,13 +16,14 @@ export type LegendGroup = { id: LegendGroupId; items: LegendItem[] };
 const KINDS: NodeKind[] = ["eoa", "contract", "unknown"];
 /** "sanctioned" shares the scam hue, so it is listed as scam; "none" comes last, for contrast. */
 const CATEGORIES = ["cex", "dex", "defi", "bridge", "mixer", "scam", "hacker", "mev", "fund", "nft", "staking", "none"] as const satisfies readonly CategoryId[];
-const STATES = ["center", "unsynced", "selected", "user-label", "pinned", "syncing", "partial", "more"] as const;
+const STATES = ["center", "unsynced", "selected", "box-selected", "user-label", "pinned", "syncing", "partial", "more"] as const;
 const ASSETS = ["eth", "stable", "erc20", "nft", "other"] as const satisfies readonly (AssetClass | "other")[];
 
 const STATE_LABEL: Record<(typeof STATES)[number], MsgKey> = {
   center: "legend.state.center",
   unsynced: "legend.state.unsynced",
   selected: "legend.state.selected",
+  "box-selected": "legend.state.boxSelected",
   "user-label": "legend.state.userLabel",
   pinned: "legend.state.pinned",
   syncing: "legend.state.syncing",
@@ -41,6 +42,7 @@ function catalogue(theme: Theme): Record<LegendGroupId, LegendItem[]> {
     center: { ...plain, fill: state.center.fill, stroke: state.center.stroke },
     unsynced: { ...plain, dashed: true },
     selected: { ...plain, ring: state.selectedRing },
+    "box-selected": { ...plain, ring: state.selectedRing, ringDashed: true },
     "user-label": { kind: "icon", svg: icon.tag },
     pinned: { kind: "icon", svg: icon.pin },
     syncing: { kind: "icon", svg: icon.syncing },
