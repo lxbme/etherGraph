@@ -6,9 +6,25 @@ import type { NewLabelDto } from "../api/generated/NewLabelDto";
 import { qk } from "../api/queryClient";
 import { t, useT } from "../i18n";
 
-type Category = Extract<NewLabelDto["category"], "cex" | "defi" | "bridge" | "mixer" | "scam" | "sanctioned" | "other">;
+type Category = NewLabelDto["category"];
 
-export const CATEGORIES: Category[] = ["cex", "defi", "bridge", "mixer", "scam", "sanctioned", "other"];
+/** The category ids in UI order; the one list the editor, tags and tooltip share. */
+export const CATEGORIES: Category[] = [
+  "cex", "dex", "defi", "bridge", "mixer", "scam", "sanctioned", "hacker", "mev", "fund", "nft", "staking", "other",
+];
+
+/** Categories with their own hue (every one but "other"). */
+export const HUED_CATEGORIES: readonly string[] = CATEGORIES.filter((c) => c !== "other");
+
+/** The dataset a label came from (`import:eth-labels` gives `eth-labels`); null for a user label. */
+export const labelDataset = (source: string): string | null => (source.startsWith("import:") ? source.slice("import:".length) : null);
+
+/** Provenance text for an imported label; null for a user label. */
+export function labelProvenance(source: string): string | null {
+  const ds = labelDataset(source);
+  if (ds === null) return null;
+  return ds === "eth-labels-xchain" ? t("label.source.xchain", { dataset: "eth-labels" }) : t("label.source.dataset", { dataset: ds });
+}
 
 /** Localised category name; an id from a newer server is shown as-is. */
 export const categoryName = (c: string): string => ((CATEGORIES as string[]).includes(c) ? t(`category.${c as Category}`) : c);

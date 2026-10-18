@@ -32,11 +32,11 @@ describe("nodeTooltip", () => {
       coverage: [cov("2026-01-01T00:00:00Z"), cov("2026-02-03T04:05:06Z")],
     });
     expect(text(ls)).toContain("Synced to 2026-02-03 04:05:06");
-    expect(text(ls)).toContain("Category Exchange");
+    expect(text(ls)).toContain("Category CEX");
     expect(ls.find((l) => l.value.startsWith("Synced"))?.sub).toMatch(/^local \d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/);
     expect(text(nodeTooltip(node({ synced: true }), {}))).toMatch(/Sync Synced$/);
     const two = nodeTooltip(node({ labels: [{ id: 1, text: "a", category: "cex", source: "user" }, { id: 2, text: "b", category: "defi", source: "user" }] }), {});
-    expect(text(two)).toContain("Category Exchange, DeFi");
+    expect(text(two)).toContain("Category CEX, DeFi");
     expect(text(nodeTooltip(node({ synced: true, partial: true }), {}))).toContain("Partial");
   });
   test("partial says what is missing", () => {
@@ -129,4 +129,13 @@ test("flowTooltip keeps the full NFT token id", () => {
     kind: "erc721", trace_path: null, log_index: 1, decimals: null, symbol: "ENS",
   };
   expect(text(flowTooltip(f, new Map()))).toContain(id);
+});
+
+test("a cross-chain label's name carries the cross-chain note", () => {
+  const ls = nodeTooltip(
+    node({ display_name: "Foo", labels: [{ id: 1, text: "Foo", category: "dex", source: "import:eth-labels-xchain" }] }),
+    {},
+  );
+  expect(ls.find((l) => l.label === "Name")?.sub).toBe("eth-labels · from another EVM chain");
+  expect(text(ls)).toContain("Category DEX");
 });

@@ -17,14 +17,12 @@ import { type MsgKey, useT } from "../i18n";
 import { CopyButton } from "../shell/CopyButton";
 import { toast } from "../shell/Toasts";
 import { useTabs } from "../shell/tabs";
-import { LabelEditor, categoryName } from "./LabelEditor";
+import { HUED_CATEGORIES, LabelEditor, categoryName, labelProvenance } from "./LabelEditor";
 import { useUi } from "./uiStore";
 
 const KINDS = TRANSFER_KINDS;
 const STATE_KEYS: Record<SyncStatusDto["state"], MsgKey> = { syncing: "sync.syncing", ok: "sync.ok", failed: "sync.failed" };
 const KIND_KEYS: Record<string, MsgKey> = { eoa: "node.kind.eoa", contract: "node.kind.contract", unknown: "node.kind.unknown" };
-/** Categories with their own hue; anything else uses the neutral tag. */
-const HUED = new Set(["cex", "defi", "bridge", "mixer", "scam", "sanctioned"]);
 
 /** Transfer count and distinct counterparties over the canvas edges touching `address`; null when none do. */
 function canvasStats(address: string, edges: EdgeDto[]): { transfers: number; neighbours: number } | null {
@@ -133,17 +131,18 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
       {/* 3. Tags: categories, sync state, labels */}
       <div className="detail__tags" data-testid="node-tags">
         {categories.map((c) => (
-          <span key={`cat:${c}`} className={`tag tag--${HUED.has(c) ? c : "neutral"}`}>{categoryName(c)}</span>
+          <span key={`cat:${c}`} className={`tag tag--${HUED_CATEGORIES.includes(c) ? c : "neutral"}`}>{categoryName(c)}</span>
         ))}
         <span className="tag tag--neutral">{t(syncKey)}</span>
         {n.partial && <span className="tag tag--warn">{t("node.truncated")}</span>}
         {n.labels.map((l) => {
-          const imported = l.source.startsWith("import:");
+          const provenance = labelProvenance(l.source);
+          const imported = provenance !== null;
           return (
             <span
               key={l.id}
               className="tag"
-              title={imported ? `${categoryName(l.category)} · ${l.source.slice("import:".length)}` : categoryName(l.category)}
+              title={imported ? `${categoryName(l.category)} · ${provenance}` : categoryName(l.category)}
             >
               {l.text}
               {!imported && (

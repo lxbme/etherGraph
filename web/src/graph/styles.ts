@@ -3,7 +3,8 @@ import type { AssetClass } from "../lib/assets";
 
 export type Theme = "light" | "dark";
 export type NodeKind = "eoa" | "contract" | "unknown";
-export type CategoryId = "cex" | "defi" | "bridge" | "mixer" | "scam" | "sanctioned" | "none";
+export type CategoryId =
+  | "cex" | "dex" | "defi" | "bridge" | "mixer" | "scam" | "sanctioned" | "hacker" | "mev" | "fund" | "nft" | "staking" | "none";
 export type CategoryColor = { fill: string; stroke: string };
 
 /** Node shape per address kind. */
@@ -22,8 +23,14 @@ const THEME_HEX = {
 /** Category hues; "sanctioned" shares the scam hue. */
 type CatToken = Exclude<CategoryId, "sanctioned">;
 const CAT_HEX: Record<Theme, Record<CatToken, string>> = {
-  light: { cex: "#2563c9", defi: "#7c3aed", bridge: "#0f8a8a", mixer: "#c2570c", scam: "#d93025", none: "#6b7280" },
-  dark: { cex: "#6ea3f0", defi: "#a98bf0", bridge: "#4cc2c2", mixer: "#f08a4b", scam: "#f0645a", none: "#98a3b0" },
+  light: {
+    cex: "#2563c9", dex: "#4f46e5", defi: "#7c3aed", bridge: "#0f8a8a", mixer: "#c2570c", scam: "#d93025", hacker: "#9f1239",
+    mev: "#0369a1", fund: "#a16207", nft: "#c026d3", staking: "#2f855a", none: "#6b7280",
+  },
+  dark: {
+    cex: "#6ea3f0", dex: "#8b8cf5", defi: "#a98bf0", bridge: "#4cc2c2", mixer: "#f08a4b", scam: "#f0645a", hacker: "#e5577a",
+    mev: "#4fb3e8", fund: "#e0b04a", nft: "#e07ae8", staking: "#5cc28a", none: "#98a3b0",
+  },
 };
 
 /** Edge hue per asset class; "other" (unknown class, and tx call edges) is the one neutral grey. */
@@ -133,11 +140,17 @@ export function categoryColors(theme: Theme): Record<CategoryId, CategoryColor> 
   const scam = tinted("scam");
   return {
     cex: tinted("cex"),
+    dex: tinted("dex"),
     defi: tinted("defi"),
     bridge: tinted("bridge"),
     mixer: tinted("mixer"),
     scam,
     sanctioned: scam,
+    hacker: tinted("hacker"),
+    mev: tinted("mev"),
+    fund: tinted("fund"),
+    nft: tinted("nft"),
+    staking: tinted("staking"),
     none: { fill: surface, stroke: cssVar("--cat-none", CAT_HEX[theme].none) },
   };
 }
@@ -231,10 +244,16 @@ function graphBlocks(theme: Theme): Block[] {
     { selector: "node.kind-contract", style: { shape: NODE_SHAPE.contract } },
     { selector: "node.kind-unknown", style: { shape: NODE_SHAPE.unknown, width: 32, height: 32 } },
     { selector: "node.cat-cex", style: catStyle(cat.cex) },
+    { selector: "node.cat-dex", style: catStyle(cat.dex) },
     { selector: "node.cat-defi", style: catStyle(cat.defi) },
     { selector: "node.cat-bridge", style: catStyle(cat.bridge) },
     { selector: "node.cat-mixer", style: catStyle(cat.mixer) },
     { selector: "node.cat-scam, node.cat-sanctioned", style: catStyle(cat.scam) },
+    { selector: "node.cat-hacker", style: catStyle(cat.hacker) },
+    { selector: "node.cat-mev", style: catStyle(cat.mev) },
+    { selector: "node.cat-fund", style: catStyle(cat.fund) },
+    { selector: "node.cat-nft", style: catStyle(cat.nft) },
+    { selector: "node.cat-staking", style: catStyle(cat.staking) },
     // After the categories so the center keeps its accent fill whatever its label.
     {
       selector: "node.center",

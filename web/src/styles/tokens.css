@@ -18,10 +18,16 @@
 
   /* node categories (tint + stroke hue) */
   --cat-cex: #2563c9;
+  --cat-dex: #4f46e5;
   --cat-defi: #7c3aed;
   --cat-bridge: #0f8a8a;
   --cat-mixer: #c2570c;
   --cat-scam: #d93025;
+  --cat-hacker: #9f1239;
+  --cat-mev: #0369a1;
+  --cat-fund: #a16207;
+  --cat-nft: #c026d3;
+  --cat-staking: #2f855a;
   --cat-none: #6b7280;
 
   /* edge asset classes */
@@ -82,10 +88,16 @@
   --warn: #f0b64a;
 
   --cat-cex: #6ea3f0;
+  --cat-dex: #8b8cf5;
   --cat-defi: #a98bf0;
   --cat-bridge: #4cc2c2;
   --cat-mixer: #f08a4b;
   --cat-scam: #f0645a;
+  --cat-hacker: #e5577a;
+  --cat-mev: #4fb3e8;
+  --cat-fund: #e0b04a;
+  --cat-nft: #e07ae8;
+  --cat-staking: #5cc28a;
   --cat-none: #98a3b0;
 
   --asset-eth: #9a9aff;

@@ -70,7 +70,7 @@ test("follows the spec hierarchy: kind, address with copy, tags, key/value grid,
   expect(within(addr.parentElement!).getByRole("button", { name: "Copy" })).toBeInTheDocument();
 
   const tags = screen.getByTestId("node-tags");
-  expect(within(tags).getByText("Exchange")).toBeInTheDocument();
+  expect(within(tags).getByText("CEX")).toBeInTheDocument();
   expect(within(tags).getByText("Synced")).toBeInTheDocument();
   expect(within(tags).getByText("Hot wallet")).toBeInTheDocument();
 
@@ -144,4 +144,25 @@ test("without a nonce the transactions row keeps the canvas count and no balance
   const kv = await screen.findByTestId("node-kv");
   expect([...kv.querySelectorAll("dt")][0]!.textContent).toBe("Transactions");
   expect(screen.queryByTestId("node-balance")).toBeNull();
+});
+
+test("an imported label shows its dataset; a cross-chain one says so and neither has a remove button", async () => {
+  const p: AddressProfileDto = {
+    ...wallet,
+    node: {
+      ...wallet.node,
+      labels: [
+        { id: 1, text: "Hot wallet", category: "cex", source: "import:eth-labels" },
+        { id: 2, text: "Other chain name", category: "hacker", source: "import:eth-labels-xchain" },
+      ],
+    },
+  };
+  renderDetail(undefined, p);
+  const main = (await screen.findByText("Hot wallet")).closest(".tag") as HTMLElement;
+  expect(main).toHaveAttribute("title", "CEX · Source: eth-labels");
+  const x = screen.getByText("Other chain name").closest(".tag") as HTMLElement;
+  expect(x).toHaveAttribute("title", "Hacker / exploiter · eth-labels · from another EVM chain");
+  expect(within(main).queryByRole("button")).toBeNull();
+  expect(within(x).queryByRole("button")).toBeNull();
+  expect(within(screen.getByTestId("node-tags")).getByText("Hacker / exploiter")).toHaveClass("tag--hacker");
 });

@@ -105,11 +105,17 @@ button.chip:hover { color: var(--fg); }
 .tag--neg { --tag-hue: var(--neg); color: var(--fg); background: color-mix(in srgb, var(--neg) 18%, var(--bg)); }
 /* Label categories (see LabelEditor CATEGORIES); "other" and unknown ids use .tag--neutral. */
 .tag--cex { --tag-hue: var(--cat-cex); }
+.tag--dex { --tag-hue: var(--cat-dex); }
 .tag--defi { --tag-hue: var(--cat-defi); }
 .tag--bridge { --tag-hue: var(--cat-bridge); }
 .tag--mixer { --tag-hue: var(--cat-mixer); }
 .tag--scam,
 .tag--sanctioned { --tag-hue: var(--cat-scam); }
+.tag--hacker { --tag-hue: var(--cat-hacker); }
+.tag--mev { --tag-hue: var(--cat-mev); }
+.tag--fund { --tag-hue: var(--cat-fund); }
+.tag--nft { --tag-hue: var(--cat-nft); }
+.tag--staking { --tag-hue: var(--cat-staking); }
 .tag__remove {
   display: inline-flex;
   align-items: center;

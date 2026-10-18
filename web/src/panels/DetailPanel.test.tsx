@@ -88,7 +88,7 @@ test("imported labels have no delete button; user labels do", async () => {
   renderPanel();
   const imported = (await screen.findByText("Binance 14")).closest(".tag")!;
   expect(within(imported as HTMLElement).queryByRole("button")).toBeNull();
-  expect(imported).toHaveAttribute("title", "Exchange · etherscan-labels");
+  expect(imported).toHaveAttribute("title", "CEX · Source: etherscan-labels");
   const user = screen.getByText("mine").closest(".tag") as HTMLElement;
   fireEvent.click(within(user).getByRole("button", { name: "Delete label" }));
   await waitFor(() => expect(del).toHaveBeenCalledWith(2));

@@ -111,7 +111,7 @@ describe("graphStylesheet", () => {
     const colors = categoryColors("light");
     expect(ex["background-color"]).toBe(colors.cex.fill);
     expect(ex["border-color"]).toBe(colors.cex.stroke);
-    for (const k of ["defi", "bridge", "mixer"] as const) {
+    for (const k of ["dex", "defi", "bridge", "mixer", "hacker", "mev", "fund", "nft", "staking"] as const) {
       expect(styleOf(s, `node.cat-${k}`)).toMatchObject({ "background-color": colors[k].fill, "border-color": colors[k].stroke });
     }
     expect(styleOf(s, "node.cat-scam, node.cat-sanctioned")).toMatchObject({
@@ -120,6 +120,23 @@ describe("graphStylesheet", () => {
     });
     expect(colors.sanctioned).toEqual(colors.scam);
     expect(colors.none).toEqual({ fill: "#ffffff", stroke: "#6b7280" });
+  });
+
+  test("every tinted category has the specified hue in both themes and a node block", () => {
+    const hues = {
+      cex: ["#2563c9", "#6ea3f0"], dex: ["#4f46e5", "#8b8cf5"], defi: ["#7c3aed", "#a98bf0"], bridge: ["#0f8a8a", "#4cc2c2"],
+      mixer: ["#c2570c", "#f08a4b"], scam: ["#d93025", "#f0645a"], hacker: ["#9f1239", "#e5577a"], mev: ["#0369a1", "#4fb3e8"],
+      fund: ["#a16207", "#e0b04a"], nft: ["#c026d3", "#e07ae8"], staking: ["#2f855a", "#5cc28a"],
+    } as const;
+    const tokens = readFileSync("src/styles/tokens.css", "utf8");
+    for (const [k, [light, dark]] of Object.entries(hues)) {
+      expect(categoryColors("light")[k as "cex"].stroke).toBe(light);
+      expect(categoryColors("dark")[k as "cex"].stroke).toBe(dark);
+      expect(tokens).toContain(`--cat-${k}: ${light};`);
+      expect(tokens).toContain(`--cat-${k}: ${dark};`);
+      expect(sheet().some((b) => b.selector.split(", ").includes(`node.cat-${k}`))).toBe(true);
+    }
+    expect(sheet().some((b) => b.selector.includes("node.cat-other"))).toBe(false);
   });
 
   test("dark tints blend toward the dark surface instead of white", () => {

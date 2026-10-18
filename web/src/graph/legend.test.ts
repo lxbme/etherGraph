@@ -103,10 +103,15 @@ describe("txLegendFor", () => {
   });
 });
 
+test("a canvas with cex and hacker nodes lists exactly those rows plus no-category for an untinted node", () => {
+  const g = legendFor([node("a", "kind-eoa cat-cex"), node("b", "kind-eoa cat-hacker"), node("c", "kind-eoa cat-other")], "light");
+  expect(ids(g).category).toEqual(["cex", "hacker", "none"]);
+});
+
 test("fullLegendGroups lists every entry", () => {
   expect(ids(fullLegendGroups("light"))).toEqual({
     shape: ["eoa", "contract", "unknown"],
-    category: ["cex", "defi", "bridge", "mixer", "scam", "none"],
+    category: ["cex", "dex", "defi", "bridge", "mixer", "scam", "hacker", "mev", "fund", "nft", "staking", "none"],
     state: ["center", "unsynced", "selected", "user-label", "pinned", "syncing", "partial", "more"],
     asset: ["eth", "stable", "erc20", "nft", "other"],
     edge: ["width", "badge"],

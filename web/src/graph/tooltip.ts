@@ -6,6 +6,7 @@ import { shortAddr } from "../lib/address";
 import { formatFixed } from "../lib/amount";
 import { assetClass, NATIVE_SYMBOL } from "../lib/assets";
 import { circled, formatCount, formatLocalTime, formatTime } from "../lib/format";
+import { CATEGORIES } from "../panels/LabelEditor";
 import type { VisualEdge } from "./visualEdges";
 
 export interface TooltipLine {
@@ -16,7 +17,6 @@ export interface TooltipLine {
   sub?: string;
 }
 
-const CATEGORIES = new Set(["cex", "defi", "bridge", "mixer", "scam", "sanctioned", "other"]);
 
 /** The newest `last_synced_at` among the coverage rows, as an ISO string. */
 function latestSync(coverage: SyncStatusDto[] | undefined): string | null {
@@ -52,13 +52,15 @@ export function nodeTooltip(
   extra: { coverage?: SyncStatusDto[]; omitted?: number; degree?: number; center?: boolean; pinned?: boolean },
 ): TooltipLine[] {
   const lines: TooltipLine[] = [];
+  // Labels arrive best first, so the first one names the node; say when it is only known from another EVM chain.
+  const xchain = n.labels[0]?.source === "import:eth-labels-xchain" ? t("label.source.xchain", { dataset: "eth-labels" }) : null;
   lines.push(
     n.display_name
-      ? { label: t("tooltip.name"), value: n.display_name }
+      ? { label: t("tooltip.name"), value: n.display_name, ...(xchain && { sub: xchain }) }
       : { label: t("tooltip.name"), value: shortAddr(n.address.toLowerCase()), mono: true },
   );
   lines.push({ label: t("tooltip.type"), value: t(`node.kind.${n.kind}`) });
-  const cats = [...new Set(n.labels.map((l) => l.category))].map((c) => (CATEGORIES.has(c) ? t(`category.${c}` as MsgKey) : c));
+  const cats = [...new Set(n.labels.map((l) => l.category))].map((c) => ((CATEGORIES as string[]).includes(c) ? t(`category.${c}` as MsgKey) : c));
   if (cats.length > 0) lines.push({ label: t("tooltip.category"), value: cats.join(", ") });
   const states: MsgKey[] = [];
   if (extra.center) states.push("tooltip.state.center");

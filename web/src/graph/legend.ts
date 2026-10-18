@@ -15,7 +15,7 @@ export type LegendGroup = { id: LegendGroupId; items: LegendItem[] };
 
 const KINDS: NodeKind[] = ["eoa", "contract", "unknown"];
 /** "sanctioned" shares the scam hue, so it is listed as scam; "none" comes last, for contrast. */
-const CATEGORIES = ["cex", "defi", "bridge", "mixer", "scam", "none"] as const satisfies readonly CategoryId[];
+const CATEGORIES = ["cex", "dex", "defi", "bridge", "mixer", "scam", "hacker", "mev", "fund", "nft", "staking", "none"] as const satisfies readonly CategoryId[];
 const STATES = ["center", "unsynced", "selected", "user-label", "pinned", "syncing", "partial", "more"] as const;
 const ASSETS = ["eth", "stable", "erc20", "nft", "other"] as const satisfies readonly (AssetClass | "other")[];
 

@@ -119,7 +119,7 @@ test("the daily quota is the server's limit once known, else the free-tier 100,0
 test("Hot is explained next to Heavy, in both languages", () => {
   useUi.setState({ helpOpen: true });
   render(<HelpDrawer />);
-  expect(screen.getByRole("dialog", { name: "Help" })).toHaveTextContent("Hot: an address labelled Exchange or DeFi, or with very many neighbours.");
+  expect(screen.getByRole("dialog", { name: "Help" })).toHaveTextContent("Hot: an address labelled CEX or DeFi, or with very many neighbours.");
   act(() => useLocale.getState().setLocale("zh"));
-  expect(screen.getByRole("dialog", { name: "帮助" })).toHaveTextContent("热门：带有交易所或 DeFi 标签、或邻居非常多的地址。");
+  expect(screen.getByRole("dialog", { name: "帮助" })).toHaveTextContent("热门：带有中心化交易所或 DeFi 标签、或邻居非常多的地址。");
 });
