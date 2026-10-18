@@ -84,7 +84,7 @@ struct CsvRecord {
 }
 
 /// Mainnet rows of the eth-labels tokens CSV: tag = lowercased `label`.
-fn parse_eth_labels(reader: impl Read) -> anyhow::Result<(Vec<TokenTagRow>, u64)> {
+fn parse_eth_labels(reader: impl Read, source: &str) -> anyhow::Result<(Vec<TokenTagRow>, u64)> {
     let mut csv = csv::ReaderBuilder::new()
         .trim(csv::Trim::All)
         .from_reader(reader);
@@ -125,7 +125,7 @@ fn parse_eth_labels(reader: impl Read) -> anyhow::Result<(Vec<TokenTagRow>, u64)
                 index.insert((address, tag.clone()), rows.len());
                 rows.push(TokenTagRow {
                     address,
-                    source: "eth-labels".into(),
+                    source: source.into(),
                     tag,
                     website,
                 });
@@ -140,20 +140,28 @@ pub fn parse_tokens(
     format: TokenFormat,
     reader: impl Read,
 ) -> anyhow::Result<(Vec<TokenTagRow>, u64)> {
+    let source = format.source();
     match format {
-        TokenFormat::Uniswap => parse_token_list(reader, "uniswap", "default-list"),
-        TokenFormat::Coingecko => parse_token_list(reader, "coingecko", "listed"),
-        TokenFormat::EthLabels => parse_eth_labels(reader),
+        TokenFormat::Uniswap => parse_token_list(reader, source, "default-list"),
+        TokenFormat::Coingecko => parse_token_list(reader, source, "listed"),
+        TokenFormat::EthLabels => parse_eth_labels(reader, source),
     }
 }
 
 /// Replaces the format's source in `token_tags`. Returns `(imported, skipped)`.
+/// A parse that yields no rows is an error (a wrong file must not wipe the
+/// source) and leaves the database untouched.
 pub async fn import_tokens(
     store: &Store,
     format: TokenFormat,
     reader: impl Read,
 ) -> anyhow::Result<(u64, u64)> {
     let (rows, skipped) = parse_tokens(format, reader)?;
+    anyhow::ensure!(
+        !rows.is_empty(),
+        "no mainnet rows parsed ({skipped} skipped); refusing to replace source {}",
+        format.source()
+    );
     let imported = store.replace_token_tags(format.source(), &rows).await?;
     Ok((imported, skipped))
 }

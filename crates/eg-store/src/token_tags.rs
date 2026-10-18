@@ -18,8 +18,15 @@ const TAG_CHUNK: usize = 10_000;
 
 impl Store {
     /// Replaces every tag of `source` in one transaction; returns the number
-    /// inserted. Rows are expected unique per (address, tag).
+    /// inserted. Rows are expected unique per (address, tag) and must all
+    /// carry `source` themselves.
     pub async fn replace_token_tags(&self, source: &str, rows: &[TokenTagRow]) -> Result<u64> {
+        if let Some(r) = rows.iter().find(|r| r.source != source) {
+            return Err(crate::StoreError::Invalid(format!(
+                "token tag row has source {:?}, expected {source:?}",
+                r.source
+            )));
+        }
         let mut tx = self.pool.begin().await?;
         sqlx::query("DELETE FROM token_tags WHERE source = $1")
             .bind(source)
@@ -31,7 +38,7 @@ impl Store {
                 QueryBuilder::new("INSERT INTO token_tags (address, source, tag, website) ");
             qb.push_values(chunk, |mut b, r| {
                 b.push_bind(addr_to_bytes(r.address))
-                    .push_bind(source)
+                    .push_bind(&r.source)
                     .push_bind(&r.tag)
                     .push_bind(&r.website);
             });
@@ -107,5 +114,16 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(got, [other[0].clone(), fresh[0].clone()]);
+    }
+
+    #[sqlx::test]
+    async fn replace_token_tags_rejects_a_row_of_another_source(pool: PgPool) {
+        let store = Store::from_pool(pool);
+        let kept = [row(1, "uniswap", "default-list", None)];
+        store.replace_token_tags("uniswap", &kept).await.unwrap();
+        let bad = [row(2, "coingecko", "listed", None)];
+        assert!(store.replace_token_tags("uniswap", &bad).await.is_err());
+        let got = store.token_tags(&[Address::repeat_byte(1)]).await.unwrap();
+        assert_eq!(got, kept);
     }
 }

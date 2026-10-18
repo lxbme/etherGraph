@@ -1139,3 +1139,26 @@ async fn import_tokens_replaces_only_its_source(pool: PgPool) {
         [("eth-labels", "stablecoin"), ("uniswap", "default-list")]
     );
 }
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn import_tokens_refuses_an_empty_parse_and_keeps_the_source(pool: PgPool) {
+    let store = Store::from_pool(pool);
+    let a = "0x00000000000000000000000000000000000000a1";
+    let list = format!(r#"{{"tokens":[{{"chainId":1,"address":"{a}"}}]}}"#);
+    import_tokens(&store, TokenFormat::Uniswap, list.as_bytes())
+        .await
+        .unwrap();
+    // Only another chain: zero rows parse, the existing tags must survive.
+    let other = format!(r#"{{"tokens":[{{"chainId":10,"address":"{a}"}}]}}"#);
+    let err = import_tokens(&store, TokenFormat::Uniswap, other.as_bytes())
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("uniswap"), "{err}");
+    assert!(
+        import_tokens(&store, TokenFormat::Uniswap, r#"{"tokens":[]}"#.as_bytes())
+            .await
+            .is_err()
+    );
+    let rows = store.token_tags(&[a.parse().unwrap()]).await.unwrap();
+    assert_eq!(rows.len(), 1);
+}

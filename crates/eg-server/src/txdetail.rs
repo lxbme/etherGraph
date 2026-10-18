@@ -208,7 +208,10 @@ mod tests {
     fn blob_fee_saturates() {
         let mut r = row(EIP4844);
         let receipt = r.raw_receipt.as_object_mut().unwrap();
-        receipt.insert("blobGasUsed".into(), Value::from(format!("{:#x}", U256::MAX)));
+        receipt.insert(
+            "blobGasUsed".into(),
+            Value::from(format!("{:#x}", U256::MAX)),
+        );
         receipt.insert("blobGasPrice".into(), Value::from("0x2"));
         let d = tx_detail(&r, None, None);
         assert_eq!(d.blob_fee, Some(U256::MAX.to_string()));
