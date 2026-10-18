@@ -525,7 +525,7 @@ export const en = {
   "tooltip.synced": "Synced to {time}",
   "tooltip.notSynced": "Not synced",
   "tooltip.syncing": "Syncing",
-  "tooltip.partial": "Partial: older records not fetched",
+  "tooltip.partial": "Partial sync",
   "tooltip.neighbours": "Neighbours",
   "tooltip.hidden": "{count} (+{hidden} hidden)",
   "tooltip.nonce": "Nonce",

@@ -290,7 +290,11 @@ export function AddressGraph() {
             const target = menu.node;
             useGraph.getState().guardLive(() => setExpanding(target));
           }}
-          onBrowse={() => setBrowsing(menu.node)}
+          onBrowse={() => {
+            // Browsing syncs the contract and can queue an expansion: a snapshot is refreshed first too.
+            const target = menu.node;
+            useGraph.getState().guardLive(() => setBrowsing(target));
+          }}
           onClose={closeMenu}
         />
       )}

@@ -164,7 +164,8 @@ const trust = shape({
   impersonates: opt(shape({ address, symbol: opt(str), name: opt(str) })),
   reason: opt(oneOf("spam-token", "scam-label")),
 });
-const label = shape({ id: num, text: str, category: str, source: str });
+/** The category becomes a canvas class (`cat-<category>`): a plain slug only. */
+const label = shape({ id: num, text: str, category: re(/^[a-z0-9-]{1,32}$/), source: str });
 const nodeSummary = shape({
   address, kind: oneOf("eoa", "contract", "unknown"), display_name: opt(str), ens: opt(str), contract_name: opt(str),
   labels: arr(label), partial: bool, syncing: bool, synced: bool, hot: bool, identified: bool, nonce: opt(num), balance: opt(str),
@@ -249,6 +250,11 @@ export function parseFile(text: string): ParseResult {
   if (!r.ok) return r;
   const { graph, tabs } = r.state;
   const kind = v.kind as FileKind;
+  // `deserialize` only checks that these are strings; a file's must be addresses.
+  if (!graph.nodes.every((n) => address(n.address))) return badField("nodes");
+  if (!graph.centers.every(address)) return badField("centers");
+  if (!graph.expanded_pairs.every((p) => p.every(address))) return badField("expanded_pairs");
+  if (!Object.keys(graph.limits ?? {}).every(address)) return badField("limits");
   if (graph.snapshot !== undefined && !isFullGraphSnapshot(graph.snapshot)) return badField("snapshot");
   if (graph.centers.length > 0 && kind !== "tx" && !graph.snapshot) return badField("snapshot");
   for (const tab of tabs) {

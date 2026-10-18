@@ -619,9 +619,10 @@ async fn workspace_conflict_409(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
-async fn workspace_accepts_a_5_mib_state(pool: PgPool) {
+async fn workspace_accepts_a_state_over_the_32_mib_import_cap(pool: PgPool) {
     let (app, _, _) = test_app(pool);
-    let big = "x".repeat(5 * 1024 * 1024);
+    // A maximal imported file wrapped in the rest of the workspace must still save.
+    let big = "x".repeat(33 * 1024 * 1024);
     let (st, w) = post_json(
         &app,
         "/api/workspaces",

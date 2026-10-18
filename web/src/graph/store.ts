@@ -47,7 +47,7 @@ export interface GraphState {
   pendingLive: (() => void) | null;
   /** Shows `s` instead of live data. Not history-tracked. */
   freeze(s: GraphSnapshot): void;
-  /** Back to live data (the graph query runs again); the unfreeze handler syncs the centers. No-op when live. */
+  /** Back to live data (the graph query runs again; the file's assets leave the registry); the unfreeze handler syncs the centers. No-op when live. */
   unfreeze(): void;
   /**
    * Runs `run` at once when live; on a snapshot, keeps it for a confirm instead ("Refresh from chain first?").
@@ -294,6 +294,8 @@ export const useGraph = create<GraphState>()((set, get) => {
     freeze: (frozen) => set({ frozen }),
     unfreeze: () => {
       if (!get().frozen) return;
+      // The file's assets (symbol, decimals, trust) must not linger in the live filter list.
+      useAssetRegistry.getState().clear();
       set({ frozen: null });
       unfreezeHandler?.(get().centers);
     },

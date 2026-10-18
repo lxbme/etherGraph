@@ -238,6 +238,36 @@ test("confirming syncs shallow under a new batch, expands, and offers Undo until
   expect(screen.queryByText("Expanded 3 addresses")).toBeNull();
 });
 
+test("on a snapshot graph, confirming asks to refresh before any sync; cancel queues nothing, refresh then expands", async () => {
+  const sync = vi.spyOn(api, "sync").mockResolvedValue({ estimated_calls: null, estimated_seconds: null, per_address: null, jobs: [1] });
+  mockCounterparties(range(1, 3).map((n) => cp(n)));
+  const { onClose } = mount();
+  await waitFor(() => expect(checkedAddrs()).toHaveLength(3));
+  act(() =>
+    useGraph.getState().freeze({
+      exported_at: "2026-10-01T12:00:00Z",
+      includes: { labels: false, notes: false },
+      data: { nodes: [], edges: [], omitted: {}, coverage: {} },
+    }),
+  );
+  await act(async () => fireEvent.click(expandBtn()));
+  expect(sync).not.toHaveBeenCalled();
+  expect(useGraph.getState().pendingLive).not.toBeNull();
+  expect(onClose).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+
+  act(() => useGraph.getState().resolveLive(false));
+  expect(sync).not.toHaveBeenCalled();
+  expect(useGraph.getState().frozen).not.toBeNull();
+
+  await act(async () => fireEvent.click(expandBtn()));
+  await act(async () => useGraph.getState().resolveLive(true));
+  expect(useGraph.getState().frozen).toBeNull();
+  expect(sync).toHaveBeenCalledTimes(1);
+  expect(useGraph.getState().centers).toEqual([addr(1), addr(2), addr(3)]);
+  expect(onClose).toHaveBeenCalled();
+});
+
 test("the Undo toast has no timer: it stays until another history step or its close button", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   try {

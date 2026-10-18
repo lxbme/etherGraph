@@ -1,4 +1,5 @@
 import type { GraphSnapshot } from "../workspace/snapshot";
+import { useAssetRegistry } from "./assetRegistry";
 import { setUnfreezeHandler, useGraph, type GraphState } from "./store";
 
 const A = "0x" + "aa".repeat(20);
@@ -136,6 +137,18 @@ test("unfreeze hands the centers to the unfreeze handler (to sync them); reset a
   g().loadSnapshot({ centers: [C], filter: {}, expandedPairs: [], ui: {} });
   expect(g().frozen).toBeNull();
   expect(onUnfreeze).toHaveBeenCalledTimes(1);
+});
+
+test("refresh from chain (unfreeze) drops the file's assets from the session registry", () => {
+  const FAKE = "0x" + "fa".repeat(20);
+  useAssetRegistry.getState().merge([{
+    from: A, to: B, asset: FAKE, asset_kind: "erc20", count: 1, sum: "1",
+    first_ts: "2024-01-01T00:00:00Z", last_ts: "2024-01-01T00:00:00Z", decimals: 6, symbol: "USDT",
+    trust: { level: "listed", impersonates: null, reason: null },
+  }]);
+  expect(useAssetRegistry.getState().assets[FAKE]).toBeDefined();
+  g().unfreeze();
+  expect(useAssetRegistry.getState().assets).toEqual({});
 });
 
 test("a pending action is dropped when the canvas is replaced", () => {

@@ -39,8 +39,8 @@ describe("nodeTooltip", () => {
     expect(text(two)).toContain("Category CEX, DeFi");
     expect(text(nodeTooltip(node({ synced: true, partial: true }), {}))).toContain("Partial");
   });
-  test("partial says what is missing", () => {
-    expect(text(nodeTooltip(node({ partial: true }), {}))).toContain("Sync Partial: older records not fetched");
+  test("partial uses the one neutral name the legend and node details use", () => {
+    expect(text(nodeTooltip(node({ partial: true }), {})).split("\n")).toContain("Sync Partial sync");
   });
   test("a State line names center, pinned and a user label when they apply", () => {
     expect(text(nodeTooltip(node(), {}))).not.toContain("State");

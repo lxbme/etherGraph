@@ -524,7 +524,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "tooltip.synced": "已同步至 {time}",
   "tooltip.notSynced": "未同步",
   "tooltip.syncing": "同步中",
-  "tooltip.partial": "部分同步：更早的记录未抓取",
+  "tooltip.partial": "部分同步",
   "tooltip.neighbours": "邻居",
   "tooltip.hidden": "{count}（另有 {hidden} 个未显示）",
   "tooltip.nonce": "Nonce",

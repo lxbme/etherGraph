@@ -10,6 +10,7 @@ use eg_core::source::TokenInfo;
 use eg_core::types::{Address, TransferKind};
 use eg_store::{ListedTokenRow, Store, StoreError};
 use unicode_normalization::UnicodeNormalization;
+use unicode_normalization::char::is_combining_mark;
 
 use crate::dto::{ImpersonatedDto, TrustDto, hex_addr};
 
@@ -73,10 +74,13 @@ fn confusable(c: char) -> char {
     }
 }
 
-/// NFKC, Cyrillic/Greek look-alikes mapped to Latin, lowercased, and only
-/// `[a-z0-9]` kept: `"USDТ"` (Cyrillic Т) and `"U S D T."` both give `"usdt"`.
+/// NFKD with combining marks dropped (accents fold to the base letter),
+/// Cyrillic/Greek look-alikes mapped to Latin, lowercased, and only
+/// `[a-z0-9]` kept: `"USDТ"` (Cyrillic Т), `"USDŤ"` and `"U S D T."` all give
+/// `"usdt"`.
 pub fn normalize_symbol(s: &str) -> String {
-    s.nfkc()
+    s.nfkd()
+        .filter(|&c| !is_combining_mark(c))
         .map(confusable)
         .map(|c| c.to_ascii_lowercase())
         .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
@@ -128,7 +132,8 @@ pub struct TrustIndex {
     pub by_norm: HashMap<String, ListedRef>,
     /// Scam tokens and why; a `spam-token` tag wins over a `scam` label.
     pub scam: HashMap<Address, ScamReason>,
-    /// ERC-20 rows of `tokens` that classify as suspicious or scam.
+    /// ERC-20 rows of `tokens` that classify as suspicious or scam, and every
+    /// unlisted scam address (it may have no `tokens` row yet).
     pub flagged: HashSet<Address>,
 }
 
@@ -190,6 +195,13 @@ impl TrustIndex {
             })
             .map(|t| t.address)
             .collect();
+        let unlisted_scam: Vec<Address> = idx
+            .scam
+            .keys()
+            .filter(|&a| !idx.listed.contains_key(a))
+            .copied()
+            .collect();
+        idx.flagged.extend(unlisted_scam);
         idx
     }
 
@@ -347,6 +359,27 @@ mod tests {
             "cpe",
             "Cyrillic lowercase"
         );
+    }
+
+    #[test]
+    fn normalize_symbol_folds_accented_latin_to_its_base_letter() {
+        assert_eq!(normalize_symbol("\u{00dc}SDT"), "usdt", "precomposed Ü");
+        assert_eq!(normalize_symbol("USD\u{0164}"), "usdt", "precomposed Ť");
+        assert_eq!(normalize_symbol("U\u{0308}SDT"), "usdt", "U + combining diaeresis");
+        assert_eq!(normalize_symbol("\u{00e9}th"), "eth", "é");
+        // An accented Cyrillic look-alike folds too.
+        assert_eq!(normalize_symbol("USD\u{0422}\u{0301}"), "usdt");
+    }
+
+    #[test]
+    fn an_accented_copy_of_a_listed_symbol_is_suspicious() {
+        let t = index().classify(
+            Some(FAKE),
+            TransferKind::Erc20,
+            Some(&erc20(FAKE, "USD\u{0164}", "x")),
+        );
+        assert_eq!(level(&t), "suspicious");
+        assert_eq!(t.impersonates.unwrap().symbol.as_deref(), Some("USDT"));
     }
 
     #[test]
@@ -524,5 +557,19 @@ mod tests {
             ],
         );
         assert_eq!(idx.flagged, HashSet::from([FAKE, spam]));
+    }
+
+    #[test]
+    fn flagged_holds_unlisted_scam_addresses_without_a_tokens_row() {
+        let spam = Address::repeat_byte(0x10);
+        let labelled = Address::repeat_byte(0x12);
+        let idx = TrustIndex::build(
+            &[listed(USDT, "uniswap", Some("USDT"), Some("Tether USD"))],
+            &[spam, USDT],
+            &[labelled],
+            &[],
+        );
+        // A listed token stays listed (and unflagged) even when eth-labels marks it spam.
+        assert_eq!(idx.flagged, HashSet::from([spam, labelled]));
     }
 }

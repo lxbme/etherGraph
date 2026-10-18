@@ -625,11 +625,11 @@ describe("a frozen (snapshot) graph", () => {
   };
   const CONFIRM = "This view is a snapshot from a file. Refresh it from the chain first?";
 
-  function mountFrozen() {
+  function mountFrozen(snap = SNAP) {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     act(() => {
       useGraph.getState().setCenters([A]);
-      useGraph.getState().freeze(SNAP);
+      useGraph.getState().freeze(snap);
     });
     const r = render(
       <QueryClientProvider client={qc}>
@@ -692,6 +692,21 @@ describe("a frozen (snapshot) graph", () => {
     expect(screen.getByRole("dialog", { name: "Refresh from chain" })).toBeInTheDocument();
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
     expect(sync).not.toHaveBeenCalled();
+  });
+
+  test("browsing a contract's interactions waits for the refresh", () => {
+    const sync = vi.spyOn(api, "sync").mockResolvedValue({ jobs: [] } as never);
+    const counterparties = vi.spyOn(api, "counterparties");
+    mountFrozen({ ...SNAP, data: { ...data, nodes: [{ ...node(A, true), kind: "contract" }, node(B, false)] } });
+    act(() => props().onCxtNode(A, { x: 1, y: 1 }));
+    act(() => screen.getByRole("menuitem", { name: "Browse interactions…" }).click());
+    expect(screen.queryByRole("dialog", { name: /^Interactions of/ })).toBeNull();
+    const dialog = screen.getByRole("dialog", { name: "Refresh from chain" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(useGraph.getState().frozen).not.toBeNull();
+    expect(sync).not.toHaveBeenCalled();
+    expect(counterparties).not.toHaveBeenCalled();
   });
 
   test("the banner's Refresh from chain goes live at once", async () => {

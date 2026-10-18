@@ -19,12 +19,16 @@ const liveLabel: LabelDto = { id: 3, text: "mine", category: "fund", source: "us
 describe("overlayIdentity", () => {
   const file = node({
     kind: "contract", display_name: "File name", contract_name: "FilePool", labels: [importedInFile, fileLabel],
-    synced: true, nonce: 4,
+    synced: true, nonce: 4, identified: true,
   });
 
-  test("no live node, or a live node without identity: the file node as it is", () => {
+  test("no live node: the file node as it is", () => {
     expect(overlayIdentity(file, undefined)).toBe(file);
-    expect(overlayIdentity(file, node({ synced: true }))).toBe(file);
+  });
+
+  test("a live node without identity: the file node, but identified only if the receiver identified it", () => {
+    expect(overlayIdentity(file, node({ synced: true }))).toEqual({ ...file, identified: false });
+    expect(overlayIdentity(file, node({ identified: true }))).toEqual(file);
   });
 
   test.each([
@@ -41,6 +45,8 @@ describe("overlayIdentity", () => {
     expect(out.contract_name).toBe(live.contract_name);
     // Only the file's `file` labels are appended (its imported one is the sender's, replaced by the live labels).
     expect(out.labels).toEqual([...live.labels, fileLabel]);
+    // Identify is offered unless the receiver itself identified the node.
+    expect(out.identified).toBe(false);
     // Everything that is not identity stays the file's.
     expect(out.synced).toBe(true);
     expect(out.nonce).toBe(4);

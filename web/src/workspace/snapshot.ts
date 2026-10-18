@@ -68,12 +68,15 @@ function hasIdentity(n: NodeSummaryDto): boolean {
 
 /**
  * A snapshot node as shown: the funds stay the file's, the identity is the receiver's own when it has one
- * (then the file's `file` labels follow the live labels); otherwise the file node as it is.
+ * (then the file's `file` labels follow the live labels); otherwise the file node as it is. `identified` is
+ * always the receiver's when it has the node, so Identify stays on offer for nodes only the sender identified.
  */
 export function overlayIdentity(file: NodeSummaryDto, live: NodeSummaryDto | undefined): NodeSummaryDto {
-  if (!live || !hasIdentity(live)) return file;
+  if (!live) return file;
+  if (!hasIdentity(live)) return live.identified === file.identified ? file : { ...file, identified: live.identified };
   return {
     ...file,
+    identified: live.identified,
     kind: live.kind,
     display_name: live.display_name,
     ens: live.ens,

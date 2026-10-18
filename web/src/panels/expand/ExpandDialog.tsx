@@ -311,6 +311,11 @@ export function ExpandDialog({ node, preset, onClose, onDone = onClose }: Expand
   const confirm = async () => {
     const addresses = selected.map((r) => r.address);
     if (addresses.length === 0 || submittingRef.current) return;
+    // A snapshot is refreshed from the chain before a sync batch is queued (cancel queues nothing).
+    if (useGraph.getState().frozen) {
+      useGraph.getState().guardLive(() => void confirm());
+      return;
+    }
     const batch = newBatchId();
     submittingRef.current = true;
     setSubmitting(true);

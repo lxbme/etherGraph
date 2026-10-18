@@ -64,8 +64,10 @@ pub fn router(state: AppState) -> Router {
     app.layer(trace).with_state(state)
 }
 
-/// Largest workspace body (a canvas with imported snapshots can be big).
-const WORKSPACE_BODY_LIMIT: usize = 32 * 1024 * 1024;
+/// Largest workspace body (a canvas with imported snapshots can be big): twice
+/// the 32 MiB import cap, so a maximal imported file still saves with the rest
+/// of the workspace around it.
+const WORKSPACE_BODY_LIMIT: usize = 64 * 1024 * 1024;
 
 fn big_body() -> DefaultBodyLimit {
     DefaultBodyLimit::max(WORKSPACE_BODY_LIMIT)
