@@ -8,7 +8,7 @@ use chrono::{DateTime, Utc};
 use eg_core::types::{Address, TxHash};
 use eg_store::{EnsStatus, JobKind, JobStatus};
 use serde::Serialize;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 use ts_rs::TS;
 
 /// SSE payloads. The TypeScript binding (ts-rs) mirrors the serde JSON:
@@ -82,13 +82,38 @@ impl Audience {
     }
 }
 
-/// How many live [`UserEvents`] each user has.
-type Listeners = Arc<Mutex<HashMap<i64, usize>>>;
+/// A user with at least one live [`UserEvents`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Listener {
+    pub user: i64,
+    /// Identifies the user's most recently opened subscription; it changes
+    /// whenever the user opens another one (a new stream, a reconnect).
+    pub newest: u64,
+}
+
+#[derive(Default)]
+struct Registry {
+    /// Live subscriptions and the newest one's serial, per user.
+    users: HashMap<i64, (usize, u64)>,
+    next_serial: u64,
+}
+
+struct Listeners {
+    registry: Mutex<Registry>,
+    /// Ticks whenever a subscription opens.
+    opened: watch::Sender<()>,
+}
+
+impl Listeners {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Registry> {
+        self.registry.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
 
 #[derive(Clone)]
 pub struct EventBus {
     tx: broadcast::Sender<(Audience, Event)>,
-    listeners: Listeners,
+    listeners: Arc<Listeners>,
 }
 
 impl Default for EventBus {
@@ -101,7 +126,10 @@ impl EventBus {
     pub fn new() -> Self {
         Self {
             tx: broadcast::channel(1024).0,
-            listeners: Listeners::default(),
+            listeners: Arc::new(Listeners {
+                registry: Mutex::default(),
+                opened: watch::channel(()).0,
+            }),
         }
     }
 
@@ -118,31 +146,51 @@ impl EventBus {
     /// The events addressed to `user`; `user` counts as listening until the
     /// subscription is dropped.
     pub fn subscribe_user(&self, user: i64) -> UserEvents {
-        *lock(&self.listeners).entry(user).or_insert(0) += 1;
+        // Receive before announcing, so an event published in answer to the
+        // announcement reaches this subscription.
+        let rx = self.tx.subscribe();
+        {
+            let mut reg = self.listeners.lock();
+            let serial = reg.next_serial;
+            reg.next_serial += 1;
+            let entry = reg.users.entry(user).or_insert((0, serial));
+            *entry = (entry.0 + 1, serial);
+        }
+        self.listeners.opened.send_replace(());
         UserEvents {
             user,
-            rx: self.tx.subscribe(),
+            rx,
             listeners: self.listeners.clone(),
         }
     }
 
-    /// The users with at least one live [`UserEvents`], ascending.
-    pub fn listening_users(&self) -> Vec<i64> {
-        let mut v: Vec<i64> = lock(&self.listeners).keys().copied().collect();
-        v.sort_unstable();
+    /// The users with at least one live [`UserEvents`], by ascending id.
+    pub fn listeners(&self) -> Vec<Listener> {
+        let mut v: Vec<Listener> = self
+            .listeners
+            .lock()
+            .users
+            .iter()
+            .map(|(user, (_, newest))| Listener {
+                user: *user,
+                newest: *newest,
+            })
+            .collect();
+        v.sort_unstable_by_key(|l| l.user);
         v
     }
-}
 
-fn lock(l: &Listeners) -> std::sync::MutexGuard<'_, HashMap<i64, usize>> {
-    l.lock().unwrap_or_else(|e| e.into_inner())
+    /// Changes whenever a [`UserEvents`] subscription opens.
+    pub fn subscribe_opened(&self) -> watch::Receiver<()> {
+        self.listeners.opened.subscribe()
+    }
 }
 
 /// One user's view of the bus (see [`EventBus::subscribe_user`]).
 pub struct UserEvents {
     user: i64,
     rx: broadcast::Receiver<(Audience, Event)>,
-    listeners: Listeners,
+    listeners: Arc<Listeners>,
 }
 
 impl UserEvents {
@@ -162,11 +210,11 @@ impl UserEvents {
 
 impl Drop for UserEvents {
     fn drop(&mut self) {
-        let mut l = lock(&self.listeners);
-        if let Some(n) = l.get_mut(&self.user) {
-            *n -= 1;
-            if *n == 0 {
-                l.remove(&self.user);
+        let mut reg = self.listeners.lock();
+        if let Some((live, _)) = reg.users.get_mut(&self.user) {
+            *live -= 1;
+            if *live == 0 {
+                reg.users.remove(&self.user);
             }
         }
     }
@@ -328,20 +376,34 @@ mod tests {
         assert_eq!(Audience::of(None), Audience::Nobody);
     }
 
+    fn users(bus: &EventBus) -> Vec<i64> {
+        bus.listeners().iter().map(|l| l.user).collect()
+    }
+
     #[tokio::test]
-    async fn listening_users_follow_live_subscriptions() {
+    async fn listeners_follow_live_subscriptions() {
         let bus = EventBus::new();
-        assert!(bus.listening_users().is_empty());
+        let mut opened = bus.subscribe_opened();
+        assert!(bus.listeners().is_empty());
         let a1 = bus.subscribe_user(1);
+        assert!(opened.has_changed().unwrap());
+        opened.mark_unchanged();
+        let first = bus.listeners()[0].newest;
         let a2 = bus.subscribe_user(1);
+        assert!(opened.has_changed().unwrap());
         let b = bus.subscribe_user(2);
-        assert_eq!(bus.listening_users(), vec![1, 2]);
+        assert_eq!(users(&bus), vec![1, 2]);
+        // Another subscription of user 1 is told apart from the first.
+        assert_ne!(bus.listeners()[0].newest, first);
         drop(a1);
-        assert_eq!(bus.listening_users(), vec![1, 2]);
+        assert_eq!(users(&bus), vec![1, 2]);
         drop(b);
-        assert_eq!(bus.listening_users(), vec![1]);
+        assert_eq!(users(&bus), vec![1]);
         drop(a2);
-        assert!(bus.listening_users().is_empty());
+        assert!(bus.listeners().is_empty());
+        // A reconnect is a new subscription.
+        let _a3 = bus.subscribe_user(1);
+        assert_ne!(bus.listeners()[0].newest, first);
     }
 
     #[tokio::test]

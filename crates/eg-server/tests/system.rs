@@ -345,20 +345,68 @@ async fn quota_status_carries_each_users_own_figures(pool: PgPool) {
     let mut ea = state.ctx.bus.subscribe_user(a);
     let mut eb = state.ctx.bus.subscribe_user(b);
     spawn_background(&state);
+    let limit = state.gate.user_quota(a).limit;
+    // Each listener's status as it starts listening.
+    let midnight = next_utc_midnight(Utc::now());
+    let q = quota_event(&mut eb, |_| true).await;
+    assert_eq!(q, (0, limit, false, false, midnight));
+    quota_event(&mut ea, |q| q.0 == 0).await;
     billed(Some(a), state.gate.acquire(Priority::Interactive))
         .await
         .unwrap();
-    let limit = state.gate.user_quota(a).limit;
     let q = quota_event(&mut ea, |q| q.0 == 1).await;
-    assert_eq!(q, (1, limit, false, false, next_utc_midnight(Utc::now())));
-    // B never sees A's count.
-    for q in quota_events_within(&mut eb, Duration::from_millis(1500)).await {
-        assert_eq!((q.0, q.2, q.3), (0, false, false), "{q:?}");
-    }
+    assert_eq!(q, (1, limit, false, false, midnight));
+    // B is told nothing about A's activity.
+    let seen = quota_events_within(&mut eb, Duration::from_millis(1500)).await;
+    assert!(seen.is_empty(), "{seen:?}");
     // A limit change reaches its user.
     state.gate.set_user_limit(a, Some(1));
     let q = quota_event(&mut ea, |q| q.1 == 1).await;
     assert_eq!((q.0, q.2, q.3), (1, true, false), "{q:?}");
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_listener_gets_its_status_when_it_connects_and_on_reconnect(pool: PgPool) {
+    let (_, state, _) = test_app(pool).await;
+    let b = other_user(&state).await;
+    spawn_background(&state);
+    // Nobody makes any call: the status is sent because B connected.
+    let mut eb = state.ctx.bus.subscribe_user(b);
+    let q = quota_event(&mut eb, |_| true).await;
+    assert_eq!(q.0, 0);
+    let seen = quota_events_within(&mut eb, Duration::from_millis(300)).await;
+    assert!(seen.is_empty(), "{seen:?}");
+    // Reconnecting at once gets the status again, unthrottled.
+    drop(eb);
+    let mut eb = state.ctx.bus.subscribe_user(b);
+    let q = quota_event(&mut eb, |_| true).await;
+    assert_eq!(q.0, 0);
+    // A second stream of the same user gets its own.
+    let mut eb2 = state.ctx.bus.subscribe_user(b);
+    quota_event(&mut eb2, |_| true).await;
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn status_and_quota_event_agree(pool: PgPool) {
+    let (app, state, _) = test_app(pool).await;
+    let a = default_user_id(&state).await;
+    state.gate.set_user_limit(a, Some(1));
+    billed(Some(a), state.gate.acquire(Priority::Interactive))
+        .await
+        .unwrap();
+    let mut ea = state.ctx.bus.subscribe_user(a);
+    spawn_background(&state);
+    let q = quota_event(&mut ea, |_| true).await;
+    let (status, body) = get(&app, "/api/status").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        json!({"quota_used": q.0, "quota_limit": q.1, "paused": q.2, "server_paused": q.3}),
+        json!({
+            "quota_used": body["quota_used"], "quota_limit": body["quota_limit"],
+            "paused": body["paused"], "server_paused": body["server_paused"],
+        })
+    );
+    assert_eq!((q.0, q.1, q.2, q.3), (1, 1, true, false));
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]

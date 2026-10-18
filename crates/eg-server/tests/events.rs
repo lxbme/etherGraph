@@ -189,6 +189,20 @@ async fn a_users_job_events_reach_only_their_stream(pool: PgPool) {
     spawn_background(&state);
     let mut sa = Sse::open(&app, None).await;
     let mut sb = Sse::open(&app, Some(&b_cookie)).await;
+    // Each stream gets its user's status when it opens, before A starts.
+    let b_limit = state.gate.user_quota(b).limit;
+    let connect_status = |v: &Value, limit: u32| {
+        is(v, "QuotaStatus")
+            && v["used"] == 0
+            && v["limit"] == limit
+            && v["paused"] == false
+            && v["server_paused"] == false
+    };
+    sb.until("B's connect-time status", |v| connect_status(v, b_limit))
+        .await;
+    let a_limit = state.gate.user_quota(a).limit;
+    sa.until("A's connect-time status", |v| connect_status(v, a_limit))
+        .await;
     let hs = workers(&state, 2);
 
     // A sync.
@@ -253,16 +267,10 @@ async fn a_users_job_events_reach_only_their_stream(pool: PgPool) {
     })
     .await;
 
-    // B saw none of it: at most B's own quota status (no calls, B's limit).
+    // B saw nothing while A's jobs ran: only its connect-time status.
     sb.drain(Duration::from_millis(1500)).await;
     assert_eq!(state.gate.user_quota(b).used, 0);
-    let limit = state.gate.user_quota(b).limit;
-    for v in &sb.events {
-        assert!(
-            is(v, "QuotaStatus") && v["used"] == 0 && v["limit"] == limit,
-            "B received {v}"
-        );
-    }
+    assert_eq!(sb.events.len(), 1, "B received {:?}", sb.events);
     assert!(!sb.ended);
 }
 

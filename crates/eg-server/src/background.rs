@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use eg_ingest::gate::{PriorityGate, QuotaSnapshot};
-use eg_ingest::{Audience, Event};
+use eg_ingest::{Audience, Event, Listener};
 use eg_store::{SETTING_DEFAULT_DAILY_QUOTA, Store, StoreError};
 use tokio::sync::watch;
 use tokio::time::{Instant, sleep_until};
@@ -36,7 +36,7 @@ pub fn next_utc_midnight(now: DateTime<Utc>) -> DateTime<Utc> {
 
 /// Spawns the quota loop (persist every 5s, reset at UTC midnight), the
 /// per-user limit refresh (every 30s), the per-user `QuotaStatus` publisher
-/// (on change, at most once per second per user) and the auth purge (every
+/// (when a stream opens and on change, at most once per second per user) and the auth purge (every
 /// 10 minutes), and starts the first chain head fetch.
 pub fn spawn_background(state: &AppState) {
     state.head.prime(state);
@@ -238,18 +238,26 @@ async fn persist(state: &AppState, day: NaiveDate) {
     }
 }
 
-/// A user's `QuotaStatus` figures, as `/api/status` reports them.
+/// A user's quota as both `GET /api/status` and the `QuotaStatus` event
+/// report it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct QuotaView {
-    used: u32,
-    limit: u32,
-    paused: bool,
-    server_paused: bool,
-    reset_at: DateTime<Utc>,
+pub struct UserQuotaStatus {
+    /// The user's calls today.
+    pub used: u32,
+    /// The user's effective daily limit.
+    pub limit: u32,
+    /// The user's jobs wait for the next reset: over their own limit, or the
+    /// server total is used up.
+    pub paused: bool,
+    /// The server total is used up (everyone waits).
+    pub server_paused: bool,
+    /// The next UTC midnight after `now`, when quotas reset.
+    pub reset_at: DateTime<Utc>,
 }
 
-impl QuotaView {
-    fn of(gate: &PriorityGate, user: i64, server: QuotaSnapshot, now: DateTime<Utc>) -> Self {
+impl UserQuotaStatus {
+    pub fn of(gate: &PriorityGate, user: i64, now: DateTime<Utc>) -> Self {
+        let server = *gate.subscribe_quota().borrow();
         let mine = gate.user_quota(user);
         Self {
             used: mine.used,
@@ -260,7 +268,7 @@ impl QuotaView {
         }
     }
 
-    fn event(self) -> Event {
+    pub fn event(self) -> Event {
         Event::QuotaStatus {
             used: self.used,
             limit: self.limit,
@@ -271,39 +279,60 @@ impl QuotaView {
     }
 }
 
-/// Sends each user with an open event stream their own `QuotaStatus` when it
-/// differs from the last one they were sent (their count or limit, the
-/// server pause, or the day changed), at most once per
-/// [`STATUS_MIN_INTERVAL`] per user; changes in between coalesce into the
-/// next event. A newly listening user gets their current status at the next
-/// change of anyone's quota.
+/// What a user was last sent.
+struct Sent {
+    status: UserQuotaStatus,
+    at: Instant,
+    /// [`Listener::newest`] at the time.
+    subscription: u64,
+}
+
+/// Sends each user with an open event stream their own `QuotaStatus`: once
+/// for every stream they open, at once, and afterwards whenever it differs
+/// from the last one sent (their count or limit, the server pause, or the
+/// day changed), at most once per [`STATUS_MIN_INTERVAL`] per user; changes
+/// in between coalesce into the next event. Another user's activity never
+/// causes an event.
 async fn publish_quota_status(state: AppState, mut server_rx: watch::Receiver<QuotaSnapshot>) {
+    let bus = &state.ctx.bus;
     let mut limits_rx = state.gate.subscribe_user_limits();
-    let mut sent: HashMap<i64, (QuotaView, Instant)> = HashMap::new();
+    let mut opened_rx = bus.subscribe_opened();
+    let mut sent: HashMap<i64, Sent> = HashMap::new();
     loop {
-        let server = *server_rx.borrow_and_update();
+        server_rx.mark_unchanged();
         limits_rx.mark_unchanged();
-        let listening = state.ctx.bus.listening_users();
-        sent.retain(|u, _| listening.binary_search(u).is_ok());
+        opened_rx.mark_unchanged();
+        let listeners = bus.listeners();
+        sent.retain(|u, _| listeners.binary_search_by_key(u, |l| l.user).is_ok());
         let (now, at) = (Utc::now(), Instant::now());
         let mut due: Option<Instant> = None;
-        for user in listening {
-            let view = QuotaView::of(&state.gate, user, server, now);
+        for Listener { user, newest } in listeners {
+            let status = UserQuotaStatus::of(&state.gate, user, now);
             match sent.get(&user) {
-                Some((last, _)) if *last == view => continue,
-                Some((_, last_at)) if at < *last_at + STATUS_MIN_INTERVAL => {
-                    let next = *last_at + STATUS_MIN_INTERVAL;
+                // A newly opened stream gets the status now.
+                Some(s) if s.subscription != newest => {}
+                Some(s) if s.status == status => continue,
+                Some(s) if at < s.at + STATUS_MIN_INTERVAL => {
+                    let next = s.at + STATUS_MIN_INTERVAL;
                     due = Some(due.map_or(next, |d| d.min(next)));
                     continue;
                 }
                 _ => {}
             }
-            state.ctx.bus.publish(Audience::User(user), view.event());
-            sent.insert(user, (view, at));
+            bus.publish(Audience::User(user), status.event());
+            sent.insert(
+                user,
+                Sent {
+                    status,
+                    at,
+                    subscription: newest,
+                },
+            );
         }
         tokio::select! {
             r = server_rx.changed() => if r.is_err() { return },
             r = limits_rx.changed() => if r.is_err() { return },
+            r = opened_rx.changed() => if r.is_err() { return },
             _ = sleep_until(due.unwrap_or(at)), if due.is_some() => {}
         }
     }
