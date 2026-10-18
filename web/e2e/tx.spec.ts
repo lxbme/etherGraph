@@ -158,3 +158,20 @@ test("clicking a token in the transfers table opens its details in the right pan
   await expect(panel.getByRole("button", { name: "Add to graph" })).toBeVisible();
   expect(mock.unhandled).toEqual([]);
 });
+
+test("the Overview type value opens its documentation page in the right panel", async ({ page, mock }) => {
+  await page.goto("/?e2e=1");
+  await page.getByRole("searchbox", { name: "Search" }).fill(TX);
+  await page.getByRole("searchbox", { name: "Search" }).press("Enter");
+  const txView = page.getByTestId("tx-view");
+  await expect(txView.getByTestId("tx-summary-bar")).toBeVisible();
+  await txView.locator(".txdetail__body").getByRole("button", { name: /EIP-1559|Dynamic fee|Type 2/i }).click();
+
+  const doc = page.locator(".main__right").getByTestId("standard-doc");
+  await expect(doc.getByRole("heading", { name: "Fee market change" })).toBeVisible();
+  await expect(doc.locator(".doc__math code").first()).toHaveText("effective gas price = min(maxFeePerGas, baseFee + maxPriorityFeePerGas)");
+  const link = doc.getByRole("link", { name: /specification/i });
+  await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  await expect(link).toHaveAttribute("target", "_blank");
+  expect(mock.unhandled).toEqual([]);
+});

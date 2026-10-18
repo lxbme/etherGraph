@@ -10,7 +10,7 @@ import { setReplayTourHandler } from "./tourBus";
 import { TopBar } from "./TopBar";
 import { useQuota } from "./statusStore";
 
-const EN_TITLES = ["Reading the graph", "Expanding safely", "Selecting several nodes", "Identifying node types", "Labels and categories", "Transaction view", "Standards", "Keyboard shortcuts", "Data & quotas"];
+const EN_TITLES = ["Reading the graph", "Expanding safely", "Selecting several nodes", "Identifying node types", "Labels and categories", "Transaction view", "Assets", "Standards", "Keyboard shortcuts", "Data & quotas"];
 
 function Host() {
   return (
@@ -31,7 +31,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("the ? button opens the drawer with nine sections; Escape closes it and focus returns to the button", async () => {
+test("the ? button opens the drawer with ten sections; Escape closes it and focus returns to the button", async () => {
   const user = userEvent.setup();
   render(<Host />);
   expect(screen.queryByRole("dialog", { name: "Help" })).toBeNull();
@@ -98,7 +98,8 @@ test("switching to zh shows the section titles in Chinese", () => {
   act(() => useLocale.getState().setLocale("zh"));
   const drawer = screen.getByRole("dialog", { name: "帮助" });
   const titles = within(drawer).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
-  expect(titles).toHaveLength(9);
+  expect(titles).toHaveLength(10);
+  expect(titles).toContain("资产与代币标签");
   expect(titles).toContain("标准与规范");
   expect(titles).toContain("框选多个节点");
   expect(titles).toContain("探明节点类型");
@@ -143,6 +144,7 @@ test("the new sections describe selection, manual identification and label sourc
   expect(drawer).toHaveTextContent("eg-server import-labels --format eth-labels --csv data/eth-labels/accounts.csv");
   expect(drawer).toHaveTextContent("eth-labels-xchain");
   expect(drawer).toHaveTextContent("only Esc still works (it clears a box selection)");
+  expect(drawer).toHaveTextContent("Ctrl/⌘+S (save) and Ctrl/⌘+Shift+S (save as) work everywhere");
   const items = [...drawer.querySelectorAll("li")].map((l) => l.textContent ?? "");
   const graphBar = items.find((l) => l.startsWith("Address graph batch bar"))!;
   const txBar = items.find((l) => l.startsWith("Transaction tab batch bar"))!;
@@ -157,6 +159,7 @@ test("the new sections describe selection, manual identification and label sourc
   expect(zhTx).toContain("加入关系图");
   expect(zhTx).not.toMatch(/固定|隐藏|中心/);
   expect(zh).toHaveTextContent("交易标签页中只有 Esc 仍然有效（清除框选）");
+  expect(zh).toHaveTextContent("Ctrl/⌘+S（保存）和 Ctrl/⌘+Shift+S（另存为）在任何位置都有效");
 });
 
 test("Standards lists every documentation page; one opens in the active tab's panel and closes the drawer", async () => {
@@ -175,4 +178,21 @@ test("Standards lists every documentation page; one opens in the active tab's pa
   expect(useInfo.getState().stacks["graph"]).toBeUndefined();
   expect(useUi.getState().detailOpen).toBe(true);
   expect(useUi.getState().helpOpen).toBe(false);
+});
+
+test("the Assets section explains asset details, where the tags come from and how to refresh them, in both languages", () => {
+  useUi.setState({ helpOpen: true });
+  render(<HelpDrawer />);
+  const section = screen.getByRole("region", { name: "Assets" });
+  expect(section).toHaveTextContent("Source verified");
+  expect(section).toHaveTextContent("Etherscan source verification");
+  expect(section).toHaveTextContent("Uniswap");
+  expect(section).toHaveTextContent("CoinGecko");
+  expect(section).toHaveTextContent("eth-labels");
+  expect(section).toHaveTextContent("eg-server import-tokens --format uniswap|coingecko|eth-labels --file data/tokens/<file>");
+  act(() => useLocale.getState().setLocale("zh"));
+  const zh = screen.getByRole("region", { name: "资产与代币标签" });
+  expect(zh).toHaveTextContent("源码已验证");
+  expect(zh).toHaveTextContent("Etherscan 的源码验证");
+  expect(zh).toHaveTextContent("eg-server import-tokens --format uniswap|coingecko|eth-labels --file data/tokens/<file>");
 });

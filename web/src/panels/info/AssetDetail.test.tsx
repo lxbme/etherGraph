@@ -83,3 +83,18 @@ test("a failed lookup shows the error", async () => {
   renderDetail({ asset: USDT });
   expect(await screen.findByRole("alert")).toBeInTheDocument();
 });
+
+test("while the token is loading it shows the loading placeholder and no rows", () => {
+  vi.spyOn(api, "token").mockReturnValue(new Promise(() => {}));
+  renderDetail({ asset: USDT });
+  expect(screen.getByText("Loading…")).toBeInTheDocument();
+  expect(screen.queryByTestId("asset-kv")).toBeNull();
+});
+
+test.each(["null", ""])("a website of %j is never a link", async (website) => {
+  vi.spyOn(api, "token").mockResolvedValue(dto({ website }));
+  renderDetail({ asset: USDT });
+  expect(await screen.findByText("Tether USD")).toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: website || "x" })).toBeNull();
+  expect(screen.getAllByRole("link").map((a) => a.textContent)).toEqual(["Etherscan"]);
+});

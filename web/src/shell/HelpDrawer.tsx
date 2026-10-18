@@ -27,7 +27,7 @@ const SHALLOW_RECORDS = 1000;
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-type SectionId = "reading" | "expanding" | "selecting" | "identifying" | "labels" | "tx" | "standards" | "shortcuts" | "data";
+type SectionId = "reading" | "expanding" | "selecting" | "identifying" | "labels" | "tx" | "assets" | "standards" | "shortcuts" | "data";
 type Params = Record<string, string | number>;
 
 /** Body keys of each section after its intro (`help.<id>.body`), rendered as a bullet list. */
@@ -55,6 +55,7 @@ function bullets(id: SectionId, mac: boolean, quota: number): { key: MsgKey; par
       return [1, 2, 3].map((n) => ({ key: `help.labels.body${n}` as MsgKey }));
     case "tx":
       return [{ key: "help.tx.body1" }, { key: "help.tx.body2" }, { key: "help.tx.body3" }, { key: "help.tx.body4" }, { key: "help.tx.body5" }];
+    case "assets":
     case "standards":
     case "shortcuts":
       return [];
@@ -68,7 +69,7 @@ function bullets(id: SectionId, mac: boolean, quota: number): { key: MsgKey; par
   }
 }
 
-const SECTIONS: SectionId[] = ["reading", "expanding", "selecting", "identifying", "labels", "tx", "standards", "shortcuts", "data"];
+const SECTIONS: SectionId[] = ["reading", "expanding", "selecting", "identifying", "labels", "tx", "assets", "standards", "shortcuts", "data"];
 
 /** The "?" drawer: how to read the graph, expansion rules, the tx view, the standards pages, shortcuts, data and quotas. */
 export function HelpDrawer() {
