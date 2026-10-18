@@ -30,6 +30,9 @@ fn label_from_row(r: &sqlx::postgres::PgRow) -> Result<LabelRow> {
     })
 }
 
+/// `(address, text, category)` of an imported label.
+pub type ImportRow = (Address, String, String);
+
 impl Store {
     /// Inserts a `source = 'user'` label; the caller validates the input.
     pub async fn add_user_label(
@@ -73,20 +76,13 @@ impl Store {
 
     /// Replaces all labels of `import:<dataset>` in one transaction; returns the
     /// number inserted.
-    pub async fn replace_import(
-        &self,
-        dataset: &str,
-        rows: &[(Address, String, String)],
-    ) -> Result<u64> {
+    pub async fn replace_import(&self, dataset: &str, rows: &[ImportRow]) -> Result<u64> {
         Ok(self.replace_imports(&[(dataset, rows)]).await?[0])
     }
 
     /// Replaces the labels of several `import:<dataset>` sources in one
     /// transaction (all or nothing); returns the number inserted per dataset.
-    pub async fn replace_imports(
-        &self,
-        sets: &[(&str, &[(Address, String, String)])],
-    ) -> Result<Vec<u64>> {
+    pub async fn replace_imports(&self, sets: &[(&str, &[ImportRow])]) -> Result<Vec<u64>> {
         let mut tx = self.pool.begin().await?;
         let mut counts = Vec::with_capacity(sets.len());
         for (dataset, rows) in sets {
