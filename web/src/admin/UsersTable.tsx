@@ -57,11 +57,12 @@ export function UsersTable() {
 function UserRow({ user: u, editing, onEdit }: { user: AdminUserDto; editing: boolean; onEdit(on: boolean): void }) {
   const t = useT();
   const { run, busy } = useAdminAction();
+  const defaultQuota = useAdminOverview().data?.default_quota;
   const [draft, setDraft] = useState(String(u.quota_limit));
   const calls = parseCalls(draft);
   // What saving would replace: the user's own quota, or the default they are on (saving that value would
   // only pin an own quota equal to it).
-  const current = u.quota_override ?? useAdminOverview().data?.default_quota ?? u.quota_limit;
+  const current = u.quota_override ?? defaultQuota ?? u.quota_limit;
   const canSave = calls !== null && calls !== current && !busy;
   const save = async (e: FormEvent) => {
     e.preventDefault();

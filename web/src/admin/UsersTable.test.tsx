@@ -1,10 +1,10 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { getAccount, signMessage } from "wagmi/actions";
 import { queryClient } from "../api/queryClient";
 import { useAuth } from "../auth/useMe";
-import { ADMIN, ADMIN_CHECKSUMMED, USER, actionMessage, adminMe, refused, stubAdminApi } from "./adminApi.testutil";
+import { ADMIN, ADMIN_CHECKSUMMED, USER, USERS, actionMessage, adminMe, json, refused, stubAdminApi } from "./adminApi.testutil";
 import { ActionConfirmDialog } from "./AdminView";
 import { useAdminMode } from "./adminMode";
 import { useActionConfirm } from "./useAdminAction";
@@ -126,4 +126,23 @@ test("saving the quota a user already has is not offered (no override equal to t
   await userEvent.type(def, "4000");
   expect(within(admin).getByRole("button", { name: "Save" })).toBeEnabled();
   expect(api.calls.some((c) => c.path === "/api/admin/actions/nonce")).toBe(false);
+});
+
+test("a row whose own quota is set and reset re-renders without a hook-order error", async () => {
+  const errors = vi.spyOn(console, "error");
+  let override: number | null = null;
+  stubAdminApi({
+    "GET /api/admin/users": () =>
+      json(200, [{ ...USERS[1]!, quota_override: override, quota_limit: override ?? 5000 }]),
+  });
+  renderTable();
+  const row = await userRow(USER);
+  expect(within(row).getByText("default")).toBeInTheDocument();
+  for (const next of [2500, null, 700]) {
+    override = next;
+    await act(() => queryClient.refetchQueries({ queryKey: ["admin", "users"] }));
+    expect(await within(await userRow(USER)).findByText(next === null ? "default" : "own")).toBeInTheDocument();
+  }
+  expect(errors).not.toHaveBeenCalled();
+  errors.mockRestore();
 });
