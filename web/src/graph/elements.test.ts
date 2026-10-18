@@ -120,6 +120,20 @@ describe("edgeElement", () => {
     expect(hl.data.width).toBe(edgeWidth(1));
     expect("badge" in hl.data).toBe(false);
   });
+
+  test("an edge carrying a suspicious or scam asset is flagged: class and a ⚠ label (scam wins)", () => {
+    const fake = dto({ asset: "0x" + "f".repeat(40), asset_kind: "erc20", symbol: "USDT", trust: { level: "suspicious", impersonates: { address: USDT, symbol: "USDT", name: "Tether USD" }, reason: null } });
+    const scam = dto({ asset: "0x" + "e".repeat(40), asset_kind: "erc20", symbol: "FREE", trust: { level: "scam", impersonates: null, reason: "spam-token" } });
+    const one = edgeElement(vedge({ color: "erc20", assets: [fake] }), false);
+    expect(classesOf(one).sort()).toEqual(["asset-erc20", "asset-suspicious"]);
+    expect(one.data.badge).toBe("⚠");
+    const merged = edgeElement(vedge({ badge: "×3", assets: [dto(), fake, scam] }), false);
+    expect(classesOf(merged).sort()).toEqual(["asset-eth", "asset-scam"]);
+    expect(merged.data.badge).toBe("⚠ ×3");
+    const plain = edgeElement(vedge({ assets: [dto({ trust: { level: "unknown", impersonates: null, reason: null } })] }), false);
+    expect(classesOf(plain)).toEqual(["asset-eth"]);
+    expect("badge" in plain.data).toBe(false);
+  });
 });
 
 describe("toElements", () => {

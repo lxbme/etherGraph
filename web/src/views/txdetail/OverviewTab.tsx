@@ -1,3 +1,4 @@
+import { AlertTriangle } from "lucide-react";
 import { Fragment, useId, type ReactNode } from "react";
 import type { AuthorizationDto } from "../../api/generated/AuthorizationDto";
 import type { TxFlowDto } from "../../api/generated/TxFlowDto";
@@ -5,6 +6,7 @@ import { useT, type MsgKey } from "../../i18n";
 import { ZERO_ADDRESS } from "../../lib/address";
 import { formatAmount, formatFixed } from "../../lib/amount";
 import { formatCount, formatLocalTime, formatTime } from "../../lib/format";
+import { trustFlag } from "../../lib/trust";
 import { DocButton } from "../../panels/info/DocButton";
 import type { DocId } from "../../panels/info/docs";
 import { TxStatusTag } from "../../panels/TxSummaryCard";
@@ -100,6 +102,29 @@ function Authorizations({ flow, items }: { flow: TxFlowDto; items: Authorization
   );
 }
 
+/** Distinct suspicious or scam tokens among the transaction's flows. */
+function flaggedTokens(flow: TxFlowDto): number {
+  return new Set(flow.flows.filter((f) => f.asset !== null && trustFlag(f.trust)).map((f) => f.asset!.toLowerCase())).size;
+}
+
+/** A warning when the transaction moves possibly impersonating or scam tokens, with a jump to Token Transfers. */
+function TrustNotice({ flow, onShowTransfers }: { flow: TxFlowDto; onShowTransfers?: () => void }) {
+  const t = useT();
+  const count = flaggedTokens(flow);
+  if (count === 0) return null;
+  return (
+    <div className="banner banner--warn txdetail__notice" role="alert">
+      <AlertTriangle className="banner__icon" size={16} aria-hidden="true" />
+      <span>{t("tx.ov.trustNotice", { count })}</span>
+      {onShowTransfers && (
+        <button type="button" className="btn btn--compact" onClick={onShowTransfers}>
+          {t("tx.ov.trustNotice.show")}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Group({ rows, className }: { rows: Rows; className?: string }) {
   const t = useT();
   return (
@@ -117,9 +142,10 @@ function Group({ rows, className }: { rows: Rows; className?: string }) {
 /**
  * Every field of the transaction in spec order; absent fields have no row, except base fee / burnt / savings ("—").
  * Hash and status span the full width; below them the identity / parties / value group and the gas / fees group
- * sit side by side on a wide panel, so related rows never split across columns.
+ * sit side by side on a wide panel, so related rows never split across columns. Flagged tokens add a warning on
+ * top whose button (`onShowTransfers`) switches to Token Transfers.
  */
-export function OverviewTab({ flow }: { flow: TxFlowDto }) {
+export function OverviewTab({ flow, onShowTransfers }: { flow: TxFlowDto; onShowTransfers?: () => void }) {
   const t = useT();
   const { tx, detail: d } = flow;
   const typeKey = `tx.type.${d.tx_type}` as MsgKey;
@@ -178,6 +204,7 @@ export function OverviewTab({ flow }: { flow: TxFlowDto }) {
 
   return (
     <div className="txdetail__overview" data-testid="tx-overview">
+      <TrustNotice flow={flow} onShowTransfers={onShowTransfers} />
       <Group rows={head} className="txdetail__kv--head" />
       <Group rows={parties} />
       <Group rows={fees} />

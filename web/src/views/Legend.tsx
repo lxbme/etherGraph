@@ -93,7 +93,7 @@ function SwatchSvg({ swatch }: { swatch: Swatch }) {
           strokeLinecap={swatch.dotted ? "round" : undefined}
         />
         {swatch.badge && (
-          <text className="legend__badge" x={8} y={8} textAnchor="middle" dominantBaseline="central">
+          <text className="legend__badge" x={8} y={8} textAnchor="middle" dominantBaseline="central" style={swatch.badgeColor ? { fill: swatch.badgeColor } : undefined}>
             {swatch.badge}
           </text>
         )}

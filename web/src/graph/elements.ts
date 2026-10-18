@@ -2,6 +2,7 @@ import type cytoscape from "cytoscape";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { t } from "../i18n";
 import { shortAddr } from "../lib/address";
+import { flaggedLabel, worstFlag } from "../lib/trust";
 import { graphSelection, MAX_NEIGHBOUR_LIMIT, type GraphSelection, type GraphState, type NodeUi } from "./store";
 import { edgeWidth, type VisualEdge } from "./visualEdges";
 
@@ -68,6 +69,10 @@ export function moreElements(center: string, count: number): cytoscape.ElementDe
   ];
 }
 
+/**
+ * An edge carrying a suspicious or scam token (the worst of its assets) gets `asset-suspicious` / `asset-scam`
+ * and a ⚠ in front of its badge (the ⚠ alone without one), which the stylesheet colours.
+ */
 export function edgeElement(v: VisualEdge, highlighted: boolean): cytoscape.ElementDefinition {
   const data: cytoscape.EdgeDataDefinition = {
     id: v.id,
@@ -75,11 +80,13 @@ export function edgeElement(v: VisualEdge, highlighted: boolean): cytoscape.Elem
     target: lc(v.to),
     width: edgeWidth(v.count),
   };
-  if (v.badge) data.badge = v.badge;
+  const flag = worstFlag(v.assets);
+  if (flag) data.badge = flaggedLabel(v.badge);
+  else if (v.badge) data.badge = v.badge;
   return {
     group: "edges",
     data,
-    classes: [`asset-${v.color}`, highlighted ? "highlighted" : ""].filter(Boolean).join(" "),
+    classes: [`asset-${v.color}`, flag ? `asset-${flag}` : "", highlighted ? "highlighted" : ""].filter(Boolean).join(" "),
   };
 }
 

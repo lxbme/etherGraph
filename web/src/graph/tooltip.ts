@@ -1,11 +1,13 @@
 import type { FlowDto } from "../api/generated/FlowDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import type { SyncStatusDto } from "../api/generated/SyncStatusDto";
+import type { TrustDto } from "../api/generated/TrustDto";
 import { t, type MsgKey } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { formatFixed } from "../lib/amount";
 import { assetClass, NATIVE_SYMBOL } from "../lib/assets";
 import { circled, formatCount, formatLocalTime, formatTime } from "../lib/format";
+import { trustFlag, trustReason, trustText } from "../lib/trust";
 import { CATEGORIES } from "../panels/LabelEditor";
 import type { VisualEdge } from "./visualEdges";
 
@@ -43,6 +45,17 @@ function blockRange(coverage: SyncStatusDto[] | undefined): { from: number; to: 
 /** The exact amount has digits the zero-padded fixed display cut off. */
 const moreExact = (text: string, full: string) =>
   (text.includes(".") ? text.replace(/0+$/, "").replace(/\.$/, "") : text) !== full;
+
+/** The "Trust" line of a suspicious or scam token (its badge text, the reason after it); null otherwise. */
+function trustLine(trust: TrustDto, symbol?: string): TooltipLine | null {
+  const flag = trustFlag(trust);
+  if (!flag) return null;
+  const text = trustText(flag, t);
+  const line: TooltipLine = { label: t("tooltip.trust"), value: symbol ? `${symbol}: ${text}` : text };
+  const why = trustReason(trust, t);
+  if (why) line.sub = why;
+  return line;
+}
 
 /** Display name where known, else the short address (`names` is keyed by lower-case address). */
 const named = (names: Map<string, string>, a: string) => names.get(a.toLowerCase()) ?? shortAddr(a.toLowerCase());
@@ -119,16 +132,21 @@ export function nodeTooltip(
 /** One address-graph edge; `names` maps lower-case addresses to display names. */
 export function edgeTooltip(v: VisualEdge, names: Map<string, string> = new Map()): TooltipLine[] {
   const lines: TooltipLine[] = [{ label: t("tooltip.direction"), value: `${named(names, v.from)} → ${named(names, v.to)}` }];
-  const perAsset = new Map<string, { symbol: string; count: number }>();
+  const perAsset = new Map<string, { symbol: string; count: number; trust: TrustDto }>();
   for (const e of v.assets) {
     const key = e.asset?.toLowerCase() ?? "";
     const symbol = e.asset === null ? NATIVE_SYMBOL : (e.symbol ?? shortAddr(key));
     const cur = perAsset.get(key);
     if (cur) cur.count += e.count;
-    else perAsset.set(key, { symbol, count: e.count });
+    else perAsset.set(key, { symbol, count: e.count, trust: e.trust });
   }
-  for (const a of [...perAsset.values()].sort((x, y) => y.count - x.count)) {
+  const sorted = [...perAsset.values()].sort((x, y) => y.count - x.count);
+  for (const a of sorted) {
     lines.push({ label: a.symbol, value: t("tooltip.transfers", { count: a.count }) });
+  }
+  for (const a of sorted) {
+    const line = trustLine(a.trust, a.symbol);
+    if (line) lines.push(line);
   }
   lines.push({ value: t("tooltip.width") });
   return lines;
@@ -170,5 +188,7 @@ export function flowTooltip(f: FlowDto, names: Map<string, string>): TooltipLine
   }
   lines.push({ label: t("tooltip.seq"), value: circled(f.seq) });
   lines.push({ label: t("tooltip.flowKind"), value: t(`tooltip.flowKind.${f.kind}` as MsgKey) });
+  const trust = trustLine(f.trust);
+  if (trust) lines.push(trust);
   return lines;
 }

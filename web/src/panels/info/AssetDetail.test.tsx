@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { api } from "../../api/endpoints";
 import type { TokenDetailDto } from "../../api/generated/TokenDetailDto";
 import * as identify from "../../graph/identify";
@@ -115,4 +115,39 @@ test("risk tags are warnings, others stay neutral, and website-down hides the We
   expect(screen.getByText("Website down")).toHaveClass("tag--warn");
   expect(screen.getByText("Stablecoin")).toHaveClass("tag--neutral");
   expect(screen.queryByText("Website")).toBeNull();
+});
+
+const FAKE = "0xfa4e000000000000000000000000000000000005";
+
+test("a suspicious token shows the impersonation badge and an Impersonates row that opens the listed token", async () => {
+  vi.spyOn(api, "token").mockResolvedValue(
+    dto({
+      address: FAKE, name: "Tether USD", lists: { uniswap: false, coingecko: false }, tags: [], website: null,
+      trust: { level: "suspicious", impersonates: { address: USDT, symbol: "USDT", name: "Tether USD" }, reason: null },
+    }),
+  );
+  renderDetail({ asset: FAKE, tokenKind: "erc20" });
+  const badge = await screen.findByText("Possible impersonation");
+  expect(badge).toHaveClass("tag--warn");
+  expect(screen.getByText("Symbol", { selector: "dt" }).nextElementSibling).toContainElement(badge);
+  const row = screen.getByText("Impersonates", { selector: "dt" }).nextElementSibling as HTMLElement;
+  const open = within(row).getByRole("button", { name: "Tether USD (USDT)" });
+  expect(open).toHaveAttribute("title", USDT);
+  fireEvent.click(open);
+  expect(useInfo.getState().stacks["graph"]).toEqual([{ kind: "asset", asset: USDT, tokenKind: "erc20" }]);
+});
+
+test("a scam token shows the scam badge and no Impersonates row; a listed one shows neither", async () => {
+  vi.spyOn(api, "token").mockResolvedValueOnce(
+    dto({ lists: { uniswap: false, coingecko: false }, trust: { level: "scam", impersonates: null, reason: "scam-label" } }),
+  );
+  const first = renderDetail({ asset: USDT });
+  expect(await screen.findByText("Known scam")).toHaveClass("tag--scam");
+  expect(screen.queryByText("Impersonates")).toBeNull();
+  first.unmount();
+  vi.spyOn(api, "token").mockResolvedValueOnce(dto());
+  renderDetail({ asset: USDT });
+  await screen.findByText("Tether USD");
+  expect(screen.queryByText("Possible impersonation")).toBeNull();
+  expect(screen.queryByText("Known scam")).toBeNull();
 });

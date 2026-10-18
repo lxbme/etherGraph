@@ -18,6 +18,7 @@ import { formatLocalTime, formatTime } from "../lib/format";
 import { transferKindName } from "../lib/transferKinds";
 import { useTabs } from "../shell/tabs";
 import { AssetButton } from "./info/AssetButton";
+import { TrustBadge } from "./info/TrustBadge";
 import { groupsForPair, type TransferGroup } from "./transferGroups";
 
 const PAGE_SIZE = 50;
@@ -146,9 +147,12 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
                 <td className="num" title={other}>{shortAddr(other)}</td>
                 <AmountCell row={row} />
                 <td>
-                  <AssetButton tab="graph" asset={asset} tokenId={row.token_id} kind={row.kind} title={row.asset ?? undefined}>
-                    {symbolOf(row.asset, row.symbol)}
-                  </AssetButton>
+                  <span className="asset-symbol">
+                    <AssetButton tab="graph" asset={asset} tokenId={row.token_id} kind={row.kind} title={row.asset ?? undefined}>
+                      {symbolOf(row.asset, row.symbol)}
+                    </AssetButton>
+                    <TrustBadge trust={row.trust} />
+                  </span>
                 </td>
                 <td className="transfers__muted">{transferKindName(row.kind, t)}</td>
                 <td>
@@ -206,6 +210,7 @@ function GroupSection({
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         <span title={sum.full}>{title}</span>
         {sum.unknownDecimals && <UnknownDecimals />}
+        <TrustBadge trust={group.trust} />
       </button>
       {open && (
         <TransferRows
@@ -271,6 +276,7 @@ function AssetSections({ address, filter, direction }: { address: string; filter
                 {symbol}
                 {min !== undefined ? ` · ≥ ${min}` : ""}
               </span>
+              {asset !== null && known[asset] && <TrustBadge trust={known[asset].trust} />}
             </button>
             {isOpen && (
               <TransferRows

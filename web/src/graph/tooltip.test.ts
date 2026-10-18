@@ -84,6 +84,15 @@ describe("edgeTooltip", () => {
     expect(ls.at(-1)?.value).toBe("Line width = transfers (log)");
     expect(ls[0]?.value).toContain("→");
   });
+  test("each flagged asset adds a Trust line naming its symbol", () => {
+    const fake = { ...edge("0xffffffffffffffffffffffffffffffffffffffff", 2, "USDT"), trust: { level: "scam", impersonates: null, reason: "scam-label" } } as const;
+    const v: VisualEdge = {
+      id: "c", from: "0xa", to: "0xb", color: "eth", count: 7, badge: "×2", expanded: false, assets: [edge(null, 5, "ETH"), fake],
+    };
+    const trust = edgeTooltip(v).filter((l) => l.label === "Trust");
+    expect(trust).toEqual([{ label: "Trust", value: "USDT: Known scam", sub: "Labelled as a scam" }]);
+    expect(edgeTooltip({ ...v, assets: [edge(null, 5, "ETH")] }).some((l) => l.label === "Trust")).toBe(false);
+  });
   test("the direction uses display names where known", () => {
     const v: VisualEdge = {
       id: "c", from: "0xaaaa", to: "0xbbbb", color: "eth", count: 1, badge: null, expanded: false, assets: [edge(null, 1, "ETH")],
@@ -133,6 +142,22 @@ test("flowTooltip: names, symbol, fixed amount, order, kind", () => {
   expect(ls.find((l) => l.label === "Amount")?.sub).toBe("1.234567 USDT");
   expect(s).toContain("Order ②");
   expect(s).toContain("Kind ERC-20");
+});
+
+test("flowTooltip: a flagged token adds a Trust line with the explanation; a listed one has none", () => {
+  const f: FlowDto = {
+    seq: 2, from: "0xaaaa", to: "0xbbbb", asset: "0xffffffffffffffffffffffffffffffffffffffff", amount: "1", token_id: null,
+    kind: "erc20", trace_path: null, log_index: 1, decimals: 6, symbol: "USDT",
+    trust: { level: "suspicious", impersonates: { address: "0xdac17f958d2ee523a2206206994597c13d831ec7", symbol: "USDT", name: "Tether USD" }, reason: null },
+  };
+  expect(flowTooltip(f, new Map()).find((l) => l.label === "Trust")).toEqual({
+    label: "Trust",
+    value: "Possible impersonation",
+    sub: "Same name as Tether USD (0xdac1…1ec7) but not in any token list",
+  });
+  const scam = flowTooltip({ ...f, trust: { level: "scam", impersonates: null, reason: "spam-token" } }, new Map());
+  expect(scam.find((l) => l.label === "Trust")).toMatchObject({ value: "Known scam", sub: "Flagged as spam by eth-labels" });
+  expect(flowTooltip({ ...f, trust: { level: "listed", impersonates: null, reason: null } }, new Map()).some((l) => l.label === "Trust")).toBe(false);
 });
 
 test("flowTooltip: seq 0 is a circled zero", () => {

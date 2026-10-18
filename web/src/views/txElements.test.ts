@@ -41,6 +41,17 @@ test("txElements builds a dashed call edge and numbered flow edges", () => {
   expect(f.classes).toBe("asset-stable");
 });
 
+test("a flow of a suspicious or scam token is flagged: class and a ⚠ label prefix", () => {
+  const fake = flow({ asset: "0x" + "f".repeat(40), trust: { level: "suspicious", impersonates: { address: USDT, symbol: "USDT", name: "Tether USD" }, reason: null } });
+  const f = txElements(dto({ flows: [fake] })).find((e) => e.data.id === "flow-1-0")!;
+  expect(String(f.classes).split(" ").sort()).toEqual(["asset-erc20", "asset-suspicious"]);
+  expect(f.data.label).toBe("⚠ ①  12.5 USDT");
+  const scam = flow({ trust: { level: "scam", impersonates: null, reason: "scam-label" } });
+  const s = txElements(dto({ flows: [scam] })).find((e) => e.data.id === "flow-1-0")!;
+  expect(String(s.classes).split(" ")).toContain("asset-scam");
+  expect(s.data.label).toBe("⚠ ①  12.5 USDT");
+});
+
 test("call edge is skipped without a recipient and falls back to selector or generic label", () => {
   const base = dto();
   expect(txElements({ ...base, tx: { ...base.tx, to: null } }).some((e) => e.classes === "call")).toBe(false);

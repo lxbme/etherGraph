@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { api } from "../api/endpoints";
 import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
@@ -287,4 +287,29 @@ test("clicking a transfer row while an asset is open shows the tx and clears the
   fireEvent.click((await screen.findAllByTestId("transfer-row"))[0]!);
   expect(useGraph.getState().selection?.kind).toBe("tx");
   expect(useInfo.getState().stacks["graph"]).toEqual([]);
+});
+
+test("a flagged token's badge sits next to its symbol in rows and pair group headers", async () => {
+  const FAKE = "0x" + "fa".repeat(20);
+  const suspicious = { level: "suspicious", impersonates: { address: USDC, symbol: "USDC", name: "USD Coin" }, reason: null } as const;
+  vi.spyOn(api, "transfers").mockResolvedValue({
+    items: [
+      tr({ asset: FAKE, kind: "erc20", decimals: 6, symbol: "USDC", sub_id: "1", trust: suspicious }),
+      tr({ asset: USDC, kind: "erc20", decimals: 6, symbol: "USDC", sub_id: "2" }),
+      tr({ asset: "0x" + "5c".repeat(20), kind: "erc20", decimals: 6, symbol: "FREE", sub_id: "3", trust: { level: "scam", impersonates: null, reason: "spam-token" } }),
+    ],
+    next_cursor: null,
+  });
+  act(() => {
+    useGraph.getState().addCenter(A);
+    useGraph.getState().select({ kind: "pair", a: A, b: B });
+  });
+  seedGraph([edge({ asset: FAKE, asset_kind: "erc20", count: 3, decimals: 6, symbol: "USDC", trust: suspicious })]);
+  renderTable();
+  const head = await screen.findByRole("button", { name: /USDC · 0xaaaa…aaaa→0xbbbb…bbbb/ });
+  expect(within(head).getByText("Possible impersonation")).toHaveClass("tag--warn");
+  const rows = await screen.findAllByTestId("transfer-row");
+  expect(within(rows[0]!).getByText("Possible impersonation")).toHaveAttribute("title", "Same name as USD Coin (0xa0b8…eb48) but not in any token list");
+  expect(within(rows[1]!).queryByText("Possible impersonation")).toBeNull();
+  expect(within(rows[2]!).getByText("Known scam")).toHaveClass("tag--scam");
 });

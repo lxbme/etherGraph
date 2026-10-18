@@ -7,6 +7,7 @@ import { shortAddr } from "../lib/address";
 import { assetClass } from "../lib/assets";
 import { formatAmount } from "../lib/amount";
 import { circled, ellipsize, shortTokenId } from "../lib/format";
+import { flaggedLabel, trustFlag } from "../lib/trust";
 import { tokenKindOf, type InfoView } from "../panels/info/infoStore";
 
 /** Longest edge label, in characters; the tooltip and detail tables keep the full text. */
@@ -43,13 +44,21 @@ export function flowAmountText(f: FlowDto): string {
   return formatAmount(f.amount, f.decimals, { maxFrac: 4 }).text;
 }
 
+/** `① 12.5 USDT`, with a ⚠ in front for a suspicious or scam token. */
 export function flowLabel(f: FlowDto): string {
-  return ellipsize(`${circled(f.seq)}  ${flowAmountText(f)} ${flowSymbol(f)}`, EDGE_LABEL_MAX);
+  const text = `${circled(f.seq)}  ${flowAmountText(f)} ${flowSymbol(f)}`;
+  return ellipsize(trustFlag(f.trust) ? flaggedLabel(text) : text, EDGE_LABEL_MAX);
 }
 
 export function callLabel(flow: TxFlowDto): string {
   const label = flow.call?.name ?? (flow.tx.selector ? t("tx.undecodedSelector", { selector: flow.tx.selector }) : t("tx.call"));
   return ellipsize(label, EDGE_LABEL_MAX);
+}
+
+/** `asset-suspicious` / `asset-scam` for a flow of a flagged token (its label colour), else nothing. */
+function flagClass(f: FlowDto): string {
+  const flag = trustFlag(f.trust);
+  return flag ? `asset-${flag}` : "";
 }
 
 /**
@@ -104,7 +113,7 @@ export function txElements(flow: TxFlowDto, selected?: string | null, highlighte
     out.push({
       group: "edges",
       data: { id: `flow-${f.seq}-${i}`, source: lc(f.from), target: lc(f.to), width: 2.5, label: flowLabel(f) },
-      classes: [`asset-${assetClass(f.asset, f.kind)}`, f.seq === highlightedSeq ? "highlighted" : ""].filter(Boolean).join(" "),
+      classes: [`asset-${assetClass(f.asset, f.kind)}`, flagClass(f), f.seq === highlightedSeq ? "highlighted" : ""].filter(Boolean).join(" "),
     });
   });
   return out;

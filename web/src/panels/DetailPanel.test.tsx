@@ -6,6 +6,7 @@ import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { LabelDto } from "../api/generated/LabelDto";
 import { qk } from "../api/queryClient";
 import { pairKey, useGraph } from "../graph/store";
+import { useLocale } from "../i18n";
 import { DetailPanel } from "./DetailPanel";
 import { useUi } from "./uiStore";
 
@@ -46,21 +47,44 @@ test("nothing selected shows the hint", () => {
   expect(screen.getByText("Select a node or edge to see details")).toBeInTheDocument();
 });
 
-test("node detail shows coverage per kind with truncated marker", async () => {
+test("node detail shows coverage per kind with a neutral partial-sync marker", async () => {
   const spy = vi.spyOn(api, "address").mockResolvedValue(profile());
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderPanel();
   expect(await screen.findByText("FooPool")).toBeInTheDocument();
   expect(spy).toHaveBeenCalledWith(A);
+  const why = "Too many records: Native transfers only synced from block 100";
+  const top = within(screen.getByTestId("node-tags")).getByText("Partial sync");
+  expect(top).toHaveClass("tag", "tag--neutral");
+  expect(top).not.toHaveClass("tag--warn");
+  expect(top).toHaveAttribute("title", why);
   const native = screen.getByText("Native transfers").closest("li")!;
   expect(within(native).getByText("100 – 200")).toBeInTheDocument();
-  expect(within(native).getByText("Truncated")).toBeInTheDocument();
+  const tag = within(native).getByText("Partial sync");
+  expect(tag).toHaveClass("tag", "tag--neutral");
+  expect(tag).toHaveAttribute("title", why);
   expect(within(native).getByText("Synced")).toBeInTheDocument();
   const erc20 = screen.getByText("ERC20").closest("li")!;
   expect(within(erc20).getByText("Syncing")).toBeInTheDocument();
-  expect(within(erc20).queryByText("Truncated")).toBeNull();
+  expect(within(erc20).queryByText("Partial sync")).toBeNull();
+  expect(screen.queryByText("Truncated")).toBeNull();
   expect(within(screen.getByText("ERC721").closest("li")!).getByText("Not synced")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Fetch older records" })).toBeInTheDocument();
+});
+
+test("the partial-sync marker and its reason are translated", async () => {
+  vi.spyOn(api, "address").mockResolvedValue(profile());
+  act(() => useLocale.getState().setLocale("zh"));
+  try {
+    act(() => useGraph.getState().select({ kind: "node", address: A }));
+    renderPanel();
+    await screen.findByText("FooPool");
+    const tags = screen.getAllByText("部分同步");
+    expect(tags).toHaveLength(2);
+    for (const tag of tags) expect(tag).toHaveAttribute("title", "记录过多：普通转账 只同步了区块 100 之后的部分");
+  } finally {
+    act(() => useLocale.getState().setLocale("en"));
+  }
 });
 
 test("sync buttons call api.sync", async () => {

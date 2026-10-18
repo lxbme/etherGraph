@@ -5,6 +5,7 @@ import { shortAddr } from "../../lib/address";
 import { formatFixed } from "../../lib/amount";
 import { assetClass } from "../../lib/assets";
 import { AssetButton } from "../../panels/info/AssetButton";
+import { TrustBadge } from "../../panels/info/TrustBadge";
 import { AddressCell } from "../../shell/AddressCell";
 import { CopyButton } from "../../shell/CopyButton";
 import { nodeOf, useFlowLink } from "./common";
@@ -54,6 +55,7 @@ export function TokenTransfersTab({ flow }: { flow: TxFlowDto }) {
                     {f.symbol ?? shortAddr(f.asset)}
                   </AssetButton>
                   <CopyButton value={f.asset} />
+                  <TrustBadge trust={f.trust} />
                 </span>
               )}
             </td>

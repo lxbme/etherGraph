@@ -318,6 +318,43 @@ test("tab names and overview keys are translated", () => {
   expect(valueOf("基础费")).toHaveTextContent(/^19 Gwei$/);
 });
 
+const FAKE = "0xfa4e000000000000000000000000000000000005";
+const SUSPICIOUS = { level: "suspicious", impersonates: { address: "0xdac17f958d2ee523a2206206994597c13d831ec7", symbol: "USDT", name: "Tether USD" }, reason: null } as const;
+
+test("Overview warns about the distinct flagged tokens and its button jumps to Token Transfers", () => {
+  const f = base();
+  const usdt = f.flows[2]!;
+  f.flows.push(
+    { ...usdt, seq: 3, asset: FAKE, trust: SUSPICIOUS },
+    { ...usdt, seq: 4, asset: FAKE, trust: SUSPICIOUS },
+    { ...usdt, seq: 5, asset: CREATED, symbol: "FREE", trust: { level: "scam", impersonates: null, reason: "spam-token" } },
+  );
+  renderTabs(f);
+  const notice = screen.getByRole("alert");
+  expect(notice).toHaveClass("txdetail__notice");
+  expect(notice).toHaveTextContent("This transaction involves 2 possibly impersonating or scam tokens");
+  fireEvent.click(within(notice).getByRole("button", { name: "Show token transfers" }));
+  expect(useTabs.getState().tabs.find((x) => x.id === fixture.flow.tx.hash)).toMatchObject({ detailTab: "transfers" });
+  expect(tab("Token Transfers")).toHaveAttribute("aria-pressed", "true");
+  const rows = screen.getAllByRole("row").slice(1);
+  expect(within(rows.find((r) => r.textContent?.includes("FREE"))!).getByText("Known scam")).toHaveClass("tag--scam");
+  expect(within(rows.find((r) => r.textContent?.includes("USDT") && r.textContent.includes("Possible impersonation"))!).getByText("Possible impersonation")).toHaveClass("tag--warn");
+  expect(screen.getAllByText("Possible impersonation")).toHaveLength(2);
+});
+
+test("Overview has no trust notice when every token is listed or unknown; one flagged token reads singular", () => {
+  const f = base();
+  f.flows[2]!.trust = { level: "unknown", impersonates: null, reason: null };
+  const { unmount } = renderTabs(f);
+  expect(screen.queryByRole("alert")).toBeNull();
+  unmount();
+  f.flows[2]!.trust = SUSPICIOUS;
+  renderTabs(f);
+  expect(screen.getByRole("alert")).toHaveTextContent("This transaction involves 1 possibly impersonating or scam token");
+  act(() => useLocale.getState().setLocale("zh"));
+  expect(screen.getByRole("alert")).toHaveTextContent("这笔交易涉及 1 个疑似仿冒或诈骗代币");
+});
+
 test("the token cell opens the asset in this tx tab's info stack", () => {
   useInfo.setState({ stacks: {} });
   renderTabs(base());

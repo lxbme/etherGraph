@@ -110,6 +110,10 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
   const n = p.node;
   const coverage = new Map(p.coverage.map((c) => [c.kind, c]));
   const anyTruncated = p.coverage.some((c) => c.truncated);
+  // Why a category is partial: coverage carries no record count, only where the sync stopped.
+  const partialReason = (c: SyncStatusDto) =>
+    t("node.partialReason", { kind: transferKindName(c.kind, t), block: c.from_block === null ? "—" : String(c.from_block) });
+  const partialTitle = p.coverage.filter((c) => c.truncated).map(partialReason).join("\n");
   const covered = KINDS.filter((k) => coverage.get(k.value)?.to_block != null).length;
   const stats = canvasStats(address, graph?.edges ?? []);
   const balance = n.balance != null ? formatFixed(n.balance, 18, "eth") : null;
@@ -134,7 +138,7 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
           <span key={`cat:${c}`} className={`tag tag--${HUED_CATEGORIES.includes(c) ? c : "neutral"}`}>{categoryName(c)}</span>
         ))}
         <span className="tag tag--neutral">{t(syncKey)}</span>
-        {n.partial && <span className="tag tag--warn">{t("node.truncated")}</span>}
+        {n.partial && <span className="tag tag--neutral" title={partialTitle || undefined}>{t("node.partialSync")}</span>}
         {n.labels.map((l) => {
           const provenance = labelProvenance(l.source);
           const imported = provenance !== null;
@@ -228,7 +232,7 @@ export function NodeDetail({ address, onNavigate }: { address: string; onNavigat
               {c ? (
                 <>
                   <span className="detail__state">
-                    {c.truncated && <span className="tag tag--warn">{t("node.truncated")}</span>}
+                    {c.truncated && <span className="tag tag--neutral" title={partialReason(c)}>{t("node.partialSync")}</span>}
                     {t(STATE_KEYS[c.state])}
                   </span>
                   <span className="num detail__range">

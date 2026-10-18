@@ -5,11 +5,14 @@ import type { TokenDetailDto } from "../../api/generated/TokenDetailDto";
 import { qk } from "../../api/queryClient";
 import { identifyAddresses, useIdentifying } from "../../graph/identify";
 import { type MsgKey, useT } from "../../i18n";
+import { shortAddr } from "../../lib/address";
 import { AddressCell } from "../../shell/AddressCell";
 import { CopyButton } from "../../shell/CopyButton";
+import { AssetButton } from "./AssetButton";
 import { DocButton } from "./DocButton";
 import type { DocId } from "./docs";
 import type { TokenKind } from "./infoStore";
+import { TrustBadge } from "./TrustBadge";
 
 const STANDARD_DOC: Record<string, { label: string; doc: DocId }> = {
   erc20: { label: "ERC-20", doc: "erc-20" },
@@ -95,6 +98,7 @@ function TokenDetail({ tab, address, tokenId, tokenKind }: { tab: string; addres
   const fungible = d.standard !== "erc721" && d.standard !== "erc1155";
   const site = d.website && isHttp(d.website) && !d.tags.includes("website-down") ? d.website : null;
   const dash = <span className="detail__muted">—</span>;
+  const imp = d.trust.level === "suspicious" ? d.trust.impersonates : null;
   return (
     <div className="detail__section">
       <div className="detail__tags" data-testid="asset-tags">
@@ -107,7 +111,20 @@ function TokenDetail({ tab, address, tokenId, tokenKind }: { tab: string; addres
       </div>
       <dl className="kv kv--wrap" data-testid="asset-kv">
         <Row label="info.asset.name">{d.name ?? dash}</Row>
-        <Row label="info.asset.symbol">{d.symbol ?? dash}</Row>
+        <Row label="info.asset.symbol">
+          <span className="asset-symbol">
+            {d.symbol ?? dash}
+            <TrustBadge trust={d.trust} />
+          </span>
+        </Row>
+        {imp && (
+          <Row label="info.asset.impersonates">
+            {/* Impersonation is matched against listed ERC-20 tokens. */}
+            <AssetButton tab={tab} asset={imp.address.toLowerCase()} kind="erc20" title={imp.address.toLowerCase()}>
+              {imp.name && imp.symbol ? `${imp.name} (${imp.symbol})` : (imp.name ?? imp.symbol ?? shortAddr(imp.address.toLowerCase()))}
+            </AssetButton>
+          </Row>
+        )}
         <Row label="info.asset.standard">
           {std ? <DocButton tab={tab} doc={std.doc}>{std.label}</DocButton> : t("info.standard.unknown")}
         </Row>

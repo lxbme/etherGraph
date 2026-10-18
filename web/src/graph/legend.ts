@@ -1,12 +1,13 @@
 import type cytoscape from "cytoscape";
 import type { MsgKey } from "../i18n";
 import type { AssetClass } from "../lib/assets";
-import { NODE_SHAPE, assetColors, categoryColors, delegationColor, iconSvgs, mutedColor, stateColors, type CategoryId, type NodeKind, type Theme } from "./styles";
+import { TRUST_MARK, type TrustFlag } from "../lib/trust";
+import { NODE_SHAPE, assetColors, categoryColors, delegationColor, iconSvgs, mutedColor, stateColors, trustColors, type CategoryId, type NodeKind, type Theme } from "./styles";
 
 export type LegendGroupId = "shape" | "category" | "state" | "asset" | "edge" | "tx";
 export type Swatch =
   | { kind: "node"; shape: string; fill: string; stroke: string; dashed?: boolean; ring?: string; ringDashed?: boolean }
-  | { kind: "edge"; color: string; width?: number; dashed?: boolean; dotted?: boolean; badge?: string }
+  | { kind: "edge"; color: string; width?: number; dashed?: boolean; dotted?: boolean; badge?: string; badgeColor?: string }
   /** The "+N more" placeholder: a dashed pill with `text` inside. */
   | { kind: "pill"; fill: string; stroke: string; text: string }
   | { kind: "icon"; svg: string };
@@ -18,6 +19,8 @@ const KINDS: NodeKind[] = ["eoa", "contract", "unknown"];
 const CATEGORIES = ["cex", "dex", "defi", "bridge", "mixer", "scam", "hacker", "mev", "fund", "nft", "staking", "none"] as const satisfies readonly CategoryId[];
 const STATES = ["center", "unsynced", "selected", "box-selected", "user-label", "pinned", "syncing", "partial", "more"] as const;
 const ASSETS = ["eth", "stable", "erc20", "nft", "other"] as const satisfies readonly (AssetClass | "other")[];
+/** Edges carrying a flagged token: a ⚠ label in the warning colour, after the asset hues. */
+const TRUST = ["suspicious", "scam"] as const satisfies readonly TrustFlag[];
 /** Tx rows listed only when the canvas draws them; the others (call, flow, seq) always are. */
 const TX_OPTIONAL = new Set(["asset-link", "delegation"]);
 
@@ -39,6 +42,7 @@ function catalogue(theme: Theme): Record<LegendGroupId, LegendItem[]> {
   const asset = assetColors(theme);
   const state = stateColors(theme);
   const icon = iconSvgs(theme);
+  const trust = trustColors(theme);
   const plain = { kind: "node", shape: NODE_SHAPE.eoa, fill: cat.none.fill, stroke: cat.none.stroke } as const;
   const stateSwatch: Record<(typeof STATES)[number], Swatch> = {
     center: { ...plain, fill: state.center.fill, stroke: state.center.stroke },
@@ -59,7 +63,14 @@ function catalogue(theme: Theme): Record<LegendGroupId, LegendItem[]> {
       label: `legend.cat.${k}`,
     })),
     state: STATES.map((k) => ({ id: k, swatch: stateSwatch[k], label: STATE_LABEL[k] })),
-    asset: ASSETS.map((k) => ({ id: k, swatch: { kind: "edge", color: asset[k] }, label: `legend.asset.${k}` })),
+    asset: [
+      ...ASSETS.map((k): LegendItem => ({ id: k, swatch: { kind: "edge", color: asset[k] }, label: `legend.asset.${k}` })),
+      ...TRUST.map((k): LegendItem => ({
+        id: k,
+        swatch: { kind: "edge", color: asset.erc20, badge: TRUST_MARK, badgeColor: trust[k] },
+        label: `legend.asset.${k}`,
+      })),
+    ],
     edge: [
       { id: "width", swatch: { kind: "edge", color: asset.other, width: 4 }, label: "legend.edge.width" },
       { id: "badge", swatch: { kind: "edge", color: asset.other, badge: "×N" }, label: "legend.edge.badge" },
@@ -110,7 +121,8 @@ function present(els: cytoscape.ElementDefinition[]): Set<string> {
       out.add("tx/delegation");
     } else if (!cls.has("more")) {
       out.add("edge/width");
-      if (el.data.badge) out.add("edge/badge");
+      // A flagged edge's badge starts with ⚠; only a ×N after it is a merged-assets badge.
+      if (String(el.data.badge ?? "").replace(TRUST_MARK, "").trim()) out.add("edge/badge");
       for (const c of cls) if (c.startsWith("asset-")) out.add(`asset/${c.slice(6)}`);
     }
   }

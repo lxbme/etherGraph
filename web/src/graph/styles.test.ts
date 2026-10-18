@@ -9,6 +9,7 @@ import {
   graphStylesheet,
   delegationColor,
   iconSvgs,
+  trustColors,
   txFlowStylesheet,
 } from "./styles";
 
@@ -181,23 +182,29 @@ describe("graphStylesheet", () => {
     expect(decodeURIComponent(TAG_ICON_SVG)).toContain("M12.586 2.586"); // lucide `tag`
     expect(decodeURIComponent(PIN_ICON_SVG)).toContain("M12 17v5"); // lucide `pin`
     expect(decodeURIComponent(SYNCING_ICON_SVG)).toContain("M12 6v6l4 2"); // lucide `clock`
-    expect(decodeURIComponent(PARTIAL_ICON_SVG)).toContain("m21.73 18-8-14"); // lucide `triangle-alert`
-    expect(decodeURIComponent(PARTIAL_ICON_SVG)).toContain("#e8a317"); // --warn
   });
 
-  test("corner icons follow the theme's accent and warn tokens", () => {
+  test("the partial-sync icon is a neutral half-filled circle in the muted token, never the warn colour", () => {
+    const light = decodeURIComponent(PARTIAL_ICON_SVG);
+    const dark = decodeURIComponent(iconSvgs("dark").partial);
+    expect(light).not.toContain("m21.73 18-8-14"); // no longer lucide `triangle-alert`
+    expect(light).toMatch(/<circle[^>]*stroke="#6b7280"/); // --fg-muted ring
+    expect(light).toMatch(/<path fill="#6b7280"[^>]*d="M3 12a9 9 0 0 0 18 0z"/); // the filled lower half
+    expect(light).not.toContain("#e8a317"); // --warn
+    expect(dark).toContain("#98a3b0");
+    expect(dark).not.toContain("#f0b64a");
+    document.documentElement.style.setProperty("--fg-muted", "#777777");
+    try {
+      expect(decodeURIComponent(iconSvgs("light").partial)).toMatch(/<path fill="#777777"/);
+    } finally {
+      document.documentElement.style.removeProperty("--fg-muted");
+    }
+  });
+
+  test("corner icons follow the theme's accent token", () => {
     const dark = iconSvgs("dark");
     expect(decodeURIComponent(dark.tag)).toContain("#5b8cff");
     expect(decodeURIComponent(dark.syncing)).toContain("#5b8cff");
-    expect(decodeURIComponent(dark.partial)).toContain("#f0b64a");
-    // The "!" is dark ink on the amber in both themes: --fg in light, --canvas in dark.
-    document.documentElement.style.setProperty("--fg", "#222222");
-    try {
-      expect(decodeURIComponent(iconSvgs("light").partial)).toMatch(/stroke="#222222"[^>]*d="M12 9v4"/);
-    } finally {
-      document.documentElement.style.removeProperty("--fg");
-    }
-    expect(decodeURIComponent(dark.partial)).toMatch(/stroke="#10141a"[^>]*d="M12 9v4"/);
     expect(dark.tag).not.toBe(iconSvgs("light").tag);
     for (const uri of Object.values(dark)) expect(uri).not.toMatch(/\s/);
     withCy(graphStylesheet("dark"), [{ group: "nodes", data: { id: "p", text: "x" }, classes: "kind-eoa pinned" }], (cy) => {
@@ -254,6 +261,30 @@ describe("graphStylesheet", () => {
     }
     expect(assetColors("dark").eth).toBe("#9a9aff");
     expect(styleOf(s, "edge").width).toBe("data(width)");
+  });
+
+  test("a flagged edge keeps its asset line colour but its ⚠ label takes the warn or scam token", () => {
+    for (const theme of ["light", "dark"] as const) {
+      const s = sheet(theme);
+      expect(styleOf(s, "edge.asset-suspicious")).toEqual({ color: theme === "light" ? "#e8a317" : "#f0b64a" });
+      expect(styleOf(s, "edge.asset-scam")).toEqual({ color: categoryColors(theme).scam.stroke });
+      expect(trustColors(theme)).toEqual({ suspicious: styleOf(s, "edge.asset-suspicious").color, scam: categoryColors(theme).scam.stroke });
+    }
+    withCy(
+      txFlowStylesheet("light"),
+      [
+        { group: "nodes", data: { id: "a", text: "a" }, classes: "kind-eoa" },
+        { group: "nodes", data: { id: "b", text: "b" }, classes: "kind-eoa" },
+        { group: "edges", data: { id: "f", source: "a", target: "b", width: 2, label: "⚠ ① 1 USDT" }, classes: "asset-erc20 asset-suspicious" },
+        { group: "edges", data: { id: "g", source: "a", target: "b", width: 2, badge: "⚠ ×2" }, classes: "asset-eth asset-scam" },
+      ],
+      (cy) => {
+        expect(cy.getElementById("f").style("color")).toBe("rgb(232,163,23)");
+        expect(cy.getElementById("f").style("line-color")).toBe("rgb(183,121,31)"); // still the erc20 hue
+        expect(cy.getElementById("g").style("color")).toBe("rgb(217,48,37)");
+        expect(cy.getElementById("g").style("label")).toBe("⚠ ×2");
+      },
+    );
   });
 
   test("every asset colour and the delegation colour has its own hue and reads on the canvas (3:1) in both themes", () => {

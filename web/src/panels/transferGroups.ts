@@ -1,4 +1,5 @@
 import type { EdgeDto } from "../api/generated/EdgeDto";
+import type { TrustDto } from "../api/generated/TrustDto";
 
 export interface TransferGroup {
   key: string;
@@ -10,6 +11,7 @@ export interface TransferGroup {
   sum: string;
   decimals: number | null;
   symbol: string | null;
+  trust: TrustDto;
 }
 
 /** Every (direction, asset) edge between `a` and `b` as a group, by count descending. */
@@ -32,6 +34,7 @@ export function groupsForPair(edges: EdgeDto[], a: string, b: string): TransferG
       sum: e.sum,
       decimals: e.decimals,
       symbol: e.symbol,
+      trust: e.trust,
     }))
     .sort((p, q) => q.count - p.count);
 }

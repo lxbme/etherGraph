@@ -65,16 +65,15 @@ export type IconId = "tag" | "pin" | "syncing" | "partial";
 
 /**
  * The state icons for `theme`, built from its tokens: tag (user label) and clock (syncing) in --accent,
- * pin (pinned) in --fg, triangle-alert (partial: a category hit the record cap) in --warn.
+ * pin (pinned) in --fg, and a half-filled circle (partial sync: a category hit the record cap) in --fg-muted,
+ * neutral because a partial sync is not a risk.
  */
 export function iconSvgs(theme: Theme): Record<IconId, string> {
   const t = THEME_HEX[theme];
   const accent = cssVar("--accent", t.accent);
   const outline = cssVar("--canvas", t.canvas);
   const pin = cssVar("--fg", t.fg);
-  const warn = cssVar("--warn", t.warn);
-  // --warn is a light amber in both themes, so its "!" needs dark ink in both: --fg in light, --canvas in dark.
-  const ink = theme === "light" ? pin : outline;
+  const muted = cssVar("--fg-muted", t.fgMuted);
   return {
     tag: svgUri(
       `<path fill="${accent}" stroke="${outline}" stroke-width="2" d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/>` +
@@ -89,9 +88,11 @@ export function iconSvgs(theme: Theme): Record<IconId, string> {
       `<circle cx="12" cy="12" r="10" fill="${accent}" stroke="${outline}" stroke-width="2"/>` +
         `<path stroke="${outline}" stroke-width="2" d="M12 6v6l4 2"/>`,
     ),
+    // A canvas-coloured disc as the outline, a muted ring, and its lower half filled.
     partial: svgUri(
-      `<path fill="${warn}" stroke="${outline}" stroke-width="2" d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>` +
-        `<path stroke="${ink}" stroke-width="2" d="M12 9v4"/><path stroke="${ink}" stroke-width="2" d="M12 17h.01"/>`,
+      `<circle cx="12" cy="12" r="11" fill="${outline}"/>` +
+        `<circle cx="12" cy="12" r="9" fill="${outline}" stroke="${muted}" stroke-width="2"/>` +
+        `<path fill="${muted}" d="M3 12a9 9 0 0 0 18 0z"/>`,
     ),
   };
 }
@@ -169,6 +170,11 @@ export function mutedColor(theme: Theme): string {
   return cssVar("--fg-muted", THEME_HEX[theme].fgMuted);
 }
 
+/** Label colour of an edge carrying a flagged token: --warn for a possible impersonation, the scam hue for a known scam. */
+export function trustColors(theme: Theme): { suspicious: string; scam: string } {
+  return { suspicious: cssVar("--warn", THEME_HEX[theme].warn), scam: cssVar("--cat-scam", CAT_HEX[theme].scam) };
+}
+
 /** Colour of the tx view's delegation edges. */
 export function delegationColor(theme: Theme): string {
   return cssVar("--tx-delegation", DELEGATION_HEX[theme]);
@@ -228,6 +234,7 @@ function graphBlocks(theme: Theme): Block[] {
   const asset = assetColors(theme);
   const state = stateColors(theme);
   const badge = badgeStyle(iconSvgs(theme));
+  const trust = trustColors(theme);
 
   return [
     {
@@ -347,6 +354,9 @@ function graphBlocks(theme: Theme): Block[] {
     { selector: "edge.asset-erc20", style: edgeColor(asset.erc20) },
     { selector: "edge.asset-nft", style: edgeColor(asset.nft) },
     { selector: "edge.asset-other", style: edgeColor(asset.other) },
+    // A flagged token keeps its asset hue on the line; its ⚠ label takes the warning colour.
+    { selector: "edge.asset-suspicious", style: { color: trust.suspicious } },
+    { selector: "edge.asset-scam", style: { color: trust.scam } },
     { selector: "edge.selected, edge:selected", style: { ...edgeColor(accent), opacity: 1, "z-index": 9 } },
     {
       selector: "edge.highlighted",

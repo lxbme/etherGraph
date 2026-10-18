@@ -1,6 +1,6 @@
 import type cytoscape from "cytoscape";
 import { fullLegendGroups, legendFor, txLegendFor, type LegendGroup } from "./legend";
-import { NODE_SHAPE, assetColors, categoryColors, delegationColor, iconSvgs, mutedColor, stateColors } from "./styles";
+import { NODE_SHAPE, assetColors, categoryColors, delegationColor, iconSvgs, mutedColor, stateColors, trustColors } from "./styles";
 
 const node = (id: string, classes: string): cytoscape.ElementDefinition => ({ group: "nodes", data: { id }, classes });
 const edge = (id: string, classes: string, data: Record<string, unknown> = {}): cytoscape.ElementDefinition => ({
@@ -119,6 +119,25 @@ describe("txLegendFor", () => {
   });
 });
 
+test("flagged edges add the possible-impersonation and known-scam rows on both canvases; a lone ⚠ is not a ×N badge", () => {
+  const sus = edge("s", "asset-erc20 asset-suspicious", { badge: "⚠" });
+  const g = legendFor([...base, sus], "light");
+  expect(ids(g).asset).toEqual(["eth", "erc20", "suspicious"]);
+  expect(ids(g).edge).toEqual(["width"]);
+  expect(item(g, "asset", "suspicious")).toMatchObject({
+    label: "legend.asset.suspicious",
+    swatch: { kind: "edge", badge: "⚠", badgeColor: trustColors("light").suspicious },
+  });
+  expect(ids(legendFor([...base, edge("m", "asset-eth asset-scam", { badge: "⚠ ×2" })], "light"))).toMatchObject({
+    asset: ["eth", "scam"],
+    edge: ["width", "badge"],
+  });
+  const tx = txLegendFor([node("a", "kind-eoa cat-none"), edge("flow-1-0", "asset-erc20 asset-suspicious", { label: "⚠ ① 1 USDT" })], "light");
+  expect(ids(tx).asset).toEqual(["erc20", "suspicious"]);
+  expect(item(tx, "asset", "suspicious").label).toBe("legend.asset.suspicious");
+  expect(ids(legendFor(base, "light")).asset).toEqual(["eth"]);
+});
+
 test("a canvas with cex and hacker nodes lists exactly those rows plus no-category for an untinted node", () => {
   const g = legendFor([node("a", "kind-eoa cat-cex"), node("b", "kind-eoa cat-hacker"), node("c", "kind-eoa cat-other")], "light");
   expect(ids(g).category).toEqual(["cex", "hacker", "none"]);
@@ -129,7 +148,7 @@ test("fullLegendGroups lists every entry", () => {
     shape: ["eoa", "contract", "unknown"],
     category: ["cex", "dex", "defi", "bridge", "mixer", "scam", "hacker", "mev", "fund", "nft", "staking", "none"],
     state: ["center", "unsynced", "selected", "box-selected", "user-label", "pinned", "syncing", "partial", "more"],
-    asset: ["eth", "stable", "erc20", "nft", "other"],
+    asset: ["eth", "stable", "erc20", "nft", "other", "suspicious", "scam"],
     edge: ["width", "badge"],
     tx: ["call", "flow", "seq", "asset-link", "delegation"],
   });

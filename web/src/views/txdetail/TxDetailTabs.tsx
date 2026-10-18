@@ -40,7 +40,7 @@ export function TxDetailTabs({ flow }: { flow: TxFlowDto }) {
   let body: ReactNode;
   switch (active) {
     case "overview":
-      body = <OverviewTab flow={flow} />;
+      body = <OverviewTab flow={flow} onShowTransfers={() => pick("transfers")} />;
       break;
     case "input":
       body = <InputTab flow={flow} />;
