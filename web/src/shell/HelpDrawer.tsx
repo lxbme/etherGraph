@@ -23,7 +23,7 @@ const SHALLOW_RECORDS = 1000;
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-type SectionId = "reading" | "expanding" | "tx" | "shortcuts" | "data";
+type SectionId = "reading" | "expanding" | "selecting" | "identifying" | "labels" | "tx" | "shortcuts" | "data";
 type Params = Record<string, string | number>;
 
 /** Body keys of each section after its intro (`help.<id>.body`), rendered as a bullet list. */
@@ -43,6 +43,12 @@ function bullets(id: SectionId, mac: boolean, quota: number): { key: MsgKey; par
         { key: "help.expanding.body8", params: { max: MAX_NEIGHBOUR_LIMIT } },
         { key: "help.expanding.body9" },
       ];
+    case "selecting":
+      return [1, 2, 3, 4, 5].map((n) => ({ key: `help.selecting.body${n}` as MsgKey }));
+    case "identifying":
+      return [1, 2, 3].map((n) => ({ key: `help.identifying.body${n}` as MsgKey }));
+    case "labels":
+      return [1, 2, 3].map((n) => ({ key: `help.labels.body${n}` as MsgKey }));
     case "tx":
       return [{ key: "help.tx.body1" }, { key: "help.tx.body2" }, { key: "help.tx.body3" }, { key: "help.tx.body4" }, { key: "help.tx.body5" }];
     case "shortcuts":
@@ -57,7 +63,7 @@ function bullets(id: SectionId, mac: boolean, quota: number): { key: MsgKey; par
   }
 }
 
-const SECTIONS: SectionId[] = ["reading", "expanding", "tx", "shortcuts", "data"];
+const SECTIONS: SectionId[] = ["reading", "expanding", "selecting", "identifying", "labels", "tx", "shortcuts", "data"];
 
 /** The "?" drawer: how to read the graph, expansion rules, the tx view, shortcuts, data and quotas. */
 export function HelpDrawer() {
@@ -151,7 +157,13 @@ function HelpDrawerPanel() {
   );
 }
 
-/** One row per SHORTCUTS entry, in table order. */
+/** Mouse gestures with no key handler of their own, listed after the keyboard shortcuts. */
+const MOUSE_GESTURES: { label: MsgKey; keys: MsgKey }[] = [
+  { label: "shortcut.boxSelect", keys: "shortcut.boxSelectKeys" },
+  { label: "shortcut.toggleSelect", keys: "shortcut.toggleSelectKeys" },
+];
+
+/** One row per SHORTCUTS entry, in table order, then the mouse gestures. */
 function ShortcutTable({ mac }: { mac: boolean }) {
   const t = useT();
   return (
@@ -173,6 +185,14 @@ function ShortcutTable({ mac }: { mac: boolean }) {
                   <kbd className="kbd">{formatCombo(k, mac)}</kbd>
                 </span>
               ))}
+            </td>
+          </tr>
+        ))}
+        {MOUSE_GESTURES.map((g) => (
+          <tr key={g.label}>
+            <td className="help__action">{t(g.label)}</td>
+            <td>
+              <kbd className="kbd">{t(g.keys)}</kbd>
             </td>
           </tr>
         ))}

@@ -8,7 +8,7 @@ import { setReplayTourHandler } from "./tourBus";
 import { TopBar } from "./TopBar";
 import { useQuota } from "./statusStore";
 
-const EN_TITLES = ["Reading the graph", "Expanding safely", "Transaction view", "Keyboard shortcuts", "Data & quotas"];
+const EN_TITLES = ["Reading the graph", "Expanding safely", "Selecting several nodes", "Identifying node types", "Labels and categories", "Transaction view", "Keyboard shortcuts", "Data & quotas"];
 
 function Host() {
   return (
@@ -29,7 +29,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("the ? button opens the drawer with five sections; Escape closes it and focus returns to the button", async () => {
+test("the ? button opens the drawer with eight sections; Escape closes it and focus returns to the button", async () => {
   const user = userEvent.setup();
   render(<Host />);
   expect(screen.queryByRole("dialog", { name: "Help" })).toBeNull();
@@ -65,11 +65,16 @@ test("the shortcut table has one row per SHORTCUTS entry with the same keys", ()
   render(<HelpDrawer />);
   const table = screen.getByRole("table", { name: "Keyboard shortcuts" });
   const rows = within(table).getAllByRole("row").slice(1); // header row first
-  expect(rows).toHaveLength(SHORTCUTS.length);
+  expect(rows).toHaveLength(SHORTCUTS.length + 2); // plus the two mouse gestures
   SHORTCUTS.forEach((s, i) => {
     const keys = [...rows[i]!.querySelectorAll("kbd")].map((k) => k.textContent);
     expect(keys).toEqual(s.keys.map((k) => formatCombo(k)));
   });
+  const extra = rows.slice(SHORTCUTS.length).map((r) => r.textContent);
+  expect(extra[0]).toContain("Shift+drag");
+  expect(extra[1]).toContain("Shift+click");
+  const esc = rows[SHORTCUTS.findIndex((s) => s.id === "clearSelection")]!;
+  expect(within(esc).getByText("Escape")).toBeInTheDocument();
   // jsdom is not macOS: Mod reads Ctrl.
   const undo = rows[SHORTCUTS.findIndex((s) => s.id === "undo")]!;
   expect(within(undo).getByText("Undo")).toBeInTheDocument();
@@ -91,7 +96,10 @@ test("switching to zh shows the section titles in Chinese", () => {
   act(() => useLocale.getState().setLocale("zh"));
   const drawer = screen.getByRole("dialog", { name: "帮助" });
   const titles = within(drawer).getAllByRole("heading", { level: 3 }).map((h) => h.textContent);
-  expect(titles).toHaveLength(5);
+  expect(titles).toHaveLength(8);
+  expect(titles).toContain("框选多个节点");
+  expect(titles).toContain("探明节点类型");
+  expect(titles).toContain("标签与分类");
   expect(titles).toContain("键盘快捷键");
   for (const en of EN_TITLES) expect(titles).not.toContain(en);
 });
@@ -122,4 +130,17 @@ test("Hot is explained next to Heavy, in both languages", () => {
   expect(screen.getByRole("dialog", { name: "Help" })).toHaveTextContent("Hot: an address labelled CEX or DeFi, or with very many neighbours.");
   act(() => useLocale.getState().setLocale("zh"));
   expect(screen.getByRole("dialog", { name: "帮助" })).toHaveTextContent("热门：带有中心化交易所或 DeFi 标签、或邻居非常多的地址。");
+});
+
+test("the new sections describe selection, manual identification and label sources, and the shortcuts note allows Esc on tx tabs", () => {
+  useUi.setState({ helpOpen: true });
+  render(<HelpDrawer />);
+  const drawer = screen.getByRole("dialog", { name: "Help" });
+  expect(drawer).toHaveTextContent("Identify all");
+  expect(drawer).toHaveTextContent("eg-server import-labels --format eth-labels --csv data/eth-labels/accounts.csv");
+  expect(drawer).toHaveTextContent("eth-labels-xchain");
+  expect(drawer).toHaveTextContent("only Esc still works (it clears a box selection)");
+  act(() => useLocale.getState().setLocale("zh"));
+  const zh = screen.getByRole("dialog", { name: "帮助" });
+  expect(zh).toHaveTextContent("交易标签页中只有 Esc 仍然有效（清除框选）");
 });
