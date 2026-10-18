@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-4 -4 72 40" width="720" height="400" font-family="Helvetica, Arial, sans-serif">
+  <!-- Construction of the etherGraph mark on its 32-unit grid (left) with the key measurements (right). -->
+  <rect x="-4" y="-4" width="72" height="40" fill="#ffffff"/>
+  <g stroke="#e3e6eb" stroke-width="0.08">
+    <path d="M0 0H32M0 4H32M0 8H32M0 12H32M0 16H32M0 20H32M0 24H32M0 28H32M0 32H32"/>
+    <path d="M0 0V32M4 0V32M8 0V32M12 0V32M16 0V32M20 0V32M24 0V32M28 0V32M32 0V32"/>
+  </g>
+  <rect x="0" y="0" width="32" height="32" fill="none" stroke="#9aa3af" stroke-width="0.12"/>
+  <circle cx="16" cy="16" r="13" fill="none" stroke="#1f5eff" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="5.616 4.595" stroke-dashoffset="23.228"/>
+  <circle cx="16" cy="16" r="7" fill="#1f5eff"/>
+  <g stroke="#ff3b6b" stroke-width="0.15" fill="none">
+    <circle cx="16" cy="16" r="13" stroke-dasharray="0.4 0.4"/>
+    <path d="M16 16H29"/>
+    <path d="M16 16L11.05 11.05"/>
+    <path d="M16 0.5V3"/>
+  </g>
+  <g font-size="1.5" fill="#ff3b6b">
+    <text x="22" y="15.4">r 13</text>
+    <text x="9.2" y="10.4">r 7</text>
+    <text x="16.6" y="2.2">dash centred at 12 o'clock</text>
+  </g>
+  <g font-size="1.7" fill="#111827">
+    <text x="37" y="3">Grid: 32 × 32 units</text>
+    <text x="37" y="7">Dot: radius 7, solid accent</text>
+    <text x="37" y="11">Ring: radius 13 (centre line)</text>
+    <text x="37" y="14">stroke 2.4, round caps</text>
+    <text x="37" y="18">8 dashes; dash = 55% of each</text>
+    <text x="37" y="21">segment (5.616 on, 4.595 off)</text>
+    <text x="37" y="25">Ring outer edge: radius 14.2</text>
+    <text x="37" y="28">= 88.75% of the box width</text>
+    <text x="37" y="32">One dash centred on every 45°</text>
+  </g>
+</svg>
