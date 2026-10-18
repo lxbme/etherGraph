@@ -8,7 +8,9 @@ use eg_core::types::{Transfer, TransferKind};
 use eg_ingest::config::IngestConfig;
 use eg_ingest::gate::{GateConfig, PriorityGate};
 use eg_ingest::handlers::FetchTxHandler;
-use eg_ingest::{Event, EventBus, JobCtx, JobError, JobHandler, enqueue_fetch_block, load_tx_flow};
+use eg_ingest::{
+    Audience, Event, EventBus, JobCtx, JobError, JobHandler, enqueue_fetch_block, load_tx_flow,
+};
 use eg_store::{JobKind, NewJob, Store, TxRow};
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -176,7 +178,8 @@ async fn fetch_tx_persists_and_enqueues_meta(pool: PgPool) {
 
     let mut progress = None;
     let mut ready_after_progress = false;
-    while let Ok(ev) = rx.try_recv() {
+    while let Ok((aud, ev)) = rx.try_recv() {
+        assert_eq!(aud, Audience::Nobody);
         match ev {
             Event::JobProgress { fetched, .. } => progress = Some(fetched),
             Event::TxReady { hash } => {
@@ -385,7 +388,9 @@ async fn fetch_block_handler_stores_header_and_announces(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(e.ctx.store.block(100).await.unwrap().unwrap(), header());
-    assert!(matches!(rx.try_recv(), Ok(Event::TxReady { hash }) if hash == HASH));
+    assert!(
+        matches!(rx.try_recv(), Ok((Audience::Nobody, Event::TxReady { hash })) if hash == HASH)
+    );
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
@@ -470,7 +475,8 @@ async fn fetch_block_announces_every_stored_tx_of_the_block(pool: PgPool) {
         .await
         .unwrap();
     let mut announced = Vec::new();
-    while let Ok(ev) = rx.try_recv() {
+    while let Ok((aud, ev)) = rx.try_recv() {
+        assert_eq!(aud, Audience::Nobody);
         if let Event::TxReady { hash } = ev {
             announced.push(hash);
         }

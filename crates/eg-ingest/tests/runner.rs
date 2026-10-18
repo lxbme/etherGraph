@@ -10,7 +10,7 @@ use eg_ingest::billing::bill_to;
 use eg_ingest::config::IngestConfig;
 use eg_ingest::gate::{GateConfig, PriorityGate};
 use eg_ingest::{
-    Event, EventBus, JobCtx, JobError, JobHandler, Runner, SyncDirection, enqueue_meta,
+    Audience, Event, EventBus, JobCtx, JobError, JobHandler, Runner, SyncDirection, enqueue_meta,
     enqueue_sync, other_sync_active,
 };
 use eg_store::{JobKind, JobRow, JobStatus, NewJob, Store};
@@ -127,7 +127,9 @@ async fn runs_and_completes(pool: PgPool) {
     let hs = Runner::spawn(c.clone(), 2, handlers(Arc::new(OkHandler)));
     wait_status(&c, id, "done").await;
     let mut saw_done = false;
-    while let Ok(Ok(e)) = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
+    while let Ok(Ok((aud, e))) = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
+        // An ownerless job's events go to nobody.
+        assert_eq!(aud, Audience::Nobody);
         if let Event::JobProgress {
             job_id,
             status: JobStatus::Done,
@@ -337,7 +339,9 @@ async fn failed_job_event_carries_error(pool: PgPool) {
     let hs = Runner::spawn(c.clone(), 1, handlers(h));
     wait_status(&c, id, "failed").await;
     let mut got = None;
-    while let Ok(Ok(e)) = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
+    while let Ok(Ok((aud, e))) = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await {
+        // An ownerless job's events go to nobody.
+        assert_eq!(aud, Audience::Nobody);
         if let Event::JobProgress {
             job_id,
             status,
@@ -386,6 +390,33 @@ async fn jobs_run_billed_to_their_user(pool: PgPool) {
     c.wake.notify_waiters();
     wait_status(&c, system, "done").await;
     assert_eq!(*h.0.lock().unwrap(), vec![Some(u), None]);
+    hs.iter().for_each(|h| h.abort());
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn an_owned_jobs_progress_goes_to_its_user(pool: PgPool) {
+    let c = ctx(pool);
+    let u = user(&c, 0xa0).await;
+    let mut rx = c.bus.subscribe();
+    let (id, _) = c
+        .store
+        .enqueue(&NewJob {
+            user_id: Some(u),
+            ..job("mine")
+        })
+        .await
+        .unwrap();
+    let hs = Runner::spawn(c.clone(), 1, handlers(Arc::new(OkHandler)));
+    wait_status(&c, id, "done").await;
+    let mut statuses = vec![];
+    while let Ok(Ok((aud, e))) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+        assert_eq!(aud, Audience::User(u), "{e:?}");
+        if let Event::JobProgress { job_id, status, .. } = e {
+            assert_eq!(job_id, id);
+            statuses.push(status);
+        }
+    }
+    assert_eq!(statuses, vec![JobStatus::Running, JobStatus::Done]);
     hs.iter().for_each(|h| h.abort());
 }
 

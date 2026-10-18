@@ -112,7 +112,10 @@ async fn tx_pending_then_ready(pool: PgPool) {
     let (_, again) = get(&app, &uri).await;
     assert_eq!(again["job_id"].as_i64(), Some(job_id));
     let me = Some(default_user_id(&state).await);
-    assert_eq!(enqueue_fetch_tx(&state.ctx, me, HASH).await.unwrap(), job_id);
+    assert_eq!(
+        enqueue_fetch_tx(&state.ctx, me, HASH).await.unwrap(),
+        job_id
+    );
 
     let job = state.store.claim_next().await.unwrap().unwrap();
     assert_eq!(job.id, job_id);
@@ -1032,7 +1035,7 @@ async fn sync_job(app: &axum::Router, body: Value) -> i64 {
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn batches_own_jobs_until_the_last_one_is_cancelled(pool: PgPool) {
-    use eg_ingest::Event;
+    use eg_ingest::{Audience, Event};
     use eg_store::JobStatus;
     let (app, state, _) = test_app(pool).await;
     let from = format!("{FROM:#x}");
@@ -1068,7 +1071,8 @@ async fn batches_own_jobs_until_the_last_one_is_cancelled(pool: PgPool) {
         JobStatus::Cancelled
     );
     match rx.try_recv().unwrap() {
-        Event::JobProgress { job_id, status, .. } => {
+        (Audience::User(u), Event::JobProgress { job_id, status, .. }) => {
+            assert_eq!(u, default_user_id(&state).await);
             assert_eq!(job_id, id);
             assert_eq!(status, JobStatus::Cancelled);
         }

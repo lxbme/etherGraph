@@ -6,7 +6,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use eg_ingest::handlers::SyncParams;
-use eg_ingest::{Event, other_sync_active};
+use eg_ingest::{Audience, Event, other_sync_active};
 use eg_store::{JobKind, JobRow, JobStatus, StoreError};
 use serde::Deserialize;
 
@@ -75,7 +75,7 @@ pub async fn cancel_scope(
         )));
     }
     let cancelled = s.store.cancel_background(user.id).await?;
-    Ok(Json(after_cancels(&s, cancelled).await))
+    Ok(Json(after_cancels(&s, user.id, cancelled).await))
 }
 
 fn parse_id(raw: &str) -> Result<i64, ApiError> {
@@ -115,38 +115,43 @@ pub async fn cancel(
         .cancel_user_job(user.id, id)
         .await?
         .ok_or_else(|| ApiError::not_found(format!("no active job {id}")))?;
-    after_cancel(&s, id, kind, status).await;
+    after_cancel(&s, user.id, id, kind, status).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Follow-up for a job the store just cancelled or flagged: an immediate
-/// cancellation settles a sync's `syncing` kinds and is announced here; the
-/// runner announces flagged (running) ones.
-async fn after_cancel(s: &AppState, id: i64, kind: JobKind, status: JobStatus) {
+/// Follow-up for a job of `user` the store just cancelled or flagged: an
+/// immediate cancellation settles a sync's `syncing` kinds and is announced
+/// to `user` here; the runner announces flagged (running) ones.
+async fn after_cancel(s: &AppState, user: i64, id: i64, kind: JobKind, status: JobStatus) {
     if status != JobStatus::Cancelled {
         return;
     }
     if kind == JobKind::SyncAddress {
         settle_cancelled_sync(s, id).await;
     }
-    s.ctx.bus.publish(Event::JobProgress {
-        job_id: id,
-        kind,
-        fetched: 0,
-        cursor_block: None,
-        status,
-        error: None,
-    });
+    s.ctx.bus.publish(
+        Audience::User(user),
+        Event::JobProgress {
+            job_id: id,
+            kind,
+            fetched: 0,
+            cursor_block: None,
+            status,
+            error: None,
+        },
+    );
 }
 
-/// [`after_cancel`] for each job; lists them all, flagged ones included.
+/// [`after_cancel`] for each of `user`'s jobs; lists them all, flagged ones
+/// included.
 pub(crate) async fn after_cancels(
     s: &AppState,
+    user: i64,
     jobs: Vec<(i64, JobKind, JobStatus)>,
 ) -> CancelledDto {
     let mut cancelled = Vec::with_capacity(jobs.len());
     for (id, kind, status) in jobs {
-        after_cancel(s, id, kind, status).await;
+        after_cancel(s, user, id, kind, status).await;
         cancelled.push(id);
     }
     CancelledDto { cancelled }

@@ -9,7 +9,7 @@ use eg_decode::encode_reverse;
 use eg_ingest::config::IngestConfig;
 use eg_ingest::gate::{GateConfig, PriorityGate};
 use eg_ingest::handlers::{ContractMetaHandler, ResolveNamesHandler, TokenMetaHandler};
-use eg_ingest::{Event, EventBus, JobCtx, JobError, JobHandler};
+use eg_ingest::{Audience, Event, EventBus, JobCtx, JobError, JobHandler};
 use eg_store::{EnsStatus, JobKind, NewJob, Store};
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -133,7 +133,7 @@ async fn contract_meta_classifies_eoa_and_contract(pool: PgPool) {
     assert_eq!(abis.get(&a(1)).unwrap().as_deref(), Some("[]"));
     assert!(!abis.contains_key(&a(2)));
     match rx.try_recv().unwrap() {
-        Event::MetaUpdated { addresses } => assert_eq!(addresses.len(), 6),
+        (Audience::Nobody, Event::MetaUpdated { addresses }) => assert_eq!(addresses.len(), 6),
         other => panic!("unexpected {other:?}"),
     }
 }
@@ -291,7 +291,7 @@ async fn names_offchain_and_none(pool: PgPool) {
     assert_eq!(st(y).status, EnsStatus::None);
     assert_eq!(st(z).status, EnsStatus::Offchain);
     match rx.try_recv().unwrap() {
-        Event::NamesResolved { items } => assert_eq!(items.len(), 3),
+        (Audience::Nobody, Event::NamesResolved { items }) => assert_eq!(items.len(), 3),
         other => panic!("unexpected {other:?}"),
     }
 }
@@ -447,7 +447,9 @@ async fn contract_meta_partial_failure_keeps_progress_and_retry_skips_done(pool:
     got.sort();
     assert_eq!(got, vec![(a(1), "A".to_string()), (a(3), "C".to_string())]);
     match rx.try_recv().unwrap() {
-        Event::MetaUpdated { addresses } => assert_eq!(addresses, vec![a(1), a(3)]),
+        (Audience::Nobody, Event::MetaUpdated { addresses }) => {
+            assert_eq!(addresses, vec![a(1), a(3)])
+        }
         other => panic!("unexpected {other:?}"),
     }
 
@@ -537,7 +539,7 @@ async fn token_meta_keeps_nft_kind_and_publishes_meta_updated(pool: PgPool) {
             .is_empty()
     );
     match rx.try_recv().unwrap() {
-        Event::MetaUpdated { addresses } => assert_eq!(addresses, vec![nft]),
+        (Audience::Nobody, Event::MetaUpdated { addresses }) => assert_eq!(addresses, vec![nft]),
         other => panic!("unexpected {other:?}"),
     }
 }

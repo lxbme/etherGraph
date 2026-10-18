@@ -102,6 +102,8 @@ struct Shared {
     queue_len: AtomicUsize,
     quota_tx: watch::Sender<QuotaSnapshot>,
     users: Mutex<UserBook>,
+    /// Ticks whenever a per-user limit changes.
+    limits_tx: watch::Sender<()>,
 }
 
 impl Shared {
@@ -151,6 +153,7 @@ impl PriorityGate {
                 limits: cfg.user_limits,
                 default_limit: cfg.default_user_limit,
             }),
+            limits_tx: watch::channel(()).0,
         });
         let (tx, rx) = mpsc::unbounded_channel();
         tokio::spawn(Dispatcher::new(shared.clone(), rx).run());
@@ -200,22 +203,35 @@ impl PriorityGate {
         v
     }
 
+    /// Changes after every [`set_user_limit`](Self::set_user_limit) and
+    /// [`set_user_limits`](Self::set_user_limits) (per-user counts change
+    /// with the server snapshot of [`subscribe_quota`](Self::subscribe_quota)).
+    pub fn subscribe_user_limits(&self) -> watch::Receiver<()> {
+        self.shared.limits_tx.subscribe()
+    }
+
     /// Sets `user`'s own limit (`None`: back to the default); requests made
     /// after this call see it.
     pub fn set_user_limit(&self, user: i64, limit: Option<u32>) {
-        let mut users = self.shared.users();
-        match limit {
-            Some(l) => users.limits.insert(user, l),
-            None => users.limits.remove(&user),
-        };
+        {
+            let mut users = self.shared.users();
+            match limit {
+                Some(l) => users.limits.insert(user, l),
+                None => users.limits.remove(&user),
+            };
+        }
+        self.shared.limits_tx.send_replace(());
     }
 
     /// Replaces the default limit and every user override (a refresh from
     /// the store).
     pub fn set_user_limits(&self, default_limit: u32, overrides: HashMap<i64, u32>) {
-        let mut users = self.shared.users();
-        users.default_limit = default_limit;
-        users.limits = overrides;
+        {
+            let mut users = self.shared.users();
+            users.default_limit = default_limit;
+            users.limits = overrides;
+        }
+        self.shared.limits_tx.send_replace(());
     }
 }
 
@@ -815,6 +831,18 @@ mod tests {
         g.set_user_limits(2, HashMap::from([(1, 10)]));
         assert_eq!(g.user_quota(1), uq(3, 10));
         assert_eq!(g.user_quota(2), uq(0, 2));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn limit_changes_are_signalled() {
+        let g = user_gate(1000.0, 1000, 5);
+        let mut limits = g.subscribe_user_limits();
+        assert!(!limits.has_changed().unwrap());
+        g.set_user_limit(1, Some(1));
+        assert!(limits.has_changed().unwrap());
+        limits.mark_unchanged();
+        g.set_user_limits(2, HashMap::new());
+        assert!(limits.has_changed().unwrap());
     }
 
     #[tokio::test(start_paused = true)]

@@ -10,6 +10,8 @@ use chrono::{NaiveDate, TimeZone, Utc};
 use common::{default_user_id, delete, get, test_app};
 use eg_core::source::{CallGate, Priority};
 use eg_ingest::Event;
+use eg_ingest::billing::billed;
+use eg_ingest::events::{Audience, UserEvents};
 use eg_server::background::{next_utc_midnight, rollover, spawn_background};
 use eg_server::config::{Config, SourceMode};
 use eg_server::dto::{ErrorBody, JobDto, StatusDto};
@@ -98,12 +100,16 @@ async fn cancel_publishes_cancelled_progress(pool: PgPool) {
     let (status, _) = delete(&app, &format!("/api/jobs/{pending}")).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     match rx.try_recv().unwrap() {
-        Event::JobProgress {
-            job_id,
-            kind,
-            status,
-            ..
-        } => {
+        (
+            Audience::User(u),
+            Event::JobProgress {
+                job_id,
+                kind,
+                status,
+                ..
+            },
+        ) => {
+            assert_eq!(u, default_user_id(&state).await);
             assert_eq!(job_id, pending);
             assert_eq!(kind, JobKind::SyncAddress);
             assert_eq!(status, eg_store::JobStatus::Cancelled);
@@ -197,10 +203,14 @@ async fn open_events(app: &axum::Router) -> Body {
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn events_stream_delivers_published_event(pool: PgPool) {
     let (app, state, _) = test_app(pool).await;
+    let a = default_user_id(&state).await;
     let mut body = open_events(&app).await;
-    state.ctx.bus.publish(Event::AddressDataChanged {
-        address: Address::repeat_byte(0xab),
-    });
+    state.ctx.bus.publish(
+        Audience::User(a),
+        Event::AddressDataChanged {
+            address: Address::repeat_byte(0xab),
+        },
+    );
     let text = read_until(&mut body, "AddressDataChanged").await;
     assert!(text.contains("event: AddressDataChanged\n"), "{text}");
     let data = text
@@ -217,11 +227,15 @@ async fn events_stream_delivers_published_event(pool: PgPool) {
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn events_stream_reports_lag(pool: PgPool) {
     let (app, state, _) = test_app(pool).await;
+    let a = default_user_id(&state).await;
     let mut body = open_events(&app).await;
     for _ in 0..1100 {
-        state.ctx.bus.publish(Event::AddressDataChanged {
-            address: Address::ZERO,
-        });
+        state.ctx.bus.publish(
+            Audience::User(a),
+            Event::AddressDataChanged {
+                address: Address::ZERO,
+            },
+        );
     }
     let text = read_until(&mut body, "\n\n").await;
     assert!(text.starts_with("event: Lagged\n"), "{text}");
@@ -267,31 +281,148 @@ async fn rollover_persists_resets_and_resumes(pool: PgPool) {
         .expect("workers were not woken");
 }
 
-#[sqlx::test(migrations = "../eg-store/migrations")]
-async fn background_publishes_quota_status(pool: PgPool) {
-    let (_, state, _) = test_app(pool).await;
-    let mut rx = state.ctx.bus.subscribe();
-    spawn_background(&state);
-    state.gate.acquire(Priority::Interactive).await.unwrap();
-    let ev = tokio::time::timeout(Duration::from_secs(5), async {
+/// The next `QuotaStatus` of `sub` (5 s) matching `pred`, as
+/// (used, limit, paused, server_paused, reset_at).
+async fn quota_event(sub: &mut UserEvents, pred: impl Fn(&QuotaFields) -> bool) -> QuotaFields {
+    tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            if let Event::QuotaStatus {
+            if let Some(Event::QuotaStatus {
                 used,
                 limit,
                 paused,
+                server_paused,
                 reset_at,
-            } = rx.recv().await.unwrap()
-                && used == 1
+            }) = sub.recv().await
             {
-                return (used, limit, paused, reset_at);
+                let q = (used, limit, paused, server_paused, reset_at);
+                if pred(&q) {
+                    return q;
+                }
             }
         }
     })
     .await
-    .expect("no QuotaStatus with used == 1");
-    assert_eq!(ev.1, 100_000);
-    assert!(!ev.2);
-    assert_eq!(ev.3, next_utc_midnight(Utc::now()));
+    .expect("no matching QuotaStatus")
+}
+
+type QuotaFields = (u32, u32, bool, bool, chrono::DateTime<Utc>);
+
+/// Every `QuotaStatus` `sub` receives within `d`.
+async fn quota_events_within(sub: &mut UserEvents, d: Duration) -> Vec<QuotaFields> {
+    let mut seen = Vec::new();
+    let _ = tokio::time::timeout(d, async {
+        while let Some(e) = sub.recv().await {
+            if let Event::QuotaStatus {
+                used,
+                limit,
+                paused,
+                server_paused,
+                reset_at,
+            } = e
+            {
+                seen.push((used, limit, paused, server_paused, reset_at));
+            }
+        }
+    })
+    .await;
+    seen
+}
+
+async fn other_user(state: &AppState) -> i64 {
+    state
+        .store
+        .upsert_user_on_login(Address::repeat_byte(0xb0))
+        .await
+        .unwrap()
+        .id
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn quota_status_carries_each_users_own_figures(pool: PgPool) {
+    let (_, state, _) = test_app(pool).await;
+    let a = default_user_id(&state).await;
+    let b = other_user(&state).await;
+    let mut ea = state.ctx.bus.subscribe_user(a);
+    let mut eb = state.ctx.bus.subscribe_user(b);
+    spawn_background(&state);
+    billed(Some(a), state.gate.acquire(Priority::Interactive))
+        .await
+        .unwrap();
+    let limit = state.gate.user_quota(a).limit;
+    let q = quota_event(&mut ea, |q| q.0 == 1).await;
+    assert_eq!(q, (1, limit, false, false, next_utc_midnight(Utc::now())));
+    // B never sees A's count.
+    for q in quota_events_within(&mut eb, Duration::from_millis(1500)).await {
+        assert_eq!((q.0, q.2, q.3), (0, false, false), "{q:?}");
+    }
+    // A limit change reaches its user.
+    state.gate.set_user_limit(a, Some(1));
+    let q = quota_event(&mut ea, |q| q.1 == 1).await;
+    assert_eq!((q.0, q.2, q.3), (1, true, false), "{q:?}");
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn quota_status_is_throttled_per_user(pool: PgPool) {
+    let (_, state, _) = test_app(pool).await;
+    let a = default_user_id(&state).await;
+    let mut ea = state.ctx.bus.subscribe_user(a);
+    spawn_background(&state);
+    let calls = async {
+        for _ in 0..12 {
+            billed(Some(a), state.gate.acquire(Priority::Interactive))
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    };
+    let mut times = Vec::new();
+    let watch = async {
+        loop {
+            if let Some(Event::QuotaStatus { used, .. }) = ea.recv().await {
+                times.push((tokio::time::Instant::now(), used));
+                if used == 12 {
+                    return;
+                }
+            }
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(calls, watch)
+    })
+    .await
+    .expect("the last count never arrived");
+    assert!(times.len() >= 2, "{times:?}");
+    assert!(times.len() < 12, "not coalesced: {times:?}");
+    for w in times.windows(2) {
+        let gap = w[1].0 - w[0].0;
+        assert!(gap >= Duration::from_millis(800), "{gap:?} between {w:?}");
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn server_pause_and_rollover_reach_every_listener(pool: PgPool) {
+    let (_, state, _) = test_app(pool).await;
+    let a = default_user_id(&state).await;
+    let b = other_user(&state).await;
+    let mut ea = state.ctx.bus.subscribe_user(a);
+    let mut eb = state.ctx.bus.subscribe_user(b);
+    spawn_background(&state);
+    billed(Some(a), state.gate.acquire(Priority::Interactive))
+        .await
+        .unwrap();
+    quota_event(&mut ea, |q| q.0 == 1).await;
+
+    state.gate.on_quota_exhausted();
+    let qa = quota_event(&mut ea, |q| q.3).await;
+    assert_eq!((qa.0, qa.2), (1, true), "{qa:?}");
+    let qb = quota_event(&mut eb, |q| q.3).await;
+    assert_eq!((qb.0, qb.2), (0, true), "{qb:?}");
+
+    rollover(&state, Utc::now().date_naive()).await;
+    let qa = quota_event(&mut ea, |q| !q.3).await;
+    assert_eq!((qa.0, qa.2), (0, false), "{qa:?}");
+    let qb = quota_event(&mut eb, |q| !q.3).await;
+    assert_eq!((qb.0, qb.2), (0, false), "{qb:?}");
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]

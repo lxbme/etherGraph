@@ -6,10 +6,11 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{DateTime, NaiveDate, Utc};
-use eg_ingest::Event;
 use eg_ingest::gate::{PriorityGate, QuotaSnapshot};
+use eg_ingest::{Audience, Event};
 use eg_store::{SETTING_DEFAULT_DAILY_QUOTA, Store, StoreError};
 use tokio::sync::watch;
+use tokio::time::{Instant, sleep_until};
 
 use crate::config::Config;
 use crate::state::AppState;
@@ -34,9 +35,9 @@ pub fn next_utc_midnight(now: DateTime<Utc>) -> DateTime<Utc> {
 }
 
 /// Spawns the quota loop (persist every 5s, reset at UTC midnight), the
-/// per-user limit refresh (every 30s), the `QuotaStatus` publisher (on
-/// snapshot change, at most once per second) and the auth purge (every 10
-/// minutes), and starts the first chain head fetch.
+/// per-user limit refresh (every 30s), the per-user `QuotaStatus` publisher
+/// (on change, at most once per second per user) and the auth purge (every
+/// 10 minutes), and starts the first chain head fetch.
 pub fn spawn_background(state: &AppState) {
     state.head.prime(state);
     // Subscribe before spawning so no change after this call is missed.
@@ -237,16 +238,73 @@ async fn persist(state: &AppState, day: NaiveDate) {
     }
 }
 
-async fn publish_quota_status(state: AppState, mut rx: watch::Receiver<QuotaSnapshot>) {
-    while rx.changed().await.is_ok() {
-        let q = *rx.borrow_and_update();
-        state.ctx.bus.publish(Event::QuotaStatus {
-            used: q.used,
-            limit: q.limit,
-            paused: q.paused,
-            reset_at: next_utc_midnight(Utc::now()),
-        });
-        // Changes during the pause coalesce into the next event.
-        tokio::time::sleep(STATUS_MIN_INTERVAL).await;
+/// A user's `QuotaStatus` figures, as `/api/status` reports them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct QuotaView {
+    used: u32,
+    limit: u32,
+    paused: bool,
+    server_paused: bool,
+    reset_at: DateTime<Utc>,
+}
+
+impl QuotaView {
+    fn of(gate: &PriorityGate, user: i64, server: QuotaSnapshot, now: DateTime<Utc>) -> Self {
+        let mine = gate.user_quota(user);
+        Self {
+            used: mine.used,
+            limit: mine.limit,
+            paused: mine.exhausted() || server.paused,
+            server_paused: server.paused,
+            reset_at: next_utc_midnight(now),
+        }
+    }
+
+    fn event(self) -> Event {
+        Event::QuotaStatus {
+            used: self.used,
+            limit: self.limit,
+            paused: self.paused,
+            server_paused: self.server_paused,
+            reset_at: self.reset_at,
+        }
+    }
+}
+
+/// Sends each user with an open event stream their own `QuotaStatus` when it
+/// differs from the last one they were sent (their count or limit, the
+/// server pause, or the day changed), at most once per
+/// [`STATUS_MIN_INTERVAL`] per user; changes in between coalesce into the
+/// next event. A newly listening user gets their current status at the next
+/// change of anyone's quota.
+async fn publish_quota_status(state: AppState, mut server_rx: watch::Receiver<QuotaSnapshot>) {
+    let mut limits_rx = state.gate.subscribe_user_limits();
+    let mut sent: HashMap<i64, (QuotaView, Instant)> = HashMap::new();
+    loop {
+        let server = *server_rx.borrow_and_update();
+        limits_rx.mark_unchanged();
+        let listening = state.ctx.bus.listening_users();
+        sent.retain(|u, _| listening.binary_search(u).is_ok());
+        let (now, at) = (Utc::now(), Instant::now());
+        let mut due: Option<Instant> = None;
+        for user in listening {
+            let view = QuotaView::of(&state.gate, user, server, now);
+            match sent.get(&user) {
+                Some((last, _)) if *last == view => continue,
+                Some((_, last_at)) if at < *last_at + STATUS_MIN_INTERVAL => {
+                    let next = *last_at + STATUS_MIN_INTERVAL;
+                    due = Some(due.map_or(next, |d| d.min(next)));
+                    continue;
+                }
+                _ => {}
+            }
+            state.ctx.bus.publish(Audience::User(user), view.event());
+            sent.insert(user, (view, at));
+        }
+        tokio::select! {
+            r = server_rx.changed() => if r.is_err() { return },
+            r = limits_rx.changed() => if r.is_err() { return },
+            _ = sleep_until(due.unwrap_or(at)), if due.is_some() => {}
+        }
     }
 }

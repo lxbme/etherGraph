@@ -12,7 +12,7 @@ use eg_decode::{
 use eg_store::JobRow;
 use serde::Deserialize;
 
-use crate::events::Event;
+use crate::events::{Audience, Event};
 use crate::runner::{JobCtx, JobError, JobHandler};
 
 const CALLS_PER_TOKEN: usize = 3;
@@ -104,7 +104,8 @@ impl JobHandler for TokenMetaHandler {
             .filter(|a| seen.insert(*a))
             .collect();
         if !addresses.is_empty() {
-            ctx.bus.publish(Event::MetaUpdated { addresses });
+            ctx.bus
+                .publish(Audience::of(job.user_id), Event::MetaUpdated { addresses });
         }
         Ok(())
     }

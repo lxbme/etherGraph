@@ -1,4 +1,8 @@
-//! In-process event bus feeding the SSE stream.
+//! In-process event bus feeding the SSE stream. Every event carries its
+//! [`Audience`]; a user's stream forwards only the events addressed to them.
+
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
 use eg_core::types::{Address, TxHash};
@@ -40,10 +44,14 @@ pub enum Event {
         #[ts(type = "Array<string>")]
         addresses: Vec<Address>,
     },
+    // The receiving user's quota, as in `/api/status`: their calls today and
+    // daily limit; `paused` when they are over it or the server total is used
+    // up (`server_paused`); `reset_at` the next UTC midnight.
     QuotaStatus {
         used: u32,
         limit: u32,
         paused: bool,
+        server_paused: bool,
         #[ts(type = "string")]
         reset_at: DateTime<Utc>,
     },
@@ -59,8 +67,29 @@ pub struct NameItem {
     pub status: EnsStatus,
 }
 
+/// Who may receive an event: the user whose job (or request) caused it, or
+/// nobody (a system job without an owner).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Audience {
+    User(i64),
+    Nobody,
+}
+
+impl Audience {
+    /// The audience of events caused by a job of `user` (`JobRow::user_id`).
+    pub fn of(user: Option<i64>) -> Self {
+        user.map_or(Self::Nobody, Self::User)
+    }
+}
+
+/// How many live [`UserEvents`] each user has.
+type Listeners = Arc<Mutex<HashMap<i64, usize>>>;
+
 #[derive(Clone)]
-pub struct EventBus(broadcast::Sender<Event>);
+pub struct EventBus {
+    tx: broadcast::Sender<(Audience, Event)>,
+    listeners: Listeners,
+}
 
 impl Default for EventBus {
     fn default() -> Self {
@@ -70,16 +99,76 @@ impl Default for EventBus {
 
 impl EventBus {
     pub fn new() -> Self {
-        Self(broadcast::channel(1024).0)
+        Self {
+            tx: broadcast::channel(1024).0,
+            listeners: Listeners::default(),
+        }
     }
 
     /// Publishing with no subscribers is not an error.
-    pub fn publish(&self, e: Event) {
-        let _ = self.0.send(e);
+    pub fn publish(&self, audience: Audience, e: Event) {
+        let _ = self.tx.send((audience, e));
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<Event> {
-        self.0.subscribe()
+    /// Every event with its audience.
+    pub fn subscribe(&self) -> broadcast::Receiver<(Audience, Event)> {
+        self.tx.subscribe()
+    }
+
+    /// The events addressed to `user`; `user` counts as listening until the
+    /// subscription is dropped.
+    pub fn subscribe_user(&self, user: i64) -> UserEvents {
+        *lock(&self.listeners).entry(user).or_insert(0) += 1;
+        UserEvents {
+            user,
+            rx: self.tx.subscribe(),
+            listeners: self.listeners.clone(),
+        }
+    }
+
+    /// The users with at least one live [`UserEvents`], ascending.
+    pub fn listening_users(&self) -> Vec<i64> {
+        let mut v: Vec<i64> = lock(&self.listeners).keys().copied().collect();
+        v.sort_unstable();
+        v
+    }
+}
+
+fn lock(l: &Listeners) -> std::sync::MutexGuard<'_, HashMap<i64, usize>> {
+    l.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// One user's view of the bus (see [`EventBus::subscribe_user`]).
+pub struct UserEvents {
+    user: i64,
+    rx: broadcast::Receiver<(Audience, Event)>,
+    listeners: Listeners,
+}
+
+impl UserEvents {
+    /// The next event addressed to this user; [`Event::Lagged`] after events
+    /// were missed (anyone's: the bus is shared); `None` once the bus is gone.
+    pub async fn recv(&mut self) -> Option<Event> {
+        loop {
+            match self.rx.recv().await {
+                Ok((Audience::User(u), e)) if u == self.user => return Some(e),
+                Ok(_) => {}
+                Err(broadcast::error::RecvError::Lagged(_)) => return Some(Event::Lagged),
+                Err(broadcast::error::RecvError::Closed) => return None,
+            }
+        }
+    }
+}
+
+impl Drop for UserEvents {
+    fn drop(&mut self) {
+        let mut l = lock(&self.listeners);
+        if let Some(n) = l.get_mut(&self.user) {
+            *n -= 1;
+            if *n == 0 {
+                l.remove(&self.user);
+            }
+        }
     }
 }
 
@@ -120,6 +209,7 @@ mod tests {
                 used: 1,
                 limit: 2,
                 paused: false,
+                server_paused: false,
                 reset_at: DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap(),
             },
             Event::Lagged,
@@ -189,6 +279,81 @@ mod tests {
             EnsStatus::inline(&cfg),
             r#""ok" | "none" | "offchain" | "error""#
         );
+    }
+
+    fn changed(b: u8) -> Event {
+        Event::AddressDataChanged {
+            address: Address::repeat_byte(b),
+        }
+    }
+
+    fn changed_byte(e: Option<Event>) -> u8 {
+        match e {
+            Some(Event::AddressDataChanged { address }) => address[0],
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    /// Nothing more arrives for `sub` within a short wait.
+    async fn assert_quiet(sub: &mut UserEvents) {
+        let next = tokio::time::timeout(std::time::Duration::from_millis(50), sub.recv()).await;
+        assert!(next.is_err(), "unexpected {next:?}");
+    }
+
+    #[tokio::test]
+    async fn a_user_receives_only_events_addressed_to_them() {
+        let bus = EventBus::new();
+        let mut a = bus.subscribe_user(1);
+        let mut b = bus.subscribe_user(2);
+        let mut all = bus.subscribe();
+        bus.publish(Audience::User(1), changed(1));
+        bus.publish(Audience::User(2), changed(2));
+        bus.publish(Audience::Nobody, changed(3));
+        bus.publish(Audience::User(1), changed(4));
+        assert_eq!(changed_byte(a.recv().await), 1);
+        assert_eq!(changed_byte(a.recv().await), 4);
+        assert_quiet(&mut a).await;
+        assert_eq!(changed_byte(b.recv().await), 2);
+        assert_quiet(&mut b).await;
+        // A raw subscriber sees every event with its audience.
+        let (aud, _) = all.recv().await.unwrap();
+        assert_eq!(aud, Audience::User(1));
+        assert_eq!(all.recv().await.unwrap().0, Audience::User(2));
+        assert_eq!(all.recv().await.unwrap().0, Audience::Nobody);
+    }
+
+    #[test]
+    fn a_jobs_audience_is_its_owner() {
+        assert_eq!(Audience::of(Some(7)), Audience::User(7));
+        assert_eq!(Audience::of(None), Audience::Nobody);
+    }
+
+    #[tokio::test]
+    async fn listening_users_follow_live_subscriptions() {
+        let bus = EventBus::new();
+        assert!(bus.listening_users().is_empty());
+        let a1 = bus.subscribe_user(1);
+        let a2 = bus.subscribe_user(1);
+        let b = bus.subscribe_user(2);
+        assert_eq!(bus.listening_users(), vec![1, 2]);
+        drop(a1);
+        assert_eq!(bus.listening_users(), vec![1, 2]);
+        drop(b);
+        assert_eq!(bus.listening_users(), vec![1]);
+        drop(a2);
+        assert!(bus.listening_users().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_lagging_subscriber_gets_lagged_then_continues() {
+        let bus = EventBus::new();
+        let mut a = bus.subscribe_user(1);
+        for _ in 0..1100 {
+            bus.publish(Audience::User(2), changed(2));
+        }
+        bus.publish(Audience::User(1), changed(1));
+        assert!(matches!(a.recv().await, Some(Event::Lagged)));
+        assert_eq!(changed_byte(a.recv().await), 1);
     }
 
     #[test]

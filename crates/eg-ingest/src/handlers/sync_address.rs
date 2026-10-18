@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cursor::{Cursor, Step, advance};
 use crate::enqueue::{SyncDirection, other_sync_active};
-use crate::events::Event;
+use crate::events::{Audience, Event};
 use crate::runner::{JobCtx, JobError, JobHandler, will_retry};
 
 #[derive(Serialize, Deserialize)]
@@ -272,17 +272,23 @@ impl Plan<'_> {
                     ctx.store.settle_syncing_kind(self.address, kind).await?;
                 }
             }
-            ctx.bus.publish(Event::AddressDataChanged {
-                address: self.address,
-            });
-            ctx.bus.publish(Event::JobProgress {
-                job_id: job.id,
-                kind: job.kind,
-                fetched,
-                cursor_block: Some(q.end_block),
-                status: JobStatus::Running,
-                error: None,
-            });
+            ctx.bus.publish(
+                Audience::of(job.user_id),
+                Event::AddressDataChanged {
+                    address: self.address,
+                },
+            );
+            ctx.bus.publish(
+                Audience::of(job.user_id),
+                Event::JobProgress {
+                    job_id: job.id,
+                    kind: job.kind,
+                    fetched,
+                    cursor_block: Some(q.end_block),
+                    status: JobStatus::Running,
+                    error: None,
+                },
+            );
             if update.is_some() {
                 return Ok(next);
             }

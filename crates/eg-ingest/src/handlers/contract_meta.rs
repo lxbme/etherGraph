@@ -10,7 +10,7 @@ use eg_store::{AccountRow, JobRow};
 use serde::Deserialize;
 
 use crate::enqueue::enqueue_meta;
-use crate::events::Event;
+use crate::events::{Audience, Event};
 use crate::runner::{JobCtx, JobError, JobHandler};
 
 const CREATION_CHUNK: usize = 5;
@@ -98,7 +98,10 @@ impl JobHandler for ContractMetaHandler {
             }
         }
         if !done.is_empty() {
-            ctx.bus.publish(Event::MetaUpdated { addresses: done });
+            ctx.bus.publish(
+                Audience::of(job.user_id),
+                Event::MetaUpdated { addresses: done },
+            );
         }
         // Partial progress is stored; fail so the runner retries the rest.
         first_err.map_or(Ok(()), Err)

@@ -13,7 +13,7 @@ use serde::Deserialize;
 
 use crate::authorization::{authorizations, auto_meta_parties, effective_delegations, tx_nonce};
 use crate::enqueue::{enqueue_meta, enqueue_tokens};
-use crate::events::Event;
+use crate::events::{Audience, Event};
 use crate::runner::{JobCtx, JobError, JobHandler};
 
 #[derive(Deserialize)]
@@ -165,15 +165,19 @@ impl JobHandler for FetchTxHandler {
             .await?;
         enqueue_tokens(ctx, job.user_id, &missing).await?;
 
-        ctx.bus.publish(Event::JobProgress {
-            job_id: job.id,
-            kind: job.kind,
-            fetched: u32::try_from(transfers.len()).unwrap_or(u32::MAX),
-            cursor_block: Some(block),
-            status: JobStatus::Running,
-            error: None,
-        });
-        ctx.bus.publish(Event::TxReady { hash });
+        ctx.bus.publish(
+            Audience::of(job.user_id),
+            Event::JobProgress {
+                job_id: job.id,
+                kind: job.kind,
+                fetched: u32::try_from(transfers.len()).unwrap_or(u32::MAX),
+                cursor_block: Some(block),
+                status: JobStatus::Running,
+                error: None,
+            },
+        );
+        ctx.bus
+            .publish(Audience::of(job.user_id), Event::TxReady { hash });
         Ok(())
     }
 }

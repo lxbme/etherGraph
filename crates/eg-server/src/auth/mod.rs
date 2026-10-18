@@ -32,6 +32,10 @@ pub const ADMIN_COOKIE_PATH: &str = "/api/admin";
 /// to `POST /api/auth/login`.
 pub const AUTH_REQUESTS_PER_MINUTE: u32 = 10;
 
+/// How often an open event stream re-checks its session; the stream ends
+/// once the session is gone (logged out, revoked or expired).
+pub const SESSION_RECHECK_EVERY: Duration = Duration::from_secs(30);
+
 /// Longest `User-Agent` kept in sessions and the audit log.
 const MAX_USER_AGENT: usize = 256;
 
@@ -42,6 +46,8 @@ pub struct AuthState {
     pub trust_forwarded_for: bool,
     pub nonce_limit: RateLimiter,
     pub login_limit: RateLimiter,
+    /// [`SESSION_RECHECK_EVERY`]; shorter in tests.
+    pub session_recheck: Duration,
 }
 
 impl AuthState {
@@ -54,6 +60,7 @@ impl AuthState {
             trust_forwarded_for: cfg.auth.trust_forwarded_for,
             nonce_limit: RateLimiter::new(AUTH_REQUESTS_PER_MINUTE, window),
             login_limit: RateLimiter::new(AUTH_REQUESTS_PER_MINUTE, window),
+            session_recheck: SESSION_RECHECK_EVERY,
         }
     }
 

@@ -13,7 +13,9 @@ use eg_core::types::{Transfer, TransferKind, TxHash};
 use eg_ingest::config::IngestConfig;
 use eg_ingest::gate::{GateConfig, PriorityGate};
 use eg_ingest::handlers::SyncAddressHandler;
-use eg_ingest::{Event, EventBus, JobCtx, JobError, JobHandler, Runner, default_handlers};
+use eg_ingest::{
+    Audience, Event, EventBus, JobCtx, JobError, JobHandler, Runner, default_handlers,
+};
 use eg_store::{JobKind, JobStatus, NewJob, Store, SyncRow, SyncState};
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -315,7 +317,8 @@ async fn sync_fetches_all_kinds_and_sets_coverage(pool: PgPool) {
 
     let mut changed = 0;
     let mut progress = vec![];
-    while let Ok(ev) = rx.try_recv() {
+    while let Ok((aud, ev)) = rx.try_recv() {
+        assert_eq!(aud, Audience::Nobody);
         match ev {
             Event::AddressDataChanged { address } => {
                 assert_eq!(address, ADDR);

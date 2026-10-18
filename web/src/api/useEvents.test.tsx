@@ -221,7 +221,7 @@ test("Lagged invalidates all queries", () => {
 test("QuotaStatus paused shows the quota banner", () => {
   mount();
   expect(screen.queryByText(/Etherscan quota used up for today/)).toBeNull();
-  send({ type: "QuotaStatus", used: 100, limit: 100, paused: true, reset_at: "2026-10-18T00:00:00Z" });
+  send({ type: "QuotaStatus", used: 100, limit: 100, paused: true, server_paused: false, reset_at: "2026-10-18T00:00:00Z" });
   expect(useQuota.getState().quota).toEqual({ used: 100, limit: 100, paused: true, reset_at: "2026-10-18T00:00:00Z" });
   expect(screen.getByText(/Etherscan quota used up for today; resets at .+/)).toBeInTheDocument();
 });

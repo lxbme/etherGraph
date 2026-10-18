@@ -20,7 +20,7 @@ pub use enqueue::{
     enqueue_names, enqueue_sync, enqueue_tokens, other_sync_active,
 };
 pub use estimate::{Estimate, estimate, remaining_calls};
-pub use events::{Event, EventBus, NameItem};
+pub use events::{Audience, Event, EventBus, NameItem, UserEvents};
 pub use handlers::default_handlers;
 pub use runner::{JobCtx, JobError, JobHandler, Runner};
 pub use txflow::{Completeness, Flow, TxFlow, build_tx_flow, load_tx_flow};

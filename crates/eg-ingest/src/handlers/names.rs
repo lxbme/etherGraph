@@ -11,7 +11,7 @@ use eg_decode::{
 use eg_store::{EnsRow, EnsStatus, JobRow};
 use serde::Deserialize;
 
-use crate::events::{Event, NameItem};
+use crate::events::{Audience, Event, NameItem};
 use crate::runner::{JobCtx, JobError, JobHandler};
 
 #[derive(Deserialize)]
@@ -93,16 +93,19 @@ impl JobHandler for ResolveNamesHandler {
             }
         }
         ctx.store.upsert_ens(&rows).await?;
-        ctx.bus.publish(Event::NamesResolved {
-            items: rows
-                .into_iter()
-                .map(|r| NameItem {
-                    address: r.address,
-                    name: r.name,
-                    status: r.status,
-                })
-                .collect(),
-        });
+        ctx.bus.publish(
+            Audience::of(job.user_id),
+            Event::NamesResolved {
+                items: rows
+                    .into_iter()
+                    .map(|r| NameItem {
+                        address: r.address,
+                        name: r.name,
+                        status: r.status,
+                    })
+                    .collect(),
+            },
+        );
         Ok(())
     }
 }

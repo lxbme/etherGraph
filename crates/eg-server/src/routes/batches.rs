@@ -37,5 +37,5 @@ pub async fn release(
 ) -> Result<Json<CancelledDto>, ApiError> {
     validate_batch(&id)?;
     let cancelled = s.store.release_batch(user.id, &id).await?;
-    Ok(Json(after_cancels(&s, cancelled).await))
+    Ok(Json(after_cancels(&s, user.id, cancelled).await))
 }

@@ -15,7 +15,7 @@ use tracing::Instrument;
 
 use crate::billing::billed;
 use crate::config::IngestConfig;
-use crate::events::{Event, EventBus};
+use crate::events::{Audience, Event, EventBus};
 use crate::gate::PriorityGate;
 
 #[derive(thiserror::Error, Debug)]
@@ -90,14 +90,17 @@ impl Runner {
 }
 
 fn publish_status(ctx: &JobCtx, job: &JobRow, status: JobStatus, error: Option<String>) {
-    ctx.bus.publish(Event::JobProgress {
-        job_id: job.id,
-        kind: job.kind,
-        fetched: 0,
-        cursor_block: None,
-        status,
-        error,
-    });
+    ctx.bus.publish(
+        Audience::of(job.user_id),
+        Event::JobProgress {
+            job_id: job.id,
+            kind: job.kind,
+            fetched: 0,
+            cursor_block: None,
+            status,
+            error,
+        },
+    );
 }
 
 /// Claims only jobs whose priority is at most `max_priority`.

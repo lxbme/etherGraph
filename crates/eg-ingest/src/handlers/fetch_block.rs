@@ -7,7 +7,7 @@ use eg_core::source::Priority;
 use eg_core::types::TxHash;
 use serde::Deserialize;
 
-use crate::events::Event;
+use crate::events::{Audience, Event};
 use crate::runner::{JobCtx, JobError, JobHandler};
 
 #[derive(Deserialize)]
@@ -30,7 +30,8 @@ impl JobHandler for FetchBlockHandler {
             hashes.push(hash);
         }
         for hash in hashes {
-            ctx.bus.publish(Event::TxReady { hash });
+            ctx.bus
+                .publish(Audience::of(job.user_id), Event::TxReady { hash });
         }
         Ok(())
     }
