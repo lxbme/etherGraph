@@ -140,7 +140,18 @@ test("the new sections describe selection, manual identification and label sourc
   expect(drawer).toHaveTextContent("eg-server import-labels --format eth-labels --csv data/eth-labels/accounts.csv");
   expect(drawer).toHaveTextContent("eth-labels-xchain");
   expect(drawer).toHaveTextContent("only Esc still works (it clears a box selection)");
+  const items = [...drawer.querySelectorAll("li")].map((l) => l.textContent ?? "");
+  const graphBar = items.find((l) => l.startsWith("Address graph batch bar"))!;
+  const txBar = items.find((l) => l.startsWith("Transaction tab batch bar"))!;
+  expect(graphBar).toMatch(/pin/);
+  expect(graphBar).toMatch(/hide/);
+  expect(graphBar).not.toMatch(/add to graph/i);
+  expect(txBar).toMatch(/add to graph/);
+  expect(txBar).not.toMatch(/pin|hide|centers/);
   act(() => useLocale.getState().setLocale("zh"));
   const zh = screen.getByRole("dialog", { name: "帮助" });
+  const zhTx = [...zh.querySelectorAll("li")].find((l) => l.textContent?.startsWith("交易标签页的批量操作栏"))!.textContent!;
+  expect(zhTx).toContain("添加到图");
+  expect(zhTx).not.toMatch(/固定|隐藏|中心/);
   expect(zh).toHaveTextContent("交易标签页中只有 Esc 仍然有效（清除框选）");
 });

@@ -44,7 +44,7 @@ function bullets(id: SectionId, mac: boolean, quota: number): { key: MsgKey; par
         { key: "help.expanding.body9" },
       ];
     case "selecting":
-      return [1, 2, 3, 4, 5].map((n) => ({ key: `help.selecting.body${n}` as MsgKey }));
+      return [1, 2, 3, 4, 5, 6].map((n) => ({ key: `help.selecting.body${n}` as MsgKey }));
     case "identifying":
       return [1, 2, 3].map((n) => ({ key: `help.identifying.body${n}` as MsgKey }));
     case "labels":

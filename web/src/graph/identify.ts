@@ -19,13 +19,14 @@ export function identifiable(nodes: readonly NodeSummaryDto[]): string[] {
   return [...new Set(nodes.filter(needsIdentify).map((n) => n.address.toLowerCase()))];
 }
 
-/**
- * Queues identification of `addrs` (deduped by lowercase) in chunks of at most 500 sharing one batch id,
- * then toasts the summed queued count (or that nothing needed it).
- */
+/** Whether an identification run is in flight (the Identify-all button is disabled meanwhile). */
 export const useIdentifying = create<{ running: boolean }>(() => ({ running: false }));
 
-/** Only one run at a time: a second call while one is in flight (a double click) is ignored. */
+/**
+ * Queues identification of `addrs` (deduped by lowercase) in chunks of at most 500 sharing one batch id,
+ * then toasts the summed queued count (or that nothing needed it, or what was queued before a chunk failed).
+ * Only one run at a time: a second call while one is in flight (a double click) is ignored.
+ */
 export async function identifyAddresses(addrs: string[]): Promise<void> {
   const unique = [...new Set(addrs.map((a) => a.toLowerCase()))];
   if (unique.length === 0 || useIdentifying.getState().running) return;
