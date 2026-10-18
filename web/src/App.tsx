@@ -11,7 +11,7 @@ import { StatusBar } from "./shell/StatusBar";
 import { TabBar } from "./shell/TabBar";
 import { Toasts } from "./shell/Toasts";
 import { TopBar } from "./shell/TopBar";
-import { useHashRouting } from "./shell/hashRoute";
+import { useAdminRoute, useHashRouting } from "./shell/hashRoute";
 import { TransferTable } from "./panels/TransferTable";
 import { DetailPanel } from "./panels/DetailPanel";
 import { TxFlowView, TxNodeDetail } from "./views/TxFlowView";
@@ -29,6 +29,7 @@ import { registerSnapshotEffects } from "./workspace/snapshot";
 import { ExportFileDialog } from "./shell/ExportFileDialog";
 import { useFileDrop } from "./workspace/fileRequest";
 import { AuthGate } from "./auth/AuthGate";
+import { AdminPage } from "./admin/AdminView";
 
 export function App() {
   return (
@@ -58,41 +59,46 @@ function Shell() {
   const wsStatus = saveStatusLabel({ id: wsId, dirty: wsDirty });
   const hasInfo = useInfo((s) => (s.stacks[active]?.length ?? 0) > 0);
   const tx = tabs.find((t): t is Extract<Tab, { kind: "tx" }> => t.id === active && "kind" in t);
+  // The admin page covers the app, which stays mounted underneath (canvas, tabs and live updates kept).
+  const admin = useAdminRoute((s) => s.open);
 
   return (
-    <div className="app">
-      <TopBar workspaceMenu={<WorkspaceMenu />} onToggleDetail={toggleDetail} detailOpen={detailOpen} />
-      <TabBar />
-      <Banners />
-      <div className="main">
-        <div className="main__left">
-          <div className="main__graph" hidden={!!tx}>
-            <GraphSnapshotBanner />
-            <ResizableSplit top={<AddressGraph />} bottom={<TransferTable />} />
+    <>
+      <div className="app" hidden={admin}>
+        <TopBar workspaceMenu={<WorkspaceMenu />} onToggleDetail={toggleDetail} detailOpen={detailOpen} />
+        <TabBar />
+        <Banners />
+        <div className="main">
+          <div className="main__left">
+            <div className="main__graph" hidden={!!tx}>
+              <GraphSnapshotBanner />
+              <ResizableSplit top={<AddressGraph />} bottom={<TransferTable />} />
+            </div>
+            {tabs.map(
+              (t) =>
+                "kind" in t && (
+                  // A tab restored from a workspace gets a fresh view, which applies its saved layout.
+                  <div key={`${t.hash}:${t.restored ?? 0}`} className="main__tx" hidden={t.id !== active}>
+                    <TxFlowView hash={t.hash} />
+                  </div>
+                ),
+            )}
           </div>
-          {tabs.map(
-            (t) =>
-              "kind" in t && (
-                // A tab restored from a workspace gets a fresh view, which applies its saved layout.
-                <div key={`${t.hash}:${t.restored ?? 0}`} className="main__tx" hidden={t.id !== active}>
-                  <TxFlowView hash={t.hash} />
-                </div>
-              ),
+          {/* One panel for the active tab: the graph's selection, or the active tx tab's own selection. */}
+          {detailOpen && (
+            <RightPanel>
+              {hasInfo ? <InfoPanel tab={active} /> : tx ? <TxNodeDetail key={tx.hash} hash={tx.hash} /> : <DetailPanel />}
+            </RightPanel>
           )}
         </div>
-        {/* One panel for the active tab: the graph's selection, or the active tx tab's own selection. */}
-        {detailOpen && (
-          <RightPanel>
-            {hasInfo ? <InfoPanel tab={active} /> : tx ? <TxNodeDetail key={tx.hash} hash={tx.hash} /> : <DetailPanel />}
-          </RightPanel>
-        )}
+        <StatusBar saveStatus={wsStatus} />
+        <HelpDrawer />
+        <Tour />
+        <LiveConfirm />
+        <ExportFileDialog />
       </div>
-      <StatusBar saveStatus={wsStatus} />
-      <HelpDrawer />
-      <Tour />
-      <LiveConfirm />
-      <ExportFileDialog />
+      {admin && <AdminPage />}
       <Toasts />
-    </div>
+    </>
   );
 }

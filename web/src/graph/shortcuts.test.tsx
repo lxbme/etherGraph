@@ -126,6 +126,17 @@ describe("useShortcuts stays out of the way", () => {
     expect(actions.togglePin).not.toHaveBeenCalled();
     expect(undo).not.toHaveBeenCalled();
   });
+
+  test("while the admin page covers the graph (Save included)", async () => {
+    const { actions } = await setup();
+    const { useAdminRoute } = await import("../shell/hashRoute");
+    const { useSaveRequest } = await import("../workspace/saveRequest");
+    act(() => useAdminRoute.setState({ open: true }));
+    fireEvent.keyDown(document.body, { key: "p" });
+    fireEvent.keyDown(document.body, { key: "s", ctrlKey: true });
+    expect(actions.togglePin).not.toHaveBeenCalled();
+    expect(useSaveRequest.getState().pending).toBeNull();
+  });
 });
 
 describe("save shortcuts", () => {

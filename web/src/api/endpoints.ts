@@ -1,5 +1,13 @@
 import { request } from "./client";
 import type { AddressProfileDto } from "./generated/AddressProfileDto";
+import type { AdminAction } from "./generated/AdminAction";
+import type { AdminActionNonceDto } from "./generated/AdminActionNonceDto";
+import type { AdminActionRequestDto } from "./generated/AdminActionRequestDto";
+import type { AdminActionResultDto } from "./generated/AdminActionResultDto";
+import type { AdminOverviewDto } from "./generated/AdminOverviewDto";
+import type { AdminSessionDto } from "./generated/AdminSessionDto";
+import type { AdminUserDto } from "./generated/AdminUserDto";
+import type { AuditPageDto } from "./generated/AuditPageDto";
 import type { CancelledDto } from "./generated/CancelledDto";
 import type { CounterpartyPageDto } from "./generated/CounterpartyPageDto";
 import type { GraphRequestDto } from "./generated/GraphRequestDto";
@@ -27,6 +35,7 @@ import type { TxRawDto } from "./generated/TxRawDto";
 import type { TxResponseDto } from "./generated/TxResponseDto";
 import type { UpdateWorkspaceDto } from "./generated/UpdateWorkspaceDto";
 import type { WorkspaceDto } from "./generated/WorkspaceDto";
+import type { WhitelistEntryDto } from "./generated/WhitelistEntryDto";
 import type { WorkspaceMetaDto } from "./generated/WorkspaceMetaDto";
 
 export interface TransfersParams {
@@ -57,6 +66,16 @@ export interface CounterpartiesParams {
   to?: string;
 }
 
+/** `GET /api/admin/audit` filters; times are RFC 3339. */
+export interface AuditParams {
+  actor?: string;
+  action?: string;
+  from?: string;
+  to?: string;
+  /** `next_cursor` of the previous page. */
+  cursor?: number;
+}
+
 const num = (n: number | undefined) => (n === undefined ? undefined : String(n));
 
 export const api = {
@@ -67,6 +86,23 @@ export const api = {
   logout: () => request<void>("POST", "/api/auth/logout"),
   /** The signed-in user; 401 without a session. */
   me: () => request<MeDto>("GET", "/api/auth/me"),
+  /** Admin mode of this login session; 401 `no_admin_session` when it is off. */
+  adminSession: () => request<AdminSessionDto>("GET", "/api/admin/session"),
+  /** The fields of the admin-mode message (built like the login message). */
+  adminSessionNonce: () => request<SiweFieldsDto>("GET", "/api/admin/session/nonce"),
+  /** A 401 here is a refused attempt (its reason is the message). */
+  adminEnter: (body: LoginDto) => request<AdminSessionDto>("POST", "/api/admin/session", { body }),
+  adminExit: () => request<void>("DELETE", "/api/admin/session"),
+  /** The server's message describing `action`, to be signed with its nonce. */
+  adminActionNonce: (action: AdminAction) => request<AdminActionNonceDto>("POST", "/api/admin/actions/nonce", { body: { action } }),
+  adminAction: (body: AdminActionRequestDto) => request<AdminActionResultDto>("POST", "/api/admin/actions", { body }),
+  adminOverview: () => request<AdminOverviewDto>("GET", "/api/admin/overview"),
+  adminUsers: () => request<AdminUserDto[]>("GET", "/api/admin/users"),
+  adminWhitelist: () => request<WhitelistEntryDto[]>("GET", "/api/admin/whitelist"),
+  adminAudit: (p: AuditParams) =>
+    request<AuditPageDto>("GET", "/api/admin/audit", {
+      query: { actor: p.actor, action: p.action, from: p.from, to: p.to, cursor: num(p.cursor) },
+    }),
   search: (q: string) => request<SearchResultDto>("GET", "/api/search", { query: { q } }),
   graphEdges: (req: GraphRequestDto, opts?: { signal?: AbortSignal }) =>
     request<GraphResponseDto>("POST", "/api/graph/edges", { body: req, signal: opts?.signal }),

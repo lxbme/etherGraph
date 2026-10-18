@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import { useUi } from "../panels/uiStore";
+import { useAdminRoute } from "../shell/hashRoute";
 import { useTabs } from "../shell/tabs";
 import { useBoxSelection } from "./boxSelection";
 import { focusNode, hideNode, syncNode, togglePin } from "./nodeActions";
@@ -38,6 +39,8 @@ function isSaveKey(e: KeyboardEvent): boolean {
  */
 export function listenShortcutKeys(onKey: (e: KeyboardEvent) => void): () => void {
   const listener = (e: KeyboardEvent) => {
+    // The admin page covers the graph: its keys are its own.
+    if (useAdminRoute.getState().open) return;
     if (isSaveKey(e)) {
       e.preventDefault();
       if (!overlayOpen(e)) onKey(e); // saving from a text field is fine
