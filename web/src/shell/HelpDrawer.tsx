@@ -34,7 +34,7 @@ type Params = Record<string, string | number>;
 function bullets(id: SectionId, mac: boolean, quota: number): { key: MsgKey; params?: Params }[] {
   switch (id) {
     case "reading":
-      return [{ key: "help.reading.body1" }, { key: "help.reading.body2" }, { key: "help.reading.body3" }, { key: "help.reading.body4" }, { key: "help.reading.body5" }];
+      return [{ key: "help.reading.body1" }, { key: "help.reading.body2" }, { key: "help.reading.body3" }, { key: "help.reading.body4" }, { key: "help.reading.body5" }, { key: "help.reading.body6" }];
     case "expanding":
       return [
         { key: "help.expanding.body1", params: { chunk: PROBE_CHUNK } },

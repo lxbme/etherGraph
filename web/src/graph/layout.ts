@@ -398,9 +398,13 @@ const MAX_CORE_SCALE = 6;
  * up so anchors with more than one ring of leaves do not share space, and put each anchor's leaves on even
  * elliptical rings around it.
  */
-function ringLeaves(cy: cytoscape.Core, k: Axes): void {
+function ringLeaves(cy: cytoscape.Core, k: Axes, fixed: cytoscape.NodeCollection): void {
   const real = cy.nodes().filter((n) => !isMoreId(n.id())).nodes();
-  const { leaves, anchorOf } = splitLeaves(real);
+  const split = splitLeaves(real);
+  // A fixed leaf stays put: it counts as core, an obstacle for the rings.
+  for (const id of fixed.map((n) => n.id())) split.anchorOf.delete(id);
+  const leaves = split.leaves.difference(fixed).nodes();
+  const anchorOf = split.anchorOf;
   if (leaves.empty()) return;
   const core = real.difference(leaves).nodes();
   const count = leafCounts(anchorOf);
@@ -416,7 +420,8 @@ function ringLeaves(cy: cytoscape.Core, k: Axes): void {
       scale = Math.max(scale, need / Math.max(ringDist(a.p, b.p, k), need / MAX_CORE_SCALE));
     }
   }
-  if (scale > 1) {
+  // Scaling the core would move fixed nodes off their spots.
+  if (scale > 1 && fixed.empty()) {
     const c = centroid(core.map((n) => n.position()));
     core.forEach((n) => {
       const p = n.position();
@@ -457,6 +462,64 @@ function nearestExisting(existing: cytoscape.NodeCollection, seeds: Map<string, 
 const positionsOf = (nodes: cytoscape.NodeCollection) => new Map(nodes.map((n) => [n.id(), { ...n.position() }]));
 
 /**
+ * Lays out every node except `fixed`, which keep their positions: fcose from random positions ("draft" above
+ * 300 nodes when nothing is fixed), leaves on rings around their anchors, "+N more" proxies outside their
+ * centers. Without fixed nodes the result is also spread toward the viewport. Fits; small graphs then
+ * animate from where the nodes were.
+ */
+function layoutAll(cy: cytoscape.Core, fixed: cytoscape.NodeCollection, viewport: Viewport, opts: LayoutOptions): void {
+  const k = ellipse(viewport);
+  const total = cy.nodes().length;
+  const big = total > DRAFT_THRESHOLD;
+  const moving = cy.nodes().difference(fixed).nodes();
+  const from = positionsOf(moving);
+  const saved = positionsOf(fixed);
+  cy.layout({
+    name: "fcose",
+    // With fixed nodes, the full quality so the constraint shapes the whole run.
+    quality: big && fixed.empty() ? "draft" : "default",
+    randomize: true,
+    animate: false,
+    fit: false,
+    nodeRepulsion: 6000,
+    idealEdgeLength: NEIGHBOR_RADIUS,
+    ...(fixed.nonempty() && {
+      fixedNodeConstraint: fixed.map((n) => ({ nodeId: n.id(), position: { ...saved.get(n.id())! } })),
+    }),
+  } as FcoseLayoutOptions).run();
+  // fcose may shift constrained nodes by a fraction; they must not move at all.
+  for (const [id, p] of saved) cy.getElementById(id).position(p);
+  ringLeaves(cy, k, fixed);
+  if (fixed.empty()) {
+    // The rings still sit in the middle of a wide canvas the budget counted on: spread them out.
+    const spread = spreadToViewport(positionsOf(cy.nodes().filter((n) => !isMoreId(n.id()))), {
+      ...viewport,
+      padding: FIT_PADDING,
+    });
+    for (const [id, p] of spread) cy.getElementById(id).position(p);
+  }
+  placeProxies(cy, proxyCenters(cy, moving), k);
+  fitClamped(cy, FIT_PADDING);
+  if (!big && shouldAnimate(cy, total, opts)) glide(cy, moving, from);
+}
+
+/**
+ * The "Re-layout" tool: lays the whole graph out again as a first layout would, except that the `fixed`
+ * (pinned) nodes stay exactly where they are. Returns the final position of every other real node
+ * ("+N more" proxies are moved but not returned) — for the caller to store and to make undoable.
+ */
+export function runRelayout(cy: cytoscape.Core, fixed: ReadonlySet<string>, opts: LayoutOptions = {}): Map<string, Pos> {
+  settle(cy);
+  const pinned = cy.nodes().filter((n) => fixed.has(n.id())).nodes();
+  const real = cy.nodes().filter((n) => !isMoreId(n.id())).difference(pinned).nodes();
+  if (real.empty()) return new Map();
+  layoutAll(cy, pinned, opts.viewport ?? { width: cy.width(), height: cy.height() }, opts);
+  // A glide may be in flight: report where the nodes end up, not where they are now.
+  const targets = inFlight.get(cy);
+  return new Map(real.map((n) => [n.id(), { ...(targets?.get(n.id()) ?? n.position()) }]));
+}
+
+/**
  * First run (no already-placed nodes): fcose over everything ("draft" above 300 nodes), then leaves (nodes
  * with a single neighbour) go on even elliptical rings around it and the result is spread toward the
  * viewport. Later runs only move `newIds`: non-leaves are placed on rings around their existing
@@ -476,28 +539,7 @@ export function runIncrementalLayout(cy: cytoscape.Core, newIds: string[], opts:
   const k = ellipse(viewport);
 
   if (existing.length === 0) {
-    const total = cy.nodes().length;
-    const big = total > DRAFT_THRESHOLD;
-    const from = positionsOf(fresh);
-    cy.layout({
-      name: "fcose",
-      quality: big ? "draft" : "default",
-      randomize: true,
-      animate: false,
-      fit: false,
-      nodeRepulsion: 6000,
-      idealEdgeLength: NEIGHBOR_RADIUS,
-    } as FcoseLayoutOptions).run();
-    ringLeaves(cy, k);
-    // The rings still sit in the middle of a wide canvas the budget counted on: spread them out.
-    const spread = spreadToViewport(positionsOf(cy.nodes().filter((n) => !isMoreId(n.id()))), {
-      ...viewport,
-      padding: FIT_PADDING,
-    });
-    for (const [id, p] of spread) cy.getElementById(id).position(p);
-    placeProxies(cy, proxyCenters(cy, fresh), k);
-    fitClamped(cy, FIT_PADDING);
-    if (!big && shouldAnimate(cy, total, opts)) glide(cy, fresh, from);
+    layoutAll(cy, cy.collection(), viewport, opts);
     return;
   }
 

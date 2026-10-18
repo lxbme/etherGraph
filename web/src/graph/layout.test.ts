@@ -1,7 +1,7 @@
 import cytoscape from "cytoscape";
 import { describe, expect, test, vi } from "vitest";
 import { PER_NODE_PX } from "./budget";
-import { runDagreLayout, runIncrementalLayout, spreadToViewport } from "./layout";
+import { runDagreLayout, runIncrementalLayout, runRelayout, spreadToViewport } from "./layout";
 
 const finite = (p: { x: number; y: number }) => Number.isFinite(p.x) && Number.isFinite(p.y);
 
@@ -280,5 +280,65 @@ describe("density at the budgeted node count", () => {
     const box = bbox(ps);
     expect(box.w).toBeGreaterThan(box.h); // elliptical rings follow the wide canvas
     expect(proxyOutside(cy, "c")).toBe(true);
+  });
+});
+
+describe("runRelayout", () => {
+  /** A center "c" with `n` neighbours, a chain off the first one, already laid out and then tangled onto one spot. */
+  function tangled(n: number) {
+    const cy = cytoscape({ headless: true });
+    const els: cytoscape.ElementDefinition[] = [{ data: { id: "c" } }];
+    for (let i = 1; i <= n; i++) els.push({ data: { id: `x${i}` } }, { data: { id: `cx${i}`, source: "c", target: `x${i}` } });
+    els.push({ data: { id: "y" } }, { data: { id: "x1y", source: "x1", target: "y" } });
+    els.push({ data: { id: "z" } }, { data: { id: "yz", source: "y", target: "z" } });
+    cy.add(els);
+    cy.nodes().forEach((node, i) => {
+      node.position({ x: i % 3, y: 0 });
+    });
+    return cy;
+  }
+  const minGap = (cy: cytoscape.Core) => {
+    const ps = cy.nodes().map((n) => n.position());
+    let d = Infinity;
+    for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) d = Math.min(d, Math.hypot(ps[i]!.x - ps[j]!.x, ps[i]!.y - ps[j]!.y));
+    return d;
+  };
+
+  test("untangles every node and returns their final positions", () => {
+    const cy = tangled(8);
+    const out = runRelayout(cy, new Set());
+    expect(cy.nodes().map((n) => n.position()).every(finite)).toBe(true);
+    expect(minGap(cy)).toBeGreaterThan(20);
+    expect(new Set(out.keys())).toEqual(new Set(cy.nodes().map((n) => n.id())));
+    for (const [id, p] of out) expect(cy.getElementById(id).position()).toEqual(p);
+  });
+
+  test("fixed nodes keep their exact positions and are not returned", () => {
+    const cy = tangled(8);
+    cy.getElementById("c").position({ x: 500, y: -300 });
+    cy.getElementById("x3").position({ x: -400, y: 250 }); // a fixed leaf stays off its anchor's rings
+    const out = runRelayout(cy, new Set(["c", "x3"]));
+    expect(cy.getElementById("c").position()).toEqual({ x: 500, y: -300 });
+    expect(cy.getElementById("x3").position()).toEqual({ x: -400, y: 250 });
+    expect(out.has("c")).toBe(false);
+    expect(out.has("x3")).toBe(false);
+    expect(out.size).toBe(cy.nodes().length - 2);
+    expect(minGap(cy)).toBeGreaterThan(20);
+  });
+
+  test("a '+N more' proxy is placed outside its center's neighbours but not returned", () => {
+    const cy = tangled(6);
+    cy.add([{ data: { id: "more:c" }, position: { x: 0, y: 0 } }, { data: { id: "cm", source: "c", target: "more:c" } }]);
+    const out = runRelayout(cy, new Set());
+    expect(out.has("more:c")).toBe(false);
+    expect(proxyOutside(cy, "c")).toBe(true);
+  });
+
+  test("an empty graph, or one where every node is fixed, is left alone", () => {
+    expect(runRelayout(cytoscape({ headless: true }), new Set()).size).toBe(0);
+    const cy = tangled(2);
+    const before = cy.nodes().map((n) => ({ ...n.position() }));
+    expect(runRelayout(cy, new Set(cy.nodes().map((n) => n.id()))).size).toBe(0);
+    expect(cy.nodes().map((n) => n.position())).toEqual(before);
   });
 });

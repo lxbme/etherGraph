@@ -1,4 +1,5 @@
 import type cytoscape from "cytoscape";
+import { Network } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/endpoints";
 import { t, useLocale, useT } from "../i18n";
@@ -9,6 +10,7 @@ import { CytoscapeView } from "../graph/CytoscapeView";
 import { isMoreId, MORE_PREFIX, toElements } from "../graph/elements";
 import { useCanvasMetrics } from "../graph/canvasMetrics";
 import { legendFor } from "../graph/legend";
+import { relayoutGraph } from "../graph/relayout";
 import { edgeTooltip, moreTooltip, nodeTooltip, type TooltipLine } from "../graph/tooltip";
 import { useShortcuts } from "../graph/useShortcuts";
 import { BatchBar } from "../panels/BatchBar";
@@ -269,6 +271,19 @@ export function AddressGraph() {
       <BatchBar insetLeft={legendCover} nodes={data?.nodes ?? NO_NODES} />
       <CanvasTools selectMode={selectMode} onSelectModeChange={useBoxSelection.getState().setSelectMode} exporter={EXPORTER}>
         <IdentifyAllButton nodes={shownNodes} />
+        <button
+          type="button"
+          className="btn btn--icon btn--compact"
+          aria-label={tr("tools.relayout")}
+          title={tr("tools.relayoutHint")}
+          disabled={shownNodes.length < 2}
+          onClick={() => {
+            const cy = getMainCy();
+            if (cy) relayoutGraph(cy);
+          }}
+        >
+          <Network size={14} />
+        </button>
         {hiddenOnCanvas > 0 && (
           <button
             type="button"

@@ -16,6 +16,7 @@ import { DetailPanel } from "../panels/DetailPanel";
 import { useInfo } from "../panels/info/infoStore";
 import { useUi } from "../panels/uiStore";
 import { exportImage } from "../graph/exportImage";
+import { relayoutGraph } from "../graph/relayout";
 import { download } from "../lib/download";
 import { useWorkspace } from "../workspace/useWorkspace";
 import { registerSnapshotEffects } from "../workspace/snapshot";
@@ -24,6 +25,7 @@ import { AddressGraph } from "./AddressGraph";
 import { GraphSnapshotBanner, LiveConfirm } from "./SnapshotBanner";
 
 vi.mock("../graph/exportImage", async (orig) => ({ ...(await orig<typeof import("../graph/exportImage")>()), exportImage: vi.fn() }));
+vi.mock("../graph/relayout", () => ({ relayoutGraph: vi.fn() }));
 vi.mock("../lib/download", async (orig) => ({ ...(await orig<typeof import("../lib/download")>()), download: vi.fn() }));
 
 const h = vi.hoisted(() => ({ props: null as CytoscapeViewProps | null, renders: 0 }));
@@ -267,6 +269,12 @@ test("the canvas tools export the address graph as ethergraph-<workspace name or
   expect(exportImage).toHaveBeenLastCalledWith(f.cy, "png-transparent");
   expect(download).toHaveBeenLastCalledWith(blob, "ethergraph-Case_7.png");
   act(() => useWorkspace.getState().clear());
+});
+
+test("the canvas tools' Re-layout lays the address graph out again", async () => {
+  const { f } = await mountWithData();
+  act(() => within(screen.getByRole("toolbar", { name: "Canvas tools" })).getByRole("button", { name: "Re-layout" }).click());
+  expect(relayoutGraph).toHaveBeenCalledWith(f.cy);
 });
 
 test("the canvas tools' File… asks to export the address graph as a file", async () => {
