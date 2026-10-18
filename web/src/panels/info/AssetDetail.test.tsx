@@ -14,7 +14,7 @@ const dto = (o: Partial<TokenDetailDto> = {}): TokenDetailDto => ({
   website: "https://tether.to", ...o,
 });
 
-function renderDetail(props: { asset: string | null; tokenId?: string }, tab = "graph") {
+function renderDetail(props: { asset: string | null; tokenId?: string; tokenKind?: "erc20" | "erc721" | "erc1155" }, tab = "graph") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
@@ -85,4 +85,34 @@ test("an https website is a Website row with a safe link", async () => {
   renderDetail({ asset: USDT });
   expect(await screen.findByText("Website")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "https://tether.to" })).toHaveAttribute("rel", "noopener noreferrer");
+});
+
+test("an NFT shows the full token id and no decimals", async () => {
+  vi.spyOn(api, "token").mockResolvedValue(dto({ standard: "erc721", decimals: null, source_verified: false }));
+  renderDetail({ asset: USDT, tokenId: "123456789012345678901234567890" });
+  expect(await screen.findByText("123456789012345678901234567890")).toBeInTheDocument();
+  expect(screen.queryByText("Decimals")).toBeNull();
+  expect(screen.getByText("Source not verified")).toBeInTheDocument();
+});
+
+test("a failed lookup shows the error", async () => {
+  vi.spyOn(api, "token").mockRejectedValue(new Error("boom"));
+  renderDetail({ asset: USDT });
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+});
+
+test("the opening transfer's kind is sent to the server as a hint", async () => {
+  const spy = vi.spyOn(api, "token").mockResolvedValue(dto({ standard: "erc721", decimals: null }));
+  renderDetail({ asset: USDT, tokenId: "5", tokenKind: "erc721" });
+  await screen.findByText("Tether USD");
+  expect(spy).toHaveBeenCalledWith(USDT, "erc721");
+});
+
+test("risk tags are warnings, others stay neutral, and website-down hides the Website row", async () => {
+  vi.spyOn(api, "token").mockResolvedValue(dto({ tags: ["scam", "stablecoin", "website-down"] }));
+  renderDetail({ asset: USDT });
+  expect(await screen.findByText("Scam")).toHaveClass("tag--warn");
+  expect(screen.getByText("Website down")).toHaveClass("tag--warn");
+  expect(screen.getByText("Stablecoin")).toHaveClass("tag--neutral");
+  expect(screen.queryByText("Website")).toBeNull();
 });

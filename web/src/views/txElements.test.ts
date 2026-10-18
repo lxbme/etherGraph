@@ -117,7 +117,7 @@ test("tapping a flow edge resolves its asset (NFTs with their token id); the cal
     ],
   } as Partial<TxFlowDto>);
   expect(assetViewForEdge(f, "flow-0-0")).toEqual({ kind: "asset", asset: null });
-  expect(assetViewForEdge(f, "flow-1-1")).toEqual({ kind: "asset", asset: USDT });
-  expect(assetViewForEdge(f, "flow-2-2")).toEqual({ kind: "asset", asset: USDT, tokenId: "77" });
+  expect(assetViewForEdge(f, "flow-1-1")).toEqual({ kind: "asset", asset: USDT, tokenKind: "erc20" });
+  expect(assetViewForEdge(f, "flow-2-2")).toEqual({ kind: "asset", asset: USDT, tokenId: "77", tokenKind: "erc721" });
   expect(assetViewForEdge(f, "call")).toBeNull();
 });

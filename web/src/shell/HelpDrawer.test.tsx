@@ -144,7 +144,7 @@ test("the new sections describe selection, manual identification and label sourc
   expect(drawer).toHaveTextContent("eg-server import-labels --format eth-labels --csv data/eth-labels/accounts.csv");
   expect(drawer).toHaveTextContent("eth-labels-xchain");
   expect(drawer).toHaveTextContent("only Esc still works (it clears a box selection)");
-  expect(drawer).toHaveTextContent("Ctrl/⌘+S (save) and Ctrl/⌘+Shift+S (save as) work everywhere");
+  expect(drawer).toHaveTextContent("Ctrl/⌘+S (save) and Ctrl/⌘+Shift+S (save as) work anywhere, including while you type in a field, except while a dialog or menu is open");
   const items = [...drawer.querySelectorAll("li")].map((l) => l.textContent ?? "");
   const graphBar = items.find((l) => l.startsWith("Address graph batch bar"))!;
   const txBar = items.find((l) => l.startsWith("Transaction tab batch bar"))!;

@@ -495,7 +495,7 @@ test("tapping a node or the call edge clears the tab's info stack; a transfer ed
   act(() => h.props!.onTapBackground?.());
   expect(useInfo.getState().stacks[key]).toEqual([doc]);
   act(() => h.props!.onTapEdge(A, B, "flow-1-0"));
-  expect(useInfo.getState().stacks[key]).toEqual([doc, { kind: "asset", asset: USDT }]);
+  expect(useInfo.getState().stacks[key]).toEqual([doc, { kind: "asset", tokenKind: "erc20", asset: USDT }]);
   act(() => h.props!.onTapEdge(A, B, "call"));
   expect(useInfo.getState().stacks[key]).toEqual([]);
   act(() => useInfo.getState().open(key, doc));

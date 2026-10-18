@@ -9,6 +9,7 @@ import { AddressCell } from "../../shell/AddressCell";
 import { CopyButton } from "../../shell/CopyButton";
 import { DocButton } from "./DocButton";
 import type { DocId } from "./docs";
+import type { TokenKind } from "./infoStore";
 
 const STANDARD_DOC: Record<string, { label: string; doc: DocId }> = {
   erc20: { label: "ERC-20", doc: "erc-20" },
@@ -21,6 +22,9 @@ export function readableTag(slug: string): string {
   const s = slug.replace(/[-_]+/g, " ").trim();
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
+/** eth-labels tags that warn about the token (shown as warnings); `website-down` also hides the Website row. */
+const RISK_TAGS = new Set(["scam", "phish-hack", "spam-token", "website-down"]);
 
 const isHttp = (u: string): boolean => /^https?:\/\//i.test(u);
 
@@ -71,10 +75,10 @@ function SourceTag({ d }: { d: TokenDetailDto }) {
   );
 }
 
-function TokenDetail({ tab, address, tokenId }: { tab: string; address: string; tokenId?: string }) {
+function TokenDetail({ tab, address, tokenId, tokenKind }: { tab: string; address: string; tokenId?: string; tokenKind?: TokenKind }) {
   const t = useT();
   const addr = address.toLowerCase();
-  const q = useQuery({ queryKey: qk.token(addr), queryFn: () => api.token(addr) });
+  const q = useQuery({ queryKey: qk.token(addr), queryFn: () => api.token(addr, tokenKind) });
   if (q.isPending) return <div className="placeholder">{t("common.loading")}</div>;
   if (q.isError) {
     return (
@@ -89,7 +93,7 @@ function TokenDetail({ tab, address, tokenId }: { tab: string; address: string; 
   const d = q.data;
   const std = STANDARD_DOC[d.standard];
   const fungible = d.standard !== "erc721" && d.standard !== "erc1155";
-  const site = d.website && isHttp(d.website) ? d.website : null;
+  const site = d.website && isHttp(d.website) && !d.tags.includes("website-down") ? d.website : null;
   const dash = <span className="detail__muted">—</span>;
   return (
     <div className="detail__section">
@@ -98,7 +102,7 @@ function TokenDetail({ tab, address, tokenId }: { tab: string; address: string; 
         {d.lists.coingecko && <span className="tag tag--ok">{t("info.tag.coingecko")}</span>}
         <SourceTag d={d} />
         {d.tags.map((s) => (
-          <span key={s} className="tag tag--neutral">{readableTag(s)}</span>
+          <span key={s} className={RISK_TAGS.has(s) ? "tag tag--warn" : "tag tag--neutral"}>{readableTag(s)}</span>
         ))}
       </div>
       <dl className="kv kv--wrap" data-testid="asset-kv">
@@ -134,6 +138,6 @@ function TokenDetail({ tab, address, tokenId }: { tab: string; address: string; 
 }
 
 /** An asset in the right panel: ETH is static, a token is read from `GET /api/token/{addr}`. */
-export function AssetDetail({ tab, asset, tokenId }: { tab: string; asset: string | null; tokenId?: string }) {
-  return asset === null ? <EthDetail tab={tab} /> : <TokenDetail tab={tab} address={asset} tokenId={tokenId} />;
+export function AssetDetail({ tab, asset, tokenId, tokenKind }: { tab: string; asset: string | null; tokenId?: string; tokenKind?: TokenKind }) {
+  return asset === null ? <EthDetail tab={tab} /> : <TokenDetail tab={tab} address={asset} tokenId={tokenId} tokenKind={tokenKind} />;
 }

@@ -41,3 +41,13 @@ test("forget drops a closed tab's stack", () => {
   useInfo.getState().forget(H);
   expect(H in useInfo.getState().stacks).toBe(false);
 });
+
+test("any change of the graph selection clears the graph stack and leaves tx stacks alone", async () => {
+  const { useGraph } = await import("../../graph/store");
+  useGraph.getState().select(null);
+  useInfo.getState().open("graph", { kind: "asset", asset: USDT });
+  useInfo.getState().open(H, { kind: "asset", asset: USDT });
+  useGraph.getState().select({ kind: "tx", hash: H, context: null });
+  expect(useInfo.getState().stacks["graph"]).toEqual([]);
+  expect(useInfo.getState().stacks[H]).toHaveLength(1);
+});

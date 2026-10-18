@@ -272,6 +272,17 @@ test("clicking the asset cell opens the asset in the info panel without selectin
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderTable();
   fireEvent.click(await screen.findByRole("button", { name: "NFT" }));
-  expect(useInfo.getState().stacks["graph"]).toEqual([{ kind: "asset", asset: USDC, tokenId: "9" }]);
+  expect(useInfo.getState().stacks["graph"]).toEqual([{ kind: "asset", tokenKind: "erc721", asset: USDC, tokenId: "9" }]);
   expect(useGraph.getState().highlightTransfer).toBeNull();
+});
+
+test("clicking a transfer row while an asset is open shows the tx and clears the graph info stack", async () => {
+  useInfo.setState({ stacks: { graph: [{ kind: "asset", asset: USDC }] } });
+  vi.spyOn(api, "transfers").mockResolvedValue({ items: [tr({})], next_cursor: null });
+  act(() => useGraph.getState().select({ kind: "node", address: A }));
+  useInfo.setState({ stacks: { graph: [{ kind: "asset", asset: USDC }] } });
+  renderTable();
+  fireEvent.click((await screen.findAllByTestId("transfer-row"))[0]!);
+  expect(useGraph.getState().selection?.kind).toBe("tx");
+  expect(useInfo.getState().stacks["graph"]).toEqual([]);
 });

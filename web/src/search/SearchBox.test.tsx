@@ -7,6 +7,7 @@ import { useGraph } from '../graph/store'
 import { useTabs } from '../shell/tabs'
 import { qk, queryClient } from '../api/queryClient'
 import { useLocale } from '../i18n'
+import { useInfo } from '../panels/info/infoStore'
 import { SearchBox } from './SearchBox'
 
 const A = '0x' + 'ab'.repeat(20)
@@ -19,6 +20,16 @@ beforeEach(() => {
 })
 
 describe('SearchBox', () => {
+  it('picking an address clears the graph info stack', async () => {
+    useInfo.setState({ stacks: { graph: [{ kind: 'asset', asset: null }] } })
+    vi.spyOn(api, 'search').mockResolvedValue({ kind: 'address', value: A, resolved_address: null })
+    vi.spyOn(api, 'address').mockResolvedValue({} as never)
+    render(<SearchBox />)
+    await userEvent.type(screen.getByRole('searchbox'), `${A}{Enter}`)
+    await waitFor(() => expect(useGraph.getState().selection).toEqual({ kind: 'node', address: A }))
+    expect(useInfo.getState().stacks['graph']).toEqual([])
+  })
+
   afterEach(() => act(() => useLocale.getState().setLocale('en')))
 
   it('an error shown inline switches language immediately', async () => {

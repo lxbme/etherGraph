@@ -22,7 +22,7 @@ export function StandardDoc({ id }: { id: DocId }) {
     <article className="detail__section doc" data-testid="standard-doc" aria-labelledby={titleId}>
       <h4 className="doc__title" id={titleId}>{doc.title}</h4>
       <dl className="kv kv--wrap">
-        <dt>{t("doc.status")}</dt>
+        <dt>{t("doc.category")}</dt>
         <dd>{doc.status}</dd>
         <dt>{t("doc.introduced")}</dt>
         <dd>{doc.introduced}</dd>

@@ -7,7 +7,7 @@ import { shortAddr } from "../lib/address";
 import { assetClass } from "../lib/assets";
 import { formatAmount } from "../lib/amount";
 import { circled, ellipsize, shortTokenId } from "../lib/format";
-import type { InfoView } from "../panels/info/infoStore";
+import { tokenKindOf, type InfoView } from "../panels/info/infoStore";
 
 /** Longest edge label, in characters; the tooltip and detail tables keep the full text. */
 export const EDGE_LABEL_MAX = 48;
@@ -74,7 +74,9 @@ export function assetViewForEdge(flow: TxFlowDto, edgeId: string): InfoView | nu
   const f = m ? flow.flows[Number(m[1])] : undefined;
   if (!f) return null;
   const asset = f.asset === null ? null : lc(f.asset);
-  return f.token_id !== null && (f.kind === "erc721" || f.kind === "erc1155")
-    ? { kind: "asset", asset, tokenId: f.token_id }
-    : { kind: "asset", asset };
+  const tokenKind = asset === null ? undefined : tokenKindOf(f.kind);
+  const view: Extract<InfoView, { kind: "asset" }> = { kind: "asset", asset };
+  if (tokenKind) view.tokenKind = tokenKind;
+  if (f.token_id !== null && (f.kind === "erc721" || f.kind === "erc1155")) view.tokenId = f.token_id;
+  return view;
 }

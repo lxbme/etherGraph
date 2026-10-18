@@ -14,7 +14,6 @@ import { useShortcuts } from "../graph/useShortcuts";
 import { BatchBar } from "../panels/BatchBar";
 import { ContextMenu } from "../panels/ContextMenu";
 import { ExpandDialog } from "../panels/expand/ExpandDialog";
-import { useInfo } from "../panels/info/infoStore";
 import { InteractionsDialog } from "../panels/expand/InteractionsDialog";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
@@ -235,13 +234,11 @@ export function AddressGraph() {
             return;
           }
           useBoxSelection.getState().clear();
-          useInfo.getState().close("graph");
           useGraph.getState().select({ kind: "node", address: lc(id) });
         }}
         onTapBackground={() => useBoxSelection.getState().clear()}
         onTapEdge={(a, b) => {
           if (isMoreId(a) || isMoreId(b)) return;
-          useInfo.getState().close("graph");
           useGraph.getState().select({ kind: "pair", a: lc(a), b: lc(b) });
         }}
         onDblTapNode={onDblTapNode}

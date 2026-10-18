@@ -194,7 +194,7 @@ export const docsZh: DocDictionary = {
       ["TransferBatch(operator, from, to, ids, values)", "批量转移多个 id 时触发的事件。"],
       ["uri(id)", "某个 tokenId 元数据的所在位置。"],
     ],
-    inThisApp: ["合约被识别为 ERC-1155 时，资产详情会链接到本页；从转账打开时还会显示 tokenId。"],
+    inThisApp: ["当该合约的转账属于 ERC-1155 时，资产详情会链接到本页；从转账打开时还会显示 tokenId。"],
   },
   "native-eth": {
     title: "以太币",

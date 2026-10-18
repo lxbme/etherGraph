@@ -205,7 +205,7 @@ export const docsEn = {
       ["TransferBatch(operator, from, to, ids, values)", "Event emitted for a transfer of several ids."],
       ["uri(id)", "Where the metadata of a token id is found."],
     ],
-    inThisApp: ["Asset details link here when a contract is identified as ERC-1155, and show the token id when opened from a transfer."],
+    inThisApp: ["Asset details link here when the contract's transfers are ERC-1155, and show the token id when opened from a transfer."],
   },
   "native-eth": {
     title: "Ether",

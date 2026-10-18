@@ -146,7 +146,7 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
                 <td className="num" title={other}>{shortAddr(other)}</td>
                 <AmountCell row={row} />
                 <td>
-                  <AssetButton tab="graph" asset={asset} tokenId={row.token_id} title={row.asset ?? undefined}>
+                  <AssetButton tab="graph" asset={asset} tokenId={row.token_id} kind={row.kind} title={row.asset ?? undefined}>
                     {symbolOf(row.asset, row.symbol)}
                   </AssetButton>
                 </td>

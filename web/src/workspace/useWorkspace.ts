@@ -8,6 +8,7 @@ import { t } from "../i18n";
 import { getMainCy } from "../graph/cyRegistry";
 import { isMoreId } from "../graph/elements";
 import { pairKey, useGraph, type NodeUi, type Pos } from "../graph/store";
+import { useInfo } from "../panels/info/infoStore";
 import { useTabs } from "../shell/tabs";
 import { toast } from "../shell/Toasts";
 import { DEFAULT_VIEWPORT, deserialize, serialize, type WorkspaceStateV1 } from "./serialize";
@@ -162,6 +163,7 @@ export async function deleteWorkspace(id: number): Promise<void> {
 
 export function newWorkspace(): void {
   restoreGen++;
+  useInfo.getState().close("graph");
   useGraph.getState().reset();
   useWorkspace.getState().clear();
 }
@@ -194,6 +196,7 @@ function applyState(state: WorkspaceStateV1): void {
       ...(n.x !== undefined && n.y !== undefined ? { pos: { x: n.x, y: n.y } } : {}),
     };
   }
+  useInfo.getState().close("graph");
   useGraph.getState().loadSnapshot({
     centers: state.centers,
     filter: state.filter,

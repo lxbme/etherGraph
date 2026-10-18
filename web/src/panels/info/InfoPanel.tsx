@@ -11,7 +11,7 @@ function AssetTitle({ view }: { view: Extract<InfoView, { kind: "asset" }> }) {
   const t = useT();
   const addr = view.asset?.toLowerCase() ?? "";
   // Shares the detail's query: no extra request.
-  const q = useQuery({ queryKey: qk.token(addr), queryFn: () => api.token(addr), enabled: view.asset !== null });
+  const q = useQuery({ queryKey: qk.token(addr), queryFn: () => api.token(addr, view.tokenKind), enabled: view.asset !== null });
   if (view.asset === null) return <>ETH</>;
   const d = q.data;
   return <>{d?.symbol ?? d?.name ?? t("info.asset")}</>;
@@ -36,7 +36,7 @@ export function InfoPanel({ tab }: { tab: string }) {
           <X size={14} />
         </button>
       </div>
-      {view.kind === "doc" ? <StandardDoc id={view.id} /> : <AssetDetail tab={tab} asset={view.asset} tokenId={view.tokenId} />}
+      {view.kind === "doc" ? <StandardDoc id={view.id} /> : <AssetDetail tab={tab} asset={view.asset} tokenId={view.tokenId} tokenKind={view.tokenKind} />}
     </div>
   );
 }

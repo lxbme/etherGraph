@@ -5,12 +5,14 @@ import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
 import { useCanvasMetrics } from "../graph/canvasMetrics";
 import { getMainCy } from "../graph/cyRegistry";
 import { useGraph } from "../graph/store";
+import { useInfo } from "../panels/info/infoStore";
 import { useTabs } from "../shell/tabs";
 import { deserialize, serialize } from "./serialize";
 import { saveStatusLabel } from "./useWorkspace";
 import {
   deleteWorkspace,
   loadWorkspace,
+  newWorkspace,
   overwriteCurrent,
   saveCurrent,
   saveNew,
@@ -138,6 +140,17 @@ describe("saving", () => {
 });
 
 describe("loading", () => {
+  test("opening or starting a workspace closes the views stacked over the graph panel", async () => {
+    const state = serialize((g().setCenters([A]), g()), VP, { nodes: [A], positions: {} });
+    m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(state)) }));
+    useInfo.setState({ stacks: { graph: [{ kind: "asset", asset: null }] } });
+    await loadWorkspace(7);
+    expect(useInfo.getState().stacks["graph"]).toEqual([]);
+    useInfo.setState({ stacks: { graph: [{ kind: "asset", asset: null }] } });
+    newWorkspace();
+    expect(useInfo.getState().stacks["graph"]).toEqual([]);
+  });
+
   test("restores the store without history; unknown version leaves canvas untouched", async () => {
     const state = serialize(
       (g().setCenters([A]), g().togglePair(A, B), g().setHidden([B], true), g()),

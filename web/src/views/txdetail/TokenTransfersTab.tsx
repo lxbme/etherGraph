@@ -50,7 +50,7 @@ export function TokenTransfersTab({ flow }: { flow: TxFlowDto }) {
             <td>
               {f.asset && (
                 <span className="txdetail__addr">
-                  <AssetButton tab={flow.tx.hash.toLowerCase()} asset={f.asset.toLowerCase()} tokenId={f.token_id} title={f.asset}>
+                  <AssetButton tab={flow.tx.hash.toLowerCase()} asset={f.asset.toLowerCase()} tokenId={f.token_id} kind={f.kind} title={f.asset}>
                     {f.symbol ?? shortAddr(f.asset)}
                   </AssetButton>
                   <CopyButton value={f.asset} />

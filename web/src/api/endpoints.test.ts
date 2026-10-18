@@ -86,3 +86,11 @@ test("cancelBatch and cancelBackground use DELETE", async () => {
   expect(f.mock.calls[1]![0]).toBe("/api/jobs?scope=background");
   expect(f.mock.calls[1]![1].method).toBe("DELETE");
 });
+
+test("token sends the kind hint only when given", async () => {
+  const f = stub();
+  await api.token("0xabc");
+  await api.token("0xabc", "erc721");
+  expect(f.mock.calls[0]![0]).toBe("/api/token/0xabc");
+  expect(f.mock.calls[1]![0]).toBe("/api/token/0xabc?kind=erc721");
+});

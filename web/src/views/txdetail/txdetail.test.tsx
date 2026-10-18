@@ -323,7 +323,7 @@ test("the token cell opens the asset in this tx tab's info stack", () => {
   fireEvent.click(tab("Token Transfers"));
   fireEvent.click(screen.getByRole("button", { name: "USDT" }));
   expect(useInfo.getState().stacks[fixture.flow.tx.hash]).toEqual([
-    { kind: "asset", asset: "0xdac17f958d2ee523a2206206994597c13d831ec7" },
+    { kind: "asset", tokenKind: "erc20", asset: "0xdac17f958d2ee523a2206206994597c13d831ec7" },
   ]);
 });
 

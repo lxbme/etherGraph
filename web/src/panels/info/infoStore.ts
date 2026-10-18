@@ -1,9 +1,15 @@
 import { create } from "zustand";
+import { useGraph } from "../../graph/store";
 import { useUi } from "../uiStore";
 import type { DocId } from "./docs";
 
 /** What the right panel shows instead of the node detail: an asset (null = ETH) or a documentation topic. */
-export type InfoView = { kind: "asset"; asset: string | null; tokenId?: string } | { kind: "doc"; id: DocId };
+/** The kind of the transfer an asset was opened from: the server's fallback standard when it has no tokens row. */
+export type TokenKind = "erc20" | "erc721" | "erc1155";
+
+export const tokenKindOf = (k: string): TokenKind | undefined => (k === "erc20" || k === "erc721" || k === "erc1155" ? k : undefined);
+
+export type InfoView = { kind: "asset"; asset: string | null; tokenId?: string; tokenKind?: TokenKind } | { kind: "doc"; id: DocId };
 
 const same = (a: InfoView, b: InfoView): boolean =>
   a.kind === "doc" || b.kind === "doc"
@@ -41,3 +47,9 @@ export const useInfo = create<InfoState>((set, get) => ({
       return { stacks };
     }),
 }));
+
+// Whatever changes the graph tab's selection (canvas tap, transfer row, search pick, hash route) must show
+// its result in the panel, so the views stacked over the detail are dropped.
+useGraph.subscribe((s, prev) => {
+  if (s.selection !== prev.selection && (useInfo.getState().stacks["graph"]?.length ?? 0) > 0) useInfo.getState().close("graph");
+});
