@@ -7,6 +7,7 @@ import type { LabelDto } from "../api/generated/LabelDto";
 import { qk } from "../api/queryClient";
 import { pairKey, useGraph } from "../graph/store";
 import { useLocale } from "../i18n";
+import { TxNodeDetail } from "../views/TxFlowView";
 import { DetailPanel } from "./DetailPanel";
 import { useUi } from "./uiStore";
 
@@ -256,4 +257,51 @@ test("a `file` label is never deletable, even if it reached the live list", asyn
   renderPanel();
   const tag = (await screen.findByText("odd")).closest(".tag") as HTMLElement;
   expect(within(tag).queryByRole("button")).toBeNull();
+});
+
+test("on a snapshot graph, Sync / refresh and Fetch older ask to refresh from the chain first", async () => {
+  vi.spyOn(api, "address").mockResolvedValue(profile());
+  vi.spyOn(api, "nodes").mockResolvedValue([]);
+  const sync = vi.spyOn(api, "sync").mockResolvedValue({ jobs: [] } as never);
+  act(() => {
+    useGraph.getState().freeze({
+      exported_at: "2026-10-01T12:00:00Z",
+      includes: { labels: false, notes: false },
+      data: { nodes: [], edges: [], omitted: {}, coverage: {} },
+    });
+    useGraph.getState().select({ kind: "node", address: A });
+  });
+  renderPanel();
+  fireEvent.click(await screen.findByRole("button", { name: "Sync / refresh" }));
+  expect(useGraph.getState().pendingLive).not.toBeNull();
+  act(() => useGraph.getState().resolveLive(false));
+  fireEvent.click(screen.getByRole("button", { name: "Fetch older records" }));
+  expect(useGraph.getState().pendingLive).not.toBeNull();
+  expect(sync).not.toHaveBeenCalled();
+  act(() => useGraph.getState().resolveLive(true));
+  await waitFor(() => expect(sync).toHaveBeenCalledWith({ addresses: [A], direction: "older" }));
+  expect(useGraph.getState().frozen).toBeNull();
+});
+
+test("a tx tab's node detail syncs at once even while the address graph is a snapshot", async () => {
+  const H = "0x" + "11".repeat(32);
+  vi.spyOn(api, "address").mockResolvedValue(profile());
+  const sync = vi.spyOn(api, "sync").mockResolvedValue({ jobs: [] } as never);
+  act(() => {
+    useGraph.getState().freeze({
+      exported_at: "2026-10-01T12:00:00Z",
+      includes: { labels: false, notes: false },
+      data: { nodes: [], edges: [], omitted: {}, coverage: {} },
+    });
+    useUi.getState().selectTx(H, A);
+  });
+  render(
+    <QueryClientProvider client={qc}>
+      <TxNodeDetail hash={H} />
+    </QueryClientProvider>,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Sync / refresh" }));
+  await waitFor(() => expect(sync).toHaveBeenCalledWith({ addresses: [A] }));
+  expect(useGraph.getState().pendingLive).toBeNull();
+  expect(useGraph.getState().frozen).not.toBeNull();
 });

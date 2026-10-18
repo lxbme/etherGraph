@@ -15,7 +15,7 @@ export function DetailPanel() {
   return (
     <div className="detail">
       {!selection && <div className="placeholder">{t("detail.placeholder")}</div>}
-      {nodeAddr && <NodeDetail key={nodeAddr} address={nodeAddr} fileLabels={fileLabels} />}
+      {nodeAddr && <NodeDetail key={nodeAddr} address={nodeAddr} fileLabels={fileLabels} graph />}
       {selection?.kind === "tx" && <TxSummaryCard key={selection.hash.toLowerCase()} hash={selection.hash.toLowerCase()} />}
       {selection?.kind === "pair" && <EdgeDetail a={selection.a.toLowerCase()} b={selection.b.toLowerCase()} />}
     </div>

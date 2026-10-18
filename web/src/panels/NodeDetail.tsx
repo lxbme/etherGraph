@@ -90,16 +90,19 @@ const NO_LABELS: LabelDto[] = [];
 
 /**
  * The receiver's live profile of `address`. `fileLabels`: labels a snapshot file carries for it, shown after the
- * live ones (read-only, never sent to the label API).
+ * live ones (read-only, never sent to the label API). `graph`: shown for the address graph, whose sync buttons
+ * then refresh a snapshot graph from the chain first (a tx tab's detail syncs at once).
  */
 export function NodeDetail({
   address,
   onNavigate,
   fileLabels = NO_LABELS,
+  graph: forGraph = false,
 }: {
   address: string;
   onNavigate?: (addr: string) => void;
   fileLabels?: LabelDto[];
+  graph?: boolean;
 }) {
   const qc = useQueryClient();
   const openTx = useTabs((s) => s.openTx);
@@ -124,6 +127,12 @@ export function NodeDetail({
         qc.invalidateQueries({ queryKey: ["nodes"] }),
       ]),
   });
+
+  const startSync = (direction?: "older") => {
+    const run = () => sync.mutate(direction);
+    if (forGraph) useGraph.getState().guardLive(run);
+    else run();
+  };
 
   if (q.isPending) return <div className="placeholder">{t("common.loading")}</div>;
   if (q.isError) return <div className="placeholder detail__error" role="alert">{messageFor(q.error)}</div>;
@@ -239,8 +248,8 @@ export function NodeDetail({
 
       {/* 6. Primary action */}
       <div className="detail__actions">
-        <button className="btn btn--primary" onClick={() => sync.mutate(undefined)}>{t("node.syncRefresh")}</button>
-        {anyTruncated && <button className="btn" onClick={() => sync.mutate("older")}>{t("node.fetchOlder")}</button>}
+        <button className="btn btn--primary" onClick={() => startSync(undefined)}>{t("node.syncRefresh")}</button>
+        {anyTruncated && <button className="btn" onClick={() => startSync("older")}>{t("node.fetchOlder")}</button>}
       </div>
 
       <h4 className="overline">{t("node.coverage")}</h4>

@@ -295,6 +295,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "transfers.unknownDecimals": "未知精度",
   "transfers.empty": "没有符合条件的转账",
   "transfers.select": "选择一个节点或一条边查看转账明细",
+  "transfers.snapshot": "此快照不包含单笔转账。从链上刷新后即可加载。",
   "transfers.col.time": "时间 (UTC)",
   "transfers.col.asset": "资产",
   "transfers.col.direction": "方向",

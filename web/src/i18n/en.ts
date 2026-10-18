@@ -293,6 +293,7 @@ export const en = {
   "transfers.unknownDecimals": "Unknown decimals",
   "transfers.empty": "No matching transfers",
   "transfers.select": "Select a node or edge to see transfers",
+  "transfers.snapshot": "This snapshot does not include individual transfers. Refresh from chain to load them.",
   "transfers.col.time": "Time (UTC)",
   "transfers.col.asset": "Asset",
   "transfers.col.direction": "Direction",

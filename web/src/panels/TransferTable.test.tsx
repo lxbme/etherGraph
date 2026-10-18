@@ -313,3 +313,34 @@ test("a flagged token's badge sits next to its symbol in rows and pair group hea
   expect(within(rows[1]!).queryByText("Possible impersonation")).toBeNull();
   expect(within(rows[2]!).getByText("Known scam")).toHaveClass("tag--scam");
 });
+
+describe("a frozen (snapshot) graph", () => {
+  const HINT = "This snapshot does not include individual transfers. Refresh from chain to load them.";
+  const freeze = () =>
+    useGraph.getState().freeze({
+      exported_at: "2026-10-01T12:00:00Z",
+      includes: { labels: false, notes: false },
+      data: { nodes: [], edges: [edge({}), edge({ asset: USDC, asset_kind: "erc20" })], omitted: {}, coverage: {} },
+    });
+
+  test.each([
+    ["a node", { kind: "node" as const, address: A }],
+    ["a pair", { kind: "pair" as const, a: A, b: B }],
+  ])("%s: no transfers request, a hint; Refresh from chain loads them", async (_, sel) => {
+    const spy = vi.spyOn(api, "transfers").mockResolvedValue({ items: [tr({})], next_cursor: null });
+    vi.spyOn(api, "nodes").mockResolvedValue([]);
+    vi.spyOn(api, "graphEdges").mockResolvedValue({ nodes: [], edges: [edge({})], omitted: {}, coverage: {} });
+    act(() => {
+      useGraph.getState().setCenters([A]);
+      freeze();
+      useGraph.getState().select(sel);
+    });
+    renderTable();
+    expect(screen.getByText(HINT)).toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh from chain" }));
+    expect(useGraph.getState().frozen).toBeNull();
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(screen.queryByText(HINT)).toBeNull();
+  });
+});

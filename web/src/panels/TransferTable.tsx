@@ -320,12 +320,23 @@ export function TransferTable() {
   const selection = useGraph((s) => graphSelection(s.selection));
   const filter = useGraph((s) => s.filter);
   const centers = useGraph((s) => s.centers);
+  const frozen = useGraph((s) => s.frozen !== null);
   const { data } = useGraphData();
   const t = useT();
 
   let body;
   if (!selection) {
     body = <div className="transfers__msg">{t("transfers.select")}</div>;
+  } else if (frozen) {
+    // A snapshot carries edges, not single transfers; the receiver's own rows would not match its edges.
+    body = (
+      <div className="transfers__msg">
+        {t("transfers.snapshot")}{" "}
+        <button type="button" className="btn btn--compact" onClick={() => useGraph.getState().unfreeze()}>
+          {t("snapshot.refresh")}
+        </button>
+      </div>
+    );
   } else if (selection.kind === "node") {
     const n = filter.assets?.length ?? 0;
     const direction = nodeDirection(filter.direction, selection.address, centers, data?.edges ?? []);
