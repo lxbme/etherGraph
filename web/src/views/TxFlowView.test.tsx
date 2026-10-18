@@ -509,7 +509,16 @@ describe("token-contract nodes and EIP-7702", () => {
   const batch = () =>
     ready({
       tx: { ...ready().flow!.tx, from: A, to: A, method: "execute" },
-      detail: { ...ready().flow!.detail, tx_type: 4, authorizations: [{ chain_id: "1", delegate: D, nonce: "2", authority: A }] },
+      detail: {
+        ...ready().flow!.detail,
+        tx_type: 4,
+        // The first entry has no recovered signer; the edges and tooltips follow the server's delegations.
+        authorizations: [
+          { chain_id: "5", delegate: B, nonce: "0", authority: null },
+          { chain_id: "1", delegate: D, nonce: "2", authority: A },
+        ],
+        delegations: [{ authority: A, delegate: D }],
+      },
       call: { signature: "execute(bytes)", name: "execute", args: [], via_delegate: D },
       nodes: [node(A, { display_name: "alice.eth" }), node(B), node(D, { kind: "contract" }), node(USDT, { kind: "contract", display_name: "Tether" })],
       flows: [{ ...flow, from: B, to: A }],

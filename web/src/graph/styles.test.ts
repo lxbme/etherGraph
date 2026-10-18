@@ -390,6 +390,8 @@ describe("txFlowStylesheet", () => {
       "line-color": muted,
     });
     expect(Number(styleOf(s, "edge.asset-link").opacity)).toBeLessThan(0.85);
+    // Drawn under the flow, call and delegation edges it would otherwise cross.
+    expect(Number(styleOf(s, "edge.asset-link")["z-index"])).toBeLessThan(0);
   });
 
   test.each(["light", "dark"] as const)("delegation edges are dashed in the delegation token with a mid-edge label (%s)", (theme) => {
@@ -430,6 +432,7 @@ describe("txFlowStylesheet", () => {
         expect(cy.getElementById("t").style("border-style")).toBe("dotted");
         expect(cy.getElementById("link").style("target-arrow-shape")).toBe("none");
         expect(cy.getElementById("link").style("line-style")).toBe("dotted");
+        expect(Number(cy.getElementById("link").style("z-index"))).toBeLessThan(Number(cy.getElementById("del").style("z-index")));
         expect(cy.getElementById("del").style("line-style")).toBe("dashed");
         expect(cy.getElementById("del").style("label")).toBe("delegates to");
         expect(cy.getElementById("self").style("label")).toBe("execute");

@@ -431,6 +431,8 @@ export function txFlowStylesheet(theme: Theme): cytoscape.StylesheetJson {
         "target-arrow-shape": "none",
         ...edgeColor(fgMuted),
         opacity: 0.6,
+        // Under the flow, call and delegation edges it would otherwise cross.
+        "z-index": -1,
       },
     },
     {

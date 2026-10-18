@@ -172,6 +172,18 @@ describe("token-contract (asset-only) nodes", () => {
     expect(txElements(called).some((e) => String(e.data.id).startsWith("asset-link"))).toBe(false);
   });
 
+  test("a token the tx created (minting in its constructor) is a party, not asset-only", () => {
+    const created = dto({
+      tx: { ...dto().tx, to: null },
+      detail: { ...dto().detail, contract_created: C.toUpperCase().replace("0X", "0x") },
+      nodes: [node(A), node(C)],
+      flows: [flow({ from: ZERO, to: A, asset: C })],
+    });
+    expect(assetOnlyAddresses(created).size).toBe(0);
+    expect(classesOf(txElements(created), C)).not.toContain("asset-contract");
+    expect(assetViewForNode(created, C)).toBeNull();
+  });
+
   test("an asset without a node gets no class and no link", () => {
     const els = txElements(dto());
     expect(els.some((e) => String(e.data.id).startsWith("asset-link"))).toBe(false);
@@ -186,6 +198,7 @@ describe("token-contract (asset-only) nodes", () => {
 
 describe("self-calls and EIP-7702 delegations", () => {
   const auth = (authority: string | null, delegate: string) => ({ chain_id: "1", delegate, nonce: "2", authority });
+  const del = (authority: string, delegate: string) => ({ authority, delegate });
 
   test("a plain EOA sending ETH to itself: the call edge is a loop on that node, with no delegate node", () => {
     const els = txElements(
@@ -207,39 +220,41 @@ describe("self-calls and EIP-7702 delegations", () => {
     expect(txElements(dto()).find((e) => e.data.id === "call")!.classes).toBe("call");
   });
 
-  test("each recovered, non-zero authorization draws a dashed delegates-to edge from signer to delegate", () => {
+  test("each effective delegation from the server draws a dashed delegates-to edge from signer to delegate", () => {
     const f = dto({
       tx: { ...dto().tx, from: A, to: A },
       call: { signature: "execute(bytes)", name: "execute", args: [], via_delegate: D },
       detail: {
         ...dto().detail,
         tx_type: 4,
-        authorizations: [auth(A, D), auth(null, C), auth(E, ZERO), auth(B.toUpperCase().replace("0X", "0x"), D)],
+        // The raw list is not consulted: A's later entry to E did not take effect.
+        authorizations: [auth(A, D), auth(null, C), auth(A, E), auth(B, D)],
+        delegations: [del(A, D), del(B.toUpperCase().replace("0X", "0x"), D)],
       },
-      nodes: [node(A), node(B), node(D), node(E)],
+      nodes: [node(A), node(B), node(C), node(D), node(E)],
       flows: [],
     });
     const els = txElements(f);
-    const del = els.filter((e) => String(e.classes) === "delegation");
-    expect(del.map((e) => [e.data.source, e.data.target, e.data.label])).toEqual([
-      [A, D, "delegates to"],
-      [B, D, "delegates to"],
+    const edges = els.filter((e) => String(e.classes) === "delegation");
+    expect(edges.map((e) => [e.data.id, e.data.source, e.data.target, e.data.label])).toEqual([
+      ["delegation-0", A, D, "delegates to"],
+      ["delegation-1", B, D, "delegates to"],
     ]);
     // Via the delegate's ABI, the call edge still shows the method name.
     expect(els.find((e) => e.data.id === "call")!.data.label).toBe("execute");
   });
 
-  test("one delegation edge per signer: the last entry wins, and a zero-address last entry draws none", () => {
-    const base = { tx: { ...dto().tx, from: A, to: A }, nodes: [node(A), node(B), node(D), node(E)], flows: [] };
-    const two = txElements(dto({ ...base, detail: { ...dto().detail, tx_type: 4, authorizations: [auth(A, D), auth(A, E)] } }));
-    const del = two.filter((e) => String(e.classes) === "delegation");
-    expect(del.map((e) => [e.data.id, e.data.source, e.data.target])).toEqual([["delegation-1", A, E]]);
-    const cleared = txElements(dto({ ...base, detail: { ...dto().detail, tx_type: 4, authorizations: [auth(A, D), auth(A, ZERO)] } }));
-    expect(cleared.some((e) => String(e.classes) === "delegation")).toBe(false);
+  test("authorizations without delegations draw no edge (also from a server older than the field)", () => {
+    const base = { tx: { ...dto().tx, from: A, to: A }, nodes: [node(A), node(D)], flows: [] };
+    const none = txElements(dto({ ...base, detail: { ...dto().detail, tx_type: 4, authorizations: [auth(A, D)], delegations: [] } }));
+    expect(none.some((e) => String(e.classes) === "delegation")).toBe(false);
+    const { delegations: _omit, ...older } = dto().detail;
+    const old = txElements(dto({ ...base, detail: { ...older, tx_type: 4, authorizations: [auth(A, D)] } as TxFlowDto["detail"] }));
+    expect(old.some((e) => String(e.classes) === "delegation")).toBe(false);
   });
 
   test("a delegate without a node gets no edge", () => {
-    const f = dto({ detail: { ...dto().detail, tx_type: 4, authorizations: [auth(A, D)] } });
+    const f = dto({ detail: { ...dto().detail, tx_type: 4, authorizations: [auth(A, D)], delegations: [del(A, D)] } });
     expect(txElements(f).some((e) => String(e.classes) === "delegation")).toBe(false);
   });
 });

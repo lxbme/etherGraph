@@ -3,7 +3,7 @@ import type { FlowDto } from "../api/generated/FlowDto";
 import type { TxFlowDto } from "../api/generated/TxFlowDto";
 import { nodeElement } from "../graph/elements";
 import { t } from "../i18n";
-import { shortAddr, ZERO_ADDRESS } from "../lib/address";
+import { shortAddr } from "../lib/address";
 import { assetClass } from "../lib/assets";
 import { formatAmount } from "../lib/amount";
 import { circled, ellipsize, shortTokenId } from "../lib/format";
@@ -17,18 +17,20 @@ export { circled };
 
 /**
  * Token contracts that only emitted the Transfer logs of their flows: the asset of some flow, never a flow's sender
- * or recipient, and neither the tx's sender nor its recipient (lower-case, in flow order).
+ * or recipient, and neither the tx's sender, its recipient nor the contract it created (lower-case, in flow order).
  */
 export function assetOnlyAddresses(flow: TxFlowDto): Set<string> {
-  const parties = new Set<string>([lc(flow.tx.from), ...(flow.tx.to ? [lc(flow.tx.to)] : [])]);
+  const { to } = flow.tx;
+  const created = flow.detail.contract_created;
+  const parties = new Set<string>([lc(flow.tx.from), ...(to ? [lc(to)] : []), ...(created ? [lc(created)] : [])]);
   for (const f of flow.flows) parties.add(lc(f.from)).add(lc(f.to));
   const out = new Set<string>();
   for (const f of flow.flows) if (f.asset !== null && !parties.has(lc(f.asset))) out.add(lc(f.asset));
   return out;
 }
 
-/** EIP-7702 authorizations; absent from responses of servers older than the field. */
-const authorizationsOf = (flow: TxFlowDto) => flow.detail.authorizations ?? [];
+/** The server's effective EIP-7702 delegations; absent from responses of servers older than the field. */
+export const delegationsOf = (flow: TxFlowDto) => flow.detail.delegations ?? [];
 
 export function flowSymbol(f: FlowDto): string {
   if (f.asset === null) return "ETH";
@@ -53,8 +55,8 @@ export function callLabel(flow: TxFlowDto): string {
 /**
  * Nodes, a dashed call edge (tx.from → tx.to; a loop when they are the same) and one solid edge per flow; edges to
  * unknown nodes are skipped. Token contracts that only emitted Transfer logs are muted (`asset-contract`) with one
- * dotted `asset-link` (no arrow) between them and each distinct sender of their flows; each recovered EIP-7702
- * authorization with a non-zero delegate is a dashed `delegation` edge from signer to delegate.
+ * dotted `asset-link` (no arrow) between them and each distinct sender of their flows; each effective EIP-7702
+ * delegation the server computed (`detail.delegations`) is a dashed `delegation-<index>` edge from signer to delegate.
  * The flow with seq `highlightedSeq` (picked in a detail table) gets the `highlighted` class.
  */
 export function txElements(flow: TxFlowDto, selected?: string | null, highlightedSeq?: number | null): cytoscape.ElementDefinition[] {
@@ -78,17 +80,9 @@ export function txElements(flow: TxFlowDto, selected?: string | null, highlighte
       classes: lc(from) === lc(to) ? "call self-call" : "call",
     });
   }
-  // One delegation per signer: the last entry from that signer wins, and a zero-address delegate clears it.
-  const lastBySigner = new Map<string, number>();
-  const auths = authorizationsOf(flow);
-  auths.forEach((a, i) => {
-    if (a.authority !== null) lastBySigner.set(lc(a.authority), i);
-  });
-  auths.forEach((a, i) => {
-    if (a.authority === null || lc(a.delegate) === ZERO_ADDRESS) return;
-    if (lastBySigner.get(lc(a.authority)) !== i) return;
-    const source = lc(a.authority);
-    const target = lc(a.delegate);
+  delegationsOf(flow).forEach((d, i) => {
+    const source = lc(d.authority);
+    const target = lc(d.delegate);
     if (!present.has(source) || !present.has(target)) return;
     out.push({
       group: "edges",

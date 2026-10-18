@@ -25,7 +25,7 @@ import { useTheme } from "../shell/theme";
 import { CanvasTools, IdentifyAllButton } from "./CanvasTools";
 import { GraphTooltip } from "./GraphTooltip";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
-import { assetOnlyAddresses, assetViewForEdge, assetViewForNode, txElements } from "./txElements";
+import { assetOnlyAddresses, assetViewForEdge, assetViewForNode, delegationsOf, txElements } from "./txElements";
 import { TxDetailTabs } from "./txdetail/TxDetailTabs";
 import { TxSummaryBar } from "./txdetail/TxSummaryBar";
 
@@ -115,8 +115,8 @@ export function TxFlowView({ hash }: { hash: string }) {
       if (hover.id === "call") return callTooltip(flow.call?.name, flow.call?.via_delegate);
       const names = new Map(flow.nodes.flatMap((n) => (n.display_name ? [[n.address.toLowerCase(), n.display_name] as const] : [])));
       const d = /^delegation-(\d+)$/.exec(hover.id);
-      const a = d ? flow.detail.authorizations[Number(d[1])] : undefined;
-      if (a?.authority) return delegationTooltip(a.authority, a.delegate, names);
+      const del = d ? delegationsOf(flow)[Number(d[1])] : undefined;
+      if (del) return delegationTooltip(del.authority, del.delegate, names);
       const m = /^flow-\d+-(\d+)$/.exec(hover.id);
       const f = m ? flow.flows[Number(m[1])] : undefined;
       if (!f) return null;
