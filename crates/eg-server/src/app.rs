@@ -5,7 +5,7 @@ use axum::extract::DefaultBodyLimit;
 use axum::handler::Handler;
 use axum::http::StatusCode;
 use axum::middleware::from_fn_with_state;
-use axum::routing::{delete, get, post};
+use axum::routing::{any, delete, get, post};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
 use tracing::Level;
@@ -13,13 +13,14 @@ use tracing::Level;
 use crate::auth::extract::{require_origin, require_user};
 use crate::error::ApiError;
 use crate::routes::{
-    address, auth, batches, counterparties, events, graph, identify, jobs, labels, nodes, probe,
-    search, status, sync, token, transfers, tx, workspaces,
+    address, admin, auth, batches, counterparties, events, graph, identify, jobs, labels, nodes,
+    probe, search, status, sync, token, transfers, tx, workspaces,
 };
 use crate::state::AppState;
 
-/// All `/api` routes: `/api/health` and `/api/auth/*` are open, the rest need
-/// a session, and state-changing requests need the public `Origin`. When
+/// All `/api` routes: `/api/health` and `/api/auth/*` are open, `/api/admin/*`
+/// is for configured admins (see [`admin`]), the rest need a session, and
+/// state-changing requests need the public `Origin`. When
 /// `server.static_dir` exists, other paths are served from it with
 /// `index.html` as the SPA fallback.
 pub fn router(state: AppState) -> Router {
@@ -58,7 +59,23 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(status::health))
         .route("/auth/nonce", get(auth::nonce))
         .route("/auth/logout", post(auth::logout))
-        .route("/auth/me", get(auth::me));
+        .route("/auth/me", get(auth::me))
+        // The admin API checks the session and admin mode in its extractors,
+        // so that refusals are audited.
+        .route("/admin/session/nonce", get(admin::session_nonce))
+        .route(
+            "/admin/session",
+            get(admin::session_get)
+                .post(admin::session_enter)
+                .delete(admin::session_exit),
+        )
+        .route("/admin/actions/nonce", post(admin::action_nonce))
+        .route("/admin/actions", post(admin::action_run))
+        .route("/admin/overview", get(admin::overview))
+        .route("/admin/users", get(admin::users))
+        .route("/admin/whitelist", get(admin::whitelist))
+        .route("/admin/audit", get(admin::audit))
+        .route("/admin/{*rest}", any(admin::not_found));
     let api = protected
         .merge(open)
         .route_layer(from_fn_with_state(state.clone(), require_origin))

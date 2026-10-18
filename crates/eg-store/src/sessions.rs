@@ -193,6 +193,74 @@ impl Store {
             .transpose()
     }
 
+    /// Starts admin mode for the live login session `parent_raw`: an admin
+    /// session of the same user, bound to that login session, expiring after
+    /// `ttl` but never after the login session. Appends `audit` in the same
+    /// transaction. `None` (and nothing stored) when `parent_raw` is not a
+    /// live login session.
+    pub async fn admin_session_create_audited(
+        &self,
+        parent_raw: &str,
+        ttl: Duration,
+        ip: Option<&str>,
+        user_agent: Option<&str>,
+        audit: &AuditEntry,
+    ) -> Result<Option<String>> {
+        let Some(parent) = token_hash(parent_raw) else {
+            return Ok(None);
+        };
+        let token: [u8; TOKEN_BYTES] = rand::random();
+        let mut tx = self.pool.begin().await?;
+        let res = sqlx::query(
+            "INSERT INTO sessions (token_hash, user_id, kind, expires_at, ip, user_agent, parent) \
+             SELECT $1, user_id, 'admin', LEAST(now() + make_interval(secs => $3), expires_at), \
+             $4, $5, token_hash FROM sessions \
+             WHERE token_hash = $2 AND kind = 'user' AND expires_at > now()",
+        )
+        .bind(Sha256::digest(token).to_vec())
+        .bind(parent)
+        .bind(secs(ttl))
+        .bind(ip)
+        .bind(user_agent)
+        .execute(&mut *tx)
+        .await?;
+        if res.rows_affected() == 0 {
+            return Ok(None);
+        }
+        insert_audit(&mut *tx, audit).await?;
+        tx.commit().await?;
+        Ok(Some(hex::encode(token)))
+    }
+
+    /// The live admin session `admin_raw` and its user, when it was started
+    /// from the live login session `parent_raw`.
+    pub async fn admin_session_lookup(
+        &self,
+        admin_raw: &str,
+        parent_raw: &str,
+    ) -> Result<Option<(SessionRow, UserRow)>> {
+        let (Some(hash), Some(parent)) = (token_hash(admin_raw), token_hash(parent_raw)) else {
+            return Ok(None);
+        };
+        let sql = concat!(
+            "SELECT s.user_id, s.kind, s.created_at AS s_created_at, s.expires_at, s.ip, \
+             s.user_agent, ",
+            user_cols!(),
+            " FROM sessions s JOIN sessions p ON p.token_hash = s.parent \
+             JOIN users ON users.id = s.user_id \
+             WHERE s.token_hash = $1 AND s.kind = 'admin' AND s.expires_at > now() \
+             AND p.token_hash = $2 AND p.kind = 'user' AND p.expires_at > now() \
+             AND p.user_id = s.user_id"
+        );
+        let row = sqlx::query(sql)
+            .bind(hash)
+            .bind(parent)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(|r| Ok((session_row(&r)?, user_row(&r)?)))
+            .transpose()
+    }
+
     /// Returns whether a session was deleted.
     pub async fn session_delete(&self, raw: &str) -> Result<bool> {
         let Some(hash) = token_hash(raw) else {
@@ -575,6 +643,94 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(sessions, 1);
+    }
+
+    #[sqlx::test]
+    async fn admin_sessions_belong_to_the_login_session_that_entered_them(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (a, b) = (user(&s, 1).await, user(&s, 2).await);
+        let ttl = Duration::days(1);
+        let login = |id| {
+            let s = s.clone();
+            async move {
+                s.session_create(id, SessionKind::User, ttl, None, None)
+                    .await
+                    .unwrap()
+            }
+        };
+        let (a1, a2, b1) = (login(a.id).await, login(a.id).await, login(b.id).await);
+        let hour = Duration::hours(1);
+        let entry = login_entry(AuditOutcome::Ok);
+        let admin = s
+            .admin_session_create_audited(&a1, hour, Some("1.2.3.4"), Some("ua"), &entry)
+            .await
+            .unwrap()
+            .expect("a1 is a live login session");
+        assert_eq!(audit_count(&s).await, 1);
+        let (sess, owner) = s.admin_session_lookup(&admin, &a1).await.unwrap().unwrap();
+        assert_eq!(owner, a);
+        assert_eq!(sess.kind, SessionKind::Admin);
+        assert_eq!(sess.ip.as_deref(), Some("1.2.3.4"));
+        // Another login of the same user, another user's login, the admin
+        // token in the login slot, a login token in the admin slot, junk.
+        for (adm, parent) in [
+            (admin.as_str(), a2.as_str()),
+            (admin.as_str(), b1.as_str()),
+            (admin.as_str(), admin.as_str()),
+            (a1.as_str(), a1.as_str()),
+            (admin.as_str(), "garbage"),
+            ("garbage", a1.as_str()),
+        ] {
+            assert!(
+                s.admin_session_lookup(adm, parent).await.unwrap().is_none(),
+                "{adm} / {parent}"
+            );
+        }
+        // Only a live login session can enter admin mode; a refusal stores
+        // neither a session nor the audit row.
+        let expired = s
+            .session_create(a.id, SessionKind::User, Duration::seconds(-1), None, None)
+            .await
+            .unwrap();
+        for parent in [admin.as_str(), expired.as_str(), "garbage"] {
+            assert!(
+                s.admin_session_create_audited(parent, hour, None, None, &entry)
+                    .await
+                    .unwrap()
+                    .is_none(),
+                "{parent}"
+            );
+        }
+        assert_eq!(audit_count(&s).await, 1);
+        // Never outlives its login session.
+        let short = s
+            .session_create(a.id, SessionKind::User, Duration::minutes(5), None, None)
+            .await
+            .unwrap();
+        let short_admin = s
+            .admin_session_create_audited(&short, hour, None, None, &entry)
+            .await
+            .unwrap()
+            .unwrap();
+        let (login_row, _) = s
+            .session_lookup(&short, SessionKind::User)
+            .await
+            .unwrap()
+            .unwrap();
+        let (admin_row, _) = s
+            .admin_session_lookup(&short_admin, &short)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(admin_row.expires_at <= login_row.expires_at);
+        // Ending the login session ends its admin session.
+        assert!(s.session_delete(&a1).await.unwrap());
+        assert!(
+            s.session_lookup(&admin, SessionKind::Admin)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[sqlx::test]

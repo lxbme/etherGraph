@@ -2,14 +2,15 @@
 //! `/api` routes on them.
 
 use alloy_primitives::Address;
-use axum::extract::{FromRequestParts, Request, State};
+use axum::extract::{FromRequestParts, OriginalUri, Request, State};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, Method, header};
 use axum::middleware::Next;
 use axum::response::Response;
-use eg_store::{SessionKind, UserRow};
+use eg_store::{AuditEntry, AuditOutcome, SessionKind, SessionRow, UserRow};
 
 use super::{ADMIN_COOKIE, SESSION_COOKIE, client_ip, cookie, rate_key, user_agent};
+use crate::dto::hex_addr;
 use crate::error::ApiError;
 use crate::state::AppState;
 
@@ -59,27 +60,52 @@ impl FromRequestParts<AppState> for CurrentUser {
     }
 }
 
-/// Whether the request's `eg_admin` cookie names a live admin-mode session
-/// of `user`.
-pub async fn in_admin_mode(
+/// The live admin-mode session of the request: its `eg_admin` cookie names
+/// an admin session of `user` that was started from the request's own
+/// `eg_session` login session (an admin cookie left over from an earlier
+/// login does not count).
+pub async fn admin_session(
     state: &AppState,
     headers: &HeaderMap,
     user: &CurrentUser,
-) -> Result<bool, ApiError> {
+) -> Result<Option<SessionRow>, ApiError> {
     if !user.is_admin {
-        return Ok(false);
+        return Ok(None);
     }
-    let Some(raw) = cookie(headers, ADMIN_COOKIE) else {
-        return Ok(false);
+    let (Some(admin), Some(login)) = (
+        cookie(headers, ADMIN_COOKIE),
+        cookie(headers, SESSION_COOKIE),
+    ) else {
+        return Ok(None);
     };
-    let found = state.store.session_lookup(raw, SessionKind::Admin).await?;
-    Ok(found.is_some_and(|(s, _)| s.user_id == user.id))
+    let found = state.store.admin_session_lookup(admin, login).await?;
+    Ok(found.filter(|(s, _)| s.user_id == user.id).map(|(s, _)| s))
+}
+
+/// A logged-in configured admin (`auth.admins`), in admin mode or not.
+/// Rejects without a session with 401 `unauthorized` (`no_session`), and a
+/// user who is not a configured admin with 404 `not_found` (the admin API
+/// does not exist for them) after auditing the attempt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AdminUser(pub CurrentUser);
+
+impl FromRequestParts<AppState> for AdminUser {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
+        let user = CurrentUser::from_request_parts(parts, state).await?;
+        if !user.is_admin {
+            deny_admin_access(parts, state, &user, "not_admin").await?;
+            return Err(ApiError::not_found("no such API route"));
+        }
+        Ok(AdminUser(user))
+    }
 }
 
 /// A configured admin in admin mode: a live `eg_session` session plus a live
-/// `eg_admin` admin-mode session of the same user. Rejects without a session
-/// or admin-mode session with 401 `unauthorized`, and a user who is not a
-/// configured admin with 404 `not_found` (the admin API does not exist for them).
+/// `eg_admin` admin-mode session started from it. Rejects like [`AdminUser`],
+/// and without admin mode with 401 `unauthorized` (`no_admin_session`),
+/// audited.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AdminMode(pub CurrentUser);
 
@@ -87,15 +113,55 @@ impl FromRequestParts<AppState> for AdminMode {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
-        let user = CurrentUser::from_request_parts(parts, state).await?;
-        if !user.is_admin {
-            return Err(ApiError::not_found("no such API route"));
-        }
-        if !in_admin_mode(state, &parts.headers, &user).await? {
+        let AdminUser(user) = AdminUser::from_request_parts(parts, state).await?;
+        if admin_session(state, &parts.headers, &user).await?.is_none() {
+            deny_admin_access(parts, state, &user, "no_admin_session").await?;
             return Err(ApiError::unauthorized("no_admin_session"));
         }
         Ok(AdminMode(user))
     }
+}
+
+/// Longest request line kept as an `admin_access` audit target.
+const MAX_AUDIT_TARGET: usize = 256;
+
+/// Audits a refused admin API request (`admin_access`, `denied`, the
+/// request's method and path as target).
+async fn deny_admin_access(
+    parts: &mut Parts,
+    state: &AppState,
+    user: &CurrentUser,
+    reason: &str,
+) -> Result<(), ApiError> {
+    let meta = ClientMeta::from_request_parts(parts, state)
+        .await
+        .unwrap_or_else(|never| match never {});
+    // The full path: nested routers see it without their prefix.
+    let uri = parts
+        .extensions
+        .get::<OriginalUri>()
+        .map_or(&parts.uri, |OriginalUri(u)| u);
+    state
+        .store
+        .audit_append(&AuditEntry {
+            actor: hex_addr(user.address),
+            action: "admin_access".into(),
+            target: Some(
+                format!("{} {}", parts.method, uri.path())
+                    .chars()
+                    .take(MAX_AUDIT_TARGET)
+                    .collect(),
+            ),
+            before: None,
+            after: Some(serde_json::json!({ "reason": reason })),
+            outcome: AuditOutcome::Denied,
+            ip: meta.ip,
+            user_agent: meta.user_agent,
+            message: None,
+            signature: None,
+        })
+        .await?;
+    Ok(())
 }
 
 /// Client IP (D7) and `User-Agent`, for sessions and audit rows.

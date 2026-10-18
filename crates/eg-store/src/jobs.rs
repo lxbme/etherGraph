@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use eg_core::source::Priority;
 use serde::{Deserialize, Serialize};
@@ -360,6 +362,22 @@ impl Store {
         )
         .fetch_all(&self.pool)
         .await?)
+    }
+
+    /// Per user, how many of their jobs wait for quota (paused on the
+    /// server's or their own); users without such jobs are omitted.
+    pub async fn user_waiting_job_counts(&self) -> Result<HashMap<i64, u32>> {
+        let rows: Vec<(i64, i64)> = sqlx::query_as(
+            "SELECT user_id, count(*) FROM jobs \
+             WHERE status IN ('paused_quota', 'paused_user_quota') AND user_id IS NOT NULL \
+             GROUP BY user_id",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(u, n)| (u, u32::try_from(n).unwrap_or(u32::MAX)))
+            .collect())
     }
 
     /// Pending and quota-paused (server or user) jobs become cancelled;
@@ -998,5 +1016,22 @@ mod tests {
         );
         assert_eq!(s.resume_user_paused(None).await.unwrap(), 1);
         assert!(s.user_paused_owners().await.unwrap().is_empty());
+    }
+
+    #[sqlx::test]
+    async fn waiting_job_counts_per_user(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (a, b) = (user(&s, 0xa0).await, user(&s, 0xb0).await);
+        let bg = Priority::Background;
+        s.enqueue_user_paused(&owned("a1", bg, a)).await.unwrap();
+        s.enqueue_user_paused(&owned("a2", bg, a)).await.unwrap();
+        let (b1, _) = s.enqueue(&owned("b1", bg, b)).await.unwrap();
+        s.pause_job_quota(b1).await.unwrap();
+        // Pending, running and system jobs are not waiting for quota.
+        s.enqueue(&owned("b2", bg, b)).await.unwrap();
+        let (sys, _) = s.enqueue(&nj("sys", bg)).await.unwrap();
+        s.pause_job_quota(sys).await.unwrap();
+        let counts = s.user_waiting_job_counts().await.unwrap();
+        assert_eq!(counts, HashMap::from([(a, 2), (b, 1)]));
     }
 }

@@ -11,12 +11,13 @@ use chrono::{Duration, Utc};
 use eg_store::{AuditEntry, AuditOutcome, NoncePurpose, SessionKind, StoreError, UserRow};
 use serde::Deserialize;
 
-use crate::auth::extract::{ClientMeta, CurrentUser, in_admin_mode, origin_ok};
+use crate::auth::extract::{ClientMeta, CurrentUser, origin_ok};
 use crate::auth::siwe::{
     self, LOGIN_STATEMENT, MAX_MESSAGE_LEN, VerifyError, canonical_message, claimed,
 };
 use crate::auth::{
-    ADMIN_COOKIE, ADMIN_COOKIE_PATH, SESSION_COOKIE, cookie, open_registration, set_cookie,
+    ADMIN_COOKIE, ADMIN_COOKIE_PATH, MAX_AUDIT_SIGNATURE, SESSION_COOKIE, cookie,
+    open_registration, set_cookie,
 };
 use crate::background::next_utc_midnight;
 use crate::dto::{LoginDto, MeDto, QuotaDto, SiweFieldsDto, hex_addr, rfc3339};
@@ -26,8 +27,6 @@ use crate::routes::ApiQuery;
 use crate::state::AppState;
 
 const OPEN_REGISTRATION_ADDED_BY: &str = "open-registration";
-/// Longest signature (hex characters) copied into the audit log.
-const MAX_AUDIT_SIGNATURE: usize = 4098;
 
 #[derive(Deserialize)]
 pub struct NonceQuery {
@@ -124,7 +123,7 @@ pub async fn login(
     let failed = |attempt: &Attempt| entry(attempt, Some(&body), AuditOutcome::Failed, None);
     match verify_login(&s, &body, &mut attempt).await {
         Ok(user) => {
-            let me = me_dto(&s, &user, false);
+            let me = me_dto(&s, &user);
             let ttl = Duration::days(i64::from(s.cfg.auth.session_days));
             let created = s
                 .store
@@ -269,27 +268,21 @@ pub async fn logout(
 }
 
 /// `GET /api/auth/me`: the logged-in user, or 401.
-pub async fn me(
-    State(s): State<AppState>,
-    user: CurrentUser,
-    headers: HeaderMap,
-) -> Result<Json<MeDto>, ApiError> {
+pub async fn me(State(s): State<AppState>, user: CurrentUser) -> Result<Json<MeDto>, ApiError> {
     let row = s
         .store
         .user_by_id(user.id)
         .await?
         .ok_or_else(|| ApiError::unauthorized("no_session"))?;
-    let admin_mode = in_admin_mode(&s, &headers, &user).await?;
-    Ok(Json(me_dto(&s, &row, admin_mode)))
+    Ok(Json(me_dto(&s, &row)))
 }
 
 /// The quota figures are the rate gate's live per-user count and limit.
-fn me_dto(s: &AppState, user: &UserRow, admin_mode: bool) -> MeDto {
+fn me_dto(s: &AppState, user: &UserRow) -> MeDto {
     let q = s.gate.user_quota(user.id);
     MeDto {
         address: hex_addr(user.address),
         is_admin: s.auth.is_admin(user.address),
-        admin_mode,
         quota: QuotaDto {
             used: q.used,
             limit: q.limit,

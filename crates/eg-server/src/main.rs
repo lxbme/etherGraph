@@ -122,45 +122,33 @@ async fn import_labels_cmd(
         }
         _ => {}
     }
-    let cfg = Config::read(config)?;
-    anyhow::ensure!(
-        !cfg.server.database_url.trim().is_empty(),
-        "server.database_url (or DATABASE_URL) is required"
+    let store = connect(config).await?;
+    println!(
+        "{}",
+        eg_server::cli::import_labels(&store, dataset, csv).await?
     );
-    let file = std::fs::File::open(csv).with_context(|| format!("opening {}", csv.display()))?;
-    let store = Store::connect(&cfg.server.database_url)
-        .await
-        .context("connecting to the database")?;
-    match dataset {
-        Some(dataset) => {
-            let (imported, skipped) =
-                eg_server::import_labels::import_labels(&store, dataset, file).await?;
-            println!("imported {imported}, skipped {skipped}");
-        }
-        None => {
-            let (mainnet, xchain, skipped) =
-                eg_server::eth_labels::import_eth_labels(&store, file).await?;
-            println!("imported {mainnet} mainnet, {xchain} cross-chain, skipped {skipped}");
-        }
-    }
     Ok(())
 }
 
 async fn import_tokens_cmd(config: &Path, format: TokenFormat, path: &Path) -> anyhow::Result<()> {
+    let store = connect(config).await?;
+    println!(
+        "{}",
+        eg_server::cli::import_tokens(&store, format, path).await?
+    );
+    Ok(())
+}
+
+/// The database of the config at `config`, for a command-line import.
+async fn connect(config: &Path) -> anyhow::Result<Store> {
     let cfg = Config::read(config)?;
     anyhow::ensure!(
         !cfg.server.database_url.trim().is_empty(),
         "server.database_url (or DATABASE_URL) is required"
     );
-    let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
-    let store = Store::connect(&cfg.server.database_url)
+    Store::connect(&cfg.server.database_url)
         .await
-        .context("connecting to the database")?;
-    let (imported, skipped) =
-        eg_server::import_tokens::import_tokens(&store, format, std::io::BufReader::new(file))
-            .await?;
-    println!("imported {imported}, skipped {skipped}");
-    Ok(())
+        .context("connecting to the database")
 }
 
 async fn serve(path: &Path, source: Option<SourceMode>) -> anyhow::Result<()> {

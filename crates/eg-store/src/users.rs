@@ -74,6 +74,15 @@ impl Store {
         r.as_ref().map(user_row).transpose()
     }
 
+    pub async fn user_by_address(&self, addr: Address) -> Result<Option<UserRow>> {
+        let sql = concat!("SELECT ", user_cols!(), " FROM users WHERE address = $1");
+        let r = sqlx::query(sql)
+            .bind(addr_to_bytes(addr))
+            .fetch_optional(&self.pool)
+            .await?;
+        r.as_ref().map(user_row).transpose()
+    }
+
     /// Every user with their calls on `day` (0 without a usage row), by id.
     pub async fn users_with_usage(&self, day: NaiveDate) -> Result<Vec<UserUsageRow>> {
         let sql = concat!(
@@ -263,6 +272,23 @@ mod tests {
         assert!(again.last_login_at.unwrap() >= first_login);
         assert_eq!(s.user_by_id(first.id).await.unwrap(), Some(again));
         assert_eq!(s.user_by_id(9999).await.unwrap(), None);
+    }
+
+    #[sqlx::test]
+    async fn user_by_address_finds_only_known_users(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let a = s
+            .upsert_user_on_login(Address::repeat_byte(1))
+            .await
+            .unwrap();
+        assert_eq!(
+            s.user_by_address(Address::repeat_byte(1)).await.unwrap(),
+            Some(a)
+        );
+        assert_eq!(
+            s.user_by_address(Address::repeat_byte(2)).await.unwrap(),
+            None
+        );
     }
 
     #[sqlx::test]

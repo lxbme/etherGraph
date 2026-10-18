@@ -5,6 +5,7 @@
 //! the public origin is plain-http local development. Only the SHA-256 of a
 //! token is stored.
 
+pub mod actions;
 pub mod extract;
 pub mod ratelimit;
 pub mod siwe;
@@ -35,6 +36,9 @@ pub const AUTH_REQUESTS_PER_MINUTE: u32 = 10;
 /// How often an open event stream re-checks its session; the stream ends
 /// once the session is gone (logged out, revoked or expired).
 pub const SESSION_RECHECK_EVERY: Duration = Duration::from_secs(30);
+
+/// Longest signature (hex characters) copied into the audit log.
+pub const MAX_AUDIT_SIGNATURE: usize = 4098;
 
 /// Longest `User-Agent` kept in sessions and the audit log.
 const MAX_USER_AGENT: usize = 256;

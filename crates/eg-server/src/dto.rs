@@ -9,7 +9,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use eg_core::filter::Edge;
 use eg_core::source::{Priority, TokenInfo};
 use eg_core::types::{Address, Transfer, TransferKind};
-use eg_store::{JobRow, LabelRow, SyncRow};
+use eg_store::{AuditRow, JobRow, LabelRow, SyncRow};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -212,11 +212,184 @@ pub struct QuotaDto {
 #[ts(export)]
 pub struct MeDto {
     pub address: String,
-    /// A configured admin.
+    /// A configured admin. Whether admin mode is on is
+    /// `GET /api/admin/session` (the `eg_admin` cookie reaches only `/api/admin`).
     pub is_admin: bool,
-    /// The request carried a live admin-mode session.
-    pub admin_mode: bool,
     pub quota: QuotaDto,
+}
+
+// ------------------------------------------------------------------- admin
+
+/// `GET`/`POST /api/admin/session`: the live admin-mode session.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AdminSessionDto {
+    pub address: String,
+    pub expires_at: String,
+}
+
+/// A sensitive admin operation; each one needs its own wallet signature
+/// (`POST /api/admin/actions/nonce`, then `POST /api/admin/actions`).
+/// Addresses are hex strings; `calls` are Etherscan calls per day.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type")]
+#[ts(export)]
+pub enum AdminAction {
+    WhitelistAdd {
+        address: String,
+    },
+    // Also ends every session of that address's user.
+    WhitelistRemove {
+        address: String,
+    },
+    SetOpenRegistration {
+        open: bool,
+    },
+    SetDefaultQuota {
+        calls: i32,
+    },
+    // `calls: null` returns the user to the default quota.
+    SetUserQuota {
+        address: String,
+        calls: Option<i32>,
+    },
+    RevokeSessions {
+        address: String,
+    },
+    // RFC 3339 bounds, inclusive; `null` is unbounded. Returns the rows.
+    ExportAudit {
+        from: Option<String>,
+        to: Option<String>,
+    },
+}
+
+/// `POST /api/admin/actions/nonce`.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AdminActionNonceRequestDto {
+    pub action: AdminAction,
+}
+
+/// The message to sign for one action: a line describing the change with
+/// its concrete values, then `Nonce: …` and `Issued At: …`. Valid for five
+/// minutes.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AdminActionNonceDto {
+    pub nonce: String,
+    pub message: String,
+}
+
+/// `POST /api/admin/actions`: the action exactly as requested for `nonce`,
+/// and the wallet's signature (hex) of that nonce's message.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AdminActionRequestDto {
+    pub action: AdminAction,
+    pub nonce: String,
+    pub signature: String,
+}
+
+/// What an executed action changed (as in its audit row); `rows` only for
+/// `ExportAudit`.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AdminActionResultDto {
+    pub before: Option<serde_json::Value>,
+    pub after: Option<serde_json::Value>,
+    pub rows: Option<Vec<AuditRowDto>>,
+}
+
+/// `GET /api/admin/overview`.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AdminOverviewDto {
+    pub open_registration: bool,
+    /// Daily calls of a user without their own quota.
+    pub default_quota: u32,
+    /// The server's Etherscan calls today and its daily total.
+    pub server_used: u32,
+    pub server_limit: u32,
+    /// Next UTC midnight.
+    pub reset_at: String,
+}
+
+/// `GET /api/admin/users`: usage figures only, never what a user looked at.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AdminUserDto {
+    pub address: String,
+    pub is_admin: bool,
+    pub created_at: String,
+    pub last_login_at: Option<String>,
+    pub used_today: u32,
+    /// The effective daily limit.
+    pub quota_limit: u32,
+    /// The user's own quota; `null` when the default applies.
+    pub quota_override: Option<i32>,
+    /// Jobs waiting for quota (the server's or the user's own).
+    pub waiting_jobs: u32,
+}
+
+/// `GET /api/admin/whitelist`.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct WhitelistEntryDto {
+    pub address: String,
+    /// The address of the admin who added it, or `open-registration`.
+    pub added_by: String,
+    pub added_at: String,
+}
+
+/// One audit-log row.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AuditRowDto {
+    #[ts(type = "number")]
+    pub id: i64,
+    pub at: String,
+    /// An address, `cli`, or `unknown`.
+    pub actor: String,
+    pub action: String,
+    pub target: Option<String>,
+    pub before: Option<serde_json::Value>,
+    pub after: Option<serde_json::Value>,
+    #[ts(type = r#""ok" | "denied" | "failed""#)]
+    pub outcome: String,
+    pub ip: Option<String>,
+    pub user_agent: Option<String>,
+    pub message: Option<String>,
+    pub signature: Option<String>,
+}
+
+impl From<&AuditRow> for AuditRowDto {
+    fn from(r: &AuditRow) -> Self {
+        let e = &r.entry;
+        Self {
+            id: r.id,
+            at: rfc3339_micros(r.at),
+            actor: e.actor.clone(),
+            action: e.action.clone(),
+            target: e.target.clone(),
+            before: e.before.clone(),
+            after: e.after.clone(),
+            outcome: e.outcome.as_str().to_owned(),
+            ip: e.ip.clone(),
+            user_agent: e.user_agent.clone(),
+            message: e.message.clone(),
+            signature: e.signature.clone(),
+        }
+    }
+}
+
+/// `GET /api/admin/audit`: newest first; pass `next_cursor` as `cursor` for
+/// the next (older) page, `null` on the last one.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AuditPageDto {
+    pub rows: Vec<AuditRowDto>,
+    #[ts(type = "number | null")]
+    pub next_cursor: Option<i64>,
 }
 
 // ------------------------------------------------------------------ search

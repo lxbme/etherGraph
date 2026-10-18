@@ -1,4 +1,5 @@
 pub mod address;
+pub mod admin;
 pub mod auth;
 pub mod batches;
 pub mod counterparties;

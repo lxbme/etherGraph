@@ -17,7 +17,7 @@ use eg_server::auth::siwe::canonical_message;
 use eg_server::config::Config;
 use eg_server::dto::SiweFieldsDto;
 use eg_store::{
-    AuditFilter, AuditOutcome, AuditRow, SETTING_OPEN_REGISTRATION, SessionKind, Store,
+    AuditEntry, AuditFilter, AuditOutcome, AuditRow, SETTING_OPEN_REGISTRATION, SessionKind, Store,
 };
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -192,7 +192,8 @@ async fn login_happy_path_sets_a_session_cookie(pool: PgPool) {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["address"], format!("{addr:#x}"));
     assert_eq!(body["is_admin"], false);
-    assert_eq!(body["admin_mode"], false);
+    // Admin mode is `GET /api/admin/session` (the cookie only reaches /api/admin).
+    assert!(body.get("admin_mode").is_none(), "{body}");
     assert_eq!(body["quota"]["used"], 0);
     assert_eq!(body["quota"]["limit"], 5000);
     assert!(body["quota"]["reset_at"].is_string());
@@ -418,7 +419,6 @@ async fn admins_log_in_without_being_whitelisted(pool: PgPool) {
     let cookie = login_as(&app, &key).await;
     let (_, me) = get_as(&app, &cookie, "/api/auth/me").await;
     assert_eq!(me["is_admin"], true);
-    assert_eq!(me["admin_mode"], false);
     // Not added to the whitelist: admin status comes from the config.
     assert!(state.store.whitelist_list().await.unwrap().is_empty());
 }
@@ -479,14 +479,11 @@ async fn logout_ends_admin_mode_and_a_new_login_does_not_resume_it(pool: PgPool)
         .upsert_user_on_login(key_address(&key))
         .await
         .unwrap();
-    let admin = state
-        .store
-        .session_create(user.id, SessionKind::Admin, Duration::hours(1), None, None)
-        .await
-        .unwrap();
+    let admin = admin_session_for(&state.store, &cookie).await;
+    assert_eq!(user.address, key_address(&key));
     let both = |session: &str| format!("{session}; eg_admin={admin}");
-    let (_, me) = get_as(&app, &both(&cookie), "/api/auth/me").await;
-    assert_eq!(me["admin_mode"], true);
+    let (status, _) = get_as(&app, &both(&cookie), "/api/admin/session").await;
+    assert_eq!(status, StatusCode::OK);
 
     let req = Request::post("/api/auth/logout")
         .header(header::COOKIE, &cookie)
@@ -504,9 +501,32 @@ async fn logout_ends_admin_mode_and_a_new_login_does_not_resume_it(pool: PgPool)
     );
     // The browser may still hold the old eg_admin cookie.
     let again = login_as(&app, &key).await;
-    let (status, me) = get_as(&app, &both(&again), "/api/auth/me").await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(me["admin_mode"], false);
+    let (status, body) = get_as(&app, &both(&again), "/api/admin/session").await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(reason(&body), "no_admin_session");
+}
+
+/// An admin-mode session started from the login session of `cookie`
+/// (`eg_session=…`), as `POST /api/admin/session` creates it.
+async fn admin_session_for(store: &Store, cookie: &str) -> String {
+    let login = cookie.strip_prefix("eg_session=").unwrap_or(cookie);
+    let entry = AuditEntry {
+        actor: "test".into(),
+        action: "admin_mode_enter".into(),
+        target: None,
+        before: None,
+        after: None,
+        outcome: AuditOutcome::Ok,
+        ip: None,
+        user_agent: None,
+        message: None,
+        signature: None,
+    };
+    store
+        .admin_session_create_audited(login, Duration::hours(1), None, None, &entry)
+        .await
+        .unwrap()
+        .expect("a live login session")
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
@@ -830,10 +850,13 @@ async fn admin_mode_needs_both_sessions_of_a_configured_admin(pool: PgPool) {
         .await
         .unwrap();
     let a_user = session(a.id, SessionKind::User).await;
-    let a_admin = session(a.id, SessionKind::Admin).await;
-    let b_admin = session(b.id, SessionKind::Admin).await;
+    let a_admin = admin_session_for(store, &a_user).await;
+    let b_user = session(b.id, SessionKind::User).await;
+    let b_admin = admin_session_for(store, &b_user).await;
     let plain_user = session(plain.id, SessionKind::User).await;
-    let plain_admin = session(plain.id, SessionKind::Admin).await;
+    let plain_admin = admin_session_for(store, &plain_user).await;
+    // An admin-kind session not started from a login session.
+    let unbound = session(a.id, SessionKind::Admin).await;
 
     let call = |cookie: String| {
         let app = app.clone();
@@ -855,6 +878,8 @@ async fn admin_mode_needs_both_sessions_of_a_configured_admin(pool: PgPool) {
         format!("eg_session={a_user}"),
         format!("eg_session={a_user}; eg_admin={b_admin}"),
         format!("eg_session={a_user}; eg_admin={a_user}"),
+        format!("eg_session={a_user}; eg_admin={unbound}"),
+        format!("eg_session={b_user}; eg_admin={a_admin}"),
     ] {
         let (status, body) = call(cookie.clone()).await;
         assert_eq!(status, StatusCode::UNAUTHORIZED, "{cookie}");

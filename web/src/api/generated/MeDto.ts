@@ -6,10 +6,7 @@ import type { QuotaDto } from "./QuotaDto";
  */
 export type MeDto = { address: string, 
 /**
- * A configured admin.
+ * A configured admin. Whether admin mode is on is
+ * `GET /api/admin/session` (the `eg_admin` cookie reaches only `/api/admin`).
  */
-is_admin: boolean, 
-/**
- * The request carried a live admin-mode session.
- */
-admin_mode: boolean, quota: QuotaDto, };
+is_admin: boolean, quota: QuotaDto, };
