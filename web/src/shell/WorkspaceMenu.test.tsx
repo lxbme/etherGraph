@@ -10,6 +10,9 @@ import { useWorkspace } from "../workspace/useWorkspace";
 import { serialize } from "../workspace/serialize";
 import { WorkspaceMenu } from "./WorkspaceMenu";
 import { formatLocalTime } from "../lib/format";
+import { clearExport, requestImport, useFileRequest } from "../workspace/fileRequest";
+import { useTabs } from "./tabs";
+import { clearToasts, Toasts } from "./Toasts";
 
 vi.mock("../api/endpoints", () => ({
   api: { createWorkspace: vi.fn(), updateWorkspace: vi.fn(), workspace: vi.fn(), workspaces: vi.fn(), deleteWorkspace: vi.fn() },
@@ -18,6 +21,7 @@ const cyHolder = vi.hoisted(() => ({ cy: null as unknown }));
 vi.mock("../graph/cyRegistry", () => ({ getMainCy: () => cyHolder.cy, setMainCy: vi.fn() }));
 const m = vi.mocked(api);
 const A = "0x" + "a".repeat(40);
+const B = "0x" + "b".repeat(40);
 const dto = (over: Partial<WorkspaceDto> = {}): WorkspaceDto => ({
   id: 7, name: "w", schema_version: 1, state: {}, created_at: "T0", updated_at: "T1", ...over,
 });
@@ -136,49 +140,98 @@ describe("WorkspaceMenu", () => {
     expect(useWorkspace.getState().dirty).toBe(false);
   });
 
-  describe("export", () => {
-    let created: Blob[];
-    let names: string[];
-    beforeEach(() => {
-      created = [];
-      names = [];
-      URL.createObjectURL = vi.fn((b: Blob | MediaSource) => {
-        created.push(b as Blob);
-        return "blob:x";
-      });
-      URL.revokeObjectURL = vi.fn();
-      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
-        names.push(this.download);
-      });
+  describe("files", () => {
+    const H = "0x" + "1".repeat(64);
+    /** A minimal graph file with A as center. */
+    const graphFile = () => ({
+      format: "ethergraph", version: 1, kind: "graph", exported_at: "2026-10-01T00:00:00Z", includes: { labels: false, notes: false },
+      state: {
+        graph: {
+          ...serialize({ ...useGraph.getState(), centers: [A] }, { zoom: 1, pan: { x: 0, y: 0 } }),
+          snapshot: { exported_at: "2026-10-01T00:00:00Z", includes: { labels: false, notes: false }, data: { nodes: [], edges: [], omitted: {}, coverage: {} } },
+        },
+        tabs: [],
+        active: "graph",
+      },
     });
+    const fileOf = (v: unknown) => new File([JSON.stringify(v)], "x.ethergraph.json", { type: "application/json" });
 
-    test("image export moved to the canvas tools: the menu has no Export PNG", async () => {
+    test("the menu exports and imports files; image and JSON export are gone", async () => {
       render(<WorkspaceMenu />);
       await userEvent.click(screen.getByRole("button", { name: "Workspace menu" }));
       expect(screen.queryByRole("menuitem", { name: /PNG/ })).toBeNull();
-      expect(screen.getByRole("menuitem", { name: "Export JSON" })).toBeInTheDocument();
+      expect(screen.queryByRole("menuitem", { name: /JSON/ })).toBeNull();
+      expect(screen.getByRole("menuitem", { name: "Import file…" })).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("menuitem", { name: "Export workspace file…" }));
+      expect(useFileRequest.getState().exporting).toEqual({ kind: "workspace" });
+      act(() => clearExport());
     });
 
-    test("JSON export downloads the serialized state with the name", async () => {
-      cyHolder.cy = {
-        nodes: () => ({ forEach: () => {} }),
-        zoom: () => 2,
-        pan: () => ({ x: 1, y: 2 }),
-        getElementById: () => ({ nonempty: () => false }),
-        viewport: () => {},
-      };
-      useGraph.getState().addCenter(A);
-      useWorkspace.getState().setCurrent(dto({ name: ".." }));
+    test("Import file… picks a .json file; a graph file opens as an unsaved workspace", async () => {
       render(<WorkspaceMenu />);
-      await pick("Export JSON");
-      expect(names).toEqual(["ethergraph-untitled.json"]);
-      expect(created[0]!.type).toBe("application/json");
-      const body = JSON.parse(await created[0]!.text());
-      expect(body.schema_version).toBe(2);
-      expect(body.state.graph.centers).toEqual([A]);
-      expect(body.state.graph.viewport).toEqual({ zoom: 2, pan: { x: 1, y: 2 } });
-      expect(body.state.tabs).toEqual([]);
-      expect(URL.revokeObjectURL).toHaveBeenCalled();
+      const input = screen.getByTestId("import-file-input");
+      expect(input).toHaveAttribute("accept", ".json,application/json");
+      const click = vi.spyOn(input, "click");
+      await pick("Import file…");
+      expect(click).toHaveBeenCalled();
+      await userEvent.upload(input, fileOf(graphFile()));
+      await waitFor(() => expect(useGraph.getState().frozen).not.toBeNull());
+      expect(useGraph.getState().centers).toEqual([A]);
+      expect(useWorkspace.getState()).toMatchObject({ id: null, dirty: true });
+    });
+
+    test("with unsaved changes a dropped graph file asks first; Cancel leaves the workspace as it was", async () => {
+      useWorkspace.getState().setCurrent(dto());
+      useGraph.getState().addCenter(B);
+      expect(useWorkspace.getState().dirty).toBe(true);
+      render(<WorkspaceMenu />);
+      act(() => requestImport(fileOf(graphFile())));
+      const dialog = await screen.findByRole("dialog", { name: "Confirm" });
+      expect(within(dialog).getByText("This workspace has unsaved changes. Discard them and open the imported file?")).toBeInTheDocument();
+      await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      expect(useGraph.getState().centers).toEqual([B]);
+      expect(useWorkspace.getState().id).toBe(7);
+      act(() => requestImport(fileOf(graphFile())));
+      await userEvent.click(within(await screen.findByRole("dialog", { name: "Confirm" })).getByRole("button", { name: "OK" }));
+      expect(useGraph.getState().centers).toEqual([A]);
+      expect(useWorkspace.getState()).toMatchObject({ id: null, dirty: true });
+    });
+
+    test("a bad file shows one error and changes nothing", async () => {
+      useGraph.getState().addCenter(B);
+      render(
+        <>
+          <WorkspaceMenu />
+          <Toasts />
+        </>,
+      );
+      act(() => requestImport(fileOf({ ...graphFile(), version: 3 })));
+      expect(await screen.findByText("Cannot import the file: Unsupported etherGraph file version: 3")).toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(useGraph.getState().centers).toEqual([B]);
+      expect(useGraph.getState().frozen).toBeNull();
+      act(() => clearToasts());
+    });
+
+    test("a tx file opens its tab without asking, even with unsaved changes", async () => {
+      useGraph.getState().addCenter(B);
+      render(<WorkspaceMenu />);
+      const flow = {
+        tx: { hash: H, block_number: 1, ts: "T", from: A, to: null, value: "0", success: true, gas_used: "1", fee: "1", method: null, selector: null },
+        detail: {
+          nonce: 0, tx_type: 2, position: null, confirmations: null, gas_limit: "1", gas_used: "1", gas_price: null, effective_gas_price: null,
+          max_fee: null, max_priority_fee: null, base_fee: null, burnt_fee: null, savings: null, blob_gas_used: null, blob_gas_price: null,
+          blob_fee: null, access_list_len: null, contract_created: null, revert_reason: null, input: "0x", authorizations: [], delegations: [],
+        },
+        call: null, nodes: [], flows: [], events: [], completeness: "fund_flow",
+      };
+      const meta = { exported_at: "2026-10-01T00:00:00Z", includes: { labels: false, notes: false } };
+      const file = { ...graphFile(), kind: "tx", state: { graph: { ...graphFile().state.graph, centers: [], snapshot: undefined }, tabs: [{ hash: H, snapshot: { ...meta, flow, raw: null } }], active: H } };
+      act(() => requestImport(fileOf(file)));
+      await waitFor(() => expect(useTabs.getState().active).toBe(H));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(useGraph.getState().centers).toEqual([B]);
+      act(() => useTabs.getState().closeAllTx());
     });
   });
 

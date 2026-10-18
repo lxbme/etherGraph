@@ -17,6 +17,7 @@ import { Toasts } from "../shell/Toasts";
 import { getTxCy } from "../graph/cyRegistry";
 import { exportImage } from "../graph/exportImage";
 import { download } from "../lib/download";
+import { clearExport, useFileRequest } from "../workspace/fileRequest";
 import { TxFlowView, TxNodeDetail } from "./TxFlowView";
 
 vi.mock("../graph/exportImage", async (orig) => ({ ...(await orig<typeof import("../graph/exportImage")>()), exportImage: vi.fn() }));
@@ -451,6 +452,14 @@ describe("box selection", () => {
     expect(download).toHaveBeenLastCalledWith(blob, "ethergraph-tx-1111111111.png");
     cleanup();
     expect(getTxCy(HASH)).toBeNull();
+  });
+
+  test("the canvas tools' File… asks to export this tab as a file", async () => {
+    await selectBoth();
+    act(() => within(screen.getByRole("toolbar", { name: "Canvas tools" })).getByRole("button", { name: "Export" }).click());
+    act(() => within(screen.getByRole("menu", { name: "Export" })).getByRole("menuitem", { name: "File…" }).click());
+    expect(useFileRequest.getState().exporting).toEqual({ kind: "tx", tabHash: HASH });
+    act(() => clearExport());
   });
 
   test("the canvas tools toggle select mode for this canvas", async () => {

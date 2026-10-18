@@ -885,6 +885,8 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .dialog__name { flex: 1; font-family: var(--font-mono); font-size: var(--fs-12); }
 .dialog__calls { color: var(--fg-muted); font-size: var(--fs-12); }
 .dialog__summary { font-size: var(--fs-12); color: var(--fg-muted); }
+.dialog__check { display: flex; align-items: center; gap: var(--sp-2); cursor: pointer; }
+.dialog__check input { margin: 0; }
 .dialog__warn { font-size: var(--fs-12); color: color-mix(in srgb, var(--warn) 70%, var(--fg)); }
 
 /* Expansion dialog: budget meters, candidate tables, probe footer (spec §5.3–5.5). */

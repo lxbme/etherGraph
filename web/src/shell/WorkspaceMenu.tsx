@@ -4,12 +4,11 @@ import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import type { WorkspaceMetaDto } from "../api/generated/WorkspaceMetaDto";
 import { useT } from "../i18n";
-import { download, safeFileName } from "../lib/download";
 import { formatLocalTime, formatTime } from "../lib/format";
 import { clearSaveRequest, useSaveRequest } from "../workspace/saveRequest";
-import { SCHEMA_VERSION } from "../workspace/serialize";
+import { importBlob } from "../workspace/file";
+import { clearImport, requestExport, requestImport, useFileRequest } from "../workspace/fileRequest";
 import {
-  captureState,
   deleteWorkspace,
   loadWorkspace,
   newWorkspace,
@@ -223,10 +222,16 @@ export function WorkspaceMenu() {
       onConfirm: () => run(() => deleteWorkspace(id)),
     });
   };
-  const exportJson = () => {
-    const body = JSON.stringify({ name: name ?? t("ws.untitled"), schema_version: SCHEMA_VERSION, state: captureState() }, null, 2);
-    download(new Blob([body], { type: "application/json" }), `ethergraph-${safeFileName(name)}.json`);
-  };
+  // An imported file (picked here or dropped on the window): a graph or workspace file replaces the workspace,
+  // so it goes through the same unsaved-changes confirm as opening one.
+  const fileInput = useRef<HTMLInputElement>(null);
+  const importRequest = useFileRequest((s) => s.importing);
+  useEffect(() => {
+    if (!importRequest) return;
+    clearImport();
+    void importBlob(importRequest.file, (apply) => confirmDiscard(t("ws.discardImport"), apply));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- acts once per request
+  }, [importRequest]);
 
   const item = (label: string, fn: () => void, disabled = false) => (
     <button
@@ -256,9 +261,23 @@ export function WorkspaceMenu() {
           {item(t("ws.open"), () => setDialog({ kind: "open" }))}
           {item(t("ws.rename"), () => setDialog({ kind: "name", purpose: "rename" }), id == null)}
           {item(t("ws.delete"), onDelete, id == null)}
-          {item(t("ws.exportJson"), exportJson)}
+          {item(t("ws.exportFile"), () => requestExport("workspace"))}
+          {item(t("ws.importFile"), () => fileInput.current?.click())}
         </div>
       )}
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".json,application/json"
+        hidden
+        data-testid="import-file-input"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          // Cleared so picking the same file again is a change too.
+          e.target.value = "";
+          if (file) requestImport(file);
+        }}
+      />
       {dialog?.kind === "name" && (
         <NameDialog
           initial={dialog.purpose === "rename" ? name ?? "" : dialog.purpose === "saveAs" ? name ?? "" : ""}

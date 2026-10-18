@@ -299,6 +299,18 @@ function applyState({ graph: state, tabs, active }: WorkspaceStateV2): void {
   useTabs.getState().activate(active);
 }
 
+/** Opens a state that is not saved anywhere (an imported file) as a new, unnamed workspace with unsaved changes. */
+export function openUnsaved(state: WorkspaceStateV2): void {
+  applyState(state);
+  useWorkspace.getState().clear();
+  useWorkspace.getState().markDirty();
+}
+
+/** Opens a tx tab with this state in the current workspace; false when a tab for its hash is already open (R1). */
+export function openTxTab(tab: TxTabStateV2): boolean {
+  return useTabs.getState().addTx(txInit(tab));
+}
+
 /** Opens a workspace; false (with a toast, canvas untouched) when it cannot be loaded. */
 export async function loadWorkspace(id: number): Promise<boolean> {
   let w: WorkspaceDto;

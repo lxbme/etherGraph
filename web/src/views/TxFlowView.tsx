@@ -23,6 +23,7 @@ import { useJobProgress } from "../shell/statusStore";
 import { useTabs, useTxSnapshot } from "../shell/tabs";
 import { useTheme } from "../shell/theme";
 import { markTxLayoutChanged } from "../workspace/useWorkspace";
+import { requestExport } from "../workspace/fileRequest";
 import { fileLabelsOf, overlayNodes, useLiveIdentities } from "../workspace/snapshot";
 import { CanvasTools, IdentifyAllButton, type CanvasExport } from "./CanvasTools";
 import { GraphTooltip } from "./GraphTooltip";
@@ -129,7 +130,11 @@ export function TxFlowView({ hash }: { hash: string }) {
     [box, hash],
   );
   const exporter = useMemo<CanvasExport>(
-    () => ({ cy: () => getTxCy(hash), baseName: () => `ethergraph-tx-${hash.replace(/^0x/i, "").slice(0, 10).toLowerCase()}` }),
+    () => ({
+      cy: () => getTxCy(hash),
+      baseName: () => `ethergraph-tx-${hash.replace(/^0x/i, "").slice(0, 10).toLowerCase()}`,
+      onExportFile: () => requestExport("tx", hash.toLowerCase()),
+    }),
     [hash],
   );
   const graphRef = useRef<HTMLDivElement>(null);

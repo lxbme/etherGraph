@@ -25,15 +25,17 @@ import { shortAddr } from "../lib/address";
 import { safeFileName } from "../lib/download";
 import { toast } from "../shell/Toasts";
 import { useTheme } from "../shell/theme";
+import { requestExport } from "../workspace/fileRequest";
 import { useWorkspace } from "../workspace/useWorkspace";
 import { GraphTooltip } from "./GraphTooltip";
 import { CanvasTools, IdentifyAllButton, type CanvasExport } from "./CanvasTools";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
 
-/** The address graph's Export menu: the live canvas, named after the workspace. */
+/** The address graph's Export menu: the live canvas, named after the workspace; "File…" exports the graph as a snapshot file. */
 const EXPORTER: CanvasExport = {
   cy: getMainCy,
   baseName: () => `ethergraph-${safeFileName(useWorkspace.getState().name, "graph")}`,
+  onExportFile: () => requestExport("graph"),
 };
 
 /** A second tap on the same "+N more" node within this window is part of a double-click. */

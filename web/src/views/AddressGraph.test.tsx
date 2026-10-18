@@ -19,6 +19,7 @@ import { exportImage } from "../graph/exportImage";
 import { download } from "../lib/download";
 import { useWorkspace } from "../workspace/useWorkspace";
 import { registerSnapshotEffects } from "../workspace/snapshot";
+import { clearExport, useFileRequest } from "../workspace/fileRequest";
 import { AddressGraph } from "./AddressGraph";
 import { GraphSnapshotBanner, LiveConfirm } from "./SnapshotBanner";
 
@@ -266,6 +267,14 @@ test("the canvas tools export the address graph as ethergraph-<workspace name or
   expect(exportImage).toHaveBeenLastCalledWith(f.cy, "png-transparent");
   expect(download).toHaveBeenLastCalledWith(blob, "ethergraph-Case_7.png");
   act(() => useWorkspace.getState().clear());
+});
+
+test("the canvas tools' File… asks to export the address graph as a file", async () => {
+  await mountWithData();
+  act(() => within(screen.getByRole("toolbar", { name: "Canvas tools" })).getByRole("button", { name: "Export" }).click());
+  act(() => within(screen.getByRole("menu", { name: "Export" })).getByRole("menuitem", { name: "File…" }).click());
+  expect(useFileRequest.getState().exporting).toEqual({ kind: "graph" });
+  act(() => clearExport());
 });
 
 test("a group drag of three selected nodes is one undo step (Ctrl+Z)", async () => {

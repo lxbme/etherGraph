@@ -1,0 +1,451 @@
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { api } from "../api/endpoints";
+import type { EdgeDto } from "../api/generated/EdgeDto";
+import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
+import type { LabelDto } from "../api/generated/LabelDto";
+import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
+import type { TxFlowDto } from "../api/generated/TxFlowDto";
+import type { TxResponseDto } from "../api/generated/TxResponseDto";
+import { qk, queryClient } from "../api/queryClient";
+import { useGraph } from "../graph/store";
+import { graphQueryKey } from "../graph/useGraphData";
+import { useTabs, type TxTab } from "../shell/tabs";
+import { toast } from "../shell/Toasts";
+import {
+  buildFile,
+  fileName,
+  importBlob,
+  MAX_FILE_BYTES,
+  parseFile,
+  stripPrivate,
+  type EtherGraphFileV1,
+} from "./file";
+import type { WorkspaceStateV2 } from "./serialize";
+import type { GraphSnapshot, TxSnapshot } from "./snapshot";
+import { useWorkspace } from "./useWorkspace";
+
+vi.mock("../api/endpoints", () => ({ api: { txRaw: vi.fn(), nodes: vi.fn(async () => []) } }));
+vi.mock("../graph/cyRegistry", () => ({
+  getMainCy: vi.fn(() => null),
+  setMainCy: vi.fn(),
+  getTxCy: vi.fn(() => null),
+  registerTxCy: vi.fn(),
+}));
+vi.mock("../shell/Toasts", () => ({ toast: vi.fn() }));
+
+const A = "0x" + "a1".repeat(20);
+const B = "0x" + "b2".repeat(20);
+const C = "0x" + "c3".repeat(20);
+const H1 = "0x" + "1".repeat(64);
+const H2 = "0x" + "2".repeat(64);
+const TRUST = { level: "listed" as const, impersonates: null, reason: null };
+
+const SECRET_A = "Secret Whale";
+const SECRET_B = "My Mule";
+const SECRET_NOTE = "met him in Lisbon";
+const userA: LabelDto = { id: 5, text: SECRET_A, category: "fund", source: "user" };
+const userB: LabelDto = { id: 6, text: SECRET_B, category: "other", source: "user" };
+const pub: LabelDto = { id: 9, text: "Binance 14", category: "cex", source: "import:eth-labels" };
+
+const node = (address: string, over: Partial<NodeSummaryDto> = {}): NodeSummaryDto => ({
+  address, kind: "eoa", display_name: null, ens: null, contract_name: null, labels: [],
+  partial: false, syncing: false, synced: true, hot: false, identified: true, nonce: 1, balance: "10", ...over,
+});
+/** A carries a user label and a public one (display name from the user label); B a user label over a contract name; C an ENS name and a user label. */
+const nodes = (): NodeSummaryDto[] => [
+  node(A, { labels: [userA, pub], display_name: SECRET_A }),
+  node(B, { kind: "contract", labels: [userB], display_name: SECRET_B, contract_name: "Router" }),
+  node(C, { labels: [userA], display_name: "vitalik.eth", ens: "vitalik.eth" }),
+];
+const edge = (from: string, to: string): EdgeDto => ({
+  from, to, asset: null, asset_kind: "native", count: 2, sum: "1000", first_ts: "2024-01-01T00:00:00Z",
+  last_ts: "2024-01-02T00:00:00Z", decimals: 18, symbol: "ETH", trust: TRUST,
+});
+const graphData = (): GraphResponseDto => ({
+  nodes: nodes(),
+  edges: [edge(A, B), edge(A, C)],
+  omitted: { [A]: 3 },
+  coverage: { [A]: [{ kind: "native", from_block: 1, to_block: 9, truncated: false, state: "ok", last_synced_at: null }] },
+});
+const flow = (hash: string): TxFlowDto => ({
+  tx: {
+    hash, block_number: 19, ts: "2024-03-02T12:30:00Z", from: A, to: B, value: "1", success: true, gas_used: "21000",
+    fee: "21", method: null, selector: null,
+  },
+  detail: {
+    nonce: 1, tx_type: 2, position: 0, confirmations: 3, gas_limit: "21000", gas_used: "21000", gas_price: null,
+    effective_gas_price: "1", max_fee: null, max_priority_fee: null, base_fee: null, burnt_fee: null, savings: null,
+    blob_gas_used: null, blob_gas_price: null, blob_fee: null, access_list_len: null, contract_created: null,
+    revert_reason: null, input: "0x", authorizations: [], delegations: [],
+  },
+  call: null,
+  nodes: nodes(),
+  flows: [
+    { seq: 0, from: A, to: B, asset: null, amount: "1", token_id: null, kind: "native", trace_path: null, log_index: null, decimals: 18, symbol: null, trust: TRUST },
+  ],
+  events: [],
+  completeness: "fund_flow",
+});
+const RAW = { tx: { nonce: "0x1" }, receipt: { status: "0x1" } };
+const ON = { labels: true, notes: true };
+const OFF = { labels: false, notes: false };
+const META = { exported_at: "2026-10-01T12:00:00.000Z", includes: ON };
+
+const g = () => useGraph.getState();
+const txTabs = () => useTabs.getState().tabs.filter((t): t is TxTab => "kind" in t);
+const toasted = () => vi.mocked(toast).mock.calls;
+
+/** A live graph with A as center (its note set) and the graph query answered. */
+function liveGraph() {
+  g().setCenters([A]);
+  g().setNote(A, SECRET_NOTE);
+  queryClient.setQueryData(graphQueryKey(g()), graphData());
+}
+/** A live tx tab whose flow is loaded. */
+function liveTx(hash: string) {
+  useTabs.getState().openTx(hash);
+  queryClient.setQueryData<TxResponseDto>(qk.tx(hash), { status: "ready", flow: flow(hash), job_id: null });
+}
+const blobOf = (f: unknown) => new Blob([JSON.stringify(f)], { type: "application/json" });
+/** Parses a built file the way an import does (through its JSON text). */
+const reparse = (f: EtherGraphFileV1) => {
+  const r = parseFile(JSON.stringify(f));
+  if (!r.ok) throw new Error(r.reason);
+  return r.file;
+};
+/** Imports `f`; a graph or workspace file is opened at once (no unsaved-changes confirm). */
+const importNow = (f: unknown) => importBlob(blobOf(f), (apply) => apply());
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  queryClient.clear();
+  g().reset();
+  useTabs.getState().closeAllTx();
+  useWorkspace.getState().clear();
+  vi.mocked(api.txRaw).mockResolvedValue(RAW);
+});
+
+describe("stripPrivate", () => {
+  const state = (): WorkspaceStateV2 => ({
+    graph: {
+      nodes: [{ address: A, pinned: true, hidden: false, note: SECRET_NOTE }],
+      centers: [A], expanded_pairs: [], filter: {}, viewport: { zoom: 1, pan: { x: 0, y: 0 } },
+      snapshot: { ...META, data: graphData() },
+    },
+    tabs: [{ hash: H1, snapshot: { ...META, flow: flow(H1), raw: null } }],
+    active: "graph",
+  });
+
+  test("labels and notes off: no user label text, no display name derived from one, no note (Review Focus 1)", () => {
+    const text = JSON.stringify(stripPrivate(state(), OFF));
+    expect(text).not.toContain(SECRET_A);
+    expect(text).not.toContain(SECRET_B);
+    expect(text).not.toContain(SECRET_NOTE);
+    // Public labels and on-chain names stay.
+    expect(text).toContain("Binance 14");
+    expect(text).toContain("Router");
+    expect(text).toContain("vitalik.eth");
+  });
+
+  test("display names are recomputed: ENS, else the first remaining label, else the contract name", () => {
+    const out = stripPrivate(state(), OFF);
+    for (const ns of [out.graph.snapshot!.data.nodes, out.tabs[0]!.snapshot!.flow.nodes]) {
+      expect(ns.map((n) => n.display_name)).toEqual(["Binance 14", "Router", "vitalik.eth"]);
+      expect(ns.map((n) => n.labels)).toEqual([[pub], [], []]);
+    }
+    expect(out.graph.nodes[0]).toEqual({ address: A, pinned: true, hidden: false, note: "" });
+    expect(out.graph.snapshot!.includes).toEqual(OFF);
+    expect(out.tabs[0]!.snapshot!.includes).toEqual(OFF);
+  });
+
+  test("labels from an earlier file count as private too", () => {
+    const s = state();
+    s.graph.snapshot!.data.nodes[0]!.labels = [{ ...userA, id: -1, source: "file" }];
+    expect(JSON.stringify(stripPrivate(s, OFF))).not.toContain(SECRET_A);
+  });
+
+  test("labels and notes on: everything is kept as it is", () => {
+    const s = state();
+    expect(stripPrivate(s, ON)).toEqual(s);
+  });
+
+  test("a snapshot that left labels out says so even when this export includes them", () => {
+    const s = state();
+    s.graph.snapshot!.includes = { labels: false, notes: true };
+    expect(stripPrivate(s, ON).graph.snapshot!.includes).toEqual({ labels: false, notes: true });
+  });
+});
+
+describe("buildFile", () => {
+  test("a graph file of the live graph: the data on screen as its snapshot, private parts stripped (Review Focus 1)", async () => {
+    liveGraph();
+    liveTx(H1);
+    const f = await buildFile("graph", OFF);
+    expect(f).toMatchObject({ format: "ethergraph", version: 1, kind: "graph", includes: OFF });
+    expect(Date.parse(f.exported_at)).not.toBeNaN();
+    expect(f.state.tabs).toEqual([]);
+    expect(f.state.active).toBe("graph");
+    expect(f.state.graph.centers).toEqual([A]);
+    expect(f.state.graph.snapshot!.exported_at).toBe(f.exported_at);
+    expect(f.state.graph.snapshot!.data.edges).toEqual(graphData().edges);
+    const text = JSON.stringify(f);
+    expect(text).not.toContain(SECRET_A);
+    expect(text).not.toContain(SECRET_B);
+    expect(text).not.toContain(SECRET_NOTE);
+  });
+
+  test("with labels and notes ticked the file keeps them", async () => {
+    liveGraph();
+    const text = JSON.stringify(await buildFile("graph", ON));
+    expect(text).toContain(SECRET_A);
+    expect(text).toContain(SECRET_NOTE);
+  });
+
+  test("a tx file: the empty graph and the one tab with its flow and raw data", async () => {
+    liveGraph();
+    liveTx(H1);
+    liveTx(H2);
+    useTabs.getState().setDetailTab(H1, "transfers");
+    const f = await buildFile("tx", { ...OFF, tabHash: H1 });
+    expect(f.kind).toBe("tx");
+    expect(f.state.graph).toMatchObject({ nodes: [], centers: [], expanded_pairs: [] });
+    expect(f.state.graph.snapshot).toBeUndefined();
+    expect(f.state.active).toBe(H1);
+    expect(f.state.tabs).toHaveLength(1);
+    const tab = f.state.tabs[0]!;
+    expect(tab).toMatchObject({ hash: H1, detail_tab: "transfers" });
+    expect(tab.snapshot!.flow.flows).toEqual(flow(H1).flows);
+    expect(tab.snapshot!.raw).toEqual(RAW);
+    expect(api.txRaw).toHaveBeenCalledWith(H1);
+    const text = JSON.stringify(f);
+    expect(text).not.toContain(SECRET_A);
+    expect(text).not.toContain(SECRET_NOTE);
+    expect(fileName("tx", H1)).toBe("ethergraph-tx-1111111111.ethergraph.json");
+  });
+
+  test("raw data that cannot be fetched is left out (raw: null)", async () => {
+    liveTx(H1);
+    vi.mocked(api.txRaw).mockRejectedValue(new Error("boom"));
+    const f = await buildFile("tx", { ...ON, tabHash: H1 });
+    expect(f.state.tabs[0]!.snapshot!.raw).toBeNull();
+  });
+
+  test("a workspace file: the graph and every tab, each with its snapshot", async () => {
+    liveGraph();
+    liveTx(H1);
+    liveTx(H2);
+    const f = await buildFile("workspace", OFF);
+    expect(f.kind).toBe("workspace");
+    expect(f.state.active).toBe(H2);
+    expect(f.state.graph.snapshot).toBeDefined();
+    expect(f.state.tabs.map((t) => [t.hash, t.snapshot?.flow.tx.hash])).toEqual([[H1, H1], [H2, H2]]);
+    expect(JSON.stringify(f)).not.toContain(SECRET_A);
+  });
+
+  test("a snapshot view is re-exported unchanged except for the private parts", async () => {
+    const graphSnap: GraphSnapshot = { ...META, data: graphData() };
+    const txSnap: TxSnapshot = { ...META, flow: flow(H1), raw: RAW };
+    g().setCenters([A]);
+    g().freeze(graphSnap);
+    useTabs.getState().addTx({ hash: H1, snapshot: txSnap });
+    const kept = await buildFile("workspace", ON);
+    expect(kept.state.graph.snapshot).toEqual(graphSnap);
+    expect(kept.state.tabs[0]!.snapshot).toEqual(txSnap);
+    expect(api.txRaw).not.toHaveBeenCalled();
+    const stripped = await buildFile("workspace", OFF);
+    expect(stripped.state.graph.snapshot!.exported_at).toBe(META.exported_at);
+    expect(stripped.state.graph.snapshot!.data.edges).toEqual(graphSnap.data.edges);
+    expect(JSON.stringify(stripped)).not.toContain(SECRET_A);
+  });
+
+  test("a view whose data has not loaded yet cannot be exported", async () => {
+    g().setCenters([A]);
+    await expect(buildFile("graph", OFF)).rejects.toThrow("has not loaded yet");
+    useTabs.getState().openTx(H1);
+    await expect(buildFile("tx", { ...OFF, tabHash: H1 })).rejects.toThrow("has not loaded yet");
+    g().reset();
+    await expect(buildFile("graph", OFF)).rejects.toThrow("Nothing to export");
+  });
+});
+
+describe("import", () => {
+  test("a graph file opens as an unsaved workspace with the graph frozen; the open tx tabs are replaced", async () => {
+    liveGraph();
+    const file = reparse(await buildFile("graph", OFF));
+    g().reset();
+    liveTx(H2);
+    useWorkspace.getState().setCurrent({ id: 3, name: "mine", updated_at: "T" });
+    await importNow(file);
+    expect(g().centers).toEqual([A]);
+    expect(g().frozen).toEqual(file.state.graph.snapshot);
+    expect(txTabs()).toEqual([]);
+    expect(useWorkspace.getState()).toMatchObject({ id: null, name: null, dirty: true });
+    expect(toasted()).toEqual([]);
+  });
+
+  test("a workspace file round-trips: graph, tabs and their snapshots, the active tab", async () => {
+    liveGraph();
+    liveTx(H1);
+    liveTx(H2);
+    useTabs.getState().setDetailTab(H1, "logs");
+    const file = reparse(await buildFile("workspace", ON));
+    g().reset();
+    useTabs.getState().closeAllTx();
+    await importNow(file);
+    expect(g().frozen!.data.edges).toEqual(graphData().edges);
+    expect(g().ui[A]?.note).toBe(SECRET_NOTE);
+    expect(txTabs().map((t) => [t.hash, t.detailTab, t.snapshot?.flow.tx.hash])).toEqual([
+      [H1, "logs", H1],
+      [H2, undefined, H2],
+    ]);
+    expect(useTabs.getState().active).toBe(H2);
+    expect(useWorkspace.getState()).toMatchObject({ id: null, dirty: true });
+  });
+
+  test("a tx file opens a snapshot tab in the current workspace, which is otherwise untouched", async () => {
+    liveTx(H1);
+    const file = reparse(await buildFile("tx", { ...ON, tabHash: H1 }));
+    useTabs.getState().closeAllTx();
+    liveGraph();
+    useWorkspace.getState().setCurrent({ id: 3, name: "mine", updated_at: "T" });
+    const open = vi.fn();
+    await importBlob(blobOf(file), open);
+    expect(open).not.toHaveBeenCalled();
+    expect(g().centers).toEqual([A]);
+    expect(g().frozen).toBeNull();
+    expect(txTabs().map((t) => t.hash)).toEqual([H1]);
+    expect(txTabs()[0]!.snapshot).toEqual(file.state.tabs[0]!.snapshot);
+    expect(useTabs.getState().active).toBe(H1);
+    expect(useWorkspace.getState()).toMatchObject({ id: 3, dirty: true });
+  });
+
+  test("R1: a tx file for a transaction already open activates that tab and opens no second one", async () => {
+    liveTx(H1);
+    const file = reparse(await buildFile("tx", { ...ON, tabHash: H1 }));
+    useTabs.getState().activate("graph");
+    await importNow(file);
+    expect(txTabs()).toHaveLength(1);
+    expect(txTabs()[0]!.snapshot).toBeUndefined();
+    expect(useTabs.getState().active).toBe(H1);
+    expect(toasted()).toEqual([["This transaction is already open; not imported again"]]);
+  });
+
+  test("a graph or workspace file goes through the caller's unsaved-changes confirm; declining applies nothing", async () => {
+    liveGraph();
+    const file = reparse(await buildFile("graph", OFF));
+    g().reset();
+    const open = vi.fn();
+    await importBlob(blobOf(file), open);
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(g().centers).toEqual([]);
+    open.mock.calls[0]![0]();
+    expect(g().centers).toEqual([A]);
+  });
+
+  test("labels that arrive in a file become `file` labels with ids ≤ 0; public dataset labels keep their source (Review Focus 2)", async () => {
+    liveGraph();
+    liveTx(H1);
+    const r = parseFile(JSON.stringify(await buildFile("workspace", ON)));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const all = [...r.file.state.graph.snapshot!.data.nodes, ...r.file.state.tabs[0]!.snapshot!.flow.nodes].flatMap((n) => n.labels);
+    expect(all.length).toBeGreaterThan(0);
+    for (const l of all) expect(l.id).toBeLessThanOrEqual(0);
+    expect(all.filter((l) => l.text === SECRET_A).every((l) => l.source === "file")).toBe(true);
+    expect(all.filter((l) => l.text === "Binance 14").every((l) => l.source === "import:eth-labels")).toBe(true);
+    expect(all.some((l) => l.source === "user")).toBe(false);
+  });
+});
+
+describe("malformed or hostile files (Review Focus 4)", () => {
+  let good: EtherGraphFileV1;
+  beforeEach(async () => {
+    liveGraph();
+    liveTx(H1);
+    good = JSON.parse(JSON.stringify(await buildFile("workspace", ON))) as EtherGraphFileV1;
+    queryClient.clear();
+    g().reset();
+    useTabs.getState().closeAllTx();
+    // The current workspace that must stay untouched.
+    g().setCenters([C]);
+    liveTx(H2);
+    useWorkspace.getState().setCurrent({ id: 3, name: "mine", updated_at: "T" });
+  });
+  type Mutate = (f: Record<string, any>) => unknown; // eslint-disable-line @typescript-eslint/no-explicit-any
+  const cases: [string, Mutate][] = [
+    ["wrong format", (f) => ({ ...f, format: "other" })],
+    ["no format", ({ format: _f, ...f }) => f],
+    ["unknown version", (f) => ({ ...f, version: 2 })],
+    ["unknown kind", (f) => ({ ...f, kind: "address" })],
+    ["no state", ({ state: _s, ...f }) => f],
+    ["includes of the wrong type", (f) => ({ ...f, includes: { labels: "yes", notes: false } })],
+    ["exported_at missing", ({ exported_at: _e, ...f }) => f],
+    ["an array", () => []],
+    ["null", () => null],
+    ["graph state of the wrong shape", (f) => ({ ...f, state: { ...f.state, graph: { ...f.state.graph, centers: "x" } } })],
+    ["edge with a wrong field type", (f) => ((f.state.graph.snapshot.data.edges[0].count = "2"), f)],
+    ["edge without trust", (f) => (delete f.state.graph.snapshot.data.edges[0].trust, f)],
+    ["node with an address that is not one", (f) => ((f.state.graph.snapshot.data.nodes[0].address = "<img>"), f)],
+    ["label without text", (f) => (delete f.state.graph.snapshot.data.nodes[0].labels[0].text, f)],
+    ["absurd token decimals", (f) => ((f.state.graph.snapshot.data.edges[0].decimals = 1e9), f)],
+    ["coverage of the wrong shape", (f) => ((f.state.graph.snapshot.data.coverage = { x: [1] }), f)],
+    ["tx flow without detail", (f) => (delete f.state.tabs[0].snapshot.flow.detail, f)],
+    ["raw data without its receipt", (f) => (delete f.state.tabs[0].snapshot.raw.receipt, f)],
+    ["tx flow entry of the wrong type", (f) => ((f.state.tabs[0].snapshot.flow.flows[0].seq = "0"), f)],
+    ["tx tab without a snapshot", (f) => (delete f.state.tabs[0].snapshot, f)],
+    ["tx tab whose snapshot is another transaction", (f) => ((f.state.tabs[0].snapshot.flow.tx.hash = H2), f)],
+    ["tx tab with a bad hash", (f) => ((f.state.tabs[0].hash = "0x12"), f)],
+    ["graph with centers but no snapshot", (f) => (delete f.state.graph.snapshot, f)],
+    ["a graph file with tabs", (f) => ({ ...f, kind: "graph" })],
+    ["a tx file with two tabs", (f) => ({ ...f, kind: "tx", state: { ...f.state, tabs: [f.state.tabs[0], { ...f.state.tabs[0], hash: H2 }] } })],
+    ["a tx file with no tab", (f) => ({ ...f, kind: "tx", state: { ...f.state, tabs: [], active: "graph" } })],
+  ];
+
+  const before = () => ({
+    centers: g().centers,
+    frozen: g().frozen,
+    tabs: useTabs.getState().tabs,
+    active: useTabs.getState().active,
+    ws: { ...useWorkspace.getState() },
+  });
+
+  test.each(cases)("%s: rejected with one error toast, nothing applied", async (_, mutate) => {
+    const was = before();
+    const bad = mutate(JSON.parse(JSON.stringify(good)) as Record<string, unknown>);
+    expect(parseFile(JSON.stringify(bad)).ok).toBe(false);
+    const open = vi.fn();
+    await importBlob(blobOf(bad), open);
+    expect(open).not.toHaveBeenCalled();
+    expect(toasted()).toHaveLength(1);
+    expect(toasted()[0]![0]).toMatch(/^Cannot import the file: /);
+    expect(toasted()[0]![1]).toBe("error");
+    expect(before()).toEqual(was);
+  });
+
+  test("not JSON", async () => {
+    const was = before();
+    expect(parseFile("{ nope")).toEqual({ ok: false, reason: "The file is not valid JSON" });
+    await importBlob(new Blob(["{ nope"]), vi.fn());
+    expect(toasted()).toEqual([["Cannot import the file: The file is not valid JSON", "error"]]);
+    expect(before()).toEqual(was);
+  });
+
+  test("a file of the wrong format names it", () => {
+    expect(parseFile(JSON.stringify({ ...good, format: "x" }))).toEqual({ ok: false, reason: "Not an etherGraph file" });
+    expect(parseFile(JSON.stringify({ ...good, version: 9 }))).toEqual({ ok: false, reason: "Unsupported etherGraph file version: 9" });
+  });
+
+  test("over 32 MiB: rejected without reading it", async () => {
+    const was = before();
+    const text = vi.fn();
+    const big = { size: MAX_FILE_BYTES + 1, text } as unknown as Blob;
+    await importBlob(big, vi.fn());
+    expect(text).not.toHaveBeenCalled();
+    expect(toasted()).toEqual([["Cannot import the file: The file is larger than 32 MiB", "error"]]);
+    expect(before()).toEqual(was);
+  });
+
+  test("the unmodified file is accepted", () => {
+    expect(parseFile(JSON.stringify(good)).ok).toBe(true);
+  });
+});

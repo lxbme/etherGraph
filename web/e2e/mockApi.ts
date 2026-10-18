@@ -7,6 +7,7 @@ import type { GraphResponseDto } from "../src/api/generated/GraphResponseDto";
 import type { IdentifyRequestDto } from "../src/api/generated/IdentifyRequestDto";
 import type { IdentifyResponseDto } from "../src/api/generated/IdentifyResponseDto";
 import type { JobDto } from "../src/api/generated/JobDto";
+import type { NodesRequestDto } from "../src/api/generated/NodesRequestDto";
 import type { ProbeItemDto } from "../src/api/generated/ProbeItemDto";
 import type { ProbeRequestDto } from "../src/api/generated/ProbeRequestDto";
 import type { ProbeResponseDto } from "../src/api/generated/ProbeResponseDto";
@@ -71,7 +72,7 @@ export type Handler = (req: Request, url: URL) => Reply | Promise<Reply>;
 /** `METHOD /path` with the path's dynamic segment replaced by `*` (e.g. `GET /api/tx/*`). */
 export type RouteKey = string;
 
-const notFound = (message: string): Reply => ({ status: 404, json: { error: { code: "not_found", message } } });
+export const notFound = (message: string): Reply => ({ status: 404, json: { error: { code: "not_found", message } } });
 
 function defaultHandlers(): Map<RouteKey, Handler> {
   let nextWorkspaceId = 1;
@@ -99,6 +100,14 @@ function defaultHandlers(): Map<RouteKey, Handler> {
       },
     ],
     ["POST /api/graph/edges", () => ({ json: fixtures.graph })],
+    [
+      // The backend's own summaries of a snapshot's nodes (the ones it knows).
+      "POST /api/nodes",
+      (req) => {
+        const body = req.postDataJSON() as NodesRequestDto;
+        return { json: body.addresses.flatMap((a) => nodes.get(a.toLowerCase()) ?? []) };
+      },
+    ],
     ["GET /api/address/*/counterparties", () => ({ json: { items: [], total: 0 } satisfies CounterpartyPageDto })],
     [
       "POST /api/probe",

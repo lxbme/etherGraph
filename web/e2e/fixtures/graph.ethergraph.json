@@ -1,0 +1,216 @@
+{
+  "format": "ethergraph",
+  "version": 1,
+  "kind": "graph",
+  "exported_at": "2026-10-01T12:00:00.000Z",
+  "includes": {
+    "labels": false,
+    "notes": false
+  },
+  "state": {
+    "graph": {
+      "nodes": [
+        {
+          "address": "0xa11ce00000000000000000000000000000000001",
+          "pinned": false,
+          "hidden": false,
+          "note": "",
+          "x": 150,
+          "y": 120
+        },
+        {
+          "address": "0xb0b0000000000000000000000000000000000002",
+          "pinned": false,
+          "hidden": false,
+          "note": "",
+          "x": 450,
+          "y": 120
+        },
+        {
+          "address": "0xc0ffee0000000000000000000000000000000003",
+          "pinned": false,
+          "hidden": false,
+          "note": "",
+          "x": 150,
+          "y": 320
+        },
+        {
+          "address": "0xd00d000000000000000000000000000000000004",
+          "pinned": false,
+          "hidden": false,
+          "note": "",
+          "x": 450,
+          "y": 320
+        }
+      ],
+      "centers": [
+        "0xa11ce00000000000000000000000000000000001"
+      ],
+      "expanded_pairs": [],
+      "filter": {},
+      "sort": "count",
+      "limits": {
+        "0xa11ce00000000000000000000000000000000001": 50
+      },
+      "viewport": {
+        "zoom": 1,
+        "pan": {
+          "x": 0,
+          "y": 0
+        }
+      },
+      "snapshot": {
+        "exported_at": "2026-10-01T12:00:00.000Z",
+        "includes": {
+          "labels": false,
+          "notes": false
+        },
+        "data": {
+          "nodes": [
+            {
+              "address": "0xa11ce00000000000000000000000000000000001",
+              "kind": "eoa",
+              "display_name": null,
+              "ens": null,
+              "contract_name": null,
+              "labels": [],
+              "partial": false,
+              "syncing": false,
+              "synced": true,
+              "hot": false,
+              "identified": true,
+              "nonce": null,
+              "balance": null
+            },
+            {
+              "address": "0xb0b0000000000000000000000000000000000002",
+              "kind": "eoa",
+              "display_name": "Binance 14",
+              "ens": null,
+              "contract_name": null,
+              "labels": [
+                {
+                  "id": 1,
+                  "text": "Binance 14",
+                  "category": "cex",
+                  "source": "import:etherscan"
+                }
+              ],
+              "partial": false,
+              "syncing": false,
+              "synced": false,
+              "hot": true,
+              "identified": true,
+              "nonce": null,
+              "balance": null
+            },
+            {
+              "address": "0xc0ffee0000000000000000000000000000000003",
+              "kind": "contract",
+              "display_name": "UniswapV2Router02",
+              "ens": null,
+              "contract_name": "UniswapV2Router02",
+              "labels": [],
+              "partial": false,
+              "syncing": false,
+              "synced": false,
+              "hot": false,
+              "identified": true,
+              "nonce": null,
+              "balance": null
+            },
+            {
+              "address": "0xd00d000000000000000000000000000000000004",
+              "kind": "unknown",
+              "display_name": null,
+              "ens": null,
+              "contract_name": null,
+              "labels": [],
+              "partial": false,
+              "syncing": false,
+              "synced": false,
+              "hot": false,
+              "identified": true,
+              "nonce": null,
+              "balance": null
+            }
+          ],
+          "edges": [
+            {
+              "from": "0xa11ce00000000000000000000000000000000001",
+              "to": "0xb0b0000000000000000000000000000000000002",
+              "asset": null,
+              "asset_kind": "native",
+              "count": 3,
+              "sum": "5000000000000000000",
+              "first_ts": "2024-01-10T08:00:00Z",
+              "last_ts": "2024-03-02T12:30:00Z",
+              "decimals": 18,
+              "symbol": null,
+              "trust": {
+                "level": "listed",
+                "impersonates": null,
+                "reason": null
+              }
+            },
+            {
+              "from": "0xb0b0000000000000000000000000000000000002",
+              "to": "0xa11ce00000000000000000000000000000000001",
+              "asset": "0xdac17f958d2ee523a2206206994597c13d831ec7",
+              "asset_kind": "erc20",
+              "count": 2,
+              "sum": "1000000000",
+              "first_ts": "2024-01-10T08:00:00Z",
+              "last_ts": "2024-03-02T12:30:00Z",
+              "decimals": 6,
+              "symbol": "USDT",
+              "trust": {
+                "level": "listed",
+                "impersonates": null,
+                "reason": null
+              }
+            },
+            {
+              "from": "0xa11ce00000000000000000000000000000000001",
+              "to": "0xc0ffee0000000000000000000000000000000003",
+              "asset": null,
+              "asset_kind": "native",
+              "count": 1,
+              "sum": "500000000000000000",
+              "first_ts": "2024-01-10T08:00:00Z",
+              "last_ts": "2024-03-02T12:30:00Z",
+              "decimals": 18,
+              "symbol": null,
+              "trust": {
+                "level": "listed",
+                "impersonates": null,
+                "reason": null
+              }
+            },
+            {
+              "from": "0xd00d000000000000000000000000000000000004",
+              "to": "0xa11ce00000000000000000000000000000000001",
+              "asset": null,
+              "asset_kind": "native",
+              "count": 4,
+              "sum": "12000000000000000000",
+              "first_ts": "2024-01-10T08:00:00Z",
+              "last_ts": "2024-03-02T12:30:00Z",
+              "decimals": 18,
+              "symbol": null,
+              "trust": {
+                "level": "listed",
+                "impersonates": null,
+                "reason": null
+              }
+            }
+          ],
+          "omitted": {},
+          "coverage": {}
+        }
+      }
+    },
+    "tabs": [],
+    "active": "graph"
+  }
+}

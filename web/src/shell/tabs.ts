@@ -36,6 +36,8 @@ interface TabsState {
   setDetailTab(id: string, detailTab: TxDetailTab): void;
   /** Highlights the flow edge with this seq in a tx tab's graph (null clears); no-op for unknown ids. */
   setHighlightedSeq(id: string, seq: number | null): void;
+  /** Opens a tx tab with this state (an imported snapshot) and activates it; false (nothing opened) when one for the hash is open. */
+  addTx(tab: TxTabInit): boolean;
   /** Replaces every tx tab with these and activates `active` (the graph tab when it is not one of them). */
   restoreTx(tabs: TxTabInit[], active: string): void;
   /** "Refresh from chain": drops a tx tab's snapshot, so it loads the tx like any tab; no-op for unknown ids. */
@@ -72,6 +74,12 @@ export const useTabs = create<TabsState>((set, get) => ({
   },
   setHighlightedSeq: (id, highlightedSeq) => {
     set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && "kind" in t ? { ...t, highlightedSeq } : t)) }));
+  },
+  addTx: (init) => {
+    const hash = init.hash.toLowerCase();
+    if (get().tabs.some((t) => t.id === hash)) return false;
+    set((s) => ({ tabs: [...s.tabs, { ...init, id: hash, kind: "tx", hash, restored: ++restoreSeq }], active: hash }));
+    return true;
   },
   restoreTx: (init, active) => {
     const restored = ++restoreSeq;

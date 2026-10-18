@@ -14,7 +14,7 @@ export interface CanvasExport {
   cy(): cytoscape.Core | null;
   /** The download name without its extension, e.g. `ethergraph-tx-7e57000000`. */
   baseName(): string;
-  /** "File…" (Task 8: the view as a snapshot file); the item is shown only when this is given. */
+  /** "File…": the view as a snapshot file; the item is shown only when this is given. */
   onExportFile?(): void;
 }
 
@@ -53,7 +53,7 @@ export function CanvasTools({
   );
 }
 
-/** The Export menu: the whole graph as PNG, transparent PNG or SVG (and, once wired, as a file). */
+/** The Export menu: the whole graph as PNG, transparent PNG or SVG, or the view as a file. */
 function ExportMenu({ exporter }: { exporter: CanvasExport }) {
   const t = useT();
   const [open, setOpen] = useState(false);
