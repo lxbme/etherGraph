@@ -84,6 +84,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "login.noWallet": "未检测到浏览器钱包。请安装钱包扩展，然后刷新本页。",
   "login.reason.notWhitelisted": "暂未开放：该地址不在白名单中，请联系管理员。",
   "login.reason.failed": "登录失败，请重试。",
+  "login.reason.wrongChain": "请把钱包切换到以太坊主网，然后重新登录。",
   "topbar.workspace": "画布",
   "topbar.details": "切换详情栏",
   "search.placeholder": "搜索 地址 / 交易哈希 / ENS（⌘K）",

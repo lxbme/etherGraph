@@ -2,7 +2,7 @@ import { disconnect } from "wagmi/actions";
 import { create } from "zustand";
 import { setUnauthorizedHandler } from "../api/client";
 import { api } from "../api/endpoints";
-import { ApiError } from "../api/errors";
+import { ApiError, isSessionGone } from "../api/errors";
 import type { MeDto } from "../api/generated/MeDto";
 import { queryClient } from "../api/queryClient";
 import { useJobProgress, useQuota, useSseState } from "../shell/statusStore";
@@ -11,7 +11,7 @@ import { wagmiConfig } from "./wagmi";
 export type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
 /** Why the login page is shown (null: a plain first visit or a logout). */
-export type LoginReason = "not_whitelisted" | "rate_limited" | "failed" | "session_ended" | "network";
+export type LoginReason = "not_whitelisted" | "rate_limited" | "failed" | "session_ended" | "network" | "wrong_chain";
 
 interface AuthState {
   status: AuthStatus;
@@ -66,8 +66,9 @@ function disconnectWallet(): void {
 }
 
 /**
- * The session is gone (any 401, logout): back to the login page with nothing of the previous
- * session's data left in the query cache.
+ * The session is gone (a 401 `no_session`): back to the login page with nothing of the previous
+ * session's data left in the query cache. The wallet is disconnected too, so the next sign-in starts
+ * from choosing a wallet (and connecting on mainnet) rather than from whatever chain it is on now.
  */
 export function sessionEnded(reason: LoginReason | null = null): void {
   const cur = useAuth.getState();
@@ -75,6 +76,29 @@ export function sessionEnded(reason: LoginReason | null = null): void {
   // refused attempt stays.
   useAuth.setState({ status: "unauthenticated", me: null, reason: cur.status === "authenticated" ? reason : cur.reason });
   dropSessionData();
+  if (cur.status === "authenticated") disconnectWallet();
+}
+
+/**
+ * Asks the server whose session this tab's cookie carries now. False when it is gone (the 401 has
+ * already ended it here) or belongs to another address (another tab signed in as someone else: this
+ * tab restarts as that user rather than sending their requests with this user's canvas). Other
+ * failures (offline) count as alive.
+ */
+export async function checkSession(): Promise<boolean> {
+  try {
+    const me = await api.me();
+    const cur = useAuth.getState().me;
+    if (cur && cur.address !== me.address) {
+      useAuth.setState({ status: "loading", me: null, reason: null });
+      dropSessionData();
+      page.restart();
+      return false;
+    }
+    return true;
+  } catch (e) {
+    return !isSessionGone(e);
+  }
 }
 
 setUnauthorizedHandler(() => sessionEnded("session_ended"));
@@ -84,8 +108,8 @@ export async function loadMe(): Promise<void> {
   try {
     signedIn(await api.me());
   } catch (e) {
-    // A 401 already went through the unauthorized handler.
-    if (e instanceof ApiError && e.code === "unauthorized") return;
+    // The 401 already went through the unauthorized handler.
+    if (isSessionGone(e)) return;
     useAuth.setState({ status: "unauthenticated", me: null, reason: e instanceof ApiError && e.code === "network" ? "network" : "failed" });
   }
 }

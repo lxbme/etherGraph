@@ -3,7 +3,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { api } from "../api/endpoints";
 import { queryClient } from "../api/queryClient";
 import { AuthGate } from "./AuthGate";
-import { useAuth } from "./useMe";
+import { page, useAuth } from "./useMe";
 
 const ME = {
   address: "0xa0cf798816d4b9b9866b5330eea46a18382f251e",
@@ -91,4 +91,18 @@ test("an unreachable server shows the login page with the reason", async () => {
   renderGate();
   await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Cannot reach the server"));
   expect(screen.queryByText("the shell")).not.toBeInTheDocument();
+});
+
+test("coming back to the tab checks who is signed in: another address restarts the page", async () => {
+  const restart = vi.spyOn(page, "restart").mockImplementation(() => {});
+  let address = ME.address;
+  stubApi({ "/api/auth/me": () => json(200, { ...ME, address }) });
+  renderGate();
+  await screen.findByText("the shell");
+  address = "0xb0b0000000000000000000000000000000000002";
+  await act(async () => {
+    window.dispatchEvent(new Event("focus"));
+  });
+  await waitFor(() => expect(restart).toHaveBeenCalledTimes(1));
+  restart.mockRestore();
 });

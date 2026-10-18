@@ -1,6 +1,6 @@
 import { queryClient } from "../api/queryClient";
 import { useJobProgress, useQuota, useSseState } from "../shell/statusStore";
-import { login, logout, page, sessionEnded, useAuth } from "./useMe";
+import { checkSession, login, logout, page, sessionEnded, useAuth } from "./useMe";
 
 const A = "0xa0cf798816d4b9b9866b5330eea46a18382f251e";
 const B = "0xb0b0000000000000000000000000000000000002";
@@ -53,4 +53,46 @@ test("logout is a no-op without a session", async () => {
   useAuth.setState({ status: "unauthenticated", me: null, reason: null });
   await logout();
   expect(f).not.toHaveBeenCalled();
+});
+
+describe("checkSession", () => {
+  const unauthorized = (reason: string) => async () => json(401, { error: { code: "unauthorized", message: reason } });
+  beforeEach(() => useAuth.setState({ status: "authenticated", me: me(A), reason: null }));
+
+  test("the same user: alive, nothing changes", async () => {
+    const restart = vi.spyOn(page, "restart").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => json(200, me(A))));
+    await expect(checkSession()).resolves.toBe(true);
+    expect(restart).not.toHaveBeenCalled();
+    expect(useAuth.getState().status).toBe("authenticated");
+  });
+
+  test("another tab signed in as someone else: this tab drops its state and restarts as them", async () => {
+    const restart = vi.spyOn(page, "restart").mockImplementation(() => {});
+    queryClient.setQueryData(["labels", A], [1]);
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => json(200, me(B))));
+    await expect(checkSession()).resolves.toBe(false);
+    expect(restart).toHaveBeenCalledTimes(1);
+    expect(useAuth.getState().me).toBeNull();
+    expect(queryClient.getQueryData(["labels", A])).toBeUndefined();
+  });
+
+  test("no session: dead, back to the login page", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(unauthorized("no_session")));
+    await expect(checkSession()).resolves.toBe(false);
+    expect(useAuth.getState()).toMatchObject({ status: "unauthenticated", reason: "session_ended" });
+  });
+
+  test("offline: still alive", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
+    await expect(checkSession()).resolves.toBe(true);
+    expect(useAuth.getState().status).toBe("authenticated");
+  });
+});
+
+test("a 401 that is not no_session leaves the session alone", async () => {
+  useAuth.setState({ status: "authenticated", me: me(A), reason: null });
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => json(401, { error: { code: "unauthorized", message: "no_admin_session" } })));
+  await import("../api/endpoints").then(({ api }) => api.status().catch(() => {}));
+  expect(useAuth.getState().status).toBe("authenticated");
 });

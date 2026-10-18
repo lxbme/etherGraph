@@ -62,8 +62,8 @@ const num = (n: number | undefined) => (n === undefined ? undefined : String(n))
 export const api = {
   /** The fields of a login message for `address` (D1: the client builds the text from exactly these). */
   authNonce: (address: string) => request<SiweFieldsDto>("GET", "/api/auth/nonce", { query: { address } }),
-  /** A 401 here is a refused attempt (reason in the message), not an ended session. */
-  login: (body: LoginDto) => request<MeDto>("POST", "/api/auth/login", { body, loginAttempt: true }),
+  /** A 401 here is a refused attempt (its reason is the message). */
+  login: (body: LoginDto) => request<MeDto>("POST", "/api/auth/login", { body }),
   logout: () => request<void>("POST", "/api/auth/logout"),
   /** The signed-in user; 401 without a session. */
   me: () => request<MeDto>("GET", "/api/auth/me"),

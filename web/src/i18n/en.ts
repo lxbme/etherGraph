@@ -82,6 +82,7 @@ export const en = {
   "login.noWallet": "No browser wallet found. Install a wallet extension, then reload this page.",
   "login.reason.notWhitelisted": "This address is not on the whitelist yet. Ask an administrator for access.",
   "login.reason.failed": "Sign-in failed. Please try again.",
+  "login.reason.wrongChain": "Switch your wallet to Ethereum mainnet, then sign in again.",
   "topbar.workspace": "Workspace",
   "topbar.details": "Toggle details",
   "search.placeholder": "Search address / tx hash / ENS (⌘K)",

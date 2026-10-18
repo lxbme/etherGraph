@@ -12,7 +12,7 @@ import { mainnet } from "wagmi/chains";
 import { useLocale } from "../i18n";
 import { LoginPage } from "./LoginPage";
 import { createSiweAdapter } from "./siweAdapter";
-import { loadMe, useAuth } from "./useMe";
+import { checkSession, loadMe, useAuth } from "./useMe";
 import { wagmiConfig } from "./wagmi";
 
 const adapter = createSiweAdapter(() => getAccount(wagmiConfig).address);
@@ -81,6 +81,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (useAuth.getState().status === "loading") void loadMe();
   }, []);
+  // Another tab may have signed out or in as someone else: check whenever this tab comes back.
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    const check = () => {
+      if (document.visibilityState === "visible") void checkSession();
+    };
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("focus", check);
+    return () => {
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("focus", check);
+    };
+  }, [status]);
   return (
     <WagmiProvider config={wagmiConfig}>
       <RainbowKitAuthenticationProvider adapter={adapter} status={status}>

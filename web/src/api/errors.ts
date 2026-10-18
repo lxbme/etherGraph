@@ -23,6 +23,17 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The 401 reason of a missing or expired user session (crates/eg-server/src/auth/extract.rs). Other 401
+ * reasons (`bad_origin`, `no_admin_session`, a refused login or admin action) leave the session alone.
+ */
+export const SESSION_GONE = "no_session";
+
+/** Whether `err` says the user session is gone (401 `unauthorized` with reason `no_session`). */
+export function isSessionGone(err: unknown): boolean {
+  return err instanceof ApiError && err.code === "unauthorized" && err.message === SESSION_GONE;
+}
+
 export function messageFor(err: unknown): string {
   if (!(err instanceof ApiError)) return t("error.unknown");
   switch (err.code) {

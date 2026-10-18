@@ -57,28 +57,32 @@ test("request forwards the abort signal to fetch", async () => {
 });
 
 describe("401 handling", () => {
-  const unauthorized = () =>
-    new Response(JSON.stringify({ error: { code: "unauthorized", message: "no_session" } }), { status: 401 });
+  const unauthorized = (reason: string) => async () =>
+    new Response(JSON.stringify({ error: { code: "unauthorized", message: reason } }), { status: 401 });
   afterEach(() => setUnauthorizedHandler(null));
 
-  test("a 401 ends the session through the registered handler", async () => {
+  test("a 401 no_session ends the session through the registered handler", async () => {
     const ended = vi.fn();
     setUnauthorizedHandler(ended);
-    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => unauthorized()));
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(unauthorized("no_session")));
     const err = (await request("GET", "/api/status").catch((e: unknown) => e)) as ApiError;
     expect(err.code).toBe("unauthorized");
     expect(err.status).toBe(401);
     expect(ended).toHaveBeenCalledTimes(1);
   });
 
-  test("a refused login attempt is not an ended session", async () => {
-    const ended = vi.fn();
-    setUnauthorizedHandler(ended);
-    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => unauthorized()));
-    const err = (await request("POST", "/api/auth/login", { body: {}, loginAttempt: true }).catch((e: unknown) => e)) as ApiError;
-    expect(err.code).toBe("unauthorized");
-    expect(ended).not.toHaveBeenCalled();
-  });
+  test.each(["bad_origin", "no_admin_session", "not_whitelisted", "bad_signature", "bad_nonce", "payload_mismatch", "stale_action"])(
+    "a 401 %s is not an ended session",
+    async (reason) => {
+      const ended = vi.fn();
+      setUnauthorizedHandler(ended);
+      vi.stubGlobal("fetch", vi.fn().mockImplementation(unauthorized(reason)));
+      const err = (await request("POST", "/api/admin/x", { body: {} }).catch((e: unknown) => e)) as ApiError;
+      expect(err.code).toBe("unauthorized");
+      expect(err.message).toBe(reason);
+      expect(ended).not.toHaveBeenCalled();
+    },
+  );
 
   test("other errors do not end the session", async () => {
     const ended = vi.fn();

@@ -1,4 +1,4 @@
-import { ApiError, type ApiErrorCode } from "./errors";
+import { ApiError, isSessionGone, type ApiErrorCode } from "./errors";
 import type { ErrorBody } from "./generated/ErrorBody";
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
@@ -13,7 +13,7 @@ const isKnown = (c: string): c is ApiErrorCode => (KNOWN as string[]).includes(c
 
 let unauthorizedHandler: (() => void) | null = null;
 
-/** Called on every 401 (the session is gone), except for a refused login attempt. */
+/** Called on every 401 whose reason says the user session is gone (`no_session`), and only then. */
 export function setUnauthorizedHandler(fn: (() => void) | null): void {
   unauthorizedHandler = fn;
 }
@@ -25,8 +25,6 @@ export async function request<T>(
     query?: Record<string, string | undefined>;
     body?: unknown;
     signal?: AbortSignal;
-    /** A 401 refuses this login attempt; it does not end a session. */
-    loginAttempt?: boolean;
   } = {},
 ): Promise<T> {
   const params = new URLSearchParams();
@@ -59,8 +57,9 @@ export async function request<T>(
     } catch {
       // non-JSON error body: keep defaults
     }
-    if (res.status === 401 && !opts.loginAttempt) unauthorizedHandler?.();
-    throw new ApiError(code, res.status, message);
+    const err = new ApiError(code, res.status, message);
+    if (isSessionGone(err)) unauthorizedHandler?.();
+    throw err;
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
