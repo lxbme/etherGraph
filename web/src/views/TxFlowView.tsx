@@ -172,12 +172,14 @@ export function TxFlowView({ hash }: { hash: string }) {
             layout="dagre-lr"
             onTapNode={(id) => {
               box.getState().clear();
+              useInfo.getState().close(hash.toLowerCase());
               setSelected(id.toLowerCase());
             }}
             onTapBackground={() => setSelected(null)}
             onTapEdge={(_s, _t, id) => {
               const view = assetViewForEdge(flow, id);
               if (view) useInfo.getState().open(hash.toLowerCase(), view);
+              else useInfo.getState().close(hash.toLowerCase());
             }}
             onDblTapNode={NOOP}
             onDblTapEdge={NOOP}

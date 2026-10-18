@@ -9,6 +9,7 @@ import type { CytoscapeViewProps } from "../graph/CytoscapeView";
 import { openFakePopover, pressEscape } from "../graph/fakePopover.testutil";
 import { useGraph } from "../graph/store";
 import { useLocale } from "../i18n";
+import { useInfo } from "../panels/info/infoStore";
 import { useJobProgress } from "../shell/statusStore";
 import { useTabs } from "../shell/tabs";
 import { useUi } from "../panels/uiStore";
@@ -482,4 +483,22 @@ test("the tx batch bar offers Identify type for selected nodes that need it", as
   const bar = within(screen.getByRole("toolbar", { name: "Batch actions" }));
   await act(async () => bar.getByRole("button", { name: "Identify type" }).click());
   expect(identify.mock.calls[0]![0].addresses).toEqual([B]);
+});
+
+test("tapping a node or the call edge clears the tab's info stack; a transfer edge opens its asset; the background keeps it", async () => {
+  vi.spyOn(api, "tx").mockResolvedValue(ready());
+  renderView();
+  await screen.findByTestId("tx-detail");
+  const key = HASH.toLowerCase();
+  const doc = { kind: "doc", id: "erc-20" } as const;
+  act(() => useInfo.getState().open(key, doc));
+  act(() => h.props!.onTapBackground?.());
+  expect(useInfo.getState().stacks[key]).toEqual([doc]);
+  act(() => h.props!.onTapEdge(A, B, "flow-1-0"));
+  expect(useInfo.getState().stacks[key]).toEqual([doc, { kind: "asset", asset: USDT }]);
+  act(() => h.props!.onTapEdge(A, B, "call"));
+  expect(useInfo.getState().stacks[key]).toEqual([]);
+  act(() => useInfo.getState().open(key, doc));
+  act(() => h.props!.onTapNode(A, { shift: false }));
+  expect(useInfo.getState().stacks[key]).toEqual([]);
 });

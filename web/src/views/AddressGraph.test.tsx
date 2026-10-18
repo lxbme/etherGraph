@@ -13,6 +13,7 @@ import type { CytoscapeViewProps } from "../graph/CytoscapeView";
 import { pairKey, useGraph } from "../graph/store";
 import { Toasts } from "../shell/Toasts";
 import { DetailPanel } from "../panels/DetailPanel";
+import { useInfo } from "../panels/info/infoStore";
 import { useUi } from "../panels/uiStore";
 import { AddressGraph } from "./AddressGraph";
 
@@ -565,4 +566,17 @@ test("the context menu offers 'Identify type' for an unidentified node", async (
   expect(screen.queryByRole("menuitem", { name: "Identify type" })).toBeNull();
   act(() => props().onCxtNode(B, { x: 1, y: 1 }));
   expect(screen.getByRole("menuitem", { name: "Identify type" })).toBeInTheDocument();
+});
+
+test("tapping a node or an edge clears the graph tab's info stack; the background keeps it", async () => {
+  await mountWithData();
+  const doc = { kind: "doc", id: "erc-20" } as const;
+  act(() => useInfo.getState().open("graph", doc));
+  act(() => props().onTapBackground?.());
+  expect(useInfo.getState().stacks["graph"]).toEqual([doc]);
+  act(() => props().onTapNode(B, { shift: false }));
+  expect(useInfo.getState().stacks["graph"]).toEqual([]);
+  act(() => useInfo.getState().open("graph", doc));
+  act(() => props().onTapEdge(A, B, "e1"));
+  expect(useInfo.getState().stacks["graph"]).toEqual([]);
 });
