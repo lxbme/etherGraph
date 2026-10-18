@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { api } from "../api/endpoints";
 import type { FlowDto } from "../api/generated/FlowDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
@@ -14,7 +14,13 @@ import { useJobProgress } from "../shell/statusStore";
 import { useTabs } from "../shell/tabs";
 import { useUi } from "../panels/uiStore";
 import { Toasts } from "../shell/Toasts";
+import { getTxCy } from "../graph/cyRegistry";
+import { exportImage } from "../graph/exportImage";
+import { download } from "../lib/download";
 import { TxFlowView, TxNodeDetail } from "./TxFlowView";
+
+vi.mock("../graph/exportImage", async (orig) => ({ ...(await orig<typeof import("../graph/exportImage")>()), exportImage: vi.fn() }));
+vi.mock("../lib/download", async (orig) => ({ ...(await orig<typeof import("../lib/download")>()), download: vi.fn() }));
 
 const h = vi.hoisted(() => ({ props: null as CytoscapeViewProps | null }));
 vi.mock("../graph/CytoscapeView", () => ({
@@ -336,7 +342,8 @@ describe("box selection", () => {
     const unselect = vi.fn();
     const handlers: Record<string, () => void> = {};
     const on = vi.fn((ev: string, fn: () => void) => void (handlers[ev] = fn));
-    return { cy: { $: vi.fn(() => ({ unselect })), on } as unknown as import("cytoscape").Core, unselect, handlers };
+    const elements = () => ({ empty: () => false });
+    return { cy: { $: vi.fn(() => ({ unselect })), on, elements } as unknown as import("cytoscape").Core, unselect, handlers };
   }
   async function selectBoth() {
     vi.spyOn(api, "tx").mockResolvedValue(ready());
@@ -430,6 +437,19 @@ describe("box selection", () => {
     } finally {
       pop.dispose();
     }
+  });
+
+  test("the canvas is registered under its hash and exports as ethergraph-tx-<first 10 hex>.<ext>", async () => {
+    const blob = new Blob(["x"]);
+    vi.mocked(exportImage).mockReturnValue(blob);
+    const f = await selectBoth();
+    expect(getTxCy(HASH)).toBe(f.cy);
+    act(() => within(screen.getByRole("toolbar", { name: "Canvas tools" })).getByRole("button", { name: "Export" }).click());
+    act(() => within(screen.getByRole("menu", { name: "Export" })).getByRole("menuitem", { name: "PNG" }).click());
+    expect(exportImage).toHaveBeenLastCalledWith(f.cy, "png");
+    expect(download).toHaveBeenLastCalledWith(blob, "ethergraph-tx-1111111111.png");
+    cleanup();
+    expect(getTxCy(HASH)).toBeNull();
   });
 
   test("the canvas tools toggle select mode for this canvas", async () => {

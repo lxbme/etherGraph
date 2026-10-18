@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/endpoints";
 import { t, useLocale, useT } from "../i18n";
 import { messageFor } from "../api/errors";
-import { setMainCy } from "../graph/cyRegistry";
+import { getMainCy, setMainCy } from "../graph/cyRegistry";
 import { useBoxSelection } from "../graph/boxSelection";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { isMoreId, MORE_PREFIX, toElements } from "../graph/elements";
@@ -22,11 +22,19 @@ import { graphStylesheet } from "../graph/styles";
 import { useGraphData } from "../graph/useGraphData";
 import { deriveVisualEdges } from "../graph/visualEdges";
 import { shortAddr } from "../lib/address";
+import { safeFileName } from "../lib/download";
 import { toast } from "../shell/Toasts";
 import { useTheme } from "../shell/theme";
+import { useWorkspace } from "../workspace/useWorkspace";
 import { GraphTooltip } from "./GraphTooltip";
-import { CanvasTools, IdentifyAllButton } from "./CanvasTools";
+import { CanvasTools, IdentifyAllButton, type CanvasExport } from "./CanvasTools";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
+
+/** The address graph's Export menu: the live canvas, named after the workspace. */
+const EXPORTER: CanvasExport = {
+  cy: getMainCy,
+  baseName: () => `ethergraph-${safeFileName(useWorkspace.getState().name, "graph")}`,
+};
 
 /** A second tap on the same "+N more" node within this window is part of a double-click. */
 const REVEAL_DEBOUNCE_MS = 300;
@@ -254,7 +262,7 @@ export function AddressGraph() {
       {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
       <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
       <BatchBar insetLeft={legendCover} nodes={data?.nodes ?? NO_NODES} />
-      <CanvasTools selectMode={selectMode} onSelectModeChange={useBoxSelection.getState().setSelectMode}>
+      <CanvasTools selectMode={selectMode} onSelectModeChange={useBoxSelection.getState().setSelectMode} exporter={EXPORTER}>
         <IdentifyAllButton nodes={shownNodes} />
         {hiddenOnCanvas > 0 && (
           <button

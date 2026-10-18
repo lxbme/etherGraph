@@ -1,6 +1,8 @@
 import type cytoscape from "cytoscape";
 
 let mainCy: cytoscape.Core | null = null;
+/** Live tx-tab canvases by lowercased hash. */
+const txCys = new Map<string, cytoscape.Core>();
 
 /**
  * E2E hook: when the page URL has `?e2e=1`, live Cytoscape instances are exposed on
@@ -23,11 +25,18 @@ export function getMainCy(): cytoscape.Core | null {
   return mainCy;
 }
 
-/** Registers (or with null, drops) a tx tab's Cytoscape instance for the e2e hook; no-op otherwise. */
-export function exposeTxCy(hash: string, cy: cytoscape.Core | null): void {
+/** Registers (or with null, drops) a tx tab's Cytoscape instance; also exposed on the e2e hook. */
+export function registerTxCy(hash: string, cy: cytoscape.Core | null): void {
+  if (cy) txCys.set(hash.toLowerCase(), cy);
+  else txCys.delete(hash.toLowerCase());
   const w = e2eWindow();
   if (!w) return;
   const all = (w.__etherGraphTxCy ??= {});
   if (cy) all[hash] = cy;
   else delete all[hash];
+}
+
+/** The live Cytoscape instance of the tx tab for `hash` (null when not mounted). */
+export function getTxCy(hash: string): cytoscape.Core | null {
+  return txCys.get(hash.toLowerCase()) ?? null;
 }

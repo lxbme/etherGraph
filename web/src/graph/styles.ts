@@ -165,6 +165,11 @@ export function assetColors(theme: Theme): Record<AssetClass | "other", string> 
   return { eth: asset("eth"), stable: asset("stable"), erc20: asset("erc20"), nft: asset("nft"), other: asset("other") };
 }
 
+/** The canvas background (--canvas): the backdrop of an exported image. */
+export function canvasColor(theme: Theme): string {
+  return cssVar("--canvas", THEME_HEX[theme].canvas);
+}
+
 /** The muted foreground (--fg-muted): token-contract nodes and their dotted links in the tx view. */
 export function mutedColor(theme: Theme): string {
   return cssVar("--fg-muted", THEME_HEX[theme].fgMuted);

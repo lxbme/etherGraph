@@ -7,7 +7,7 @@ import { useLocale, useT } from "../i18n";
 import { qk } from "../api/queryClient";
 import { createBoxSelection } from "../graph/boxSelection";
 import { CytoscapeView } from "../graph/CytoscapeView";
-import { exposeTxCy } from "../graph/cyRegistry";
+import { getTxCy, registerTxCy } from "../graph/cyRegistry";
 import { txLegendFor } from "../graph/legend";
 import { callTooltip, delegationTooltip, flowTooltip, nodeTooltip, type TooltipLine } from "../graph/tooltip";
 import { addToGraph } from "../graph/nodeActions";
@@ -22,7 +22,7 @@ import { useUi } from "../panels/uiStore";
 import { useJobProgress } from "../shell/statusStore";
 import { useTabs } from "../shell/tabs";
 import { useTheme } from "../shell/theme";
-import { CanvasTools, IdentifyAllButton } from "./CanvasTools";
+import { CanvasTools, IdentifyAllButton, type CanvasExport } from "./CanvasTools";
 import { GraphTooltip } from "./GraphTooltip";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
 import { assetOnlyAddresses, assetViewForEdge, assetViewForNode, delegationsOf, txElements } from "./txElements";
@@ -103,6 +103,10 @@ export function TxFlowView({ hash }: { hash: string }) {
       }),
     [box, hash],
   );
+  const exporter = useMemo<CanvasExport>(
+    () => ({ cy: () => getTxCy(hash), baseName: () => `ethergraph-tx-${hash.replace(/^0x/i, "").slice(0, 10).toLowerCase()}` }),
+    [hash],
+  );
   const graphRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; node: NodeSummaryDto } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -127,7 +131,7 @@ export function TxFlowView({ hash }: { hash: string }) {
   }, [hover, flow, assetOnly, locale]);
   useEffect(
     () => () => {
-      exposeTxCy(hash, null);
+      registerTxCy(hash, null);
       box.getState().bindCanvas(null);
       useUi.getState().forgetTx(hash);
       useInfo.getState().forget(hash);
@@ -204,7 +208,7 @@ export function TxFlowView({ hash }: { hash: string }) {
             selectMode={selectMode}
             onDragEnd={NOOP}
             onReady={(cy) => {
-              exposeTxCy(hash, cy);
+              registerTxCy(hash, cy);
               box.getState().bindCanvas(() => cy.$(":selected").unselect());
               cy.on("viewport", closeMenu);
             }}
@@ -213,7 +217,7 @@ export function TxFlowView({ hash }: { hash: string }) {
           />
           {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
           <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
-          <CanvasTools selectMode={selectMode} onSelectModeChange={box.getState().setSelectMode}>
+          <CanvasTools selectMode={selectMode} onSelectModeChange={box.getState().setSelectMode} exporter={exporter}>
             <IdentifyAllButton nodes={flow.nodes} />
           </CanvasTools>
           <TxBatchBar selection={box} insetLeft={legendCover} nodes={flow.nodes} />

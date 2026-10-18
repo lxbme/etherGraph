@@ -3,8 +3,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import type { WorkspaceMetaDto } from "../api/generated/WorkspaceMetaDto";
-import { t, useT } from "../i18n";
-import { getMainCy } from "../graph/cyRegistry";
+import { useT } from "../i18n";
+import { download, safeFileName } from "../lib/download";
 import { formatLocalTime, formatTime } from "../lib/format";
 import { clearSaveRequest, useSaveRequest } from "../workspace/saveRequest";
 import { SCHEMA_VERSION } from "../workspace/serialize";
@@ -29,28 +29,6 @@ type Dialog =
   | { kind: "open" };
 
 const MAX_NAME = 100;
-
-function download(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-/** Safe download base name: no path separators/control chars, no leading dots. */
-export function safeFileName(name: string | null): string {
-  const cleaned = (name ?? "").replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").replace(/^\.+/, "");
-  return cleaned.trim() === "" ? t("ws.untitled") : cleaned;
-}
-
-function themeBg(): string {
-  const v = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
-  return v || "#ffffff";
-}
 
 function Modal({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -245,12 +223,6 @@ export function WorkspaceMenu() {
       onConfirm: () => run(() => deleteWorkspace(id)),
     });
   };
-  const exportPng = () => {
-    const cy = getMainCy();
-    if (!cy) return toast(t("ws.nothingToExport"), "error");
-    const blob = cy.png({ full: true, scale: 2, bg: themeBg(), output: "blob" });
-    download(blob, `ethergraph-${safeFileName(name)}.png`);
-  };
   const exportJson = () => {
     const body = JSON.stringify({ name: name ?? t("ws.untitled"), schema_version: SCHEMA_VERSION, state: captureState() }, null, 2);
     download(new Blob([body], { type: "application/json" }), `ethergraph-${safeFileName(name)}.json`);
@@ -284,7 +256,6 @@ export function WorkspaceMenu() {
           {item(t("ws.open"), () => setDialog({ kind: "open" }))}
           {item(t("ws.rename"), () => setDialog({ kind: "name", purpose: "rename" }), id == null)}
           {item(t("ws.delete"), onDelete, id == null)}
-          {item(t("ws.exportPng"), exportPng)}
           {item(t("ws.exportJson"), exportJson)}
         </div>
       )}

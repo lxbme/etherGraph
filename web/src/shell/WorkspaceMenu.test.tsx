@@ -8,7 +8,7 @@ import { useGraph } from "../graph/store";
 import { requestSave } from "../workspace/saveRequest";
 import { useWorkspace } from "../workspace/useWorkspace";
 import { serialize } from "../workspace/serialize";
-import { WorkspaceMenu, safeFileName } from "./WorkspaceMenu";
+import { WorkspaceMenu } from "./WorkspaceMenu";
 import { formatLocalTime } from "../lib/format";
 
 vi.mock("../api/endpoints", () => ({
@@ -152,17 +152,11 @@ describe("WorkspaceMenu", () => {
       });
     });
 
-    test("PNG uses cy.png full/scale 2 and a sanitized name; url is revoked", async () => {
-      const blob = new Blob(["x"], { type: "image/png" });
-      const png = vi.fn(() => blob);
-      cyHolder.cy = { png, getElementById: () => ({ nonempty: () => false }), viewport: () => {} };
-      useWorkspace.getState().setCurrent(dto({ name: "a/../b" }));
+    test("image export moved to the canvas tools: the menu has no Export PNG", async () => {
       render(<WorkspaceMenu />);
-      await pick("Export PNG");
-      expect(png).toHaveBeenCalledWith(expect.objectContaining({ full: true, scale: 2, output: "blob" }));
-      expect(names).toEqual(["ethergraph-a_.._b.png"]);
-      expect(created[0]).toBe(blob);
-      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:x");
+      await userEvent.click(screen.getByRole("button", { name: "Workspace menu" }));
+      expect(screen.queryByRole("menuitem", { name: /PNG/ })).toBeNull();
+      expect(screen.getByRole("menuitem", { name: "Export JSON" })).toBeInTheDocument();
     });
 
     test("JSON export downloads the serialized state with the name", async () => {
@@ -184,13 +178,6 @@ describe("WorkspaceMenu", () => {
       expect(body.state.viewport).toEqual({ zoom: 2, pan: { x: 1, y: 2 } });
       expect(URL.revokeObjectURL).toHaveBeenCalled();
     });
-  });
-
-  test("safeFileName sanitizes", () => {
-    expect(safeFileName("a/../b")).toBe("a_.._b");
-    expect(safeFileName("..")).toBe("untitled");
-    expect(safeFileName(null)).toBe("untitled");
-    expect(safeFileName('x:y*z?')).toBe("x_y_z_");
   });
 
   test("open dialog per-row delete asks for confirmation", async () => {

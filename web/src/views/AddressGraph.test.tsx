@@ -15,7 +15,13 @@ import { Toasts } from "../shell/Toasts";
 import { DetailPanel } from "../panels/DetailPanel";
 import { useInfo } from "../panels/info/infoStore";
 import { useUi } from "../panels/uiStore";
+import { exportImage } from "../graph/exportImage";
+import { download } from "../lib/download";
+import { useWorkspace } from "../workspace/useWorkspace";
 import { AddressGraph } from "./AddressGraph";
+
+vi.mock("../graph/exportImage", async (orig) => ({ ...(await orig<typeof import("../graph/exportImage")>()), exportImage: vi.fn() }));
+vi.mock("../lib/download", async (orig) => ({ ...(await orig<typeof import("../lib/download")>()), download: vi.fn() }));
 
 const h = vi.hoisted(() => ({ props: null as CytoscapeViewProps | null, renders: 0 }));
 vi.mock("../graph/CytoscapeView", () => ({
@@ -52,6 +58,7 @@ function fakeCy() {
   const cy = {
     $: vi.fn(() => ({ unselect })),
     on: vi.fn((ev: string, _sel: string, fn: (e: unknown) => void) => { handlers[ev] = fn; }),
+    elements: () => ({ empty: () => false }),
   };
   const grab = (id: string, pos: { x: number; y: number }) =>
     handlers.grab?.({ target: { id: () => id, position: () => ({ ...pos }) } });
@@ -239,6 +246,24 @@ test("the select-mode toggle in the canvas tools drives the canvas", async () =>
   act(() => toggle.click());
   expect(toggle).toHaveAttribute("aria-pressed", "true");
   expect(props().selectMode).toBe(true);
+});
+
+test("the canvas tools export the address graph as ethergraph-<workspace name or graph>.<ext>", async () => {
+  const blob = new Blob(["x"]);
+  vi.mocked(exportImage).mockReturnValue(blob);
+  const { f } = await mountWithData();
+  const pick = (item: string) => {
+    act(() => within(screen.getByRole("toolbar", { name: "Canvas tools" })).getByRole("button", { name: "Export" }).click());
+    act(() => within(screen.getByRole("menu", { name: "Export" })).getByRole("menuitem", { name: item }).click());
+  };
+  pick("SVG");
+  expect(exportImage).toHaveBeenLastCalledWith(f.cy, "svg");
+  expect(download).toHaveBeenLastCalledWith(blob, "ethergraph-graph.svg");
+  act(() => useWorkspace.setState({ name: "Case/7" }));
+  pick("Transparent PNG");
+  expect(exportImage).toHaveBeenLastCalledWith(f.cy, "png-transparent");
+  expect(download).toHaveBeenLastCalledWith(blob, "ethergraph-Case_7.png");
+  act(() => useWorkspace.getState().clear());
 });
 
 test("a group drag of three selected nodes is one undo step (Ctrl+Z)", async () => {

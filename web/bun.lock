@@ -5,7 +5,7 @@
     "": {
       "name": "ethergraph-web",
       "dependencies": {
-        "@fontsource-variable/archivo": "5.3.0",
+        "@fontsource-variable/archivo": "^5.3.0",
         "@fontsource/ibm-plex-mono": "^5.3.0",
         "@fontsource/inter": "^5.3.0",
         "@tanstack/react-query": "^5.104.3",
@@ -15,6 +15,7 @@
         "lucide-react": "^1.59.0",
         "react": "^19.3.1",
         "react-dom": "^19.3.1",
+        "svgcanvas": "2.6.0",
         "zustand": "^5.0.15",
       },
       "devDependencies": {
@@ -282,6 +283,8 @@
     "std-env": ["std-env@4.3.0", "", {}, "sha512-OtU/EgQ1kIm5KwqQpBC6ZEMXrZRui11w8zgfTWp8cdO9B8OaPsbA8bTHO2P+HNo1VlUTGMVBwPhydu6poeXiag=="],
 
     "strip-indent": ["strip-indent@3.0.0", "", { "dependencies": { "min-indent": "^1.0.0" } }, "sha512-laJTa3Jb+VQpaC6DseHhF7dXVqHTfJPCRDaEbid/drOhgitgYku/letMUqOXFoWV0zIIUbjpdH2t+tYj4bQMRQ=="],
+
+    "svgcanvas": ["svgcanvas@2.6.0", "", {}, "sha512-H/2iVTLyuLxbLNYArnTaR8RmCR7fi8Gx7Hul7+lnPcN/b6AXLS56iVzUudgfMmkKrF9+GvXm+YJlT9Tg4eIj3A=="],
 
     "tinybench": ["tinybench@6.2.2", "", {}, "sha512-nIZ2N2dFpjBsg2hgitKu7mA+FvsIJuGJOwysRngmVRRmWgR/UyPjwJj8c/fT/dhm8EkHnF5EOogRf+0Z2qrimA=="],
 
