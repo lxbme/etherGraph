@@ -78,8 +78,15 @@ export function txElements(flow: TxFlowDto, selected?: string | null, highlighte
       classes: lc(from) === lc(to) ? "call self-call" : "call",
     });
   }
-  authorizationsOf(flow).forEach((a, i) => {
+  // One delegation per signer: the last entry from that signer wins, and a zero-address delegate clears it.
+  const lastBySigner = new Map<string, number>();
+  const auths = authorizationsOf(flow);
+  auths.forEach((a, i) => {
+    if (a.authority !== null) lastBySigner.set(lc(a.authority), i);
+  });
+  auths.forEach((a, i) => {
     if (a.authority === null || lc(a.delegate) === ZERO_ADDRESS) return;
+    if (lastBySigner.get(lc(a.authority)) !== i) return;
     const source = lc(a.authority);
     const target = lc(a.delegate);
     if (!present.has(source) || !present.has(target)) return;

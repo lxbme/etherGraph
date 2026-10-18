@@ -570,6 +570,7 @@ export const en = {
   "help.tx.body2": "Etherscan provides no execution traces. Internal ETH transfers come from its internal-transaction list, which omits zero-value calls and delegatecall nesting.",
   "help.tx.body3": "The Trace column on Internal Calls is Etherscan's traceId. It only hints at nesting, and with zero-value calls missing the call depth cannot be fully rebuilt.",
   "help.tx.body4": "①②③ number the transfers: the top-level ETH value first, then token transfers in log order, then internal ETH transfers in trace order. Read it as an approximate order, not an exact timeline.",
+  "help.tx.body6": "A dotted link to a token contract means that contract appears only as the asset of a transfer, not as a party to the call.",
   "help.tx.body5": "Click a node to see it in the right panel; “Add to graph” puts the address on the main canvas.",
   "help.assets.title": "Assets",
   "help.assets.body": "Click an asset symbol in a transfer or on a tx flow edge to see its details in the right panel.",

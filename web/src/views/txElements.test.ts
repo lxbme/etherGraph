@@ -229,6 +229,15 @@ describe("self-calls and EIP-7702 delegations", () => {
     expect(els.find((e) => e.data.id === "call")!.data.label).toBe("execute");
   });
 
+  test("one delegation edge per signer: the last entry wins, and a zero-address last entry draws none", () => {
+    const base = { tx: { ...dto().tx, from: A, to: A }, nodes: [node(A), node(B), node(D), node(E)], flows: [] };
+    const two = txElements(dto({ ...base, detail: { ...dto().detail, tx_type: 4, authorizations: [auth(A, D), auth(A, E)] } }));
+    const del = two.filter((e) => String(e.classes) === "delegation");
+    expect(del.map((e) => [e.data.id, e.data.source, e.data.target])).toEqual([["delegation-1", A, E]]);
+    const cleared = txElements(dto({ ...base, detail: { ...dto().detail, tx_type: 4, authorizations: [auth(A, D), auth(A, ZERO)] } }));
+    expect(cleared.some((e) => String(e.classes) === "delegation")).toBe(false);
+  });
+
   test("a delegate without a node gets no edge", () => {
     const f = dto({ detail: { ...dto().detail, tx_type: 4, authorizations: [auth(A, D)] } });
     expect(txElements(f).some((e) => String(e.classes) === "delegation")).toBe(false);

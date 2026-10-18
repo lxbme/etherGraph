@@ -54,7 +54,7 @@ function bullets(id: SectionId, mac: boolean, quota: number): { key: MsgKey; par
     case "labels":
       return [1, 2, 3].map((n) => ({ key: `help.labels.body${n}` as MsgKey }));
     case "tx":
-      return [{ key: "help.tx.body1" }, { key: "help.tx.body2" }, { key: "help.tx.body3" }, { key: "help.tx.body4" }, { key: "help.tx.body5" }];
+      return [{ key: "help.tx.body1" }, { key: "help.tx.body2" }, { key: "help.tx.body3" }, { key: "help.tx.body4" }, { key: "help.tx.body5" }, { key: "help.tx.body6" }];
     case "assets":
       return [1, 2, 3, 4, 5, 6].map((n) => ({ key: `help.assets.body${n}` as MsgKey }));
     case "standards":

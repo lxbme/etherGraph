@@ -68,7 +68,7 @@ function catalogue(theme: Theme): Record<LegendGroupId, LegendItem[]> {
       { id: "call", swatch: { kind: "edge", color: asset.other, dashed: true }, label: "legend.tx.call" },
       { id: "flow", swatch: { kind: "edge", color: asset.eth }, label: "legend.tx.flow" },
       { id: "seq", swatch: { kind: "edge", color: asset.other, badge: "①" }, label: "legend.tx.seq" },
-      { id: "asset-link", swatch: { kind: "edge", color: mutedColor(theme), width: 1.5, dotted: true }, label: "legend.tx.assetLink" },
+      { id: "asset-link", swatch: { kind: "edge", color: mutedColor(theme), width: 1, dotted: true }, label: "legend.tx.assetLink" },
       { id: "delegation", swatch: { kind: "edge", color: delegationColor(theme), dashed: true }, label: "legend.tx.delegation" },
     ],
   };

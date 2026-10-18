@@ -123,5 +123,6 @@ test("the token-contract swatch is a dotted line (round dots), the delegation sw
   const dotted = line("Token contract (dotted link)");
   expect(dotted.getAttribute("stroke-linecap")).toBe("round");
   expect(dotted.getAttribute("stroke-dasharray")).toBe("0.1 3");
+  expect(dotted.getAttribute("stroke-width")).toBe("1");
   expect(line("Delegation (EIP-7702)").getAttribute("stroke-dasharray")).toBe("3 2");
 });

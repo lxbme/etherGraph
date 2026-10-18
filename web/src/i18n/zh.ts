@@ -572,6 +572,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "help.tx.body2": "Etherscan 不提供执行追踪。内部 ETH 转账来自它的内部交易列表，其中不包含零值调用，也没有 delegatecall 的层级。",
   "help.tx.body3": "“内部调用”中的“调用路径”列就是 Etherscan 的 traceId。它只能大致反映层级，加上缺少零值调用，调用深度无法完整还原。",
   "help.tx.body4": "①②③ 是转账的编号：先是顶层的 ETH 金额，然后是按日志顺序排列的代币转账，最后是按调用路径排列的内部 ETH 转账。请把它看作大致的顺序，而不是精确的时间线。",
+  "help.tx.body6": "指向代币合约的点线表示该合约只是某笔转账的资产，并未参与这次调用。",
   "help.tx.body5": "单击节点可在右侧面板查看；“加入关系图”会把该地址放到主画布上。",
   "help.assets.title": "资产与代币标签",
   "help.assets.body": "点击转账或交易流向图边上的资产符号，可在右侧面板查看详情。",

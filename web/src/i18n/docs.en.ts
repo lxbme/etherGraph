@@ -132,7 +132,12 @@ export const docsEn = {
       ["to", "Must be set."],
     ],
     math: ["delegation designator = 0xef0100 || address"],
-    inThisApp: ["Overview labels the type “EIP-7702” and shows its fees as for an EIP-1559 transaction."],
+    inThisApp: [
+      "Overview labels the type “EIP-7702” and shows its fees as for an EIP-1559 transaction.",
+      "Overview lists the authorization list (signer, delegate, chain, nonce).",
+      "The graph draws a dashed “delegates to” edge from the signer to the delegate.",
+      "A call to an address that delegated in the same transaction is decoded with the delegate's ABI.",
+    ],
   },
   "erc-20": {
     title: "Fungible tokens",

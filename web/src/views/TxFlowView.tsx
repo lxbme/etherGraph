@@ -86,6 +86,7 @@ export function TxFlowView({ hash }: { hash: string }) {
     () => (flow ? txElements(flow, selected, highlightedSeq) : []),
     [flow, selected, highlightedSeq, locale], // labels are translated when built
   );
+  const assetOnly = useMemo(() => (flow ? assetOnlyAddresses(flow) : new Set<string>()), [flow]);
   /** This tab's own box selection (each tx tab and the address graph have one). */
   const [box] = useState(createBoxSelection);
   const boxCount = box((s) => s.ids.length);
@@ -122,8 +123,8 @@ export function TxFlowView({ hash }: { hash: string }) {
       return flowTooltip(f, names);
     }
     const n = flow.nodes.find((x) => x.address.toLowerCase() === hover.id);
-    return n ? nodeTooltip(n, { assetContract: assetOnlyAddresses(flow).has(hover.id) }) : null;
-  }, [hover, flow, locale]);
+    return n ? nodeTooltip(n, { assetContract: assetOnly.has(hover.id) }) : null;
+  }, [hover, flow, assetOnly, locale]);
   useEffect(
     () => () => {
       exposeTxCy(hash, null);
