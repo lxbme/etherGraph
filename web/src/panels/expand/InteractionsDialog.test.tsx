@@ -118,6 +118,27 @@ test("rows show the counterparty, asset symbols (max 3 plus +N) and Count is the
   expect(spy).toHaveBeenCalledWith(addr(999), expect.objectContaining({ sort: "count_desc", limit: 100, offset: 0, kind: "all" }));
 });
 
+test("flagged asset symbols carry ⚠ and the row shows the worst flag's badge, even when that asset is folded into +N", async () => {
+  const ref = (s: string, trust: CounterpartyDto["assets"][number]["trust"]) => ({ asset: "0x" + s.charCodeAt(0).toString(16).repeat(20), symbol: s, trust });
+  const unknown = { level: "unknown", impersonates: null, reason: null } as const;
+  const sus = { level: "suspicious", impersonates: { address: "0xdac17f958d2ee523a2206206994597c13d831ec7", symbol: "USDT", name: "Tether USD" }, reason: null } as const;
+  vi.spyOn(api, "counterparties").mockResolvedValue({
+    items: [
+      cp(1, { assets: [ref("A", unknown), ref("B", sus), ref("C", unknown), ref("D", { level: "scam", impersonates: null, reason: "spam-token" })] }),
+      cp(2, { assets: [ref("E", unknown)] }),
+    ],
+    total: 2,
+  });
+  mount();
+  const row = (await screen.findByRole("checkbox", { name: addr(1) })).closest("tr")!;
+  expect(within(row).getByText("A, ⚠ B, C")).toBeInTheDocument();
+  const badge = within(row).getByText("Known scam");
+  expect(badge).toHaveClass("tag--scam");
+  expect(badge).toHaveAttribute("title", "D: Flagged as spam by eth-labels");
+  const clean = screen.getByRole("checkbox", { name: addr(2) }).closest("tr")!;
+  expect(within(clean).queryByText(/Known scam|Possible impersonation/)).toBeNull();
+});
+
 test("choosing Wallets requests kind=eoa; Recent sorts by recency; 7d sends a from bound", async () => {
   const spy = vi.spyOn(api, "counterparties").mockResolvedValue({ items: [cp(1)], total: 1 });
   mount();

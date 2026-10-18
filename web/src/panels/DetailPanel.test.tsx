@@ -175,6 +175,29 @@ test("adding a label invalidates address and graph queries", async () => {
   await waitFor(() => expect(useUi.getState().labelEditorFor).toBeNull());
 });
 
+test("edge detail marks a flagged token beside its symbol", async () => {
+  const data: GraphResponseDto = {
+    nodes: [],
+    edges: [
+      { from: A, to: B, asset: null, asset_kind: "native", count: 3, sum: "1", first_ts: "", last_ts: "", decimals: 18, symbol: "ETH", trust: { level: "listed", impersonates: null, reason: null } },
+      {
+        from: B, to: A, asset: "0x" + "fa".repeat(20), asset_kind: "erc20", count: 1, sum: "2000000", first_ts: "", last_ts: "", decimals: 6, symbol: "USDC",
+        trust: { level: "suspicious", impersonates: { address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", symbol: "USDC", name: "USD Coin" }, reason: null },
+      },
+    ],
+    omitted: {}, coverage: {},
+  };
+  vi.spyOn(api, "graphEdges").mockResolvedValue(data);
+  act(() => {
+    useGraph.getState().addCenter(A);
+    useGraph.getState().select({ kind: "pair", a: A, b: B });
+  });
+  renderPanel();
+  const usdc = (await screen.findByText("USDC")).closest("tr")!;
+  expect(within(usdc).getByText("Possible impersonation")).toHaveClass("tag--warn");
+  expect(within(screen.getByText("ETH").closest("tr")!).queryByText("Possible impersonation")).toBeNull();
+});
+
 test("edge detail toggles the pair expansion", async () => {
   const data: GraphResponseDto = {
     nodes: [],

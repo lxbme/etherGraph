@@ -8,6 +8,8 @@ import { useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
 import { NATIVE_SYMBOL } from "../../lib/assets";
 import { formatCount, formatLocalTime, formatTime } from "../../lib/format";
+import { TRUST_MARK, trustFlag, worstFlag } from "../../lib/trust";
+import { TrustBadge } from "../info/TrustBadge";
 import { ExpandDialog } from "./ExpandDialog";
 import { useSyncOnOpen } from "./useSyncOnOpen";
 
@@ -63,13 +65,27 @@ function Segmented<T extends string>(p: {
   );
 }
 
+/**
+ * The first symbols, a suspicious or scam one marked ⚠, then "+N"; the worst flag among all of the row's assets
+ * (folded ones too) shows as one trust badge naming its token.
+ */
 function Assets({ item }: { item: CounterpartyDto }) {
-  const symbols = item.assets.map((a) => a.symbol ?? (a.asset === null ? NATIVE_SYMBOL : shortAddr(a.asset)));
+  const symbols = item.assets.map((a) => {
+    const s = a.symbol ?? (a.asset === null ? NATIVE_SYMBOL : shortAddr(a.asset));
+    return trustFlag(a.trust) ? `${TRUST_MARK} ${s}` : s;
+  });
   const rest = symbols.length - MAX_SYMBOLS;
+  const worst = worstFlag(item.assets);
+  const flagged = worst ? item.assets.find((a) => a.trust.level === worst) : undefined;
   return (
     <>
       <span title={symbols.join(", ")}>{symbols.slice(0, MAX_SYMBOLS).join(", ")}</span>
       {rest > 0 && <span className="tag tag--neutral interactions__more">{`+${rest}`}</span>}
+      {flagged && (
+        <span className="interactions__more">
+          <TrustBadge trust={flagged.trust} subject={flagged.symbol ?? (flagged.asset === null ? NATIVE_SYMBOL : shortAddr(flagged.asset))} />
+        </span>
+      )}
     </>
   );
 }

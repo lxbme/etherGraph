@@ -170,9 +170,15 @@ export function mutedColor(theme: Theme): string {
   return cssVar("--fg-muted", THEME_HEX[theme].fgMuted);
 }
 
-/** Label colour of an edge carrying a flagged token: --warn for a possible impersonation, the scam hue for a known scam. */
+/** The warning amber darkened enough to read as label text on the canvas (3:1), per theme. */
+const TRUST_SUSPICIOUS_HEX: Record<Theme, string> = { light: "#a8791c", dark: "#f0b64a" };
+
+/**
+ * Label colour of an edge carrying a flagged token: the warning amber (--trust-suspicious, readable on the canvas)
+ * for a possible impersonation, the scam hue for a known scam.
+ */
 export function trustColors(theme: Theme): { suspicious: string; scam: string } {
-  return { suspicious: cssVar("--warn", THEME_HEX[theme].warn), scam: cssVar("--cat-scam", CAT_HEX[theme].scam) };
+  return { suspicious: cssVar("--trust-suspicious", TRUST_SUSPICIOUS_HEX[theme]), scam: cssVar("--cat-scam", CAT_HEX[theme].scam) };
 }
 
 /** Colour of the tx view's delegation edges. */

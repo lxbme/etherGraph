@@ -39,6 +39,8 @@
   --asset-other: #868d98;
   /* tx view: EIP-7702 "delegates to" edges */
   --tx-delegation: #0e7490;
+  /* label of an edge carrying a possibly impersonating token: --warn darkened to read on the canvas (3:1) */
+  --trust-suspicious: #a8791c;
 
   /* spacing: multiples of 4 */
   --sp-1: 4px;
@@ -118,6 +120,7 @@
   --asset-nft: #e879c6;
   --asset-other: #6b7280;
   --tx-delegation: #22b8cf;
+  --trust-suspicious: #f0b64a;
 
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.5);
 }

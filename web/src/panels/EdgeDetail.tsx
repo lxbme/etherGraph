@@ -5,6 +5,7 @@ import { formatFixed } from "../lib/amount";
 import { assetClass } from "../lib/assets";
 import { formatCount } from "../lib/format";
 import { shortAddr } from "../lib/address";
+import { TrustBadge } from "./info/TrustBadge";
 import { groupsForPair } from "./transferGroups";
 import { pairKey } from "../graph/pairKey";
 
@@ -43,7 +44,12 @@ export function EdgeDetail({ a, b }: { a: string; b: string }) {
               const sum = formatFixed(g.sum, g.decimals, assetClass(g.asset, g.kind));
               return (
                 <tr key={g.key}>
-                  <td>{g.symbol ?? (g.asset === null ? "ETH" : shortAddr(g.asset))}</td>
+                  <td>
+                    <span className="asset-symbol">
+                      {g.symbol ?? (g.asset === null ? "ETH" : shortAddr(g.asset))}
+                      <TrustBadge trust={g.trust} />
+                    </span>
+                  </td>
                   <td className="num">{`${side(g.from)} → ${side(g.to)}`}</td>
                   <td className="num table__num">{formatCount(g.count)}</td>
                   <td className="num table__num" title={sum.full}>{sum.text}</td>

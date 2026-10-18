@@ -266,7 +266,7 @@ describe("graphStylesheet", () => {
   test("a flagged edge keeps its asset line colour but its ⚠ label takes the warn or scam token", () => {
     for (const theme of ["light", "dark"] as const) {
       const s = sheet(theme);
-      expect(styleOf(s, "edge.asset-suspicious")).toEqual({ color: theme === "light" ? "#e8a317" : "#f0b64a" });
+      expect(styleOf(s, "edge.asset-suspicious")).toEqual({ color: theme === "light" ? "#a8791c" : "#f0b64a" });
       expect(styleOf(s, "edge.asset-scam")).toEqual({ color: categoryColors(theme).scam.stroke });
       expect(trustColors(theme)).toEqual({ suspicious: styleOf(s, "edge.asset-suspicious").color, scam: categoryColors(theme).scam.stroke });
     }
@@ -279,7 +279,7 @@ describe("graphStylesheet", () => {
         { group: "edges", data: { id: "g", source: "a", target: "b", width: 2, badge: "⚠ ×2" }, classes: "asset-eth asset-scam" },
       ],
       (cy) => {
-        expect(cy.getElementById("f").style("color")).toBe("rgb(232,163,23)");
+        expect(cy.getElementById("f").style("color")).toBe("rgb(168,121,28)");
         expect(cy.getElementById("f").style("line-color")).toBe("rgb(183,121,31)"); // still the erc20 hue
         expect(cy.getElementById("g").style("color")).toBe("rgb(217,48,37)");
         expect(cy.getElementById("g").style("label")).toBe("⚠ ×2");
@@ -287,7 +287,7 @@ describe("graphStylesheet", () => {
     );
   });
 
-  test("every asset colour and the delegation colour has its own hue and reads on the canvas (3:1) in both themes", () => {
+  test("every asset colour, the delegation colour and the flagged-label colours read on the canvas (3:1); asset hues are distinct, in both themes", () => {
     const hex = (c: string) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16) / 255) as [number, number, number];
     const lum = (c: string) => {
       const [r, g, b] = hex(c).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)) as [number, number, number];
@@ -310,6 +310,8 @@ describe("graphStylesheet", () => {
       const canvas = theme === "light" ? "#fbfcfd" : "#10141a";
       const a = assetColors(theme);
       for (const c of [...Object.values(a), delegationColor(theme)]) expect(contrast(c, canvas), `${theme} ${c}`).toBeGreaterThanOrEqual(3);
+      // The ⚠ labels of flagged edges must read on the canvas too.
+      for (const [k, c] of Object.entries(trustColors(theme))) expect(contrast(c, canvas), `${theme} trust ${k} ${c}`).toBeGreaterThanOrEqual(3);
       // Only "other" is a grey; the named classes are hues at least 30° apart.
       expect(hue(a.other)).toBeNull();
       const hues = [...(["eth", "stable", "erc20", "nft"] as const).map((k) => hue(a[k])), hue(delegationColor(theme))];
@@ -439,6 +441,8 @@ describe("txFlowStylesheet", () => {
     const tokens = readFileSync("src/styles/tokens.css", "utf8");
     expect(tokens).toContain("--tx-delegation: #0e7490;");
     expect(tokens).toContain("--tx-delegation: #22b8cf;");
+    expect(tokens).toContain(`--trust-suspicious: ${trustColors("light").suspicious};`);
+    expect(tokens).toContain(`--trust-suspicious: ${trustColors("dark").suspicious};`);
   });
 
   test("a self-call loop shows its method as a plain label instead of the sender-side one", () => {
