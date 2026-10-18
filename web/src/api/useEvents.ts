@@ -101,6 +101,7 @@ export function useEvents(): void {
     const metaChanged = coalescer((addrs) => {
       void qc.invalidateQueries({ queryKey: ["graph"] });
       invalidateAddresses(addrs);
+      for (const a of addrs) void qc.invalidateQueries({ queryKey: qk.token(a) });
       // A tx's flow nodes carry their type and name: refetch the cached txs these addresses take part in.
       void qc.invalidateQueries({
         predicate: (q) => {

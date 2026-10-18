@@ -1151,3 +1151,11 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
   justify-content: flex-end;
   gap: var(--sp-2);
 }
+
+/* Info views in the right panel: asset details and documentation topics. */
+.info__head { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--line); }
+.info__title { flex: 1; min-width: 0; margin: 0; font-size: var(--fs-14); font-weight: 600; overflow-wrap: anywhere; }
+.info .detail__section { padding: var(--sp-3); }
+.kv--wrap > :nth-child(even) { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+.asset-link { padding: 0; color: var(--accent); background: none; border: 0; font: inherit; cursor: pointer; }
+.asset-link:hover { text-decoration: underline; }

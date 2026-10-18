@@ -155,7 +155,7 @@ test("tapping a node selects it and drops the box selection (natively too); tapp
   expect(f.unselect).toHaveBeenCalled();
   expect(props().elements.find((e) => e.data.id === B)?.classes).toContain("selected");
 
-  act(() => props().onTapEdge(A, B));
+  act(() => props().onTapEdge(A, B, "e1"));
   expect(useGraph.getState().selection).toEqual({ kind: "pair", a: A, b: B });
 });
 
@@ -510,7 +510,7 @@ describe("+N more proxy", () => {
   test("taps on the proxy edge neither select nor expand a pair", async () => {
     vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
     await mountWithData();
-    act(() => props().onTapEdge(A, `more:${A}`));
+    act(() => props().onTapEdge(A, `more:${A}`, "e2"));
     act(() => props().onDblTapEdge(A, `more:${A}`));
     expect(useGraph.getState().selection).toBeNull();
     expect(useGraph.getState().expandedPairs.size).toBe(0);

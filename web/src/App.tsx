@@ -15,6 +15,8 @@ import { useHashRouting } from "./shell/hashRoute";
 import { TransferTable } from "./panels/TransferTable";
 import { DetailPanel } from "./panels/DetailPanel";
 import { TxFlowView, TxNodeDetail } from "./views/TxFlowView";
+import { InfoPanel } from "./panels/info/InfoPanel";
+import { useInfo } from "./panels/info/infoStore";
 import { useUi } from "./panels/uiStore";
 import { useTabs, type Tab } from "./shell/tabs";
 import { WorkspaceMenu } from "./shell/WorkspaceMenu";
@@ -43,6 +45,7 @@ function Shell() {
   const wsId = useWorkspace((s) => s.id);
   const wsDirty = useWorkspace((s) => s.dirty);
   const wsStatus = saveStatusLabel({ id: wsId, dirty: wsDirty });
+  const hasInfo = useInfo((s) => (s.stacks[active]?.length ?? 0) > 0);
   const tx = tabs.find((t): t is Extract<Tab, { kind: "tx" }> => t.id === active && "kind" in t);
 
   return (
@@ -66,7 +69,9 @@ function Shell() {
         </div>
         {/* One panel for the active tab: the graph's selection, or the active tx tab's own selection. */}
         {detailOpen && (
-          <RightPanel>{tx ? <TxNodeDetail key={tx.hash} hash={tx.hash} /> : <DetailPanel />}</RightPanel>
+          <RightPanel>
+            {hasInfo ? <InfoPanel tab={active} /> : tx ? <TxNodeDetail key={tx.hash} hash={tx.hash} /> : <DetailPanel />}
+          </RightPanel>
         )}
       </div>
       <StatusBar saveStatus={wsStatus} />

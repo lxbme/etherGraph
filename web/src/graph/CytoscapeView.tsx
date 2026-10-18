@@ -15,7 +15,8 @@ export interface CytoscapeViewProps {
   stylesheet: cytoscape.StylesheetJson;
   layout: "incremental" | "dagre-lr";
   onTapNode(id: string, e: { shift: boolean }): void;
-  onTapEdge(source: string, target: string): void;
+  /** `id` is the edge element id (`call`, `flow-<seq>-<index>` in a tx graph). */
+  onTapEdge(source: string, target: string, id: string): void;
   onDblTapNode(id: string): void;
   onDblTapEdge(source: string, target: string): void;
   /** `pos` is the rendered position relative to the canvas container (not page/client coordinates). */
@@ -201,7 +202,7 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       cy.nodes(":selected").unselect();
       p().onTapBackground?.();
     });
-    cy.on("tap", "edge", (e) => p().onTapEdge(e.target.data("source"), e.target.data("target")));
+    cy.on("tap", "edge", (e) => p().onTapEdge(e.target.data("source"), e.target.data("target"), e.target.id()));
     cy.on("dbltap", "node", (e) => p().onDblTapNode(e.target.id()));
     cy.on("dbltap", "edge", (e) => p().onDblTapEdge(e.target.data("source"), e.target.data("target")));
     cy.on("cxttap", "node", (e) => {

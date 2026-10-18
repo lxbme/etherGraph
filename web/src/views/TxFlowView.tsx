@@ -17,6 +17,7 @@ import { txFlowStylesheet } from "../graph/styles";
 import { NodeDetail } from "../panels/NodeDetail";
 import { TxContextMenu } from "../panels/TxContextMenu";
 import { TxBatchBar } from "../panels/TxBatchBar";
+import { useInfo } from "../panels/info/infoStore";
 import { useUi } from "../panels/uiStore";
 import { useJobProgress } from "../shell/statusStore";
 import { useTabs } from "../shell/tabs";
@@ -24,7 +25,7 @@ import { useTheme } from "../shell/theme";
 import { CanvasTools, IdentifyAllButton } from "./CanvasTools";
 import { GraphTooltip } from "./GraphTooltip";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
-import { txElements } from "./txElements";
+import { assetViewForEdge, txElements } from "./txElements";
 import { TxDetailTabs } from "./txdetail/TxDetailTabs";
 import { TxSummaryBar } from "./txdetail/TxSummaryBar";
 
@@ -125,6 +126,7 @@ export function TxFlowView({ hash }: { hash: string }) {
       exposeTxCy(hash, null);
       box.getState().bindCanvas(null);
       useUi.getState().forgetTx(hash);
+      useInfo.getState().forget(hash);
     },
     [hash, box],
   );
@@ -173,7 +175,10 @@ export function TxFlowView({ hash }: { hash: string }) {
               setSelected(id.toLowerCase());
             }}
             onTapBackground={() => setSelected(null)}
-            onTapEdge={NOOP}
+            onTapEdge={(_s, _t, id) => {
+              const view = assetViewForEdge(flow, id);
+              if (view) useInfo.getState().open(hash.toLowerCase(), view);
+            }}
             onDblTapNode={NOOP}
             onDblTapEdge={NOOP}
             onCxtNode={(id, pos) => {

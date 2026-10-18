@@ -13,6 +13,7 @@ import type { ProbeResponseDto } from "../src/api/generated/ProbeResponseDto";
 import type { SearchResultDto } from "../src/api/generated/SearchResultDto";
 import type { StatusDto } from "../src/api/generated/StatusDto";
 import type { SyncResponseDto } from "../src/api/generated/SyncResponseDto";
+import type { TokenDetailDto } from "../src/api/generated/TokenDetailDto";
 import type { TransferPageDto } from "../src/api/generated/TransferPageDto";
 import type { TxRawDto } from "../src/api/generated/TxRawDto";
 import type { TxResponseDto } from "../src/api/generated/TxResponseDto";
@@ -121,6 +122,24 @@ function defaultHandlers(): Map<RouteKey, Handler> {
       (_req, url) =>
         url.pathname.toLowerCase().endsWith(TX) ? { json: fixtures.tx } : notFound("unknown transaction"),
     ],
+    [
+      "GET /api/token/*",
+      (_req, url) => {
+        const address = decodeURIComponent(url.pathname.split("/").pop() ?? "").toLowerCase();
+        const usdt = address === "0xdac17f958d2ee523a2206206994597c13d831ec7";
+        const json: TokenDetailDto = usdt
+          ? {
+              address, standard: "erc20", name: "Tether USD", symbol: "USDT", decimals: 6, contract_name: "TetherToken",
+              identified: true, source_verified: true, lists: { uniswap: true, coingecko: true }, tags: ["stablecoin"],
+              website: "https://tether.to",
+            }
+          : {
+              address, standard: "unknown", name: null, symbol: null, decimals: null, contract_name: null,
+              identified: false, source_verified: null, lists: { uniswap: false, coingecko: false }, tags: [], website: null,
+            };
+        return { json };
+      },
+    ],
     ["GET /api/workspaces", () => ({ json: [] })],
     [
       "POST /api/workspaces",
@@ -143,7 +162,7 @@ function defaultHandlers(): Map<RouteKey, Handler> {
 
 /** `/api/address/0xabc` → `GET /api/address/*`; fixed paths map to themselves. */
 function routeKey(method: string, path: string): RouteKey {
-  const m = /^(\/api\/(?:address|tx|jobs|workspaces|labels|batches))\/[^/]+(\/raw|\/counterparties)?$/.exec(path);
+  const m = /^(\/api\/(?:address|tx|jobs|workspaces|labels|batches|token))\/[^/]+(\/raw|\/counterparties)?$/.exec(path);
   return `${method} ${m ? `${m[1]}/*${m[2] ?? ""}` : path}`;
 }
 

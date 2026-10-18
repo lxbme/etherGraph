@@ -7,6 +7,7 @@ import { shortAddr } from "../lib/address";
 import { assetClass } from "../lib/assets";
 import { formatAmount } from "../lib/amount";
 import { circled, ellipsize, shortTokenId } from "../lib/format";
+import type { InfoView } from "../panels/info/infoStore";
 
 /** Longest edge label, in characters; the tooltip and detail tables keep the full text. */
 export const EDGE_LABEL_MAX = 48;
@@ -65,4 +66,15 @@ export function txElements(flow: TxFlowDto, selected?: string | null, highlighte
     });
   });
   return out;
+}
+
+/** The asset a tapped edge carries (`flow-<seq>-<index>`); NFTs include their token id. The call edge has none. */
+export function assetViewForEdge(flow: TxFlowDto, edgeId: string): InfoView | null {
+  const m = /^flow-\d+-(\d+)$/.exec(edgeId);
+  const f = m ? flow.flows[Number(m[1])] : undefined;
+  if (!f) return null;
+  const asset = f.asset === null ? null : lc(f.asset);
+  return f.token_id !== null && (f.kind === "erc721" || f.kind === "erc1155")
+    ? { kind: "asset", asset, tokenId: f.token_id }
+    : { kind: "asset", asset };
 }

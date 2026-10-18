@@ -8,6 +8,7 @@ import { ApiError } from "../api/errors";
 import { graphQueryKey } from "../graph/useGraphData";
 import { useGraph } from "../graph/store";
 import { useTabs } from "../shell/tabs";
+import { useInfo } from "./info/infoStore";
 import { formatLocalTime } from "../lib/format";
 import { TransferTable } from "./TransferTable";
 import { groupsForPair } from "./transferGroups";
@@ -261,4 +262,16 @@ test("the type column uses the same labels as the kind filter", async () => {
   expect(screen.getByText("Internal transactions")).toBeInTheDocument();
   expect(screen.getByText("ERC20")).toBeInTheDocument();
   expect(screen.queryByText("native")).toBeNull();
+});
+
+test("clicking the asset cell opens the asset in the info panel without selecting the row", async () => {
+  useInfo.setState({ stacks: {} });
+  vi.spyOn(api, "transfers").mockResolvedValue({
+    items: [tr({ asset: USDC, kind: "erc721", token_id: "9", symbol: "NFT" })], next_cursor: null,
+  });
+  act(() => useGraph.getState().select({ kind: "node", address: A }));
+  renderTable();
+  fireEvent.click(await screen.findByRole("button", { name: "NFT" }));
+  expect(useInfo.getState().stacks["graph"]).toEqual([{ kind: "asset", asset: USDC, tokenId: "9" }]);
+  expect(useGraph.getState().highlightTransfer).toBeNull();
 });

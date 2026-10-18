@@ -4,6 +4,7 @@ import { useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
 import { formatFixed } from "../../lib/amount";
 import { assetClass } from "../../lib/assets";
+import { AssetButton } from "../../panels/info/AssetButton";
 import { AddressCell } from "../../shell/AddressCell";
 import { CopyButton } from "../../shell/CopyButton";
 import { nodeOf, useFlowLink } from "./common";
@@ -49,7 +50,9 @@ export function TokenTransfersTab({ flow }: { flow: TxFlowDto }) {
             <td>
               {f.asset && (
                 <span className="txdetail__addr">
-                  <span title={f.asset}>{f.symbol ?? shortAddr(f.asset)}</span>
+                  <AssetButton tab={flow.tx.hash.toLowerCase()} asset={f.asset.toLowerCase()} tokenId={f.token_id} title={f.asset}>
+                    {f.symbol ?? shortAddr(f.asset)}
+                  </AssetButton>
                   <CopyButton value={f.asset} />
                 </span>
               )}

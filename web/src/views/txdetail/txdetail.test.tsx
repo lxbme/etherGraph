@@ -6,6 +6,7 @@ import type { DecodedEventDto } from "../../api/generated/DecodedEventDto";
 import type { TxFlowDto } from "../../api/generated/TxFlowDto";
 import { useGraph } from "../../graph/store";
 import { useLocale } from "../../i18n";
+import { useInfo } from "../../panels/info/infoStore";
 import { useUi } from "../../panels/uiStore";
 import { useTabs } from "../../shell/tabs";
 import { TxDetailTabs } from "./TxDetailTabs";
@@ -314,4 +315,14 @@ test("tab names and overview keys are translated", () => {
   renderTabs(base());
   expect(tab("概览")).toHaveAttribute("aria-pressed", "true");
   expect(valueOf("基础费")).toHaveTextContent(/^19 Gwei$/);
+});
+
+test("the token cell opens the asset in this tx tab's info stack", () => {
+  useInfo.setState({ stacks: {} });
+  renderTabs(base());
+  fireEvent.click(tab("Token Transfers"));
+  fireEvent.click(screen.getByRole("button", { name: "USDT" }));
+  expect(useInfo.getState().stacks[fixture.flow.tx.hash]).toEqual([
+    { kind: "asset", asset: "0xdac17f958d2ee523a2206206994597c13d831ec7" },
+  ]);
 });

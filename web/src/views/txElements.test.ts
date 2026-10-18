@@ -1,7 +1,7 @@
 import type { FlowDto } from "../api/generated/FlowDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import type { TxFlowDto } from "../api/generated/TxFlowDto";
-import { callLabel, circled, flowLabel, txElements } from "./txElements";
+import { assetViewForEdge, callLabel, circled, flowLabel, txElements } from "./txElements";
 import { ellipsize, shortTokenId } from "../lib/format";
 
 const A = "0x" + "aa".repeat(20);
@@ -106,4 +106,18 @@ test("a long call label is cut to 48 characters", () => {
   const label = callLabel(dto({ call: { name } } as Partial<TxFlowDto>));
   expect([...label]).toHaveLength(48);
   expect(label.endsWith("…")).toBe(true);
+});
+
+test("tapping a flow edge resolves its asset (NFTs with their token id); the call edge resolves to nothing", () => {
+  const f = dto({
+    flows: [
+      flow({ seq: 0, asset: null, kind: "native" }),
+      flow({ seq: 1, asset: USDT, kind: "erc20" }),
+      flow({ seq: 2, asset: USDT, kind: "erc721", token_id: "77", amount: "1", decimals: null }),
+    ],
+  } as Partial<TxFlowDto>);
+  expect(assetViewForEdge(f, "flow-0-0")).toEqual({ kind: "asset", asset: null });
+  expect(assetViewForEdge(f, "flow-1-1")).toEqual({ kind: "asset", asset: USDT });
+  expect(assetViewForEdge(f, "flow-2-2")).toEqual({ kind: "asset", asset: USDT, tokenId: "77" });
+  expect(assetViewForEdge(f, "call")).toBeNull();
 });

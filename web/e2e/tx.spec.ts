@@ -136,3 +136,25 @@ test("transfer row → summary card → Open transaction → every detail tab sh
 
   expect(mock.unhandled).toEqual([]);
 });
+
+test("clicking a token in the transfers table opens its details in the right panel; Back returns to the node detail", async ({ page, mock }) => {
+  await page.goto("/?e2e=1");
+  await page.getByRole("searchbox", { name: "Search" }).fill(TX);
+  await page.getByRole("searchbox", { name: "Search" }).press("Enter");
+  const txView = page.getByTestId("tx-view");
+  await expect(txView.getByTestId("tx-summary-bar")).toBeVisible();
+  await tapNode(page, { tx: TX }, C);
+  const panel = page.locator(".main__right");
+  await expect(panel.getByRole("button", { name: "Add to graph" })).toBeVisible();
+
+  await txView.getByTestId("tx-detail").getByRole("button", { name: "Token Transfers" }).click();
+  await txView.getByRole("button", { name: "USDT", exact: true }).click();
+  await expect(panel.getByTestId("info-panel")).toBeVisible();
+  await expect(panel.getByText("Uniswap default list")).toBeVisible();
+  await expect(panel.getByText("Tether USD")).toBeVisible();
+
+  await panel.getByRole("button", { name: "Back" }).click();
+  await expect(panel.getByTestId("info-panel")).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Add to graph" })).toBeVisible();
+  expect(mock.unhandled).toEqual([]);
+});

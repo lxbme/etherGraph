@@ -16,6 +16,7 @@ import type { SearchResultDto } from "./generated/SearchResultDto";
 import type { StatusDto } from "./generated/StatusDto";
 import type { SyncRequestDto } from "./generated/SyncRequestDto";
 import type { SyncResponseDto } from "./generated/SyncResponseDto";
+import type { TokenDetailDto } from "./generated/TokenDetailDto";
 import type { TransferPageDto } from "./generated/TransferPageDto";
 import type { TxRawDto } from "./generated/TxRawDto";
 import type { TxResponseDto } from "./generated/TxResponseDto";
@@ -80,6 +81,7 @@ export const api = {
   job: (id: number) => request<JobDto>("GET", `/api/jobs/${id}`),
   recentJobs: () => request<JobDto[]>("GET", "/api/jobs", { query: { active: "false" } }),
   sync: (req: SyncRequestDto) => request<SyncResponseDto>("POST", "/api/sync", { body: req }),
+  token: (addr: string) => request<TokenDetailDto>("GET", `/api/token/${encodeURIComponent(addr)}`),
   tx: (hash: string) => request<TxResponseDto>("GET", `/api/tx/${encodeURIComponent(hash)}`),
   txRaw: (hash: string) => request<TxRawDto>("GET", `/api/tx/${encodeURIComponent(hash)}/raw`),
   labels: (addr: string) => request<LabelDto[]>("GET", "/api/labels", { query: { addr } }),

@@ -17,6 +17,7 @@ import { assetClass } from "../lib/assets";
 import { formatLocalTime, formatTime } from "../lib/format";
 import { transferKindName } from "../lib/transferKinds";
 import { useTabs } from "../shell/tabs";
+import { AssetButton } from "./info/AssetButton";
 import { groupsForPair, type TransferGroup } from "./transferGroups";
 
 const PAGE_SIZE = 50;
@@ -144,7 +145,11 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
                 <td className={`transfers__dir transfers__dir--${dir}`}>{t(`transfers.dir.${dir}`)}</td>
                 <td className="num" title={other}>{shortAddr(other)}</td>
                 <AmountCell row={row} />
-                <td>{symbolOf(row.asset, row.symbol)}</td>
+                <td>
+                  <AssetButton tab="graph" asset={asset} tokenId={row.token_id} title={row.asset ?? undefined}>
+                    {symbolOf(row.asset, row.symbol)}
+                  </AssetButton>
+                </td>
                 <td className="transfers__muted">{transferKindName(row.kind, t)}</td>
                 <td>
                   <button
