@@ -60,10 +60,15 @@ pub struct UserQuotas {
 /// The admin-set default daily quota, else the configured one.
 pub async fn default_user_limit(store: &Store, cfg: &Config) -> Result<u32, StoreError> {
     let setting = store.setting_get(SETTING_DEFAULT_DAILY_QUOTA).await?;
-    Ok(setting
+    Ok(default_limit_from(setting, cfg))
+}
+
+/// The default daily quota given the `default_daily_quota` setting's value.
+pub fn default_limit_from(setting: Option<serde_json::Value>, cfg: &Config) -> u32 {
+    setting
         .and_then(|v| v.as_u64())
         .and_then(|n| u32::try_from(n).ok())
-        .unwrap_or(cfg.auth.default_daily_quota))
+        .unwrap_or(cfg.auth.default_daily_quota)
 }
 
 /// Every user's limit and their calls on `day`.

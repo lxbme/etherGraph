@@ -119,30 +119,39 @@ impl Store {
     /// transaction (all or nothing); returns the number inserted per dataset.
     pub async fn replace_imports(&self, sets: &[(&str, &[ImportRow])]) -> Result<Vec<u64>> {
         let mut tx = self.pool.begin().await?;
-        let mut counts = Vec::with_capacity(sets.len());
-        for (dataset, rows) in sets {
-            let source = format!("import:{dataset}");
-            sqlx::query("DELETE FROM labels WHERE source = $1")
-                .bind(&source)
-                .execute(&mut *tx)
-                .await?;
-            let mut inserted = 0;
-            for chunk in rows.chunks(LABEL_CHUNK) {
-                let mut qb: QueryBuilder<Postgres> =
-                    QueryBuilder::new("INSERT INTO labels (address, text, category, source) ");
-                qb.push_values(chunk, |mut b, (a, text, category)| {
-                    b.push_bind(addr_to_bytes(*a))
-                        .push_bind(text)
-                        .push_bind(category)
-                        .push_bind(&source);
-                });
-                inserted += qb.build().execute(&mut *tx).await?.rows_affected();
-            }
-            counts.push(inserted);
-        }
+        let counts = replace_imports(&mut tx, sets).await?;
         tx.commit().await?;
         Ok(counts)
     }
+}
+
+/// [`Store::replace_imports`] on `tx` (a transaction).
+pub(crate) async fn replace_imports(
+    tx: &mut sqlx::PgConnection,
+    sets: &[(&str, &[ImportRow])],
+) -> Result<Vec<u64>> {
+    let mut counts = Vec::with_capacity(sets.len());
+    for (dataset, rows) in sets {
+        let source = format!("import:{dataset}");
+        sqlx::query("DELETE FROM labels WHERE source = $1")
+            .bind(&source)
+            .execute(&mut *tx)
+            .await?;
+        let mut inserted = 0;
+        for chunk in rows.chunks(LABEL_CHUNK) {
+            let mut qb: QueryBuilder<Postgres> =
+                QueryBuilder::new("INSERT INTO labels (address, text, category, source) ");
+            qb.push_values(chunk, |mut b, (a, text, category)| {
+                b.push_bind(addr_to_bytes(*a))
+                    .push_bind(text)
+                    .push_bind(category)
+                    .push_bind(&source);
+            });
+            inserted += qb.build().execute(&mut *tx).await?.rows_affected();
+        }
+        counts.push(inserted);
+    }
+    Ok(counts)
 }
 
 #[cfg(test)]

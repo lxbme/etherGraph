@@ -8,15 +8,14 @@ use alloy_primitives::Address;
 use chrono::{DateTime, Utc};
 use eg_store::{
     AuditFilter, AuditRow, NoncePurpose, SETTING_DEFAULT_DAILY_QUOTA, SETTING_OPEN_REGISTRATION,
-    StoreError,
+    StoreError, StoreTx,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use crate::auth::open_registration;
 use crate::auth::siwe::MESSAGE_TTL;
-use crate::background::{default_user_limit, refresh_user_limits};
+use crate::background::{default_limit_from, default_user_limit};
 use crate::dto::{AdminAction, hex_addr, rfc3339};
 use crate::error::{ApiError, invalid};
 use crate::parse::parse_address;
@@ -52,6 +51,8 @@ pub struct Executed {
     pub before: Option<Value>,
     pub after: Option<Value>,
     pub rows: Option<Vec<AuditRow>>,
+    /// Per-user limits changed: reload them into the rate gate once committed.
+    pub refresh_limits: bool,
 }
 
 fn quota(calls: i32) -> Result<i32, ApiError> {
@@ -187,85 +188,90 @@ impl Action {
         })
     }
 
-    /// Carries the action out; `admin` is recorded where it adds a row.
-    /// Quota changes are written to the store first, then reach the rate
-    /// gate at once.
-    pub async fn execute(&self, s: &AppState, admin: Address) -> Result<Executed, ApiError> {
-        let store = &s.store;
+    /// Carries the action's store writes out inside `tx` (the caller commits
+    /// them together with the audit row); `admin` is recorded where it adds a
+    /// row. Quota changes reach the rate gate only after the commit (see
+    /// [`Executed::refresh_limits`]).
+    pub async fn execute(
+        &self,
+        s: &AppState,
+        tx: &mut StoreTx,
+        admin: Address,
+    ) -> Result<Executed, ApiError> {
         Ok(match self {
             Self::WhitelistAdd(a) => {
-                let added = store.whitelist_add(*a, &hex_addr(admin)).await?;
+                let added = tx.whitelist_add(*a, &hex_addr(admin)).await?;
                 Executed {
                     before: Some(json!({ "listed": !added })),
                     after: Some(json!({ "listed": true })),
-                    rows: None,
+                    ..Executed::default()
                 }
             }
             Self::WhitelistRemove(a) => {
-                let listed = store.whitelist_remove(*a).await?;
-                let revoked = match store.user_by_address(*a).await? {
-                    Some(u) => store.sessions_revoke_user(u.id).await?,
+                let listed = tx.whitelist_remove(*a).await?;
+                let revoked = match tx.user_by_address(*a).await? {
+                    Some(u) => tx.sessions_revoke_user(u.id).await?,
                     None => 0,
                 };
                 Executed {
                     before: Some(json!({ "listed": listed })),
                     after: Some(json!({ "listed": false, "sessions_revoked": revoked })),
-                    rows: None,
+                    ..Executed::default()
                 }
             }
             Self::SetOpenRegistration(open) => {
-                let before = open_registration(s).await?;
-                store
-                    .setting_set(SETTING_OPEN_REGISTRATION, &json!(open))
+                let before = tx
+                    .setting_get(SETTING_OPEN_REGISTRATION)
+                    .await?
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                tx.setting_set(SETTING_OPEN_REGISTRATION, &json!(open))
                     .await?;
                 Executed {
                     before: Some(json!({ "open": before })),
                     after: Some(json!({ "open": open })),
-                    rows: None,
+                    ..Executed::default()
                 }
             }
             Self::SetDefaultQuota(calls) => {
-                let before = default_user_limit(store, &s.cfg).await?;
-                store
-                    .setting_set(SETTING_DEFAULT_DAILY_QUOTA, &json!(calls))
+                let setting = tx.setting_get(SETTING_DEFAULT_DAILY_QUOTA).await?;
+                let before = default_limit_from(setting, &s.cfg);
+                tx.setting_set(SETTING_DEFAULT_DAILY_QUOTA, &json!(calls))
                     .await?;
-                refresh_user_limits(s).await?;
                 Executed {
                     before: Some(json!({ "calls": before })),
                     after: Some(json!({ "calls": calls })),
-                    rows: None,
+                    refresh_limits: true,
+                    ..Executed::default()
                 }
             }
             Self::SetUserQuota(a, calls) => {
-                let user = known_user(s, *a).await?;
-                let before = json!({
-                    "calls": user.daily_quota,
-                    "effective": s.gate.user_quota(user.id).limit,
-                });
-                store.set_user_quota(user.id, *calls).await?;
-                refresh_user_limits(s).await?;
+                let user = tx.user_by_address(*a).await?.ok_or_else(|| no_user(*a))?;
+                let setting = tx.setting_get(SETTING_DEFAULT_DAILY_QUOTA).await?;
+                let default = i64::from(default_limit_from(setting, &s.cfg));
+                let effective = |q: Option<i32>| q.map_or(default, i64::from);
+                tx.set_user_quota(user.id, *calls).await?;
                 Executed {
-                    before: Some(before),
-                    after: Some(json!({
-                        "calls": calls,
-                        "effective": s.gate.user_quota(user.id).limit,
+                    before: Some(json!({
+                        "calls": user.daily_quota,
+                        "effective": effective(user.daily_quota),
                     })),
-                    rows: None,
+                    after: Some(json!({ "calls": calls, "effective": effective(*calls) })),
+                    refresh_limits: true,
+                    ..Executed::default()
                 }
             }
             Self::RevokeSessions(a) => {
-                let user = known_user(s, *a).await?;
-                let revoked = store.sessions_revoke_user(user.id).await?;
+                let user = tx.user_by_address(*a).await?.ok_or_else(|| no_user(*a))?;
+                let revoked = tx.sessions_revoke_user(user.id).await?;
                 Executed {
-                    before: None,
                     after: Some(json!({ "sessions_revoked": revoked })),
-                    rows: None,
+                    ..Executed::default()
                 }
             }
             Self::ExportAudit(from, to) => {
                 let (rows, truncated) = export(s, *from, *to).await?;
                 Executed {
-                    before: None,
                     after: Some(json!({
                         "from": from.map(rfc3339),
                         "to": to.map(rfc3339),
@@ -273,17 +279,19 @@ impl Action {
                         "truncated": truncated,
                     })),
                     rows: Some(rows),
+                    ..Executed::default()
                 }
             }
         })
     }
 }
 
+fn no_user(a: Address) -> ApiError {
+    ApiError::not_found(format!("no user {}", hex_addr(a)))
+}
+
 async fn known_user(s: &AppState, a: Address) -> Result<eg_store::UserRow, ApiError> {
-    s.store
-        .user_by_address(a)
-        .await?
-        .ok_or_else(|| ApiError::not_found(format!("no user {}", hex_addr(a))))
+    s.store.user_by_address(a).await?.ok_or_else(|| no_user(a))
 }
 
 /// Every audit row between `from` and `to`, newest first, up to

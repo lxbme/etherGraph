@@ -1,8 +1,8 @@
 //! Users, the whitelist, per-user quota usage and adopting pre-auth data.
 use chrono::{DateTime, NaiveDate, Utc};
 use eg_core::types::Address;
-use sqlx::Row;
 use sqlx::postgres::PgRow;
+use sqlx::{Postgres, Row};
 
 use crate::convert::{addr_to_bytes, bytes_to_addr};
 use crate::{Result, Store, StoreError};
@@ -49,6 +49,63 @@ pub(crate) fn user_row(r: &PgRow) -> Result<UserRow> {
     })
 }
 
+pub(crate) async fn user_by_address<'c>(
+    db: impl sqlx::Executor<'c, Database = Postgres>,
+    addr: Address,
+) -> Result<Option<UserRow>> {
+    let sql = concat!("SELECT ", user_cols!(), " FROM users WHERE address = $1");
+    let r = sqlx::query(sql)
+        .bind(addr_to_bytes(addr))
+        .fetch_optional(db)
+        .await?;
+    r.as_ref().map(user_row).transpose()
+}
+
+/// `None` returns the user to the default quota; `NotFound` for an unknown id.
+pub(crate) async fn set_user_quota<'c>(
+    db: impl sqlx::Executor<'c, Database = Postgres>,
+    id: i64,
+    calls: Option<i32>,
+) -> Result<()> {
+    let res = sqlx::query("UPDATE users SET daily_quota = $2 WHERE id = $1")
+        .bind(id)
+        .bind(calls)
+        .execute(db)
+        .await?;
+    if res.rows_affected() == 0 {
+        return Err(StoreError::NotFound);
+    }
+    Ok(())
+}
+
+/// Returns whether the address was added (false: already listed, unchanged).
+pub(crate) async fn whitelist_add<'c>(
+    db: impl sqlx::Executor<'c, Database = Postgres>,
+    addr: Address,
+    added_by: &str,
+) -> Result<bool> {
+    let res = sqlx::query(
+        "INSERT INTO whitelist (address, added_by) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    )
+    .bind(addr_to_bytes(addr))
+    .bind(added_by)
+    .execute(db)
+    .await?;
+    Ok(res.rows_affected() > 0)
+}
+
+/// Returns whether the address was listed.
+pub(crate) async fn whitelist_remove<'c>(
+    db: impl sqlx::Executor<'c, Database = Postgres>,
+    addr: Address,
+) -> Result<bool> {
+    let res = sqlx::query("DELETE FROM whitelist WHERE address = $1")
+        .bind(addr_to_bytes(addr))
+        .execute(db)
+        .await?;
+    Ok(res.rows_affected() > 0)
+}
+
 fn calls_u32(v: i32) -> Result<u32> {
     u32::try_from(v).map_err(|_| StoreError::Invalid(format!("negative call count {v}")))
 }
@@ -75,12 +132,7 @@ impl Store {
     }
 
     pub async fn user_by_address(&self, addr: Address) -> Result<Option<UserRow>> {
-        let sql = concat!("SELECT ", user_cols!(), " FROM users WHERE address = $1");
-        let r = sqlx::query(sql)
-            .bind(addr_to_bytes(addr))
-            .fetch_optional(&self.pool)
-            .await?;
-        r.as_ref().map(user_row).transpose()
+        user_by_address(&self.pool, addr).await
     }
 
     /// Every user with their calls on `day` (0 without a usage row), by id.
@@ -105,15 +157,7 @@ impl Store {
 
     /// `None` returns the user to the default quota; `NotFound` for an unknown id.
     pub async fn set_user_quota(&self, id: i64, calls: Option<i32>) -> Result<()> {
-        let res = sqlx::query("UPDATE users SET daily_quota = $2 WHERE id = $1")
-            .bind(id)
-            .bind(calls)
-            .execute(&self.pool)
-            .await?;
-        if res.rows_affected() == 0 {
-            return Err(StoreError::NotFound);
-        }
-        Ok(())
+        set_user_quota(&self.pool, id, calls).await
     }
 
     /// Calls billed to `user_id` on `day`; 0 when no row exists.
@@ -171,23 +215,12 @@ impl Store {
 
     /// Returns whether the address was added (false: already listed, unchanged).
     pub async fn whitelist_add(&self, addr: Address, added_by: &str) -> Result<bool> {
-        let res = sqlx::query(
-            "INSERT INTO whitelist (address, added_by) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        )
-        .bind(addr_to_bytes(addr))
-        .bind(added_by)
-        .execute(&self.pool)
-        .await?;
-        Ok(res.rows_affected() > 0)
+        whitelist_add(&self.pool, addr, added_by).await
     }
 
     /// Returns whether the address was listed.
     pub async fn whitelist_remove(&self, addr: Address) -> Result<bool> {
-        let res = sqlx::query("DELETE FROM whitelist WHERE address = $1")
-            .bind(addr_to_bytes(addr))
-            .execute(&self.pool)
-            .await?;
-        Ok(res.rows_affected() > 0)
+        whitelist_remove(&self.pool, addr).await
     }
 
     /// Oldest first.

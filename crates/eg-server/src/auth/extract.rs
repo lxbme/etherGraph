@@ -83,9 +83,10 @@ pub async fn admin_session(
 }
 
 /// A logged-in configured admin (`auth.admins`), in admin mode or not.
-/// Rejects without a session with 401 `unauthorized` (`no_session`), and a
-/// user who is not a configured admin with 404 `not_found` (the admin API
-/// does not exist for them) after auditing the attempt.
+/// Rejects without a session with 401 `unauthorized` (`no_session`), audited
+/// when the request carries an `eg_admin` cookie; and a user who is not a
+/// configured admin with 404 `not_found` (the admin API does not exist for
+/// them), audited.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AdminUser(pub CurrentUser);
 
@@ -93,9 +94,23 @@ impl FromRequestParts<AppState> for AdminUser {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
-        let user = CurrentUser::from_request_parts(parts, state).await?;
+        let user = match CurrentUser::from_request_parts(parts, state).await {
+            Ok(user) => user,
+            Err(e) if e.code == "unauthorized" => {
+                if let Some(raw) = cookie(&parts.headers, ADMIN_COOKIE) {
+                    // An admin-mode cookie without its login session: a
+                    // stolen or stale cookie, worth a record.
+                    let owner = state.store.session_lookup(raw, SessionKind::Admin).await?;
+                    let actor = owner.map(|(_, u)| (hex_addr(u.address), u.id));
+                    deny_admin_access(parts, state, actor, "no_session").await?;
+                }
+                return Err(e);
+            }
+            Err(e) => return Err(e),
+        };
         if !user.is_admin {
-            deny_admin_access(parts, state, &user, "not_admin").await?;
+            let actor = Some((hex_addr(user.address), user.id));
+            deny_admin_access(parts, state, actor, "not_admin").await?;
             return Err(ApiError::not_found("no such API route"));
         }
         Ok(AdminUser(user))
@@ -115,7 +130,8 @@ impl FromRequestParts<AppState> for AdminMode {
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, ApiError> {
         let AdminUser(user) = AdminUser::from_request_parts(parts, state).await?;
         if admin_session(state, &parts.headers, &user).await?.is_none() {
-            deny_admin_access(parts, state, &user, "no_admin_session").await?;
+            let actor = Some((hex_addr(user.address), user.id));
+            deny_admin_access(parts, state, actor, "no_admin_session").await?;
             return Err(ApiError::unauthorized("no_admin_session"));
         }
         Ok(AdminMode(user))
@@ -126,11 +142,16 @@ impl FromRequestParts<AppState> for AdminMode {
 const MAX_AUDIT_TARGET: usize = 256;
 
 /// Audits a refused admin API request (`admin_access`, `denied`, the
-/// request's method and path as target).
+/// request's method and path as target) by `actor` (address and user id;
+/// `None`: `unknown`). At most [`ADMIN_DENIALS_PER_MINUTE`] rows per user,
+/// or per client IP for an unknown actor; further refusals are only logged,
+/// so the append-only log cannot be grown without bound.
+///
+/// [`ADMIN_DENIALS_PER_MINUTE`]: super::ADMIN_DENIALS_PER_MINUTE
 async fn deny_admin_access(
     parts: &mut Parts,
     state: &AppState,
-    user: &CurrentUser,
+    actor: Option<(String, i64)>,
     reason: &str,
 ) -> Result<(), ApiError> {
     let meta = ClientMeta::from_request_parts(parts, state)
@@ -141,17 +162,24 @@ async fn deny_admin_access(
         .extensions
         .get::<OriginalUri>()
         .map_or(&parts.uri, |OriginalUri(u)| u);
+    let target: String = format!("{} {}", parts.method, uri.path())
+        .chars()
+        .take(MAX_AUDIT_TARGET)
+        .collect();
+    let key = match &actor {
+        Some((_, id)) => format!("user:{id}"),
+        None => format!("ip:{}", meta.ip_key()),
+    };
+    if !state.auth.admin_denial_limit.allow(&key) {
+        tracing::debug!(%key, %target, reason, "refused admin request not audited (over the limit)");
+        return Ok(());
+    }
     state
         .store
         .audit_append(&AuditEntry {
-            actor: hex_addr(user.address),
+            actor: actor.map_or_else(|| "unknown".to_owned(), |(a, _)| a),
             action: "admin_access".into(),
-            target: Some(
-                format!("{} {}", parts.method, uri.path())
-                    .chars()
-                    .take(MAX_AUDIT_TARGET)
-                    .collect(),
-            ),
+            target: Some(target),
             before: None,
             after: Some(serde_json::json!({ "reason": reason })),
             outcome: AuditOutcome::Denied,

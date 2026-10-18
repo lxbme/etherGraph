@@ -527,6 +527,7 @@ async fn admin_session_for(store: &Store, cookie: &str) -> String {
         .await
         .unwrap()
         .expect("a live login session")
+        .0
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]

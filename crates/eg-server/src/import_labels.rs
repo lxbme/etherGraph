@@ -2,8 +2,8 @@
 
 use std::io::Read;
 
-use eg_core::types::{Address, LABEL_CATEGORIES};
-use eg_store::Store;
+use eg_core::types::LABEL_CATEGORIES;
+use eg_store::{ImportRow, Store};
 use serde::Deserialize;
 
 use crate::parse::parse_address;
@@ -18,14 +18,22 @@ struct Record {
     category: String,
 }
 
-/// Replaces the dataset's labels with the CSV rows. Unknown categories become
-/// `other`; rows with a bad address, empty or over-long text, or a malformed
-/// record are skipped. Returns `(imported, skipped)`.
+/// Replaces the dataset's labels with the CSV rows (see [`parse_labels`]).
+/// Returns `(imported, skipped)`.
 pub async fn import_labels(
     store: &Store,
     dataset: &str,
     reader: impl Read,
 ) -> anyhow::Result<(u64, u64)> {
+    let (rows, skipped) = parse_labels(reader)?;
+    let imported = store.replace_import(dataset, &rows).await?;
+    Ok((imported, skipped))
+}
+
+/// The CSV's label rows and how many were skipped. Unknown categories
+/// become `other`; rows with a bad address, empty or over-long text, or a
+/// malformed record are skipped.
+pub fn parse_labels(reader: impl Read) -> anyhow::Result<(Vec<ImportRow>, u64)> {
     let mut csv = csv::ReaderBuilder::new()
         .trim(csv::Trim::All)
         .from_reader(reader);
@@ -34,7 +42,7 @@ pub async fn import_labels(
         csv.headers()?.iter().eq(["address", "text", "category"]),
         "CSV header must be address,text,category"
     );
-    let mut rows: Vec<(Address, String, String)> = Vec::new();
+    let mut rows: Vec<ImportRow> = Vec::new();
     let mut skipped = 0u64;
     for rec in csv.deserialize::<Record>() {
         let row = rec.ok().and_then(|r| {
@@ -62,6 +70,5 @@ pub async fn import_labels(
             None => skipped += 1,
         }
     }
-    let imported = store.replace_import(dataset, &rows).await?;
-    Ok((imported, skipped))
+    Ok((rows, skipped))
 }

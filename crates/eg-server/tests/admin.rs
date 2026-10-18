@@ -284,6 +284,49 @@ async fn admin_mode_needs_a_valid_fresh_signature(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
+async fn entering_admin_mode_after_the_login_ended_is_refused_and_audited(pool: PgPool) {
+    let (app, state, _, key) = admin_app(pool).await;
+    let session = login_as(&app, &key).await;
+    let message = message_for(&admin_nonce(&app, &session).await);
+    // The login session ends while the request is under way: right after
+    // the admin-mode nonce is taken.
+    sqlx::query(
+        "CREATE FUNCTION end_logins() RETURNS trigger LANGUAGE plpgsql AS \
+         $$ BEGIN UPDATE sessions SET expires_at = now() - interval '1 second' \
+         WHERE kind = 'user'; RETURN NEW; END; $$",
+    )
+    .execute(state.store.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER end_logins AFTER UPDATE ON auth_nonces \
+         FOR EACH ROW EXECUTE FUNCTION end_logins()",
+    )
+    .execute(state.store.pool())
+    .await
+    .unwrap();
+    let signature = personal_sign(&key, &message);
+    let body = json!({"message": message, "signature": signature});
+    let (status, cookies, body) = post_full(&app, &session, "/api/admin/session", &body).await;
+    assert_eq!(
+        (status, reason(&body)),
+        (StatusCode::UNAUTHORIZED, "no_session")
+    );
+    assert!(admin_cookie(&cookies).is_none(), "{cookies:?}");
+    let rows = audit(&state.store, "admin_mode_enter").await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].entry.outcome, AuditOutcome::Denied);
+    assert_eq!(rows[0].entry.after, Some(json!({"reason": "no_session"})));
+    assert_eq!(rows[0].entry.message.as_deref(), Some(message.as_str()));
+    assert_eq!(rows[0].entry.signature.as_deref(), Some(signature.as_str()));
+    let admins: i64 = sqlx::query_scalar("SELECT count(*) FROM sessions WHERE kind = 'admin'")
+        .fetch_one(state.store.pool())
+        .await
+        .unwrap();
+    assert_eq!(admins, 0);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
 async fn a_new_login_does_not_resume_an_old_admin_cookie(pool: PgPool) {
     let (app, _, _, key) = admin_app(pool).await;
     let first = login_as(&app, &key).await;
@@ -333,6 +376,62 @@ async fn an_admin_cookie_without_a_login_session_is_rejected(pool: PgPool) {
         (StatusCode::UNAUTHORIZED, "no_session")
     );
     assert!(!eg_server::auth::open_registration(&state).await.unwrap());
+    // Each attempt is on record under the admin session's owner.
+    let rows = audit(&state.store, "admin_access").await;
+    assert_eq!(rows.len(), 4);
+    for r in &rows {
+        assert_eq!(r.entry.outcome, AuditOutcome::Denied);
+        assert_eq!(r.entry.actor, hex(key_address(&key)));
+        assert_eq!(r.entry.after, Some(json!({"reason": "no_session"})));
+    }
+    assert_eq!(
+        rows[0].entry.target.as_deref(),
+        Some("POST /api/admin/actions")
+    );
+    // An admin cookie that names no admin session: actor unknown.
+    let junk = format!("eg_admin={}", "ab".repeat(32));
+    assert_eq!(
+        get_as(&app, &junk, "/api/admin/overview").await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let rows = audit(&state.store, "admin_access").await;
+    assert_eq!(rows.len(), 5);
+    assert_eq!(rows[0].entry.actor, "unknown");
+    assert_eq!(
+        rows[0].entry.target.as_deref(),
+        Some("GET /api/admin/overview")
+    );
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn denied_admin_access_rows_are_rate_limited(pool: PgPool) {
+    let (app, state, _, _) = admin_app(pool).await;
+    let limit = eg_server::auth::ADMIN_DENIALS_PER_MINUTE as usize;
+    let (b, _) = second_user(&app, &state).await;
+    for _ in 0..limit + 5 {
+        let (status, _) = get_as(&app, &b, "/api/admin/overview").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+    let junk = format!("eg_admin={}", "ab".repeat(32));
+    for _ in 0..limit + 5 {
+        let (status, _) = get_as(&app, &junk, "/api/admin/users").await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+    // Another user has its own allowance.
+    assert_eq!(
+        get(&app, "/api/admin/overview").await.0,
+        StatusCode::NOT_FOUND
+    );
+    let rows = audit(&state.store, "admin_access").await;
+    let by = |actor: &str| rows.iter().filter(|r| r.entry.actor == actor).count();
+    let b_addr = rows
+        .iter()
+        .map(|r| r.entry.actor.clone())
+        .find(|a| a != "unknown" && *a != hex(DEFAULT_USER))
+        .unwrap();
+    assert_eq!(by(&b_addr), limit);
+    assert_eq!(by("unknown"), limit);
+    assert_eq!(by(&hex(DEFAULT_USER)), 1);
 }
 
 // ------------------------------------------------------------ non-admin access
@@ -567,6 +666,116 @@ async fn an_action_nonce_is_single_use(pool: PgPool) {
     // A refused nonce leaves no message or signature in the log.
     assert_eq!(rows[0].entry.message, None);
     assert_eq!(rows[0].entry.signature, None);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn an_expired_action_nonce_is_refused_and_audited(pool: PgPool) {
+    let (app, state, _, key) = admin_app(pool).await;
+    let both = admin_cookies(&app, &key).await;
+    let open = json!({"type": "SetOpenRegistration", "open": true});
+    let (nonce, message) = issued(&app, &both, &open).await;
+    sqlx::query("UPDATE auth_nonces SET expires_at = now() - interval '1 second' WHERE nonce = $1")
+        .bind(&nonce)
+        .execute(state.store.pool())
+        .await
+        .unwrap();
+    let (status, body) = submit(&app, &both, &open, &nonce, &personal_sign(&key, &message)).await;
+    assert_eq!(
+        (status, reason(&body)),
+        (StatusCode::UNAUTHORIZED, "bad_nonce")
+    );
+    assert!(!eg_server::auth::open_registration(&state).await.unwrap());
+    let rows = audit(&state.store, "set_open_registration").await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].entry.outcome, AuditOutcome::Denied);
+    assert_eq!(rows[0].entry.after, Some(json!({"reason": "bad_nonce"})));
+}
+
+/// From now on every `ok` audit row fails to insert (`denied` and `failed`
+/// rows still go through).
+async fn reject_ok_audit_rows(pool: &PgPool) {
+    sqlx::query(
+        "CREATE FUNCTION reject_ok_audit() RETURNS trigger LANGUAGE plpgsql AS \
+         $$ BEGIN RAISE EXCEPTION 'audit down'; END; $$",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER reject_ok_audit BEFORE INSERT ON audit_log FOR EACH ROW \
+         WHEN (NEW.outcome = 'ok') EXECUTE FUNCTION reject_ok_audit()",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn no_action_takes_effect_without_its_audit_row(pool: PgPool) {
+    let (app, state, _, key) = admin_app(pool.clone()).await;
+    let both = admin_cookies(&app, &key).await;
+    let a = default_user_id(&state).await;
+    let (b_cookie, b) = second_user(&app, &state).await;
+    let b_addr = state.store.user_by_id(b).await.unwrap().unwrap().address;
+    reject_ok_audit_rows(&pool).await;
+
+    let remove = json!({"type": "WhitelistRemove", "address": hex(b_addr)});
+    let (status, body) = act(&app, &key, &both, &remove).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+    // Still listed, still logged in.
+    assert!(state.store.whitelist_contains(b_addr).await.unwrap());
+    assert_eq!(
+        get_as(&app, &b_cookie, "/api/status").await.0,
+        StatusCode::OK
+    );
+
+    let quota = json!({"type": "SetUserQuota", "address": hex(DEFAULT_USER), "calls": 1});
+    let (status, body) = act(&app, &key, &both, &quota).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{body}");
+    assert_eq!(
+        state
+            .store
+            .user_by_id(a)
+            .await
+            .unwrap()
+            .unwrap()
+            .daily_quota,
+        None
+    );
+    assert_eq!(state.gate.user_quota(a).limit, 5000);
+
+    let default = json!({"type": "SetDefaultQuota", "calls": 1});
+    let (status, _) = act(&app, &key, &both, &default).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    let (_, overview) = get_as(&app, &both, "/api/admin/overview").await;
+    assert_eq!(overview["default_quota"], 5000);
+
+    // The attempts are on record as failed, nothing as done.
+    for action in ["whitelist_remove", "set_user_quota", "set_default_quota"] {
+        let rows = audit(&state.store, action).await;
+        assert_eq!(rows.len(), 1, "{action}");
+        assert_eq!(rows[0].entry.outcome, AuditOutcome::Failed, "{action}");
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn no_cli_import_takes_effect_without_its_audit_row(pool: PgPool) {
+    let store = Store::from_pool(pool.clone());
+    reject_ok_audit_rows(&pool).await;
+    let data = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
+    let res =
+        eg_server::cli::import_labels(&store, Some("sample"), &data.join("labels_sample.csv"))
+            .await;
+    assert!(res.is_err(), "{res:?}");
+    let labels: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM labels WHERE source = 'import:sample'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(labels, 0);
+    let rows = audit(&store, "import_labels").await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].entry.outcome, AuditOutcome::Failed);
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]

@@ -37,37 +37,47 @@ fn addresses(rows: Vec<(Vec<u8>,)>) -> Vec<Address> {
     rows.into_iter().map(|(a,)| bytes_to_addr(&a)).collect()
 }
 
+/// [`Store::replace_token_tags`] on `tx` (a transaction).
+pub(crate) async fn replace_token_tags(
+    tx: &mut sqlx::PgConnection,
+    source: &str,
+    rows: &[TokenTagRow],
+) -> Result<u64> {
+    if let Some(r) = rows.iter().find(|r| r.source != source) {
+        return Err(crate::StoreError::Invalid(format!(
+            "token tag row has source {:?}, expected {source:?}",
+            r.source
+        )));
+    }
+    sqlx::query("DELETE FROM token_tags WHERE source = $1")
+        .bind(source)
+        .execute(&mut *tx)
+        .await?;
+    let mut inserted = 0;
+    for chunk in rows.chunks(TAG_CHUNK) {
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
+            "INSERT INTO token_tags (address, source, tag, website, symbol, name) ",
+        );
+        qb.push_values(chunk, |mut b, r| {
+            b.push_bind(addr_to_bytes(r.address))
+                .push_bind(&r.source)
+                .push_bind(&r.tag)
+                .push_bind(&r.website)
+                .push_bind(&r.symbol)
+                .push_bind(&r.name);
+        });
+        inserted += qb.build().execute(&mut *tx).await?.rows_affected();
+    }
+    Ok(inserted)
+}
+
 impl Store {
     /// Replaces every tag of `source` in one transaction; returns the number
     /// inserted. Rows are expected unique per (address, tag) and must all
     /// carry `source` themselves.
     pub async fn replace_token_tags(&self, source: &str, rows: &[TokenTagRow]) -> Result<u64> {
-        if let Some(r) = rows.iter().find(|r| r.source != source) {
-            return Err(crate::StoreError::Invalid(format!(
-                "token tag row has source {:?}, expected {source:?}",
-                r.source
-            )));
-        }
         let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM token_tags WHERE source = $1")
-            .bind(source)
-            .execute(&mut *tx)
-            .await?;
-        let mut inserted = 0;
-        for chunk in rows.chunks(TAG_CHUNK) {
-            let mut qb: QueryBuilder<Postgres> = QueryBuilder::new(
-                "INSERT INTO token_tags (address, source, tag, website, symbol, name) ",
-            );
-            qb.push_values(chunk, |mut b, r| {
-                b.push_bind(addr_to_bytes(r.address))
-                    .push_bind(&r.source)
-                    .push_bind(&r.tag)
-                    .push_bind(&r.website)
-                    .push_bind(&r.symbol)
-                    .push_bind(&r.name);
-            });
-            inserted += qb.build().execute(&mut *tx).await?.rows_affected();
-        }
+        let inserted = replace_token_tags(&mut tx, source, rows).await?;
         tx.commit().await?;
         Ok(inserted)
     }

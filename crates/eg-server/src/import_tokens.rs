@@ -180,14 +180,23 @@ pub async fn import_tokens(
     format: TokenFormat,
     reader: impl Read,
 ) -> anyhow::Result<(u64, u64)> {
+    let (rows, skipped) = parse_token_rows(format, reader)?;
+    let imported = store.replace_token_tags(format.source(), &rows).await?;
+    Ok((imported, skipped))
+}
+
+/// [`parse_tokens`], failing when no row was parsed.
+pub fn parse_token_rows(
+    format: TokenFormat,
+    reader: impl Read,
+) -> anyhow::Result<(Vec<TokenTagRow>, u64)> {
     let (rows, skipped) = parse_tokens(format, reader)?;
     anyhow::ensure!(
         !rows.is_empty(),
         "no mainnet rows parsed ({skipped} skipped); refusing to replace source {}",
         format.source()
     );
-    let imported = store.replace_token_tags(format.source(), &rows).await?;
-    Ok((imported, skipped))
+    Ok((rows, skipped))
 }
 
 #[cfg(test)]

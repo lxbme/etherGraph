@@ -21,7 +21,7 @@ use crate::auth::{
     ADMIN_COOKIE, ADMIN_COOKIE_PATH, MAX_AUDIT_SIGNATURE, SESSION_COOKIE, cookie,
     open_registration, set_cookie,
 };
-use crate::background::{default_user_limit, next_utc_midnight};
+use crate::background::{default_user_limit, next_utc_midnight, refresh_user_limits};
 use crate::dto::{
     AdminActionNonceDto, AdminActionNonceRequestDto, AdminActionRequestDto, AdminActionResultDto,
     AdminOverviewDto, AdminSessionDto, AdminUserDto, AuditPageDto, AuditRowDto, LoginDto,
@@ -168,20 +168,20 @@ pub async fn session_enter(
             &audit,
         )
         .await;
-    let token = match created {
-        Ok(Some(t)) => t,
-        // The login session ended meanwhile.
-        Ok(None) => return Err(ApiError::unauthorized("no_session")),
+    let (token, expires_at) = match created {
+        Ok(Some(created)) => created,
+        // The login session ended while the request was under way.
+        Ok(None) => {
+            audit.outcome = AuditOutcome::Denied;
+            audit.after = Some(serde_json::json!({ "reason": "no_session" }));
+            s.store.audit_append(&audit).await?;
+            return Err(ApiError::unauthorized("no_session"));
+        }
         Err(e) => {
             audit_failed(&s, audit).await;
             return Err(e.into());
         }
     };
-    let (session, _) = s
-        .store
-        .admin_session_lookup(&token, login)
-        .await?
-        .ok_or_else(|| ApiError::unauthorized("no_session"))?;
     let cookie = set_cookie(
         ADMIN_COOKIE,
         &token,
@@ -191,7 +191,7 @@ pub async fn session_enter(
     );
     let dto = AdminSessionDto {
         address: hex_addr(user.address),
-        expires_at: rfc3339(session.expires_at),
+        expires_at: rfc3339(expires_at),
     };
     Ok(([(header::SET_COOKIE, cookie)], Json(dto)).into_response())
 }
@@ -302,13 +302,26 @@ pub async fn action_run(
             return Err(e);
         }
     }
-    match action.execute(&s, admin.address).await {
+    // The change and its `ok` row are committed together; on any error the
+    // transaction rolls back and the attempt is recorded as `failed`.
+    let done = async {
+        let mut tx = s.store.begin().await?;
+        let done = action.execute(&s, &mut tx, admin.address).await?;
+        let mut ok = audit.clone();
+        ok.before = done.before.clone();
+        ok.after = done.after.clone();
+        tx.audit_append(&ok).await?;
+        tx.commit().await?;
+        Ok::<_, ApiError>(done)
+    }
+    .await;
+    match done {
         Ok(done) => {
-            audit.before = done.before.clone();
-            audit.after = done.after.clone();
-            if let Err(e) = s.store.audit_append(&audit).await {
-                tracing::error!(error = %e, action = %audit.action, "auditing an executed admin action failed");
-                return Err(e.into());
+            if done.refresh_limits
+                && let Err(e) = refresh_user_limits(&s).await
+            {
+                // Stored and audited; the periodic refresh applies it.
+                tracing::warn!(error = %e, "applying changed quota limits to the rate gate failed");
             }
             Ok(Json(AdminActionResultDto {
                 before: done.before,

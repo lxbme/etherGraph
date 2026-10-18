@@ -574,6 +574,16 @@ pub async fn import_eth_labels(
     store: &Store,
     reader: impl Read,
 ) -> anyhow::Result<(u64, u64, u64)> {
+    let (mainnet, xchain, skipped) = parse_eth_labels(reader)?;
+    let counts = store
+        .replace_imports(&[(MAINNET_DATASET, &mainnet), (XCHAIN_DATASET, &xchain)])
+        .await?;
+    Ok((counts[0], counts[1], skipped))
+}
+
+/// The rows of the [`MAINNET_DATASET`] and [`XCHAIN_DATASET`] datasets and
+/// how many records were skipped (malformed ones included).
+pub fn parse_eth_labels(reader: impl Read) -> anyhow::Result<(Out, Out, u64)> {
     let mut csv = csv::ReaderBuilder::new()
         .trim(csv::Trim::All)
         .from_reader(reader);
@@ -592,10 +602,7 @@ pub async fn import_eth_labels(
         }
     }
     let (mainnet, xchain, skipped) = aggregate(rows);
-    let counts = store
-        .replace_imports(&[(MAINNET_DATASET, &mainnet), (XCHAIN_DATASET, &xchain)])
-        .await?;
-    Ok((counts[0], counts[1], skipped + malformed))
+    Ok((mainnet, xchain, skipped + malformed))
 }
 
 #[cfg(test)]

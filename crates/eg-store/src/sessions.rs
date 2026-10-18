@@ -135,6 +135,18 @@ async fn insert_session<'c>(
     Ok(hex::encode(token))
 }
 
+/// Deletes every session (user and admin) of `user_id`; returns how many.
+pub(crate) async fn sessions_revoke_user<'c>(
+    db: impl sqlx::Executor<'c, Database = sqlx::Postgres>,
+    user_id: i64,
+) -> Result<u64> {
+    let res = sqlx::query("DELETE FROM sessions WHERE user_id = $1")
+        .bind(user_id)
+        .execute(db)
+        .await?;
+    Ok(res.rows_affected())
+}
+
 impl Store {
     /// Stores a new session expiring after `ttl`; returns the raw token (hex),
     /// which is never stored.
@@ -196,8 +208,8 @@ impl Store {
     /// Starts admin mode for the live login session `parent_raw`: an admin
     /// session of the same user, bound to that login session, expiring after
     /// `ttl` but never after the login session. Appends `audit` in the same
-    /// transaction. `None` (and nothing stored) when `parent_raw` is not a
-    /// live login session.
+    /// transaction. Returns the raw token and the expiry; `None` (and nothing
+    /// stored) when `parent_raw` is not a live login session.
     pub async fn admin_session_create_audited(
         &self,
         parent_raw: &str,
@@ -205,31 +217,32 @@ impl Store {
         ip: Option<&str>,
         user_agent: Option<&str>,
         audit: &AuditEntry,
-    ) -> Result<Option<String>> {
+    ) -> Result<Option<(String, DateTime<Utc>)>> {
         let Some(parent) = token_hash(parent_raw) else {
             return Ok(None);
         };
         let token: [u8; TOKEN_BYTES] = rand::random();
         let mut tx = self.pool.begin().await?;
-        let res = sqlx::query(
+        let expires_at: Option<DateTime<Utc>> = sqlx::query_scalar(
             "INSERT INTO sessions (token_hash, user_id, kind, expires_at, ip, user_agent, parent) \
              SELECT $1, user_id, 'admin', LEAST(now() + make_interval(secs => $3), expires_at), \
              $4, $5, token_hash FROM sessions \
-             WHERE token_hash = $2 AND kind = 'user' AND expires_at > now()",
+             WHERE token_hash = $2 AND kind = 'user' AND expires_at > now() \
+             RETURNING expires_at",
         )
         .bind(Sha256::digest(token).to_vec())
         .bind(parent)
         .bind(secs(ttl))
         .bind(ip)
         .bind(user_agent)
-        .execute(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
-        if res.rows_affected() == 0 {
+        let Some(expires_at) = expires_at else {
             return Ok(None);
-        }
+        };
         insert_audit(&mut *tx, audit).await?;
         tx.commit().await?;
-        Ok(Some(hex::encode(token)))
+        Ok(Some((hex::encode(token), expires_at)))
     }
 
     /// The live admin session `admin_raw` and its user, when it was started
@@ -285,11 +298,7 @@ impl Store {
 
     /// Deletes every session (user and admin) of `user_id`; returns how many.
     pub async fn sessions_revoke_user(&self, user_id: i64) -> Result<u64> {
-        let res = sqlx::query("DELETE FROM sessions WHERE user_id = $1")
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?;
-        Ok(res.rows_affected())
+        sessions_revoke_user(&self.pool, user_id).await
     }
 
     /// Deletes used or expired nonces and expired sessions; returns
@@ -661,7 +670,7 @@ mod tests {
         let (a1, a2, b1) = (login(a.id).await, login(a.id).await, login(b.id).await);
         let hour = Duration::hours(1);
         let entry = login_entry(AuditOutcome::Ok);
-        let admin = s
+        let (admin, expires_at) = s
             .admin_session_create_audited(&a1, hour, Some("1.2.3.4"), Some("ua"), &entry)
             .await
             .unwrap()
@@ -671,6 +680,7 @@ mod tests {
         assert_eq!(owner, a);
         assert_eq!(sess.kind, SessionKind::Admin);
         assert_eq!(sess.ip.as_deref(), Some("1.2.3.4"));
+        assert_eq!(sess.expires_at, expires_at);
         // Another login of the same user, another user's login, the admin
         // token in the login slot, a login token in the admin slot, junk.
         for (adm, parent) in [
@@ -707,7 +717,7 @@ mod tests {
             .session_create(a.id, SessionKind::User, Duration::minutes(5), None, None)
             .await
             .unwrap();
-        let short_admin = s
+        let (short_admin, _) = s
             .admin_session_create_audited(&short, hour, None, None, &entry)
             .await
             .unwrap()
