@@ -68,6 +68,9 @@
   --radius: 6px;
   --radius-pop: 8px;
   --shadow-pop: 0 8px 24px rgba(17, 24, 39, 0.12);
+  /* Dims the page behind a modal (dialog, drawer): always dark, in both themes. */
+  --scrim: rgba(17, 24, 39, 0.4);
+  --scrim-soft: rgba(17, 24, 39, 0.2);
 
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans SC', 'PingFang SC',
     'Microsoft YaHei', sans-serif;
@@ -123,6 +126,8 @@
   --trust-suspicious: #f0b64a;
 
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --scrim: rgba(0, 0, 0, 0.6);
+  --scrim-soft: rgba(0, 0, 0, 0.4);
 }
 
 body {

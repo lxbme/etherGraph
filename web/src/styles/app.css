@@ -330,7 +330,7 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--fg) 40%, transparent);
+  background: var(--scrim);
 }
 .dialog {
   display: flex;
@@ -1104,7 +1104,7 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
   z-index: 60;
   display: flex;
   justify-content: flex-end;
-  background: color-mix(in srgb, var(--fg) 20%, transparent);
+  background: var(--scrim-soft);
 }
 .drawer {
   display: flex;
