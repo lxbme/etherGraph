@@ -15,7 +15,7 @@ export const docsZh: DocDictionary = {
     introduced: "以太坊最初的交易格式；EIP-155 于 2016 年 11 月随 Spurious Dragon 硬分叉启用",
     summary: [
       "传统交易沿用以太坊最初的交易格式，早于 Berlin 硬分叉中由 EIP-2718 引入的类型化交易。本应用将其显示为类型 0。",
-      "这类交易只有一个 gas 价格，按每单位 gas 计价。2016 年 11 月随 Spurious Dragon 硬分叉启用的 EIP-155 把链 ID 编入签名的 v 值，使为一条链签名的交易无法在另一条链上重放。",
+      "这类交易用单一的 gas 价格按每单位 gas 计费。2016 年 11 月随 Spurious Dragon 硬分叉启用的 EIP-155 把链 ID 编入签名的 v 值，这样，为某条链签名的交易就无法在另一条链上重放。",
     ],
     fields: [
       ["nonce", "发送方的交易序号。"],
@@ -71,7 +71,7 @@ export const docsZh: DocDictionary = {
       "节省费用 = gasUsed × (maxFeePerGas − 实际 gas 价格)",
     ],
     inThisApp: [
-      "“概览”中的基础费、最高费用、最高优先费、燃烧费用和节省费用都按上述公式计算。",
+      "“概览”显示基础费（取自区块）以及最高费用和最高优先费（取自交易），燃烧费用、节省费用和交易手续费则按上述公式计算。",
       "这类交易的价格一行显示为“实际 Gas 价格”。",
     ],
   },
@@ -124,12 +124,12 @@ export const docsZh: DocDictionary = {
     inThisApp: ["“概览”中的交易类型显示为 EIP-7702，费用的显示方式与 EIP-1559 交易相同。"],
   },
   "erc-20": {
-    title: "可替代代币",
+    title: "同质化代币",
     code: "ERC-20",
     status: "代币标准",
     introduced: "EIP-20，2015 年",
     summary: [
-      "ERC-20 于 2015 年以 EIP-20 提出，是可替代代币（同质化代币）的标准接口：同一种代币的任意两个单位都可以互换。",
+      "ERC-20 于 2015 年以 EIP-20 提出，是同质化代币的标准接口：同一种代币的任意两个单位都可以互换。",
       "数量始终是整数，decimals 只决定显示方式：显示值等于原始数量除以 10^decimals。name、symbol 和 decimals 都是可选的元数据。",
       "铸造就是从零地址发出的 Transfer，销毁就是转入零地址的 Transfer。",
     ],
@@ -147,7 +147,7 @@ export const docsZh: DocDictionary = {
     math: ["显示值 = 原始数量 ÷ 10^decimals"],
     inThisApp: [
       "代币转账来自 Transfer 事件日志。",
-      "合约提供了名称、符号和精度时，资产详情会显示出来。",
+      "名称、符号和小数位数已知时，资产详情会显示出来。",
     ],
   },
   "erc-721": {
@@ -181,8 +181,8 @@ export const docsZh: DocDictionary = {
     status: "代币标准",
     introduced: "EIP-1155，2018 年",
     summary: [
-      "ERC-1155 于 2018 年以 EIP-1155 提出，允许一个合约管理多种 tokenId，每一种既可以是可替代代币，也可以是非同质化代币。",
-      "批量函数和 TransferBatch 事件可以一次转移多个 id。每个 id 的元数据通过 uri(id) 获取。",
+      "ERC-1155 于 2018 年以 EIP-1155 提出，允许一个合约管理多种 tokenId，每一种既可以是同质化代币，也可以是非同质化代币。",
+      "批量函数可以一次转移多个 id，TransferBatch 事件则记录这类批量转移。每个 id 的元数据通过 uri(id) 获取。",
     ],
     fields: [
       ["balanceOf(account, id)", "某个账户持有某个 tokenId 的余额。"],

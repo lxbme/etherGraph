@@ -13,7 +13,7 @@ export function useDocs(): Record<DocId, DocText> {
 /** Transaction types list fields, token standards their interface, ETH its key terms. */
 const fieldsHeading = (id: DocId): MsgKey => (id.startsWith("erc-") ? "doc.interface" : id === "native-eth" ? "doc.terms" : "doc.fields");
 
-/** A documentation page: facts, summary, fields, formulas, where it shows up in the app, and the specification link. */
+/** A documentation page (the panel header shows its code): title, facts, summary, fields, formulas, where it shows up in the app, and the specification link. */
 export function StandardDoc({ id }: { id: DocId }) {
   const t = useT();
   const doc = useDocs()[id];
@@ -22,8 +22,6 @@ export function StandardDoc({ id }: { id: DocId }) {
     <article className="detail__section doc" data-testid="standard-doc" aria-labelledby={titleId}>
       <h4 className="doc__title" id={titleId}>{doc.title}</h4>
       <dl className="kv kv--wrap">
-        <dt>{t("doc.code")}</dt>
-        <dd>{doc.code}</dd>
         <dt>{t("doc.status")}</dt>
         <dd>{doc.status}</dd>
         <dt>{t("doc.introduced")}</dt>

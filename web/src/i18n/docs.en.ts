@@ -1,6 +1,6 @@
 import type { DocId } from "../panels/info/docs";
 
-/** The text of one documentation page; its external link is `DOC_LINKS[id]`. */
+/** The text of one documentation page; its external link is `DOC_LINKS[id]`, its code is the info panel header. */
 export interface DocText {
   readonly title: string;
   /** The standard's code, e.g. "EIP-1559". */
@@ -82,7 +82,7 @@ export const docsEn = {
       "savings = gasUsed × (maxFeePerGas − effective gas price)",
     ],
     inThisApp: [
-      "Overview shows the base fee, max fee, max priority fee, burnt fees and savings, computed with the formulas above.",
+      "Overview shows the base fee (from the block) and the max fee and max priority fee (from the transaction); the burnt fees, savings and transaction fee are computed with the formulas above.",
       "For these transactions the price row reads “Effective gas price”.",
     ],
   },
@@ -158,7 +158,7 @@ export const docsEn = {
     math: ["shown value = raw ÷ 10^decimals"],
     inThisApp: [
       "Token transfers come from Transfer logs.",
-      "Asset details show the name, symbol and decimals when the contract provides them.",
+      "Asset details show the name, symbol and decimals when they are known.",
     ],
   },
   "erc-721": {
@@ -193,7 +193,7 @@ export const docsEn = {
     introduced: "EIP-1155, 2018",
     summary: [
       "ERC-1155, proposed as EIP-1155 in 2018, lets a single contract manage many token ids, each of which can be fungible or non-fungible.",
-      "Batch functions and the TransferBatch event move several ids at once. Each id's metadata comes from uri(id).",
+      "Batch functions move several ids at once, and TransferBatch records such a move. Each id's metadata comes from uri(id).",
     ],
     fields: [
       ["balanceOf(account, id)", "Balance of one token id for an account."],

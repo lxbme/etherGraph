@@ -4,9 +4,8 @@ import { qk } from "../../api/queryClient";
 import { api } from "../../api/endpoints";
 import { useT } from "../../i18n";
 import { AssetDetail } from "./AssetDetail";
-import { docTitleKey } from "./docs";
 import { useInfo, type InfoView } from "./infoStore";
-import { StandardDoc } from "./StandardDoc";
+import { StandardDoc, useDocs } from "./StandardDoc";
 
 function AssetTitle({ view }: { view: Extract<InfoView, { kind: "asset" }> }) {
   const t = useT();
@@ -24,6 +23,7 @@ export function InfoPanel({ tab }: { tab: string }) {
   const view = useInfo((s) => s.stacks[tab]?.at(-1));
   const back = useInfo((s) => s.back);
   const close = useInfo((s) => s.close);
+  const docs = useDocs();
   if (!view) return null;
   return (
     <div className="detail info" data-testid="info-panel">
@@ -31,7 +31,7 @@ export function InfoPanel({ tab }: { tab: string }) {
         <button type="button" className="btn btn--ghost btn--compact" onClick={() => back(tab)}>
           <ArrowLeft size={14} aria-hidden="true" /> {t("info.back")}
         </button>
-        <h3 className="info__title">{view.kind === "doc" ? t(docTitleKey(view.id)) : <AssetTitle view={view} />}</h3>
+        <h3 className="info__title">{view.kind === "doc" ? docs[view.id].code : <AssetTitle view={view} />}</h3>
         <button type="button" className="btn btn--ghost btn--icon btn--compact" aria-label={t("info.close")} title={t("info.close")} onClick={() => close(tab)}>
           <X size={14} />
         </button>

@@ -1,6 +1,9 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, within } from "@testing-library/react";
 import { useLocale } from "../../i18n";
 import { docsZh } from "../../i18n/docs.zh";
+import { InfoPanel } from "./InfoPanel";
+import { useInfo } from "./infoStore";
 import { StandardDoc } from "./StandardDoc";
 
 afterEach(() => act(() => useLocale.getState().setLocale("en")));
@@ -33,4 +36,17 @@ test("follows the language", () => {
   act(() => useLocale.getState().setLocale("zh"));
   expect(screen.getByRole("heading", { name: docsZh["native-eth"].title })).toBeInTheDocument();
   expect(screen.getByRole("link", { name: /打开规范/ })).toHaveAttribute("href", "https://ethereum.org/en/developers/docs/intro-to-ether/");
+});
+
+test("in the info panel the header is the code and the page title appears once, with no code row", () => {
+  useInfo.setState({ stacks: { graph: [{ kind: "doc", id: "native-eth" }] } });
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <InfoPanel tab="graph" />
+    </QueryClientProvider>,
+  );
+  expect(screen.getByRole("heading", { level: 3 })).toHaveTextContent(/^ETH$/);
+  expect(screen.getAllByText("Ether")).toHaveLength(1);
+  expect(screen.getByRole("heading", { level: 4, name: "Ether" })).toBeInTheDocument();
+  expect(screen.queryByText("Specification")).toBeNull();
 });
