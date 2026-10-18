@@ -367,20 +367,31 @@ button.seg__item { margin: 0; background: none; border: 0; font-family: inherit;
 .topbar__logo {
   display: inline-flex;
   align-items: center;
-  gap: var(--sp-2);
   height: var(--h-control);
   margin: 0 var(--sp-2) 0 0;
-  font-size: var(--fs-13);
-  font-weight: 600;
+  font-size: var(--fs-brand);
+}
+/* The lockup (src/shell/Brand.tsx); all metrics are tokens in em of its font-size. */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-brand);
+  font-stretch: 125%;
+  letter-spacing: -0.01em;
+  line-height: var(--lh-brand);
   white-space: nowrap;
 }
-.topbar__mark {
+.brand__mark {
   flex: none;
-  width: var(--h-mark);
-  height: var(--h-mark);
-  background: var(--accent);
-  border-radius: var(--sp-1); /* a 14px mark: the 6px control radius would read as a dot */
+  width: var(--brand-mark);
+  height: var(--brand-mark);
+  margin-right: var(--brand-gap);
+  position: relative;
+  top: var(--brand-nudge);
+  color: var(--accent);
 }
+.brand__ether { font-weight: 400; color: var(--fg-muted); }
+.brand__graph { font-weight: 700; color: var(--fg); }
 .topbar__spacer { flex: 1; }
 .wsmenu__name { min-width: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 

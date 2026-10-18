@@ -50,7 +50,6 @@
   --h-control: 32px;
   --h-compact: 28px;
   --h-tag: 20px;
-  --h-mark: 14px;
   --h-pane-min: 120px;
   --h-graph-min: 200px;
   --mh-popover: 70vh;
@@ -69,6 +68,17 @@
   --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans SC', 'PingFang SC',
     'Microsoft YaHei', sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Brand lockup (docs/brand/README.md). Archivo Expanded metrics: cap height 0.69em, x-height 0.53em.
+     Every value is in em of the wordmark, so the lockup scales as one piece. */
+  --font-brand: 'Archivo Variable', 'Archivo', var(--font-sans);
+  --fs-brand: 15px;
+  --brand-mark: 1.166em; /* the ring's outer edge spans 0.8875 of the box: visible 1.035em = 1.5 × cap height */
+  --brand-gap: 0.16em; /* ring edge to the "e": 0.4 × cap height, less the box inset and the e's side bearing */
+  /* A centred mark sits 0.335em above the baseline (line-height 1); its centre belongs halfway between the
+     cap-height and x-height centres (0.305em), so it moves down by the difference. */
+  --brand-nudge: 0.03em;
+  --lh-brand: 1; /* the nudge above assumes a line box of exactly 1em */
 }
 
 :root[data-theme="dark"] {

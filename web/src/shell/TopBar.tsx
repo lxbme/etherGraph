@@ -5,6 +5,7 @@ import { SearchBox } from "../search/SearchBox";
 import { useT } from "../i18n";
 import { formatCount, formatLocalTime, formatTime } from "../lib/format";
 import { useUi } from "../panels/uiStore";
+import { BrandLockup } from "./Brand";
 import { HELP_BUTTON_ID, HELP_DRAWER_ID } from "./HelpDrawer";
 import { SettingsMenu } from "./SettingsMenu";
 import { useQuota } from "./statusStore";
@@ -31,8 +32,7 @@ export function TopBar({ search, filter, workspaceMenu, onToggleDetail, detailOp
   return (
     <header className="topbar">
       <h1 className="topbar__logo">
-        <span className="topbar__mark" aria-hidden="true" />
-        etherGraph
+        <BrandLockup />
       </h1>
       {search ?? <SearchBox />}
       {filter ?? <FilterPanel />}
