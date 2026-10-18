@@ -1,4 +1,5 @@
 //! eg-ingest
+pub mod authorization;
 pub mod config;
 pub mod cursor;
 pub mod enqueue;
@@ -9,6 +10,7 @@ pub mod handlers;
 pub mod runner;
 pub mod txflow;
 
+pub use authorization::{Authorization, MAX_AUTO_DELEGATES, authorizations, delegates};
 pub use enqueue::{
     SyncDirection, enqueue_fetch_block, enqueue_fetch_tx, enqueue_meta, enqueue_meta_owned,
     enqueue_names, enqueue_sync, enqueue_tokens, other_sync_active,

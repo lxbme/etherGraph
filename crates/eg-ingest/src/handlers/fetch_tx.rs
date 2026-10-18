@@ -1,6 +1,6 @@
 //! `FetchTx`: fetches one transaction with its receipt, block time and
-//! internal transfers, stores it, and queues metadata for the addresses it
-//! touched.
+//! internal transfers, stores it, and queues metadata for its own parties
+//! (sender, recipient, EIP-7702 delegates) and its tokens.
 
 use std::collections::HashSet;
 
@@ -11,6 +11,7 @@ use eg_decode::decode_transfer_logs;
 use eg_store::{JobRow, JobStatus, TxRow};
 use serde::Deserialize;
 
+use crate::authorization::{MAX_AUTO_DELEGATES, authorizations, delegates};
 use crate::enqueue::{enqueue_meta, enqueue_tokens};
 use crate::events::Event;
 use crate::runner::{JobCtx, JobError, JobHandler};
@@ -145,11 +146,17 @@ impl JobHandler for FetchTxHandler {
             })
             .await?;
 
-        // Only the tx's own parties are identified automatically; the rest are
-        // identified on demand (`POST /api/identify`).
+        // Only the tx's own parties and its first EIP-7702 delegates are
+        // identified automatically; the rest are identified on demand
+        // (`POST /api/identify`).
         let parties: Vec<Address> = [tx.from]
             .into_iter()
             .chain(tx.to.or(receipt.contract_address))
+            .chain(
+                delegates(&authorizations(&tx.json))
+                    .into_iter()
+                    .take(MAX_AUTO_DELEGATES),
+            )
             .collect();
         let stale = ctx
             .store

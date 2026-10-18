@@ -4,10 +4,11 @@
 use std::str::FromStr;
 
 use alloy_primitives::{Address, U256};
+use eg_ingest::Authorization;
 use eg_store::{BlockRow, TxRow};
 use serde_json::Value;
 
-use crate::dto::{TxDetailDto, hex_addr};
+use crate::dto::{AuthorizationDto, TxDetailDto, hex_addr};
 
 /// A `0x` hex quantity field; `None` when absent, null or malformed.
 fn quantity(json: &Value, key: &str) -> Option<U256> {
@@ -19,7 +20,13 @@ fn small<T: TryFrom<U256>>(json: &Value, key: &str) -> Option<T> {
     quantity(json, key).and_then(|v| T::try_from(v).ok())
 }
 
-pub fn tx_detail(row: &TxRow, block: Option<&BlockRow>, head: Option<u64>) -> TxDetailDto {
+/// `authorizations` is the tx's parsed EIP-7702 list (`TxFlow::authorizations`).
+pub fn tx_detail(
+    row: &TxRow,
+    block: Option<&BlockRow>,
+    head: Option<u64>,
+    authorizations: &[Authorization],
+) -> TxDetailDto {
     let (tx, receipt) = (&row.raw_tx, &row.raw_receipt);
     let dec = |v: Option<U256>| v.map(|v| v.to_string());
 
@@ -71,6 +78,7 @@ pub fn tx_detail(row: &TxRow, block: Option<&BlockRow>, head: Option<u64>) -> Tx
             .and_then(Value::as_str)
             .unwrap_or("0x")
             .to_ascii_lowercase(),
+        authorizations: authorizations.iter().map(AuthorizationDto::from).collect(),
     }
 }
 
@@ -126,7 +134,7 @@ mod tests {
     #[test]
     fn legacy_pre_london() {
         let r = row(LEGACY);
-        let d = tx_detail(&r, Some(&block(12_000_000, None)), None);
+        let d = tx_detail(&r, Some(&block(12_000_000, None)), None, &[]);
         assert_eq!(d.tx_type, 0);
         assert_eq!(d.nonce, 31);
         assert_eq!(d.position, Some(60));
@@ -152,7 +160,7 @@ mod tests {
     fn legacy_without_type_field_is_type_0() {
         let mut r = row(LEGACY);
         r.raw_tx.as_object_mut().unwrap().remove("type");
-        assert_eq!(tx_detail(&r, None, None).tx_type, 0);
+        assert_eq!(tx_detail(&r, None, None, &[]).tx_type, 0);
     }
 
     #[test]
@@ -160,7 +168,12 @@ mod tests {
         let r = row(EIP1559);
         // base fee 17.23456789 gwei, tip 1.5 gwei, max fee 35 gwei, 127455 gas used:
         // effective price = 17234567890 + 1500000000 = 18734567890.
-        let d = tx_detail(&r, Some(&block(19_000_000, Some(17_234_567_890))), None);
+        let d = tx_detail(
+            &r,
+            Some(&block(19_000_000, Some(17_234_567_890))),
+            None,
+            &[],
+        );
         assert_eq!(d.tx_type, 2);
         assert_eq!(d.nonce, 1042);
         assert_eq!(d.position, Some(87));
@@ -180,7 +193,7 @@ mod tests {
 
     #[test]
     fn eip1559_without_block_header_has_no_base_fee() {
-        let d = tx_detail(&row(EIP1559), None, None);
+        let d = tx_detail(&row(EIP1559), None, None, &[]);
         assert_eq!(d.base_fee, None);
         assert_eq!(d.burnt_fee, None);
         // Savings need no header.
@@ -190,7 +203,7 @@ mod tests {
     #[test]
     fn eip4844_blob_gas() {
         let r = row(EIP4844);
-        let d = tx_detail(&r, Some(&block(20_000_000, Some(9_876_543_210))), None);
+        let d = tx_detail(&r, Some(&block(20_000_000, Some(9_876_543_210))), None, &[]);
         assert_eq!(d.tx_type, 3);
         assert_eq!(d.blob_gas_used.as_deref(), Some("262144"));
         assert_eq!(d.blob_gas_price.as_deref(), Some("1"));
@@ -213,13 +226,13 @@ mod tests {
             Value::from(format!("{:#x}", U256::MAX)),
         );
         receipt.insert("blobGasPrice".into(), Value::from("0x2"));
-        let d = tx_detail(&r, None, None);
+        let d = tx_detail(&r, None, None, &[]);
         assert_eq!(d.blob_fee, Some(U256::MAX.to_string()));
     }
 
     #[test]
     fn contract_creation() {
-        let d = tx_detail(&row(CREATE), None, None);
+        let d = tx_detail(&row(CREATE), None, None, &[]);
         assert_eq!(
             d.contract_created.as_deref(),
             Some("0xe4750761f9d21ce635e3078a68306afbdc0c3310")
@@ -233,7 +246,7 @@ mod tests {
         let mut r = row(FAILED);
         assert!(!r.success);
         r.revert_reason = Some("Ownable: caller is not the owner".into());
-        let d = tx_detail(&r, None, None);
+        let d = tx_detail(&r, None, None, &[]);
         assert_eq!(
             d.revert_reason.as_deref(),
             Some("Ownable: caller is not the owner")
@@ -242,12 +255,59 @@ mod tests {
     }
 
     #[test]
+    fn set_code_authorizations_are_listed_in_order() {
+        let mut r = row(EIP1559);
+        r.raw_tx["type"] = Value::from("0x4");
+        let auths = [
+            Authorization {
+                chain_id: U256::from(1),
+                delegate: Address::repeat_byte(0xde),
+                nonce: U256::from(2),
+                authority: Some(Address::repeat_byte(0xa1)),
+            },
+            Authorization {
+                chain_id: U256::ZERO,
+                delegate: Address::ZERO,
+                nonce: U256::from(u64::MAX),
+                authority: None,
+            },
+        ];
+        let d = tx_detail(&r, None, None, &auths);
+        assert_eq!(d.tx_type, 4);
+        assert_eq!(
+            d.authorizations,
+            vec![
+                AuthorizationDto {
+                    chain_id: "1".into(),
+                    delegate: format!("{:#x}", Address::repeat_byte(0xde)),
+                    nonce: "2".into(),
+                    authority: Some(format!("{:#x}", Address::repeat_byte(0xa1))),
+                },
+                AuthorizationDto {
+                    chain_id: "0".into(),
+                    delegate: format!("{:#x}", Address::ZERO),
+                    nonce: u64::MAX.to_string(),
+                    authority: None,
+                },
+            ]
+        );
+        assert!(
+            tx_detail(&row(LEGACY), None, None, &[])
+                .authorizations
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn confirmations_count_the_inclusion_block() {
         let r = row(EIP1559);
         let n = r.block_number;
-        assert_eq!(tx_detail(&r, None, Some(n + 9)).confirmations, Some(10));
-        assert_eq!(tx_detail(&r, None, Some(n)).confirmations, Some(1));
-        assert_eq!(tx_detail(&r, None, Some(n - 1)).confirmations, None);
-        assert_eq!(tx_detail(&r, None, None).confirmations, None);
+        assert_eq!(
+            tx_detail(&r, None, Some(n + 9), &[]).confirmations,
+            Some(10)
+        );
+        assert_eq!(tx_detail(&r, None, Some(n), &[]).confirmations, Some(1));
+        assert_eq!(tx_detail(&r, None, Some(n - 1), &[]).confirmations, None);
+        assert_eq!(tx_detail(&r, None, None, &[]).confirmations, None);
     }
 }

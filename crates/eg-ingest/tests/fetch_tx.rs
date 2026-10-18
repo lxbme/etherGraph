@@ -473,3 +473,59 @@ async fn auto_meta_for_creation_is_from_and_created_contract(pool: PgPool) {
     assert_eq!(jobs.len(), 1);
     assert_eq!(jobs[0]["addresses"], sorted_hex(&[from, created]));
 }
+
+fn unsigned_auth(delegate: Address) -> Value {
+    json!({"chainId": "0x1", "address": format!("{delegate:#x}"), "nonce": "0x0"})
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn auto_meta_adds_up_to_eight_delegates(pool: PgPool) {
+    let e = env(pool);
+    let mut tx = raw_tx(None);
+    let (from, to) = (tx.from, tx.to.unwrap());
+    let delegates: Vec<Address> = (1u8..=10).map(|b| Address::repeat_byte(0x40 + b)).collect();
+    let mut list: Vec<Value> = delegates.iter().map(|d| unsigned_auth(*d)).collect();
+    // A revocation and a repeated delegate do not use up the cap.
+    list.insert(1, unsigned_auth(Address::ZERO));
+    list.insert(2, unsigned_auth(delegates[0]));
+    tx.json["type"] = json!("0x4");
+    tx.json["authorizationList"] = json!(list);
+    e.fake.add_tx(tx, receipt(true, 7, vec![]), vec![], ts());
+    run(&e, &format!("{HASH:#x}")).await.unwrap();
+    let jobs = meta_params(&e).await;
+    assert_eq!(jobs.len(), 1);
+    let mut want = vec![from, to];
+    want.extend(&delegates[..8]);
+    assert_eq!(jobs[0]["addresses"], sorted_hex(&want));
+}
+
+const SENDER: Address = address!("0xe461dd07cbf41b8020a2e9f50255bf85bf1c4905");
+const DELEGATE: Address = address!("0x612373d7003d694220f7800eeaf8e3924c0951d3");
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn delegate_abi_decodes_the_call_once_stored(pool: PgPool) {
+    let e = env(pool);
+    let abi = alloy_json_abi::JsonAbi::parse(["function foo(uint256 x)"]).unwrap();
+    let sel = abi.functions().next().unwrap().selector();
+    let input = format!("0x{}{:064x}", alloy_primitives::hex::encode(sel), 42);
+    // Mainnet tx 0x4f85…bb8c: SENDER authorizes DELEGATE and calls itself.
+    let mut row = stored_tx(HASH, 100);
+    row.from = SENDER;
+    row.to = Some(SENDER);
+    row.raw_tx = json!({"type": "0x4", "input": input, "authorizationList": [{
+        "chainId": "0x1", "address": format!("{DELEGATE:#x}"), "nonce": "0x2", "yParity": "0x0",
+        "r": "0x6d3ecfb34878c8ad3edebf5c137af1156a68e7340093454d4386ccc7465d0571",
+        "s": "0x6d80a00a79df8879470ac42c6e89fba6c951d1aaa9601dfce50499993e391300"}]});
+    e.ctx.store.upsert_transaction(&row).await.unwrap();
+
+    let flow = load_tx_flow(&e.ctx.store, HASH).await.unwrap().unwrap();
+    assert_eq!(flow.participants, vec![SENDER, DELEGATE]);
+    assert_eq!(flow.authorizations[0].authority, Some(SENDER));
+    assert!(flow.call.is_none());
+
+    let json = serde_json::to_string(&abi).unwrap();
+    e.ctx.store.upsert_abi(DELEGATE, Some(&json)).await.unwrap();
+    let flow = load_tx_flow(&e.ctx.store, HASH).await.unwrap().unwrap();
+    assert_eq!(flow.call.unwrap().name, "foo");
+    assert_eq!(flow.call_via_delegate, Some(DELEGATE));
+}

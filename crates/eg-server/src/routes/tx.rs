@@ -6,7 +6,9 @@ use std::collections::HashMap;
 use axum::Json;
 use axum::extract::State;
 use eg_core::types::{Address, TransferKind};
-use eg_ingest::{enqueue_fetch_block, enqueue_fetch_tx, load_tx_flow};
+use eg_ingest::{
+    MAX_AUTO_DELEGATES, delegates, enqueue_fetch_block, enqueue_fetch_tx, load_tx_flow,
+};
 
 use crate::dto::{
     DecodedCallDto, DecodedEventDto, FlowDto, TxFlowDto, TxMetaDto, TxRawDto, TxResponseDto,
@@ -50,13 +52,19 @@ pub async fn tx(
     )
     .await?
     .nodes;
-    // Only the tx's own parties are identified automatically: the sender and
-    // the recipient (or the contract the tx created).
+    // Only the tx's own parties are identified automatically: the sender, the
+    // recipient (or the contract the tx created) and its first EIP-7702
+    // delegates.
     let created = f.tx.raw_receipt["contractAddress"]
         .as_str()
         .and_then(|a| a.parse::<Address>().ok());
     let parties: Vec<Address> = std::iter::once(f.tx.from)
         .chain(f.tx.to.or(created))
+        .chain(
+            delegates(&f.authorizations)
+                .into_iter()
+                .take(MAX_AUTO_DELEGATES),
+        )
         .collect();
     enqueue_missing_meta(&s, &parties, &f.participants, &token_addrs).await;
     let block = s.store.block(f.tx.block_number).await?;
@@ -88,8 +96,11 @@ pub async fn tx(
                 method: f.call.as_ref().map(|c| c.name.clone()),
                 selector: f.tx.selector.map(alloy_primitives::hex::encode_prefixed),
             },
-            detail: tx_detail(&f.tx, block.as_ref(), head),
-            call: f.call.as_ref().map(DecodedCallDto::from),
+            detail: tx_detail(&f.tx, block.as_ref(), head, &f.authorizations),
+            call: f
+                .call
+                .as_ref()
+                .map(|c| DecodedCallDto::new(c, f.call_via_delegate)),
             nodes,
             flows: f.flows.iter().map(|fl| FlowDto::new(fl, &tokens)).collect(),
             events: f.events.iter().map(DecodedEventDto::from).collect(),

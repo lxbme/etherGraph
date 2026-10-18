@@ -611,6 +611,35 @@ pub struct TxDetailDto {
     pub revert_reason: Option<String>,
     /// Calldata, `0x` hex.
     pub input: String,
+    /// EIP-7702 authorization list in tx order; empty for other tx types.
+    pub authorizations: Vec<AuthorizationDto>,
+}
+
+/// One EIP-7702 authorization of a set-code (type 4) transaction.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AuthorizationDto {
+    /// Decimal; 0 means any chain.
+    pub chain_id: String,
+    /// The address whose code the signer delegates to; the zero address
+    /// clears the signer's delegation.
+    pub delegate: String,
+    /// Decimal.
+    pub nonce: String,
+    /// The recovered signer; null when the signature does not recover or the
+    /// entry is invalid on mainnet.
+    pub authority: Option<String>,
+}
+
+impl From<&eg_ingest::Authorization> for AuthorizationDto {
+    fn from(a: &eg_ingest::Authorization) -> Self {
+        Self {
+            chain_id: a.chain_id.to_string(),
+            delegate: hex_addr(a.delegate),
+            nonce: a.nonce.to_string(),
+            authority: a.authority.map(hex_addr),
+        }
+    }
 }
 
 /// `GET /api/tx/{hash}/raw`: the tx and receipt JSON as fetched.
@@ -655,6 +684,9 @@ pub struct DecodedCallDto {
     pub signature: String,
     pub name: String,
     pub args: Vec<DecodedArgDto>,
+    /// The EIP-7702 delegate whose ABI decoded the call, when `to` delegated
+    /// to it in this tx and has no ABI of its own that decodes it.
+    pub via_delegate: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -680,12 +712,13 @@ impl From<&eg_decode::DecodedArg> for DecodedArgDto {
     }
 }
 
-impl From<&eg_decode::DecodedCall> for DecodedCallDto {
-    fn from(c: &eg_decode::DecodedCall) -> Self {
+impl DecodedCallDto {
+    pub fn new(c: &eg_decode::DecodedCall, via_delegate: Option<Address>) -> Self {
         Self {
             signature: c.signature.clone(),
             name: c.name.clone(),
             args: c.args.iter().map(DecodedArgDto::from).collect(),
+            via_delegate: via_delegate.map(hex_addr),
         }
     }
 }

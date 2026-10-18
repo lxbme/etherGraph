@@ -11,6 +11,8 @@ use eg_decode::{DecodedCall, DecodedEvent, decode_call, decode_event};
 use eg_store::{AccountRow, Store, StoreError, TxRow};
 use serde::{Serialize, Serializer};
 
+use crate::authorization::{Authorization, authorizations, delegates};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Completeness {
@@ -48,6 +50,11 @@ pub struct Flow {
 pub struct TxFlow {
     pub tx: TxRow,
     pub call: Option<DecodedCall>,
+    /// Set when `call` was decoded with the ABI of the delegate that `to`
+    /// authorized in this transaction (EIP-7702), not with `to`'s own.
+    pub call_via_delegate: Option<Address>,
+    /// The EIP-7702 authorization list; empty for other tx types.
+    pub authorizations: Vec<Authorization>,
     pub participants: Vec<Address>,
     pub flows: Vec<Flow>,
     pub events: Vec<DecodedEvent>,
@@ -84,11 +91,13 @@ fn input_of(tx: &TxRow) -> Option<Bytes> {
 
 /// Every address a transaction touches, deduplicated in this order: sender,
 /// recipient, created contract (receipt `contractAddress`), the endpoints of
-/// `transfers`, then log emitters. `receipt` is the parsed `raw_receipt`.
+/// `transfers`, log emitters, then the non-zero EIP-7702 delegates.
+/// `receipt` is the parsed `raw_receipt`.
 fn participants<'a>(
     tx: &TxRow,
     receipt: Option<&RawReceipt>,
     transfers: impl IntoIterator<Item = (&'a Address, &'a Address)>,
+    auths: &[Authorization],
 ) -> Vec<Address> {
     let mut seen = HashSet::new();
     [
@@ -104,8 +113,36 @@ fn participants<'a>(
             .into_iter()
             .flat_map(|r| r.logs.iter().map(|l| l.address)),
     )
+    .chain(delegates(auths))
     .filter(|a| seen.insert(*a))
     .collect()
+}
+
+/// The top-level call decoded with `to`'s ABI or, failing that, with the ABI
+/// of the delegate `to` authorized in this tx (the last authorization it
+/// signed wins, as the EVM applies them in order); the delegate is returned
+/// in the second case.
+fn top_call(
+    tx: &TxRow,
+    auths: &[Authorization],
+    abis: &HashMap<Address, JsonAbi>,
+    accounts: &HashMap<Address, AccountRow>,
+) -> Option<(DecodedCall, Option<Address>)> {
+    let to = tx.to?;
+    let input = input_of(tx)?;
+    if let Some(call) = abi_for(to, abis, accounts).and_then(|abi| decode_call(abi, &input)) {
+        return Some((call, None));
+    }
+    let delegate = auths
+        .iter()
+        .rev()
+        .find(|a| a.authority == Some(to))?
+        .delegate;
+    if delegate.is_zero() {
+        return None;
+    }
+    let call = decode_call(abi_for(delegate, abis, accounts)?, &input)?;
+    Some((call, Some(delegate)))
 }
 
 pub fn build_tx_flow(
@@ -114,10 +151,20 @@ pub fn build_tx_flow(
     abis: &HashMap<Address, JsonAbi>,
     accounts: &HashMap<Address, AccountRow>,
 ) -> TxFlow {
-    let call = tx.to.and_then(|to| {
-        let abi = abi_for(to, abis, accounts)?;
-        decode_call(abi, &input_of(tx)?)
-    });
+    build(tx, transfers, authorizations(&tx.raw_tx), abis, accounts)
+}
+
+fn build(
+    tx: &TxRow,
+    transfers: &[Transfer],
+    auths: Vec<Authorization>,
+    abis: &HashMap<Address, JsonAbi>,
+    accounts: &HashMap<Address, AccountRow>,
+) -> TxFlow {
+    let (call, call_via_delegate) = match top_call(tx, &auths, abis, accounts) {
+        Some((call, via)) => (Some(call), via),
+        None => (None, None),
+    };
 
     let top = transfers
         .iter()
@@ -156,7 +203,12 @@ pub fn build_tx_flow(
         .collect();
 
     let receipt = parse_receipt(&tx.raw_receipt).ok();
-    let participants = participants(tx, receipt.as_ref(), flows.iter().map(|f| (&f.from, &f.to)));
+    let participants = participants(
+        tx,
+        receipt.as_ref(),
+        flows.iter().map(|f| (&f.from, &f.to)),
+        &auths,
+    );
     let logs: &[RawLog] = receipt.as_ref().map_or(&[], |r| &r.logs);
     let events = logs
         .iter()
@@ -166,6 +218,8 @@ pub fn build_tx_flow(
     TxFlow {
         tx: tx.clone(),
         call,
+        call_via_delegate,
+        authorizations: auths,
         participants,
         flows,
         events,
@@ -181,10 +235,12 @@ pub async fn load_tx_flow(store: &Store, hash: TxHash) -> Result<Option<TxFlow>,
     // A superset of the flow's participants (it includes zero-value transfers),
     // used to load the accounts and ABIs the flow decodes with.
     let receipt = parse_receipt(&tx.raw_receipt).ok();
+    let auths = authorizations(&tx.raw_tx);
     let participants = participants(
         &tx,
         receipt.as_ref(),
         transfers.iter().map(|t| (&t.from, &t.to)),
+        &auths,
     );
     let accounts: HashMap<Address, AccountRow> = store
         .accounts(&participants)
@@ -202,12 +258,14 @@ pub async fn load_tx_flow(store: &Store, hash: TxHash) -> Result<Option<TxFlow>,
         .into_iter()
         .filter_map(|(a, json)| Some((a, serde_json::from_str(&json?).ok()?)))
         .collect();
-    Ok(Some(build_tx_flow(&tx, &transfers, &abis, &accounts)))
+    Ok(Some(build(&tx, &transfers, auths, &abis, &accounts)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::authorization::tests::{key, signed};
+    use alloy_primitives::address;
     use chrono::{DateTime, Utc};
     use eg_core::types::AccountKind;
     use serde_json::json;
@@ -365,6 +423,118 @@ mod tests {
         let f = build(&[d, a, b, c]);
         let amounts: Vec<u64> = f.flows.iter().map(|x| x.amount.to::<u64>()).collect();
         assert_eq!(amounts, vec![2, 3, 1, 4]);
+    }
+
+    const SENDER: Address = address!("0xe461dd07cbf41b8020a2e9f50255bf85bf1c4905");
+    const DELEGATE: Address = address!("0x612373d7003d694220f7800eeaf8e3924c0951d3");
+
+    /// The single authorization of mainnet tx 0x4f85…bb8c: SENDER delegates
+    /// to DELEGATE.
+    fn real_auth() -> serde_json::Value {
+        json!({"chainId": "0x1", "address": format!("{DELEGATE:#x}"), "nonce": "0x2", "yParity": "0x0",
+            "r": "0x6d3ecfb34878c8ad3edebf5c137af1156a68e7340093454d4386ccc7465d0571",
+            "s": "0x6d80a00a79df8879470ac42c6e89fba6c951d1aaa9601dfce50499993e391300"})
+    }
+
+    /// A type-4 self-call from SENDER with `auths` and calldata `foo(42)`.
+    fn self_call(auths: Vec<serde_json::Value>) -> (TxRow, JsonAbi) {
+        let abi = JsonAbi::parse(["function foo(uint256 x)"]).unwrap();
+        let sel = abi.functions().next().unwrap().selector();
+        let input = format!("0x{}{:064x}", hex::encode(sel), 42);
+        let mut t = tx(Some(SENDER), &input, json!({}));
+        t.from = SENDER;
+        t.raw_tx = json!({"type": "0x4", "input": input, "authorizationList": auths});
+        (t, abi)
+    }
+
+    #[test]
+    fn delegates_join_participants_and_zero_does_not() {
+        let k = key(7);
+        let other = Address::repeat_byte(0x77);
+        let mut t = tx(Some(B), "0x", json!({}));
+        t.raw_tx = json!({"type": "0x4", "input": "0x", "authorizationList": [
+            real_auth(),
+            signed(&k, 1, Address::ZERO, 0),
+            signed(&k, 1, other, 1),
+            // An unrecoverable entry still names its delegate.
+            {"chainId": "0x1", "address": format!("{C:#x}"), "nonce": "0x0"},
+            real_auth(),
+        ]});
+        let f = build_tx_flow(&t, &[], &HashMap::new(), &HashMap::new());
+        assert_eq!(f.participants, vec![A, B, DELEGATE, other, C]);
+        let signers: Vec<_> = f.authorizations.iter().map(|a| a.authority).collect();
+        let kaddr = Address::from_private_key(&k);
+        assert_eq!(
+            signers,
+            vec![Some(SENDER), Some(kaddr), Some(kaddr), None, Some(SENDER)]
+        );
+        // Other tx types have none.
+        let plain = build(&[]);
+        assert!(plain.authorizations.is_empty());
+        assert_eq!(plain.participants, vec![A, B]);
+    }
+
+    #[test]
+    fn call_to_a_delegating_address_uses_the_delegate_abi() {
+        let (t, abi) = self_call(vec![real_auth()]);
+        // Review focus 5: before the delegate's ABI is known the call stays undecoded.
+        let f = build_tx_flow(&t, &[], &HashMap::new(), &HashMap::new());
+        assert!(f.call.is_none());
+        assert_eq!(f.call_via_delegate, None);
+        let abis = HashMap::from([(DELEGATE, abi.clone())]);
+        let f = build_tx_flow(&t, &[], &abis, &HashMap::new());
+        let call = f.call.unwrap();
+        assert_eq!(call.name, "foo");
+        assert_eq!(call.args[0].value, "42");
+        assert_eq!(f.call_via_delegate, Some(DELEGATE));
+        // `to`'s own ABI wins when it decodes.
+        let abis = HashMap::from([(DELEGATE, abi.clone()), (SENDER, abi)]);
+        let f = build_tx_flow(&t, &[], &abis, &HashMap::new());
+        assert_eq!(f.call.unwrap().name, "foo");
+        assert_eq!(f.call_via_delegate, None);
+    }
+
+    #[test]
+    fn delegate_abi_needs_an_authorization_signed_by_to() {
+        // Signed by another key: `to` did not delegate.
+        let (t, abi) = self_call(vec![signed(&key(9), 1, DELEGATE, 0)]);
+        let abis = HashMap::from([(DELEGATE, abi.clone())]);
+        let f = build_tx_flow(&t, &[], &abis, &HashMap::new());
+        assert!(f.call.is_none());
+        assert_eq!(f.call_via_delegate, None);
+        // A to that is not the authority.
+        let (mut t, _) = self_call(vec![real_auth()]);
+        t.to = Some(B);
+        assert!(
+            build_tx_flow(&t, &[], &abis, &HashMap::new())
+                .call
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn the_last_authorization_by_to_decides_the_delegate() {
+        let k = key(5);
+        let me = Address::from_private_key(&k);
+        let abi = JsonAbi::parse(["function foo(uint256 x)"]).unwrap();
+        let abis = HashMap::from([(DELEGATE, abi)]);
+        let flow = |auths: Vec<serde_json::Value>| {
+            let (mut t, _) = self_call(auths);
+            t.from = me;
+            t.to = Some(me);
+            build_tx_flow(&t, &[], &abis, &HashMap::new())
+        };
+        // Delegating, then clearing: the call runs no code, nothing to decode.
+        let f = flow(vec![
+            signed(&k, 1, DELEGATE, 0),
+            signed(&k, 1, Address::ZERO, 1),
+        ]);
+        assert!(f.call.is_none());
+        let f = flow(vec![
+            signed(&k, 1, Address::ZERO, 0),
+            signed(&k, 1, DELEGATE, 1),
+        ]);
+        assert_eq!(f.call_via_delegate, Some(DELEGATE));
     }
 
     #[test]

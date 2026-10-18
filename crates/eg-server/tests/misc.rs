@@ -133,6 +133,7 @@ async fn tx_pending_then_ready(pool: PgPool) {
     assert!(f["tx"]["method"].is_null());
     assert_eq!(f["tx"]["selector"], "0xa9059cbb");
     assert!(f["call"].is_null());
+    assert_eq!(f["detail"]["authorizations"], json!([]));
     // The fetch stored the block header, so no backfill is queued.
     assert_eq!(f["detail"]["gas_used"], "21000");
     assert!(f["detail"]["revert_reason"].is_null());
@@ -244,6 +245,105 @@ async fn tx_without_block_header_is_ready_and_backfills_once(pool: PgPool) {
     assert_eq!(fetch_block_jobs(&app).await, 1);
     // The chain head is cached: one `latest_block` call for all requests.
     assert_eq!(fake.calls(), 1);
+}
+
+const SENDER: Address = alloy_primitives::address!("0xe461dd07cbf41b8020a2e9f50255bf85bf1c4905");
+const DELEGATE: Address = alloy_primitives::address!("0x612373d7003d694220f7800eeaf8e3924c0951d3");
+
+/// Modelled on mainnet tx 0x4f85…bb8c: SENDER authorizes DELEGATE (its real
+/// signature) and calls itself with `foo(42)`; a second, unsigned entry
+/// delegates OTHER on chain 5 and a third clears a delegation.
+fn set_code_row() -> TxRow {
+    let sel = &alloy_primitives::keccak256("foo(uint256)")[..4];
+    let input = format!("0x{}{:064x}", alloy_primitives::hex::encode(sel), 42);
+    let mut row = stored_row();
+    row.from = SENDER;
+    row.to = Some(SENDER);
+    row.success = true;
+    row.revert_reason = None;
+    row.raw_tx = json!({"hash": format!("{HASH:#x}"), "type": "0x4", "input": input,
+        "authorizationList": [
+            {"chainId": "0x1", "address": format!("{DELEGATE:#x}"), "nonce": "0x2", "yParity": "0x0",
+             "r": "0x6d3ecfb34878c8ad3edebf5c137af1156a68e7340093454d4386ccc7465d0571",
+             "s": "0x6d80a00a79df8879470ac42c6e89fba6c951d1aaa9601dfce50499993e391300"},
+            {"chainId": "0x5", "address": format!("{OTHER:#x}"), "nonce": "0x0", "yParity": "0x0",
+             "r": "0x1", "s": "0x1"},
+            {"chainId": "0x0", "address": format!("{:#x}", Address::ZERO), "nonce": "0x3"}]});
+    row
+}
+
+const FOO_ABI: &str = r#"[{"type":"function","name":"foo","inputs":[{"name":"x","type":"uint256"}],"outputs":[],"stateMutability":"nonpayable"}]"#;
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn set_code_tx_lists_authorizations_and_decodes_with_the_delegate_abi(pool: PgPool) {
+    let (app, state, _fake) = test_app(pool);
+    state
+        .store
+        .upsert_transaction(&set_code_row())
+        .await
+        .unwrap();
+    let uri = format!("/api/tx/{HASH:#x}");
+
+    let (st, v) = get(&app, &uri).await;
+    assert_eq!(st, StatusCode::OK);
+    let f = &v["flow"];
+    assert_eq!(f["detail"]["tx_type"], 4);
+    assert_eq!(
+        f["detail"]["authorizations"],
+        json!([
+            {"chain_id": "1", "delegate": format!("{DELEGATE:#x}"), "nonce": "2",
+             "authority": format!("{SENDER:#x}")},
+            {"chain_id": "5", "delegate": format!("{OTHER:#x}"), "nonce": "0", "authority": null},
+            {"chain_id": "0", "delegate": format!("{:#x}", Address::ZERO), "nonce": "3",
+             "authority": null},
+        ])
+    );
+    // The delegates are nodes; the zero address is not.
+    let nodes: Vec<&str> = f["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| n["address"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        nodes,
+        vec![
+            format!("{SENDER:#x}"),
+            format!("{DELEGATE:#x}"),
+            format!("{OTHER:#x}")
+        ]
+    );
+    // The delegate's ABI is not known yet: the method stays undecoded.
+    assert!(f["call"].is_null());
+    assert!(f["tx"]["method"].is_null());
+    // The delegates are identified automatically, like the tx's own parties.
+    let (_, jobs) = get(&app, "/api/jobs").await;
+    let meta: Vec<&Value> = jobs
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|j| j["kind"] == "contract_meta")
+        .collect();
+    assert_eq!(meta.len(), 1, "{jobs}");
+    let mut want = vec![
+        format!("{SENDER:#x}"),
+        format!("{DELEGATE:#x}"),
+        format!("{OTHER:#x}"),
+    ];
+    want.sort();
+    assert_eq!(meta[0]["params"]["addresses"], json!(want));
+
+    // Once the delegate's ABI arrives the call decodes with it.
+    state
+        .store
+        .upsert_abi(DELEGATE, Some(FOO_ABI))
+        .await
+        .unwrap();
+    let (_, v) = get(&app, &uri).await;
+    let f = &v["flow"];
+    assert_eq!(f["tx"]["method"], "foo");
+    assert_eq!(f["call"]["name"], "foo");
+    assert_eq!(f["call"]["via_delegate"], format!("{DELEGATE:#x}"));
 }
 
 /// Repeats `GET uri` until `detail.confirmations` is set.

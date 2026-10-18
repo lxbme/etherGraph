@@ -28,6 +28,7 @@ function base(): TxFlowDto {
       { name: "to", ty: "address", value: ALICE },
       { name: "deadline", ty: "uint256", value: "1709382600" },
     ],
+    via_delegate: null,
   };
   f.detail.input = "0x7ff36ab5" + "00".repeat(128);
   f.events = [

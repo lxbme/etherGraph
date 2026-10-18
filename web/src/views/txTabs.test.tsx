@@ -37,7 +37,7 @@ const resp = (from: string, to: string, hash: string): TxResponseDto => ({
       nonce: 0, tx_type: 2, position: 0, confirmations: null, gas_limit: "21000", gas_used: "21000",
       gas_price: null, effective_gas_price: null, max_fee: null, max_priority_fee: null, base_fee: null,
       burnt_fee: null, savings: null, blob_gas_used: null, blob_gas_price: null, blob_fee: null, access_list_len: null,
-      contract_created: null, revert_reason: null, input: "0x",
+      contract_created: null, revert_reason: null, input: "0x", authorizations: [],
     },
     call: null, nodes: [node(from), node(to)], flows: [], events: [], completeness: "full_trace",
   },

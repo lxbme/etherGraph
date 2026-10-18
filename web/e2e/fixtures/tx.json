@@ -35,12 +35,14 @@
       "access_list_len": 0,
       "contract_created": null,
       "revert_reason": null,
-      "input": "0x7ff36ab5"
+      "input": "0x7ff36ab5",
+      "authorizations": []
     },
     "call": {
       "signature": "swapExactETHForTokens(uint256,address[],address,uint256)",
       "name": "swapExactETHForTokens",
-      "args": []
+      "args": [],
+      "via_delegate": null
     },
     "nodes": [
       {
