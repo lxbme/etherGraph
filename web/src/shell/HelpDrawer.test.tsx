@@ -151,7 +151,7 @@ test("the new sections describe selection, manual identification and label sourc
   act(() => useLocale.getState().setLocale("zh"));
   const zh = screen.getByRole("dialog", { name: "帮助" });
   const zhTx = [...zh.querySelectorAll("li")].find((l) => l.textContent?.startsWith("交易标签页的批量操作栏"))!.textContent!;
-  expect(zhTx).toContain("添加到图");
+  expect(zhTx).toContain("加入关系图");
   expect(zhTx).not.toMatch(/固定|隐藏|中心/);
   expect(zh).toHaveTextContent("交易标签页中只有 Esc 仍然有效（清除框选）");
 });
