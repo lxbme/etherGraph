@@ -22,7 +22,7 @@ const node = (n: number, o: Partial<NodeSummaryDto> = {}): NodeSummaryDto => ({
 /** Counterparty n: n transfers with ME (so count_asc order is 1, 2, 3, …). */
 const cp = (n: number, o: Partial<NodeSummaryDto> = {}): CounterpartyDto => ({ node: node(n, o), count: n, last_ts: "", assets: [] });
 const status = (o: Partial<StatusDto> = {}): StatusDto => ({
-  quota_used: 100, quota_limit: 5000, paused: false, reset_at: "", queue_len: 0, rate: 2.5, jobs_active: 0,
+  quota_used: 100, quota_limit: 5000, paused: false, server_paused: false, reset_at: "", queue_len: 0, rate: 2.5, jobs_active: 0,
   queued_calls: 0, calls: 0, retries: 0, errors: {}, degraded: null, ...o,
 });
 

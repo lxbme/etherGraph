@@ -295,7 +295,7 @@ impl Plan<'_> {
     /// - cancelled: back to `ok` if earlier coverage exists, else `failed`
     /// - otherwise: `failed`
     async fn settle_state(&self, kind: TransferKind, e: &JobError) {
-        let resumed = matches!(e, JobError::Source(SourceError::QuotaExhausted))
+        let resumed = matches!(e, JobError::Source(se) if se.is_quota())
             || will_retry(e, self.job, &self.ctx.cfg);
         if resumed {
             return;

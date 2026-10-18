@@ -1,14 +1,14 @@
 //! In-memory `ChainSource` test double (feature `testing`).
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
 
 use crate::source::{
-    ChainSource, ContractCreation, ContractSource, HistoryPage, HistoryQuery, Priority, RawBlock,
-    RawReceipt, RawTx, SourceError, TokenInfo,
+    CallGate, ChainSource, ContractCreation, ContractSource, HistoryPage, HistoryQuery, Priority,
+    RawBlock, RawReceipt, RawTx, SourceError, TokenInfo,
 };
 use crate::types::{Address, Bytes, Transfer, TransferKind, TxHash, U256};
 
@@ -317,6 +317,109 @@ impl ChainSource for FakeSource {
             .iter()
             .map(|a| (*a, m.get(a).copied().unwrap_or(U256::ZERO)))
             .collect())
+    }
+}
+
+/// Wraps a source so that every call first takes a permit from `gate`, as the
+/// Etherscan client does for each HTTP attempt: calls count toward the gate's
+/// quotas and are refused like real ones when a quota is used up.
+pub struct GatedSource<S> {
+    inner: Arc<S>,
+    gate: Arc<dyn CallGate>,
+}
+
+impl<S> GatedSource<S> {
+    pub fn new(inner: Arc<S>, gate: Arc<dyn CallGate>) -> Self {
+        Self { inner, gate }
+    }
+}
+
+#[async_trait]
+impl<S: ChainSource> ChainSource for GatedSource<S> {
+    async fn history_page(
+        &self,
+        p: Priority,
+        q: &HistoryQuery,
+    ) -> Result<HistoryPage, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.history_page(p, q).await
+    }
+
+    async fn tx(&self, p: Priority, hash: TxHash) -> Result<Option<RawTx>, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.tx(p, hash).await
+    }
+
+    async fn receipt(&self, p: Priority, hash: TxHash) -> Result<Option<RawReceipt>, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.receipt(p, hash).await
+    }
+
+    async fn internal_txs(&self, p: Priority, hash: TxHash) -> Result<Vec<Transfer>, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.internal_txs(p, hash).await
+    }
+
+    async fn block(&self, p: Priority, number: u64) -> Result<RawBlock, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.block(p, number).await
+    }
+
+    async fn block_timestamp(&self, p: Priority, block: u64) -> Result<DateTime<Utc>, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.block_timestamp(p, block).await
+    }
+
+    async fn tx_status(&self, p: Priority, hash: TxHash) -> Result<Option<String>, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.tx_status(p, hash).await
+    }
+
+    async fn latest_block(&self, p: Priority) -> Result<u64, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.latest_block(p).await
+    }
+
+    async fn contract_source(
+        &self,
+        p: Priority,
+        addr: Address,
+    ) -> Result<ContractSource, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.contract_source(p, addr).await
+    }
+
+    async fn contract_creation(
+        &self,
+        p: Priority,
+        addrs: &[Address],
+    ) -> Result<Vec<ContractCreation>, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.contract_creation(p, addrs).await
+    }
+
+    async fn eth_call(&self, p: Priority, to: Address, data: Bytes) -> Result<Bytes, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.eth_call(p, to, data).await
+    }
+
+    async fn tx_count(&self, p: Priority, addr: Address) -> Result<u64, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.tx_count(p, addr).await
+    }
+
+    async fn code(&self, p: Priority, addr: Address) -> Result<Bytes, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.code(p, addr).await
+    }
+
+    async fn balances(
+        &self,
+        p: Priority,
+        addrs: &[Address],
+    ) -> Result<Vec<(Address, U256)>, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.balances(p, addrs).await
     }
 }
 

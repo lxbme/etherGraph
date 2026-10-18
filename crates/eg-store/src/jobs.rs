@@ -195,16 +195,27 @@ fn job_row(r: &PgRow) -> Result<JobRow> {
 
 impl Store {
     /// Returns `(id, true)` for a new job, or the existing active job's
-    /// `(id, false)` when one with the same key is active (pending, running or
-    /// paused on either quota). A more urgent request raises the existing
-    /// job's priority. A new job belongs to `j.user_id`; a joined one keeps
-    /// its owner.
+    /// `(id, false)` when one with the same key and the same owner is active
+    /// (pending, running or paused on either quota). A more urgent request
+    /// raises the existing job's priority. An active job with the same key
+    /// and another owner is never joined: `Conflict` (callers scope keys by
+    /// owner, so this means a caller bug, not a race).
     pub async fn enqueue(&self, j: &NewJob) -> Result<(i64, bool)> {
+        self.enqueue_as(j, "pending").await
+    }
+
+    /// Like [`Store::enqueue`], a new job starting in `paused_user_quota`
+    /// (its user is over their daily quota); a joined job keeps its status.
+    pub async fn enqueue_user_paused(&self, j: &NewJob) -> Result<(i64, bool)> {
+        self.enqueue_as(j, "paused_user_quota").await
+    }
+
+    async fn enqueue_as(&self, j: &NewJob, status: &str) -> Result<(i64, bool)> {
         // The conflicting job may finish between the INSERT and the SELECT, so retry.
         for _ in 0..5 {
             let inserted: Option<i64> = sqlx::query_scalar(concat!(
                 "INSERT INTO jobs (key, kind, params, priority, status, user_id) \
-                 VALUES ($1, $2, $3, $4, 'pending', $5) \
+                 VALUES ($1, $2, $3, $4, $6, $5) \
                  ON CONFLICT (key) WHERE status IN ",
                 active_statuses!(),
                 " DO NOTHING RETURNING id"
@@ -214,16 +225,19 @@ impl Store {
             .bind(&j.params)
             .bind(j.priority.as_i16())
             .bind(j.user_id)
+            .bind(status)
             .fetch_optional(&self.pool)
             .await?;
             if let Some(id) = inserted {
                 return Ok((id, true));
             }
             let existing: Option<i64> = sqlx::query_scalar(concat!(
-                "SELECT id FROM jobs WHERE key = $1 AND status IN ",
+                "SELECT id FROM jobs WHERE key = $1 AND user_id IS NOT DISTINCT FROM $2 \
+                 AND status IN ",
                 active_statuses!()
             ))
             .bind(&j.key)
+            .bind(j.user_id)
             .fetch_optional(&self.pool)
             .await?;
             if let Some(id) = existing {
@@ -241,8 +255,11 @@ impl Store {
         Err(StoreError::Conflict)
     }
 
-    /// Claims the most urgent, oldest pending job and marks it running. A job
-    /// waiting longer than [`AGING_SECS`] is ordered as if it were Background.
+    /// Claims the most urgent pending job and marks it running. A job waiting
+    /// longer than [`AGING_SECS`] is ordered as if it were Background. Among
+    /// jobs of the same (effective) priority, the owner with the fewest
+    /// running jobs goes first (system jobs count as one owner), then the
+    /// oldest job, so one user's long queue cannot hold up everyone else.
     pub async fn claim_next(&self) -> Result<Option<JobRow>> {
         self.claim_next_with_max_priority(i16::MAX).await
     }
@@ -252,10 +269,13 @@ impl Store {
     pub async fn claim_next_with_max_priority(&self, max: i16) -> Result<Option<JobRow>> {
         let sql = concat!(
             "UPDATE jobs SET status = 'running', updated_at = now() WHERE id = ( \
-             SELECT id FROM jobs WHERE status = 'pending' AND priority <= $1 \
-             ORDER BY LEAST(priority, CASE WHEN now() - created_at > make_interval(secs => $2) \
-             THEN 1 ELSE priority END) ASC, created_at ASC, id ASC \
-             FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING ",
+             SELECT j.id FROM jobs j \
+             LEFT JOIN (SELECT user_id, count(*) AS n FROM jobs WHERE status = 'running' \
+                        GROUP BY user_id) r ON r.user_id IS NOT DISTINCT FROM j.user_id \
+             WHERE j.status = 'pending' AND j.priority <= $1 \
+             ORDER BY LEAST(j.priority, CASE WHEN now() - j.created_at > make_interval(secs => $2) \
+             THEN 1 ELSE j.priority END) ASC, COALESCE(r.n, 0) ASC, j.created_at ASC, j.id ASC \
+             FOR UPDATE OF j SKIP LOCKED LIMIT 1) RETURNING ",
             job_cols!()
         );
         let row = sqlx::query(sql)
@@ -304,6 +324,12 @@ impl Store {
         self.set_status(id, "paused_quota", false).await
     }
 
+    /// The job waits for its user's daily quota to reset.
+    pub async fn pause_job_user_quota(&self, id: i64) -> Result<()> {
+        self.set_status(id, "paused_user_quota", false).await
+    }
+
+    /// Requeues the jobs paused on the server quota (`paused_quota` only).
     pub async fn resume_paused(&self) -> Result<u64> {
         let res = sqlx::query(
             "UPDATE jobs SET status = 'pending', updated_at = now() WHERE status = 'paused_quota'",
@@ -311,6 +337,29 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(res.rows_affected())
+    }
+
+    /// Requeues the jobs paused on their user's quota: those of `users`, or
+    /// of every user (`None`).
+    pub async fn resume_user_paused(&self, users: Option<&[i64]>) -> Result<u64> {
+        let res = sqlx::query(
+            "UPDATE jobs SET status = 'pending', updated_at = now() \
+             WHERE status = 'paused_user_quota' AND ($1::bigint[] IS NULL OR user_id = ANY($1))",
+        )
+        .bind(users)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    /// The users with jobs paused on their own quota, by id.
+    pub async fn user_paused_owners(&self) -> Result<Vec<i64>> {
+        Ok(sqlx::query_scalar(
+            "SELECT DISTINCT user_id FROM jobs \
+             WHERE status = 'paused_user_quota' AND user_id IS NOT NULL ORDER BY user_id",
+        )
+        .fetch_all(&self.pool)
+        .await?)
     }
 
     /// Pending and quota-paused (server or user) jobs become cancelled;
@@ -836,9 +885,118 @@ mod tests {
             s.cancel_user_job(me, mine_hi).await.unwrap(),
             Some((JobKind::SyncAddress, JobStatus::Cancelled))
         );
-        // Joining keeps the original owner.
-        let (again, created) = s.enqueue(&owned("s", bg, me)).await.unwrap();
-        assert_eq!((again, created), (system, false));
+        // Another owner's job (here a system job) is never joined.
+        assert!(matches!(
+            s.enqueue(&owned("s", bg, me)).await,
+            Err(StoreError::Conflict)
+        ));
         assert_eq!(s.job(system).await.unwrap().unwrap().user_id, None);
+    }
+
+    #[sqlx::test]
+    async fn enqueue_joins_only_the_same_owners_job(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (a, b) = (user(&s, 0xa0).await, user(&s, 0xb0).await);
+        let bg = Priority::Background;
+        let (id, _) = s.enqueue(&owned("k", bg, a)).await.unwrap();
+        assert_eq!(s.enqueue(&owned("k", bg, a)).await.unwrap(), (id, false));
+        assert!(matches!(
+            s.enqueue(&owned("k", Priority::Interactive, b)).await,
+            Err(StoreError::Conflict)
+        ));
+        let j = s.job(id).await.unwrap().unwrap();
+        assert_eq!((j.user_id, j.priority), (Some(a), bg));
+    }
+
+    #[sqlx::test]
+    async fn claim_prefers_the_user_with_fewer_running_jobs(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (a, b) = (user(&s, 0xa0).await, user(&s, 0xb0).await);
+        let bg = Priority::Background;
+        for i in 0..50 {
+            s.enqueue(&owned(&format!("a{i}"), bg, a)).await.unwrap();
+        }
+        let (b_job, _) = s.enqueue(&owned("b", bg, b)).await.unwrap();
+        let first = s.claim_next().await.unwrap().unwrap();
+        let second = s.claim_next().await.unwrap().unwrap();
+        assert!(
+            [first.id, second.id].contains(&b_job),
+            "B's job was not among the next 2 claims: {}, {}",
+            first.key,
+            second.key
+        );
+        // Then A's remaining jobs, oldest first.
+        let third = s.claim_next().await.unwrap().unwrap();
+        assert_eq!(third.user_id, Some(a));
+        assert!(third.id < s.claim_next().await.unwrap().unwrap().id);
+    }
+
+    #[sqlx::test]
+    async fn fairness_never_overrides_priority(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (a, b) = (user(&s, 0xa0).await, user(&s, 0xb0).await);
+        s.enqueue(&owned("a-run", Priority::Interactive, a))
+            .await
+            .unwrap();
+        s.claim_next().await.unwrap().unwrap();
+        let (a_hi, _) = s
+            .enqueue(&owned("a-hi", Priority::Interactive, a))
+            .await
+            .unwrap();
+        let (a_bg, _) = s
+            .enqueue(&owned("a-bg", Priority::Background, a))
+            .await
+            .unwrap();
+        let (b_bg, _) = s
+            .enqueue(&owned("b-bg", Priority::Background, b))
+            .await
+            .unwrap();
+        let (sys, _) = s.enqueue(&nj("sys", Priority::Background)).await.unwrap();
+        let mut order = Vec::new();
+        while let Some(j) = s.claim_next().await.unwrap() {
+            order.push(j.id);
+        }
+        // A's Interactive job first despite A's running job; among the
+        // Background jobs, those of owners with fewer running jobs (B, then
+        // the system) before A's older one.
+        assert_eq!(order, vec![a_hi, b_bg, sys, a_bg]);
+    }
+
+    #[sqlx::test]
+    async fn user_quota_pause_and_resume(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (a, b) = (user(&s, 0xa0).await, user(&s, 0xb0).await);
+        let bg = Priority::Background;
+        // Created paused: not claimable; joining keeps it paused.
+        let (pa, created) = s.enqueue_user_paused(&owned("x", bg, a)).await.unwrap();
+        assert!(created);
+        assert_eq!(
+            s.job(pa).await.unwrap().unwrap().status,
+            JobStatus::PausedUserQuota
+        );
+        assert_eq!(s.enqueue(&owned("x", bg, a)).await.unwrap(), (pa, false));
+        assert_eq!(
+            s.enqueue_user_paused(&owned("x", bg, a)).await.unwrap(),
+            (pa, false)
+        );
+        let (pb, _) = s.enqueue(&owned("y", bg, b)).await.unwrap();
+        assert_eq!(s.claim_next().await.unwrap().unwrap().id, pb);
+        assert!(s.claim_next().await.unwrap().is_none());
+        s.pause_job_user_quota(pb).await.unwrap();
+        assert_eq!(
+            s.job(pb).await.unwrap().unwrap().status,
+            JobStatus::PausedUserQuota
+        );
+        assert_eq!(s.user_paused_owners().await.unwrap(), vec![a, b]);
+        // The server-quota resume leaves user pauses alone.
+        assert_eq!(s.resume_paused().await.unwrap(), 0);
+        assert_eq!(s.resume_user_paused(Some(&[a])).await.unwrap(), 1);
+        assert_eq!(s.job(pa).await.unwrap().unwrap().status, JobStatus::Pending);
+        assert_eq!(
+            s.job(pb).await.unwrap().unwrap().status,
+            JobStatus::PausedUserQuota
+        );
+        assert_eq!(s.resume_user_paused(None).await.unwrap(), 1);
+        assert!(s.user_paused_owners().await.unwrap().is_empty());
     }
 }

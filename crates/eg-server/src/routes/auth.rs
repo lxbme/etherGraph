@@ -8,10 +8,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{AppendHeaders, IntoResponse, Response};
 use chrono::{Duration, Utc};
-use eg_store::{
-    AuditEntry, AuditOutcome, NoncePurpose, SETTING_DEFAULT_DAILY_QUOTA, SessionKind, StoreError,
-    UserRow,
-};
+use eg_store::{AuditEntry, AuditOutcome, NoncePurpose, SessionKind, StoreError, UserRow};
 use serde::Deserialize;
 
 use crate::auth::extract::{ClientMeta, CurrentUser, in_admin_mode, origin_ok};
@@ -127,7 +124,7 @@ pub async fn login(
     let failed = |attempt: &Attempt| entry(attempt, Some(&body), AuditOutcome::Failed, None);
     match verify_login(&s, &body, &mut attempt).await {
         Ok(user) => {
-            let me = me_dto(&s, &user, false).await?;
+            let me = me_dto(&s, &user, false);
             let ttl = Duration::days(i64::from(s.cfg.auth.session_days));
             let created = s
                 .store
@@ -283,33 +280,20 @@ pub async fn me(
         .await?
         .ok_or_else(|| ApiError::unauthorized("no_session"))?;
     let admin_mode = in_admin_mode(&s, &headers, &user).await?;
-    Ok(Json(me_dto(&s, &row, admin_mode).await?))
+    Ok(Json(me_dto(&s, &row, admin_mode)))
 }
 
-async fn me_dto(s: &AppState, user: &UserRow, admin_mode: bool) -> Result<MeDto, ApiError> {
-    let now = Utc::now();
-    let used = s.store.user_usage_get(user.id, now.date_naive()).await?;
-    Ok(MeDto {
+/// The quota figures are the rate gate's live per-user count and limit.
+fn me_dto(s: &AppState, user: &UserRow, admin_mode: bool) -> MeDto {
+    let q = s.gate.user_quota(user.id);
+    MeDto {
         address: hex_addr(user.address),
         is_admin: s.auth.is_admin(user.address),
         admin_mode,
         quota: QuotaDto {
-            used,
-            limit: daily_limit(s, user).await?,
-            reset_at: rfc3339(next_utc_midnight(now)),
+            used: q.used,
+            limit: q.limit,
+            reset_at: rfc3339(next_utc_midnight(Utc::now())),
         },
-    })
-}
-
-/// The user's daily Etherscan call limit: their own, else the admin-set
-/// default, else the configured default.
-pub async fn daily_limit(s: &AppState, user: &UserRow) -> Result<u32, ApiError> {
-    if let Some(q) = user.daily_quota {
-        return Ok(u32::try_from(q).unwrap_or(0));
     }
-    let setting = s.store.setting_get(SETTING_DEFAULT_DAILY_QUOTA).await?;
-    Ok(setting
-        .and_then(|v| v.as_u64())
-        .and_then(|n| u32::try_from(n).ok())
-        .unwrap_or(s.cfg.auth.default_daily_quota))
 }

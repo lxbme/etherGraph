@@ -13,8 +13,10 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 
+use crate::billing::billed;
 use crate::config::IngestConfig;
 use crate::events::{Event, EventBus};
+use crate::gate::PriorityGate;
 
 #[derive(thiserror::Error, Debug)]
 pub enum JobError {
@@ -51,6 +53,9 @@ pub struct JobCtx {
     pub bus: EventBus,
     pub cfg: Arc<IngestConfig>,
     pub wake: Arc<Notify>,
+    /// The rate gate the source's calls go through; enqueueing reads its
+    /// per-user quota.
+    pub gate: Arc<PriorityGate>,
 }
 
 #[async_trait]
@@ -137,6 +142,10 @@ async fn record_outcome(
             JobStatus::PausedQuota,
             ctx.store.pause_job_quota(job.id).await,
         ),
+        Err(JobError::Source(SourceError::UserQuotaExhausted)) => (
+            JobStatus::PausedUserQuota,
+            ctx.store.pause_job_user_quota(job.id).await,
+        ),
         Err(JobError::Cancelled) => (JobStatus::Cancelled, ctx.store.mark_cancelled(job.id).await),
         Err(e) => {
             let retry = will_retry(e, job, &ctx.cfg);
@@ -160,10 +169,14 @@ async fn record_outcome(
     }
 }
 
+/// Runs the job's handler with its upstream calls billed to the job's user.
 async fn process(ctx: &JobCtx, handlers: &Handlers, job: JobRow) {
     publish_status(ctx, &job, JobStatus::Running, None);
     let result = match handlers.get(&job.kind) {
-        Some(h) => match AssertUnwindSafe(h.run(&job, ctx)).catch_unwind().await {
+        Some(h) => match AssertUnwindSafe(billed(job.user_id, h.run(&job, ctx)))
+            .catch_unwind()
+            .await
+        {
             Ok(r) => r,
             Err(p) => Err(JobError::Invalid(format!(
                 "handler panicked: {}",

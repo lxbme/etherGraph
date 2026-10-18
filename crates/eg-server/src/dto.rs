@@ -29,9 +29,15 @@ pub fn rfc3339_micros(t: DateTime<Utc>) -> String {
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct StatusDto {
+    /// The viewer's Etherscan calls today.
     pub quota_used: u32,
+    /// The viewer's effective daily limit.
     pub quota_limit: u32,
+    /// The viewer's jobs wait for the next reset: the viewer is over their
+    /// own quota or the server total is used up.
     pub paused: bool,
+    /// The server's daily total is used up (everyone waits).
+    pub server_paused: bool,
     /// Next UTC midnight, when the daily quota resets.
     pub reset_at: String,
     pub queue_len: usize,

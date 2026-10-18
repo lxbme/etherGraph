@@ -8,8 +8,10 @@ use axum::extract::State;
 use chrono::Utc;
 use eg_core::source::Priority;
 use eg_core::types::{AccountKind, Address, TransferKind};
+use eg_ingest::billing::billed;
 use eg_store::{AccountRow, StatsRow, SyncRow};
 
+use crate::auth::extract::CurrentUser;
 use crate::dto::{ProbeItemDto, ProbeRequestDto, ProbeResponseDto, hex_addr, rfc3339};
 use crate::error::{ApiError, invalid};
 use crate::routes::{ApiJson, parse_addresses};
@@ -18,8 +20,11 @@ use crate::state::AppState;
 /// Most addresses accepted by one probe (one `balancemulti` call).
 const MAX_PROBE: usize = 20;
 
+/// Upstream calls are billed to the viewer; over their quota the probe is
+/// 429 `user_quota_exhausted` (what was fetched before is kept).
 pub async fn probe(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiJson(req): ApiJson<ProbeRequestDto>,
 ) -> Result<Json<ProbeResponseDto>, ApiError> {
     let addrs = parse_addresses(&req.addresses)?;
@@ -65,7 +70,7 @@ pub async fn probe(
         let mut fresh: Vec<StatsRow> = Vec::with_capacity(stale.len());
         let mut new_kinds: Vec<(Address, AccountKind)> = Vec::new();
         let mut balances: HashMap<Address, U256> = HashMap::new();
-        let fetched: Result<(), ApiError> = async {
+        let fetched: Result<(), ApiError> = billed(Some(user.id), async {
             for a in &stale {
                 let known_kind = accounts
                     .get(a)
@@ -116,7 +121,7 @@ pub async fn probe(
                 .into_iter()
                 .collect();
             Ok(())
-        }
+        })
         .await;
         for r in &mut fresh {
             r.balance = balances.get(&r.address).copied();

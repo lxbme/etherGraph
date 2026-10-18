@@ -16,8 +16,8 @@ pub async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "ok": true }))
 }
 
-/// `jobs_active` and `queued_calls` count the viewer's jobs only; the gate
-/// and client figures are server-wide.
+/// The quota figures and `jobs_active`/`queued_calls` are the viewer's own;
+/// `server_paused`, the gate and client figures are server-wide.
 pub async fn status(
     State(s): State<AppState>,
     user: CurrentUser,
@@ -27,7 +27,8 @@ pub async fn status(
         .iter()
         .map(|j| remaining_calls(j, &s.ctx.cfg))
         .fold(0u32, u32::saturating_add);
-    let quota = *s.gate.subscribe_quota().borrow();
+    let server = *s.gate.subscribe_quota().borrow();
+    let mine = s.gate.user_quota(user.id);
     let stats = s.stats.snapshot();
     // An invalid key fails every call; the frontend shows a banner.
     let degraded = stats
@@ -36,9 +37,10 @@ pub async fn status(
         .is_some_and(|n| *n > 0)
         .then(|| "invalid_key".to_owned());
     Ok(Json(StatusDto {
-        quota_used: quota.used,
-        quota_limit: quota.limit,
-        paused: quota.paused,
+        quota_used: mine.used,
+        quota_limit: mine.limit,
+        paused: mine.exhausted() || server.paused,
+        server_paused: server.paused,
         reset_at: rfc3339(next_utc_midnight(Utc::now())),
         queue_len: s.gate.queue_len(),
         rate: s.gate.current_rate(),

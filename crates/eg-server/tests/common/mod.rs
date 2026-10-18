@@ -8,7 +8,7 @@ use axum::body::Body;
 use axum::http::{HeaderValue, Request, StatusCode, header};
 use chrono::Duration;
 use eg_core::source::ChainSource;
-use eg_core::testing::FakeSource;
+use eg_core::testing::{FakeSource, GatedSource};
 use eg_etherscan::ClientStats;
 use eg_ingest::gate::{GateConfig, PriorityGate};
 use eg_server::app::router;
@@ -52,13 +52,41 @@ pub fn anon_app(pool: PgPool, cfg: Config) -> (Router, AppState, Arc<FakeSource>
     (app, state, fake)
 }
 
-fn app_with(cfg: Config, pool: PgPool, source: Arc<dyn ChainSource>) -> (Router, AppState) {
-    let cfg = Arc::new(cfg);
-    let gate = PriorityGate::spawn(GateConfig {
+/// Like [`test_app`] with `cfg`, every source call taking a permit from the
+/// app's gate as the Etherscan client does, billed to the calling task's
+/// user: calls count toward the server and per-user quotas.
+pub async fn gated_app(pool: PgPool, cfg: Config) -> (Router, AppState, Arc<FakeSource>) {
+    let fake = Arc::new(FakeSource::new());
+    let gate = gate_for(&cfg);
+    let source = Arc::new(GatedSource::new(fake.clone(), gate.clone()));
+    let (raw, state) = app_with_gate(cfg, pool, source, gate);
+    let app = as_default_user(raw, &state).await;
+    (app, state, fake)
+}
+
+fn gate_for(cfg: &Config) -> Arc<PriorityGate> {
+    PriorityGate::spawn(GateConfig {
         rate_per_sec: 1000.0,
         daily_limit: cfg.etherscan.daily_limit,
         initial_used: 0,
-    });
+        default_user_limit: cfg.auth.default_daily_quota,
+        user_limits: Default::default(),
+        initial_user_used: Default::default(),
+    })
+}
+
+fn app_with(cfg: Config, pool: PgPool, source: Arc<dyn ChainSource>) -> (Router, AppState) {
+    let gate = gate_for(&cfg);
+    app_with_gate(cfg, pool, source, gate)
+}
+
+fn app_with_gate(
+    cfg: Config,
+    pool: PgPool,
+    source: Arc<dyn ChainSource>,
+    gate: Arc<PriorityGate>,
+) -> (Router, AppState) {
+    let cfg = Arc::new(cfg);
     let state = AppState::new(
         cfg,
         Store::from_pool(pool),

@@ -47,6 +47,7 @@ fn error_name(e: &SourceError) -> &'static str {
     match e {
         SourceError::RateLimited => "rate_limited",
         SourceError::QuotaExhausted => "quota_exhausted",
+        SourceError::UserQuotaExhausted => "user_quota_exhausted",
         SourceError::InvalidKey => "invalid_key",
         SourceError::WindowTooLarge => "window_too_large",
         SourceError::Timeout => "timeout",

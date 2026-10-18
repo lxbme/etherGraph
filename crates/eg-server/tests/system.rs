@@ -37,9 +37,11 @@ async fn status_ok(pool: PgPool) {
     state.store.enqueue(&job(&state, "a").await).await.unwrap();
     let (status, body) = get(&app, "/api/status").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body["quota_limit"], 100_000);
+    // The viewer's own quota: the default per-user limit.
+    assert_eq!(body["quota_limit"], 5000);
     assert_eq!(body["quota_used"], 0);
     assert_eq!(body["paused"], false);
+    assert_eq!(body["server_paused"], false);
     assert_eq!(body["jobs_active"], 1);
     assert_eq!(body["queue_len"], 0);
     assert_eq!(body["calls"], 0);

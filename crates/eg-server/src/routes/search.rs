@@ -5,8 +5,10 @@ use axum::extract::State;
 use eg_core::source::{Priority, SourceError};
 use eg_core::types::Address;
 use eg_decode::{decode_resolve_addr, encode_resolve_addr, normalize};
+use eg_ingest::billing::billed;
 use serde::Deserialize;
 
+use crate::auth::extract::CurrentUser;
 use crate::dto::{SearchResultDto, hex_addr};
 use crate::error::{ApiError, invalid};
 use crate::parse::{is_hex, parse_address, parse_tx_hash};
@@ -18,8 +20,11 @@ pub struct SearchQuery {
     pub q: Option<String>,
 }
 
+/// An ENS lookup is billed to the viewer; over their quota it is 429
+/// `user_quota_exhausted`.
 pub async fn search(
     State(s): State<AppState>,
+    user: CurrentUser,
     ApiQuery(q): ApiQuery<SearchQuery>,
 ) -> Result<Json<SearchResultDto>, ApiError> {
     let q = q.q.unwrap_or_default();
@@ -35,7 +40,7 @@ pub async fn search(
         result("tx", format!("{:#x}", parse_tx_hash(q)?), None)
     } else if q.contains('.') {
         let name = normalize(q).map_err(|e| invalid(e.to_string()))?;
-        let addr = resolve(&s, &name).await?;
+        let addr = billed(Some(user.id), resolve(&s, &name)).await?;
         result("ens", name, Some(hex_addr(addr)))
     } else {
         return Err(invalid(format!(

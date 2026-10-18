@@ -101,6 +101,7 @@ impl From<SourceError> for ApiError {
                 "quota_exhausted",
                 "daily Etherscan quota exhausted",
             ),
+            SourceError::UserQuotaExhausted => ApiError::user_quota_exhausted(),
             // Source errors never carry the API key (transports strip URLs).
             other => ApiError::new(StatusCode::BAD_GATEWAY, "upstream_error", other.to_string()),
         }
@@ -179,6 +180,10 @@ mod tests {
         assert_eq!(
             m(SourceError::QuotaExhausted),
             (StatusCode::TOO_MANY_REQUESTS, "quota_exhausted")
+        );
+        assert_eq!(
+            m(SourceError::UserQuotaExhausted),
+            (StatusCode::TOO_MANY_REQUESTS, "user_quota_exhausted")
         );
         for e in [
             SourceError::RateLimited,

@@ -111,10 +111,8 @@ async fn tx_pending_then_ready(pool: PgPool) {
     // A repeat request while the job is queued reports the same job.
     let (_, again) = get(&app, &uri).await;
     assert_eq!(again["job_id"].as_i64(), Some(job_id));
-    assert_eq!(
-        enqueue_fetch_tx(&state.ctx, None, HASH).await.unwrap(),
-        job_id
-    );
+    let me = Some(default_user_id(&state).await);
+    assert_eq!(enqueue_fetch_tx(&state.ctx, me, HASH).await.unwrap(), job_id);
 
     let job = state.store.claim_next().await.unwrap().unwrap();
     assert_eq!(job.id, job_id);

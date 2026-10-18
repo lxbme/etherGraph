@@ -1,4 +1,8 @@
 //! Helpers that create jobs (deduplicated by key) and wake the workers.
+//!
+//! Every key is scoped to the job's owner (`u{id}:` or `sys:`), so jobs are
+//! only ever merged with the same user's: quota pauses, cancellation and
+//! progress stay per user.
 
 use std::fmt;
 
@@ -33,9 +37,44 @@ impl fmt::Display for SyncDirection {
     }
 }
 
-async fn enqueue_one(ctx: &JobCtx, job: NewJob) -> Result<i64, StoreError> {
-    let (id, created) = ctx.store.enqueue(&job).await?;
-    if created {
+/// `key` scoped to `user` (`None`: a system job).
+fn owner_key(user: Option<i64>, key: &str) -> String {
+    match user {
+        Some(u) => format!("u{u}:{key}"),
+        None => format!("sys:{key}"),
+    }
+}
+
+/// `key` without its owner scope (see [`owner_key`]); a key from before
+/// scoping is returned as is.
+fn unscoped(key: &str) -> &str {
+    match key.split_once(':') {
+        Some((scope, rest))
+            if scope == "sys"
+                || scope
+                    .strip_prefix('u')
+                    .is_some_and(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())) =>
+        {
+            rest
+        }
+        _ => key,
+    }
+}
+
+/// Enqueues (or joins) `job` under its owner-scoped key. A user already over
+/// their daily quota gets a new job straight in `paused_user_quota`; it runs
+/// after the next reset.
+async fn enqueue_one(ctx: &JobCtx, mut job: NewJob) -> Result<i64, StoreError> {
+    job.key = owner_key(job.user_id, &job.key);
+    let over_quota = job
+        .user_id
+        .is_some_and(|u| ctx.gate.user_quota(u).exhausted());
+    let (id, created) = if over_quota {
+        ctx.store.enqueue_user_paused(&job).await?
+    } else {
+        ctx.store.enqueue(&job).await?
+    };
+    if created && !over_quota {
         ctx.wake.notify_waiters();
     }
     Ok(id)
@@ -243,8 +282,9 @@ pub async fn enqueue_tokens(
     .await
 }
 
-/// Whether a SyncAddress job for `addr` other than `except` is pending,
-/// running or paused, i.e. some job will still settle its `syncing` kinds.
+/// Whether a SyncAddress job for `addr` (of any owner) other than `except` is
+/// pending, running or paused, i.e. some job will still settle its `syncing`
+/// kinds.
 pub async fn other_sync_active(
     store: &Store,
     addr: Address,
@@ -252,6 +292,24 @@ pub async fn other_sync_active(
 ) -> Result<bool, StoreError> {
     let prefix = sync_key_prefix(addr);
     Ok(store.active_jobs().await?.iter().any(|j| {
-        j.kind == JobKind::SyncAddress && Some(j.id) != except && j.key.starts_with(&prefix)
+        j.kind == JobKind::SyncAddress
+            && Some(j.id) != except
+            && unscoped(&j.key).starts_with(&prefix)
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keys_are_scoped_by_owner() {
+        assert_eq!(owner_key(Some(12), "tx:0xab"), "u12:tx:0xab");
+        assert_eq!(owner_key(None, "tx:0xab"), "sys:tx:0xab");
+        assert_eq!(unscoped("u12:sync:0x01:latest"), "sync:0x01:latest");
+        assert_eq!(unscoped("sys:sync:0x01:latest"), "sync:0x01:latest");
+        // Keys written before scoping existed.
+        assert_eq!(unscoped("sync:0x01:latest"), "sync:0x01:latest");
+        assert_eq!(unscoped("u:sync:0x01"), "u:sync:0x01");
+    }
 }

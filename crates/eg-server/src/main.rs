@@ -12,7 +12,9 @@ use eg_etherscan::{
 use eg_ingest::gate::{GateConfig, PriorityGate};
 use eg_ingest::{Runner, default_handlers};
 use eg_server::app::router;
-use eg_server::background::{persist_quota, spawn_background};
+use eg_server::background::{
+    load_user_quotas, persist_quota, resume_users_under_quota, spawn_background,
+};
 use eg_server::config::{Config, SourceMode};
 use eg_server::import_tokens::TokenFormat;
 use eg_server::state::AppState;
@@ -195,16 +197,22 @@ async fn serve(path: &Path, source: Option<SourceMode>) -> anyhow::Result<()> {
         tracing::info!(jobs = reset, "requeued jobs left running by a previous run");
     }
 
-    let initial_used = store.quota_get(Utc::now().date_naive()).await?;
+    let today = Utc::now().date_naive();
+    let initial_used = store.quota_get(today).await?;
+    let users = load_user_quotas(&store, &cfg, today).await?;
     let gate = PriorityGate::spawn(GateConfig {
         rate_per_sec: cfg.etherscan.rate_per_sec,
         daily_limit: cfg.etherscan.daily_limit,
         initial_used,
+        default_user_limit: users.default_limit,
+        user_limits: users.overrides,
+        initial_user_used: users.used,
     });
+    // Jobs paused on an earlier day whose midnight reset this process missed.
     if initial_used < cfg.etherscan.daily_limit {
-        // Jobs paused on an earlier day whose midnight reset this process missed.
         store.resume_paused().await?;
     }
+    resume_users_under_quota(&store, &gate).await?;
 
     let stats = Arc::new(ClientStats::default());
     let transport: Arc<dyn Transport> = match cfg.source.mode {

@@ -19,7 +19,7 @@ const cp = (n: number, o: Partial<CounterpartyDto> = {}): CounterpartyDto => ({
   node: node(n), count: n, last_ts: "2026-01-02T03:04:05Z", assets: [], ...o,
 });
 const status: StatusDto = {
-  quota_used: 100, quota_limit: 5000, paused: false, reset_at: "", queue_len: 0, rate: 2.5, jobs_active: 0,
+  quota_used: 100, quota_limit: 5000, paused: false, server_paused: false, reset_at: "", queue_len: 0, rate: 2.5, jobs_active: 0,
   queued_calls: 0, calls: 0, retries: 0, errors: {}, degraded: null,
 };
 

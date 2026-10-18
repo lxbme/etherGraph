@@ -7,6 +7,7 @@ export type ApiErrorCode =
   | "quota_exhausted"
   | "upstream_error"
   | "internal"
+  | "user_quota_exhausted"
   | "network";
 
 export class ApiError extends Error {

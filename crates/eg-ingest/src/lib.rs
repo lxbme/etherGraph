@@ -1,5 +1,6 @@
 //! eg-ingest
 pub mod authorization;
+pub mod billing;
 pub mod config;
 pub mod cursor;
 pub mod enqueue;

@@ -6,6 +6,7 @@ use eg_core::source::{Priority, RawBlock, RawLog, RawReceipt, RawTx, SourceError
 use eg_core::testing::FakeSource;
 use eg_core::types::{Transfer, TransferKind};
 use eg_ingest::config::IngestConfig;
+use eg_ingest::gate::{GateConfig, PriorityGate};
 use eg_ingest::handlers::FetchTxHandler;
 use eg_ingest::{Event, EventBus, JobCtx, JobError, JobHandler, enqueue_fetch_block, load_tx_flow};
 use eg_store::{JobKind, NewJob, Store, TxRow};
@@ -105,6 +106,14 @@ fn env(pool: PgPool) -> Env {
         bus: EventBus::new(),
         cfg: Arc::new(IngestConfig::default()),
         wake: Arc::new(Notify::new()),
+        gate: PriorityGate::spawn(GateConfig {
+            rate_per_sec: 1000.0,
+            daily_limit: u32::MAX,
+            initial_used: 0,
+            default_user_limit: u32::MAX,
+            user_limits: Default::default(),
+            initial_user_used: Default::default(),
+        }),
     };
     Env { ctx, fake }
 }

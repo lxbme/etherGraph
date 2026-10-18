@@ -42,6 +42,7 @@ impl AppState {
             bus: EventBus::new(),
             cfg: Arc::new(cfg.ingest()),
             wake: Arc::new(Notify::new()),
+            gate: gate.clone(),
         };
         Self {
             auth: Arc::new(AuthState::new(&cfg)),

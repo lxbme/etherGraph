@@ -26,7 +26,7 @@ const node = (address: string): NodeSummaryDto => ({
   partial: false, syncing: false, synced: true, hot: false, identified: true, nonce: null, balance: null,
 });
 const status: StatusDto = {
-  quota_used: 10, quota_limit: 100, paused: false, reset_at: "2026-10-18T00:00:00Z", queue_len: 0,
+  quota_used: 10, quota_limit: 100, paused: false, server_paused: false, reset_at: "2026-10-18T00:00:00Z", queue_len: 0,
   rate: 5, jobs_active: 0, queued_calls: 0, calls: 0, retries: 0, errors: {}, degraded: "invalid_key",
 };
 

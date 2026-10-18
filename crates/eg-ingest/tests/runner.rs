@@ -6,12 +6,28 @@ use alloy_primitives::Address;
 use async_trait::async_trait;
 use eg_core::source::{Priority, SourceError};
 use eg_core::testing::FakeSource;
+use eg_ingest::billing::bill_to;
 use eg_ingest::config::IngestConfig;
-use eg_ingest::{Event, EventBus, JobCtx, JobError, JobHandler, Runner, enqueue_meta};
+use eg_ingest::gate::{GateConfig, PriorityGate};
+use eg_ingest::{
+    Event, EventBus, JobCtx, JobError, JobHandler, Runner, SyncDirection, enqueue_meta,
+    enqueue_sync, other_sync_active,
+};
 use eg_store::{JobKind, JobRow, JobStatus, NewJob, Store};
 use serde_json::json;
 use sqlx::PgPool;
 use tokio::sync::Notify;
+
+fn gate() -> Arc<PriorityGate> {
+    PriorityGate::spawn(GateConfig {
+        rate_per_sec: 1000.0,
+        daily_limit: u32::MAX,
+        initial_used: 0,
+        default_user_limit: u32::MAX,
+        user_limits: HashMap::new(),
+        initial_user_used: HashMap::new(),
+    })
+}
 
 fn ctx(pool: PgPool) -> JobCtx {
     JobCtx {
@@ -20,7 +36,16 @@ fn ctx(pool: PgPool) -> JobCtx {
         bus: EventBus::new(),
         cfg: Arc::new(IngestConfig::default()),
         wake: Arc::new(Notify::new()),
+        gate: gate(),
     }
+}
+
+async fn user(c: &JobCtx, byte: u8) -> i64 {
+    c.store
+        .upsert_user_on_login(Address::repeat_byte(byte))
+        .await
+        .unwrap()
+        .id
 }
 
 fn job(key: &str) -> NewJob {
@@ -181,7 +206,7 @@ async fn enqueue_meta_chunks_and_dedupes(pool: PgPool) {
     assert_eq!(rows.len(), 3);
     assert!(
         rows.iter()
-            .all(|r| r.key.starts_with("meta:") && r.key.len() == 21)
+            .all(|r| r.key.starts_with("sys:meta:") && r.key.len() == 25)
     );
     assert_eq!(rows[0].params["addresses"].as_array().unwrap().len(), 20);
 }
@@ -330,4 +355,126 @@ async fn failed_job_event_carries_error(pool: PgPool) {
     }
     assert_eq!(got, Some(Some("invalid api key".to_string())));
     hs.iter().for_each(|h| h.abort());
+}
+
+/// Records the user each run was billed to.
+struct BillSpy(Mutex<Vec<Option<i64>>>);
+#[async_trait]
+impl JobHandler for BillSpy {
+    async fn run(&self, _: &JobRow, _: &JobCtx) -> Result<(), JobError> {
+        self.0.lock().unwrap().push(bill_to());
+        Ok(())
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn jobs_run_billed_to_their_user(pool: PgPool) {
+    let c = ctx(pool);
+    let u = user(&c, 0xa0).await;
+    let (mine, _) = c
+        .store
+        .enqueue(&NewJob {
+            user_id: Some(u),
+            ..job("mine")
+        })
+        .await
+        .unwrap();
+    let h = Arc::new(BillSpy(Mutex::new(vec![])));
+    let hs = Runner::spawn(c.clone(), 1, handlers(h.clone()));
+    wait_status(&c, mine, "done").await;
+    let (system, _) = c.store.enqueue(&job("system")).await.unwrap();
+    c.wake.notify_waiters();
+    wait_status(&c, system, "done").await;
+    assert_eq!(*h.0.lock().unwrap(), vec![Some(u), None]);
+    hs.iter().for_each(|h| h.abort());
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn user_quota_pauses_job_until_resumed(pool: PgPool) {
+    let c = ctx(pool);
+    let u = user(&c, 0xa0).await;
+    let (id, _) = c
+        .store
+        .enqueue(&NewJob {
+            user_id: Some(u),
+            ..job("a")
+        })
+        .await
+        .unwrap();
+    let h = Arc::new(QuotaHandler(Mutex::new(false)));
+    let hs = Runner::spawn(
+        c.clone(),
+        1,
+        handlers(Arc::new(ErrHandler(|| {
+            SourceError::UserQuotaExhausted.into()
+        }))),
+    );
+    wait_status(&c, id, "paused_user_quota").await;
+    hs.iter().for_each(|h| h.abort());
+    // Not a server pause: only the user resume requeues it.
+    assert_eq!(c.store.resume_paused().await.unwrap(), 0);
+    *h.0.lock().unwrap() = true;
+    assert_eq!(c.store.resume_user_paused(None).await.unwrap(), 1);
+    let hs = Runner::spawn(c.clone(), 1, handlers(h));
+    wait_status(&c, id, "done").await;
+    hs.iter().for_each(|h| h.abort());
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn job_keys_are_scoped_to_their_user(pool: PgPool) {
+    let c = ctx(pool);
+    let (a, b) = (user(&c, 0xa0).await, user(&c, 0xb0).await);
+    let addr = Address::repeat_byte(0x55);
+    let p = Priority::Background;
+    let latest = SyncDirection::Latest;
+    let ja = enqueue_sync(&c, Some(a), addr, latest, p, None, None)
+        .await
+        .unwrap();
+    let jb = enqueue_sync(&c, Some(b), addr, latest, p, None, None)
+        .await
+        .unwrap();
+    let js = enqueue_sync(&c, None, addr, latest, p, None, None)
+        .await
+        .unwrap();
+    assert!(ja != jb && jb != js && ja != js);
+    // The same user's repeat request still joins.
+    assert_eq!(
+        enqueue_sync(&c, Some(a), addr, latest, p, None, None)
+            .await
+            .unwrap(),
+        ja
+    );
+    let key = |id| {
+        let c = c.clone();
+        async move { c.store.job(id).await.unwrap().unwrap().key }
+    };
+    let want = format!("sync:{addr:#x}:latest");
+    assert_eq!(key(ja).await, format!("u{a}:{want}"));
+    assert_eq!(key(jb).await, format!("u{b}:{want}"));
+    assert_eq!(key(js).await, format!("sys:{want}"));
+    // Any owner's sync of the address still counts as active.
+    assert!(other_sync_active(&c.store, addr, Some(ja)).await.unwrap());
+    c.store.cancel_job(jb).await.unwrap();
+    c.store.cancel_job(js).await.unwrap();
+    assert!(!other_sync_active(&c.store, addr, Some(ja)).await.unwrap());
+    assert!(other_sync_active(&c.store, addr, Some(jb)).await.unwrap());
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_user_over_quota_gets_paused_jobs(pool: PgPool) {
+    let c = ctx(pool);
+    let (a, b) = (user(&c, 0xa0).await, user(&c, 0xb0).await);
+    c.gate.set_user_limit(a, Some(0));
+    let addrs = [Address::repeat_byte(1)];
+    let ida = enqueue_meta(&c, Some(a), &addrs).await.unwrap();
+    let idb = enqueue_meta(&c, Some(b), &addrs).await.unwrap();
+    let status = |id: i64| {
+        let c = c.clone();
+        async move { c.store.job(id).await.unwrap().unwrap().status }
+    };
+    assert_eq!(status(ida[0]).await, JobStatus::PausedUserQuota);
+    assert_eq!(status(idb[0]).await, JobStatus::Pending);
+    // A system job is never paused for a user.
+    let ids = enqueue_meta(&c, None, &addrs).await.unwrap();
+    assert_eq!(status(ids[0]).await, JobStatus::Pending);
 }

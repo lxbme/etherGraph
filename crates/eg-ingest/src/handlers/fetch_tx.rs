@@ -42,10 +42,7 @@ async fn revert_reason(
 ) -> Result<Option<String>, SourceError> {
     match ctx.source.tx_status(p, hash).await {
         Ok(reason) => Ok(reason),
-        Err(e)
-            if e.is_retryable()
-                || matches!(e, SourceError::QuotaExhausted | SourceError::InvalidKey) =>
-        {
+        Err(e) if e.is_retryable() || e.is_quota() || matches!(e, SourceError::InvalidKey) => {
             Err(e)
         }
         Err(e) => {

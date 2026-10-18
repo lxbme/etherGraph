@@ -1,16 +1,23 @@
-//! Quota persistence, UTC-midnight reset, `QuotaStatus` events and the purge
-//! of spent login nonces and expired sessions.
+//! Quota persistence (server and per user), UTC-midnight reset, per-user
+//! limit refresh, `QuotaStatus` events and the purge of spent login nonces
+//! and expired sessions.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use eg_ingest::Event;
-use eg_ingest::gate::QuotaSnapshot;
+use eg_ingest::gate::{PriorityGate, QuotaSnapshot};
+use eg_store::{SETTING_DEFAULT_DAILY_QUOTA, Store, StoreError};
 use tokio::sync::watch;
 
+use crate::config::Config;
 use crate::state::AppState;
 
 const PERSIST_EVERY: Duration = Duration::from_secs(5);
+/// How often per-user limits are reloaded from the store (admin changes also
+/// reach the gate at once through `PriorityGate::set_user_limit`).
+const LIMITS_REFRESH_EVERY: Duration = Duration::from_secs(30);
 /// Upper bound on how long the gate may take to apply a queued quota reset.
 const RESET_APPLY_TIMEOUT: Duration = Duration::from_secs(1);
 const STATUS_MIN_INTERVAL: Duration = Duration::from_secs(1);
@@ -26,16 +33,102 @@ pub fn next_utc_midnight(now: DateTime<Utc>) -> DateTime<Utc> {
         .and_utc()
 }
 
-/// Spawns the quota loop (persist every 5s, reset at UTC midnight) and the
-/// `QuotaStatus` publisher (on snapshot change, at most once per second) and
-/// the auth purge (every 10 minutes), and starts the first chain head fetch.
+/// Spawns the quota loop (persist every 5s, reset at UTC midnight), the
+/// per-user limit refresh (every 30s), the `QuotaStatus` publisher (on
+/// snapshot change, at most once per second) and the auth purge (every 10
+/// minutes), and starts the first chain head fetch.
 pub fn spawn_background(state: &AppState) {
     state.head.prime(state);
     // Subscribe before spawning so no change after this call is missed.
     let quota_rx = state.gate.subscribe_quota();
     tokio::spawn(publish_quota_status(state.clone(), quota_rx));
     tokio::spawn(quota_loop(state.clone()));
+    tokio::spawn(limits_loop(state.clone()));
     tokio::spawn(auth_purge_loop(state.clone()));
+}
+
+/// Per-user limits and counts as the gate starts with them.
+pub struct UserQuotas {
+    /// Calls per day of a user without an override.
+    pub default_limit: u32,
+    pub overrides: HashMap<i64, u32>,
+    /// Each user's calls on the day loaded (users without calls omitted).
+    pub used: HashMap<i64, u32>,
+}
+
+/// The admin-set default daily quota, else the configured one.
+pub async fn default_user_limit(store: &Store, cfg: &Config) -> Result<u32, StoreError> {
+    let setting = store.setting_get(SETTING_DEFAULT_DAILY_QUOTA).await?;
+    Ok(setting
+        .and_then(|v| v.as_u64())
+        .and_then(|n| u32::try_from(n).ok())
+        .unwrap_or(cfg.auth.default_daily_quota))
+}
+
+/// Every user's limit and their calls on `day`.
+pub async fn load_user_quotas(
+    store: &Store,
+    cfg: &Config,
+    day: NaiveDate,
+) -> Result<UserQuotas, StoreError> {
+    let default_limit = default_user_limit(store, cfg).await?;
+    let mut overrides = HashMap::new();
+    let mut used = HashMap::new();
+    for row in store.users_with_usage(day).await? {
+        if let Some(q) = row.user.daily_quota {
+            overrides.insert(row.user.id, u32::try_from(q).unwrap_or(0));
+        }
+        if row.calls > 0 {
+            used.insert(row.user.id, row.calls);
+        }
+    }
+    Ok(UserQuotas {
+        default_limit,
+        overrides,
+        used,
+    })
+}
+
+/// Requeues the jobs paused on their user's quota for every user who is
+/// under it again (a raised limit, or a reset this process missed).
+pub async fn resume_users_under_quota(
+    store: &Store,
+    gate: &PriorityGate,
+) -> Result<u64, StoreError> {
+    let users: Vec<i64> = store
+        .user_paused_owners()
+        .await?
+        .into_iter()
+        .filter(|u| !gate.user_quota(*u).exhausted())
+        .collect();
+    if users.is_empty() {
+        return Ok(0);
+    }
+    store.resume_user_paused(Some(&users)).await
+}
+
+/// Reloads the default limit and every override into the gate, then resumes
+/// the users whose new limit lets their paused jobs run.
+pub async fn refresh_user_limits(state: &AppState) -> Result<(), StoreError> {
+    let q = load_user_quotas(&state.store, &state.cfg, Utc::now().date_naive()).await?;
+    state.gate.set_user_limits(q.default_limit, q.overrides);
+    if resume_users_under_quota(&state.store, &state.gate).await? > 0 {
+        state.ctx.wake.notify_waiters();
+    }
+    Ok(())
+}
+
+async fn limits_loop(state: AppState) {
+    let mut tick = tokio::time::interval(LIMITS_REFRESH_EVERY);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // The first tick fires at once; the gate was just loaded at startup.
+    tick.tick().await;
+    loop {
+        tick.tick().await;
+        if let Err(e) = refresh_user_limits(&state).await {
+            tracing::warn!(error = %e, "refreshing per-user quota limits failed");
+        }
+    }
 }
 
 async fn auth_purge_loop(state: AppState) {
@@ -81,9 +174,10 @@ async fn quota_loop(state: AppState) {
     }
 }
 
-/// Day change: stores `finished_day`'s final count, resets the gate's quota,
-/// requeues quota-paused jobs and wakes the workers. Returns false when the
-/// paused jobs could not be resumed (the caller retries).
+/// Day change: stores `finished_day`'s final counts (server and per user),
+/// resets the gate's quotas, requeues the jobs paused on either quota and
+/// wakes the workers. Returns false when the paused jobs could not be
+/// resumed (the caller retries).
 pub async fn rollover(state: &AppState, finished_day: NaiveDate) -> bool {
     persist(state, finished_day).await;
     let mut rx = state.gate.subscribe_quota();
@@ -105,7 +199,12 @@ pub async fn rollover(state: &AppState, finished_day: NaiveDate) -> bool {
 }
 
 async fn resume_and_wake(state: &AppState) -> bool {
-    match state.store.resume_paused().await {
+    let resumed = async {
+        Ok::<_, StoreError>(
+            state.store.resume_paused().await? + state.store.resume_user_paused(None).await?,
+        )
+    };
+    match resumed.await {
         Ok(n) => {
             if n > 0 {
                 tracing::info!(jobs = n, "resumed quota-paused jobs");
@@ -120,7 +219,7 @@ async fn resume_and_wake(state: &AppState) -> bool {
     }
 }
 
-/// Stores today's (UTC) call count; used on shutdown.
+/// Stores today's (UTC) call counts; used on shutdown.
 pub async fn persist_quota(state: &AppState) {
     persist(state, Utc::now().date_naive()).await;
 }
@@ -128,6 +227,13 @@ pub async fn persist_quota(state: &AppState) {
 async fn persist(state: &AppState, day: NaiveDate) {
     if let Err(e) = state.store.quota_set(day, state.gate.used()).await {
         tracing::warn!(error = %e, %day, "persisting quota usage failed");
+    }
+    if let Err(e) = state
+        .store
+        .user_usage_set(day, &state.gate.user_usage())
+        .await
+    {
+        tracing::warn!(error = %e, %day, "persisting per-user quota usage failed");
     }
 }
 

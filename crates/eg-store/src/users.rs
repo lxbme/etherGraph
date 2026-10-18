@@ -136,6 +136,30 @@ impl Store {
         calls_u32(v)
     }
 
+    /// Sets each `(user_id, calls)` count for `day` (absolute values, as the
+    /// rate gate keeps them).
+    pub async fn user_usage_set(&self, day: NaiveDate, counts: &[(i64, u32)]) -> Result<()> {
+        let users: Vec<i64> = counts.iter().map(|(u, _)| *u).collect();
+        let calls = counts
+            .iter()
+            .map(|(_, n)| {
+                i32::try_from(*n)
+                    .map_err(|_| StoreError::Invalid(format!("call count {n} exceeds i32")))
+            })
+            .collect::<Result<Vec<i32>>>()?;
+        sqlx::query(
+            "INSERT INTO user_quota_usage (user_id, day, calls) \
+             SELECT u, $1, c FROM UNNEST($2::bigint[], $3::int[]) AS t(u, c) \
+             ON CONFLICT (user_id, day) DO UPDATE SET calls = EXCLUDED.calls",
+        )
+        .bind(day)
+        .bind(&users)
+        .bind(&calls)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Returns whether the address was added (false: already listed, unchanged).
     pub async fn whitelist_add(&self, addr: Address, added_by: &str) -> Result<bool> {
         let res = sqlx::query(
@@ -274,6 +298,14 @@ mod tests {
         let rows = s.users_with_usage(day(19)).await.unwrap();
         let got: Vec<(i64, u32)> = rows.iter().map(|r| (r.user.id, r.calls)).collect();
         assert_eq!(got, [(a.id, 5), (b.id, 0)]);
+        // Absolute counts, as the gate persists them.
+        s.user_usage_set(day(19), &[(a.id, 9), (b.id, 4)])
+            .await
+            .unwrap();
+        assert_eq!(s.user_usage_get(a.id, day(19)).await.unwrap(), 9);
+        assert_eq!(s.user_usage_get(b.id, day(19)).await.unwrap(), 4);
+        s.user_usage_set(day(19), &[]).await.unwrap();
+        assert_eq!(s.user_usage_get(a.id, day(19)).await.unwrap(), 9);
     }
 
     #[sqlx::test]

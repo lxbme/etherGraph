@@ -36,6 +36,10 @@ pub enum SourceError {
     RateLimited,
     #[error("daily quota exhausted")]
     QuotaExhausted,
+    /// The user the call is billed to has used up their own daily quota; the
+    /// server total is not exhausted.
+    #[error("user daily quota exhausted")]
+    UserQuotaExhausted,
     #[error("invalid api key")]
     InvalidKey,
     #[error("result window too large")]
@@ -61,11 +65,21 @@ impl SourceError {
             SourceError::RateLimited | SourceError::Timeout | SourceError::Network(_)
         )
     }
+
+    /// The server's or the billed user's daily quota is used up: the work
+    /// waits for the next reset instead of failing.
+    pub fn is_quota(&self) -> bool {
+        matches!(
+            self,
+            SourceError::QuotaExhausted | SourceError::UserQuotaExhausted
+        )
+    }
 }
 
 #[async_trait]
 pub trait CallGate: Send + Sync {
-    /// Returns `Err(QuotaExhausted)` when the daily quota is used up.
+    /// Returns `Err(QuotaExhausted)` when the daily quota is used up, and
+    /// `Err(UserQuotaExhausted)` when the billed user's own quota is.
     async fn acquire(&self, p: Priority) -> Result<(), SourceError>;
     fn on_rate_limited(&self);
     /// The upstream reported its daily limit: stop granting permits until the
@@ -208,6 +222,10 @@ mod tests {
         assert!(SourceError::Network("x".into()).is_retryable());
         assert!(!SourceError::InvalidKey.is_retryable());
         assert!(!SourceError::QuotaExhausted.is_retryable());
+        assert!(!SourceError::UserQuotaExhausted.is_retryable());
+        assert!(SourceError::QuotaExhausted.is_quota());
+        assert!(SourceError::UserQuotaExhausted.is_quota());
+        assert!(!SourceError::RateLimited.is_quota());
         assert!(!SourceError::Parse("x".into()).is_retryable());
     }
 }

@@ -1,6 +1,10 @@
 //! Priority rate gate: every upstream call acquires a permit here.
+//!
+//! Each permit counts toward the server's daily total and, when the calling
+//! task is [`billed`](crate::billing::billed) to a user, toward that user's
+//! own daily limit.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -11,14 +15,23 @@ use serde::Serialize;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Instant, sleep_until};
 
+use crate::billing::bill_to;
+
 pub const SLOWDOWN_FACTOR: f64 = 0.8;
 pub const SLOWDOWN: Duration = Duration::from_secs(60);
 pub const LOW_SHARE_EVERY: u32 = 10;
 
 pub struct GateConfig {
     pub rate_per_sec: f64,
+    /// The server's daily total.
     pub daily_limit: u32,
     pub initial_used: u32,
+    /// Daily calls of a user without an override.
+    pub default_user_limit: u32,
+    /// Per-user overrides of `default_user_limit`.
+    pub user_limits: HashMap<i64, u32>,
+    /// Calls each user already made today.
+    pub initial_user_used: HashMap<i64, u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
@@ -28,11 +41,52 @@ pub struct QuotaSnapshot {
     pub paused: bool,
 }
 
+/// One user's calls today and their effective daily limit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct UserQuota {
+    pub used: u32,
+    pub limit: u32,
+}
+
+impl UserQuota {
+    pub fn exhausted(&self) -> bool {
+        self.used >= self.limit
+    }
+}
+
+/// Per-user counts and limits. Counts are written only by the dispatcher;
+/// limits by the admin/refresh setters.
+struct UserBook {
+    used: HashMap<i64, u32>,
+    limits: HashMap<i64, u32>,
+    default_limit: u32,
+}
+
+impl UserBook {
+    fn quota(&self, user: i64) -> UserQuota {
+        UserQuota {
+            used: self.used.get(&user).copied().unwrap_or(0),
+            limit: self
+                .limits
+                .get(&user)
+                .copied()
+                .unwrap_or(self.default_limit),
+        }
+    }
+}
+
 type Reply = oneshot::Sender<Result<(), SourceError>>;
+
+/// A queued permit request and the user it is billed to.
+struct Waiter {
+    user: Option<i64>,
+    reply: Reply,
+}
 
 enum Msg {
     Acquire {
         priority: Priority,
+        user: Option<i64>,
         reply: Reply,
     },
     ResetQuota,
@@ -47,6 +101,7 @@ struct Shared {
     slow_until: Mutex<Option<Instant>>,
     queue_len: AtomicUsize,
     quota_tx: watch::Sender<QuotaSnapshot>,
+    users: Mutex<UserBook>,
 }
 
 impl Shared {
@@ -55,6 +110,10 @@ impl Shared {
             Some(until) if Instant::now() < until => self.rate * SLOWDOWN_FACTOR,
             _ => self.rate,
         }
+    }
+
+    fn users(&self) -> std::sync::MutexGuard<'_, UserBook> {
+        self.users.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
@@ -87,14 +146,20 @@ impl PriorityGate {
             slow_until: Mutex::new(None),
             queue_len: AtomicUsize::new(0),
             quota_tx,
+            users: Mutex::new(UserBook {
+                used: cfg.initial_user_used,
+                limits: cfg.user_limits,
+                default_limit: cfg.default_user_limit,
+            }),
         });
         let (tx, rx) = mpsc::unbounded_channel();
         tokio::spawn(Dispatcher::new(shared.clone(), rx).run());
         Arc::new(Self { tx, shared })
     }
 
-    /// Zeroes `used` and lifts the pause. Applied by the dispatcher in order,
-    /// so any `acquire` issued after this call sees the reset quota.
+    /// Zeroes `used` (the server's and every user's) and lifts the pause.
+    /// Applied by the dispatcher in order, so any `acquire` issued after this
+    /// call sees the reset quota.
     pub fn reset_quota(&self) {
         // A send error means the dispatcher is gone; nothing left to reset.
         let _ = self.tx.send(Msg::ResetQuota);
@@ -116,17 +181,59 @@ impl PriorityGate {
     pub fn subscribe_quota(&self) -> watch::Receiver<QuotaSnapshot> {
         self.shared.quota_tx.subscribe()
     }
+
+    /// `user`'s calls today and effective limit.
+    pub fn user_quota(&self, user: i64) -> UserQuota {
+        self.shared.users().quota(user)
+    }
+
+    /// Every user's calls today (users with no calls are omitted), by id.
+    pub fn user_usage(&self) -> Vec<(i64, u32)> {
+        let mut v: Vec<(i64, u32)> = self
+            .shared
+            .users()
+            .used
+            .iter()
+            .map(|(u, n)| (*u, *n))
+            .collect();
+        v.sort_unstable();
+        v
+    }
+
+    /// Sets `user`'s own limit (`None`: back to the default); requests made
+    /// after this call see it.
+    pub fn set_user_limit(&self, user: i64, limit: Option<u32>) {
+        let mut users = self.shared.users();
+        match limit {
+            Some(l) => users.limits.insert(user, l),
+            None => users.limits.remove(&user),
+        };
+    }
+
+    /// Replaces the default limit and every user override (a refresh from
+    /// the store).
+    pub fn set_user_limits(&self, default_limit: u32, overrides: HashMap<i64, u32>) {
+        let mut users = self.shared.users();
+        users.default_limit = default_limit;
+        users.limits = overrides;
+    }
 }
 
 #[async_trait]
 impl CallGate for PriorityGate {
-    /// While the quota is paused the dispatcher answers `Err(QuotaExhausted)`
-    /// as soon as the request arrives, without waiting for a slot.
+    /// Billed to the calling task's [`bill_to`] user. While the quota is
+    /// paused the dispatcher answers `Err(QuotaExhausted)` as soon as the
+    /// request arrives, without waiting for a slot; while that user's own
+    /// quota is used up, `Err(UserQuotaExhausted)`.
     async fn acquire(&self, p: Priority) -> Result<(), SourceError> {
         let (reply, rx) = oneshot::channel();
         let stopped = || SourceError::Upstream("rate gate stopped".into());
         self.tx
-            .send(Msg::Acquire { priority: p, reply })
+            .send(Msg::Acquire {
+                priority: p,
+                user: bill_to(),
+                reply,
+            })
             .map_err(|_| stopped())?;
         rx.await.map_err(|_| stopped())?
     }
@@ -147,7 +254,7 @@ struct Dispatcher {
     shared: Arc<Shared>,
     rx: mpsc::UnboundedReceiver<Msg>,
     /// Indexed by `Priority::as_i16`: Interactive, Background, Low.
-    queues: [VecDeque<Reply>; 3],
+    queues: [VecDeque<Waiter>; 3],
     /// Permits granted since `Low` last got one.
     since_low: u32,
     next_slot: Instant,
@@ -199,17 +306,26 @@ impl Dispatcher {
 
     fn handle(&mut self, msg: Msg) {
         match msg {
-            Msg::Acquire { priority, reply } => {
+            Msg::Acquire {
+                priority,
+                user,
+                reply,
+            } => {
                 if self.quota.paused {
                     let _ = reply.send(Err(SourceError::QuotaExhausted));
                     return;
                 }
-                self.queues[priority.as_i16() as usize].push_back(reply);
+                if self.user_exhausted(user) {
+                    let _ = reply.send(Err(SourceError::UserQuotaExhausted));
+                    return;
+                }
+                self.queues[priority.as_i16() as usize].push_back(Waiter { user, reply });
                 self.sync_len();
             }
             Msg::ResetQuota => {
                 self.quota.used = 0;
                 self.quota.paused = false;
+                self.shared.users().used.clear();
                 self.publish();
             }
             Msg::QuotaExhausted => {
@@ -230,15 +346,24 @@ impl Dispatcher {
                 return;
             }
             let idx = self.pick();
-            let reply = self.queues[idx]
+            let Waiter { user, reply } = self.queues[idx]
                 .pop_front()
                 .expect("picked non-empty queue");
             self.sync_len();
+            if self.user_exhausted(user) {
+                // The user reached their limit while this request waited; it
+                // uses no slot.
+                let _ = reply.send(Err(SourceError::UserQuotaExhausted));
+                continue;
+            }
             if reply.send(Ok(())).is_err() {
                 // Cancelled after pruning: try the next request in this slot.
                 continue;
             }
             self.quota.used += 1;
+            if let Some(u) = user {
+                *self.shared.users().used.entry(u).or_insert(0) += 1;
+            }
             self.publish();
             self.since_low = if idx == Priority::Low.as_i16() as usize {
                 0
@@ -262,11 +387,15 @@ impl Dispatcher {
             .expect("pick called with all queues empty")
     }
 
+    fn user_exhausted(&self, user: Option<i64>) -> bool {
+        user.is_some_and(|u| self.shared.users().quota(u).exhausted())
+    }
+
     fn exhaust(&mut self) {
         self.quota.paused = true;
         for q in &mut self.queues {
-            for reply in q.drain(..) {
-                let _ = reply.send(Err(SourceError::QuotaExhausted));
+            for w in q.drain(..) {
+                let _ = w.reply.send(Err(SourceError::QuotaExhausted));
             }
         }
         self.sync_len();
@@ -279,7 +408,7 @@ impl Dispatcher {
 
     fn prune_cancelled(&mut self) {
         for q in &mut self.queues {
-            q.retain(|reply| !reply.is_closed());
+            q.retain(|w| !w.reply.is_closed());
         }
         self.sync_len();
     }
@@ -297,15 +426,32 @@ impl Dispatcher {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::billing::billed;
     use tokio::task::JoinHandle;
     use tokio::time::Instant;
 
     fn gate(rate_per_sec: f64, daily_limit: u32) -> Arc<PriorityGate> {
+        user_gate(rate_per_sec, daily_limit, u32::MAX)
+    }
+
+    /// A gate whose users may each make `user_limit` calls a day.
+    fn user_gate(rate_per_sec: f64, daily_limit: u32, user_limit: u32) -> Arc<PriorityGate> {
         PriorityGate::spawn(GateConfig {
             rate_per_sec,
             daily_limit,
             initial_used: 0,
+            default_user_limit: user_limit,
+            user_limits: HashMap::new(),
+            initial_user_used: HashMap::new(),
         })
+    }
+
+    async fn acquire_as(g: &PriorityGate, user: i64) -> Result<(), SourceError> {
+        billed(Some(user), g.acquire(Priority::Interactive)).await
+    }
+
+    fn uq(used: u32, limit: u32) -> UserQuota {
+        UserQuota { used, limit }
     }
 
     type Order = Arc<Mutex<Vec<&'static str>>>;
@@ -556,6 +702,9 @@ mod tests {
             rate_per_sec: 0.0,
             daily_limit: 1,
             initial_used: 0,
+            default_user_limit: 1,
+            user_limits: HashMap::new(),
+            initial_user_used: HashMap::new(),
         });
     }
 
@@ -566,6 +715,9 @@ mod tests {
             rate_per_sec: f64::NAN,
             daily_limit: 1,
             initial_used: 0,
+            default_user_limit: 1,
+            user_limits: HashMap::new(),
+            initial_user_used: HashMap::new(),
         });
     }
 
@@ -598,6 +750,9 @@ mod tests {
             rate_per_sec: 2.0,
             daily_limit: 10,
             initial_used: 10,
+            default_user_limit: 1,
+            user_limits: HashMap::new(),
+            initial_user_used: HashMap::new(),
         });
         assert_eq!(g.used(), 10);
         assert_eq!(*g.subscribe_quota().borrow(), snap(10, 10, true));
@@ -605,6 +760,110 @@ mod tests {
             g.acquire(Priority::Interactive).await,
             Err(SourceError::QuotaExhausted)
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn user_limit_refuses_only_that_user() {
+        let g = user_gate(1000.0, 1000, 3);
+        for _ in 0..3 {
+            acquire_as(&g, 1).await.unwrap();
+        }
+        assert_eq!(
+            acquire_as(&g, 1).await,
+            Err(SourceError::UserQuotaExhausted)
+        );
+        acquire_as(&g, 2).await.unwrap();
+        // Unbilled (system) calls count only toward the server total.
+        g.acquire(Priority::Interactive).await.unwrap();
+        assert_eq!(g.user_quota(1), uq(3, 3));
+        assert!(g.user_quota(1).exhausted());
+        assert_eq!(g.user_quota(2), uq(1, 3));
+        assert_eq!(g.user_quota(3), uq(0, 3));
+        assert_eq!(g.used(), 5);
+        assert!(!g.subscribe_quota().borrow().paused);
+        assert_eq!(g.user_usage(), vec![(1, 3), (2, 1)]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn server_total_still_caps_billed_calls() {
+        let g = user_gate(1000.0, 2, 10);
+        acquire_as(&g, 1).await.unwrap();
+        acquire_as(&g, 2).await.unwrap();
+        assert_eq!(acquire_as(&g, 1).await, Err(SourceError::QuotaExhausted));
+        assert_eq!(acquire_as(&g, 3).await, Err(SourceError::QuotaExhausted));
+        assert!(g.subscribe_quota().borrow().paused);
+        assert_eq!(g.user_quota(1), uq(1, 10));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn user_limits_change_immediately() {
+        let g = user_gate(1000.0, 1000, 5);
+        g.set_user_limit(1, Some(1));
+        acquire_as(&g, 1).await.unwrap();
+        assert_eq!(
+            acquire_as(&g, 1).await,
+            Err(SourceError::UserQuotaExhausted)
+        );
+        g.set_user_limit(1, Some(2));
+        acquire_as(&g, 1).await.unwrap();
+        assert_eq!(g.user_quota(1), uq(2, 2));
+        // Back to the default.
+        g.set_user_limit(1, None);
+        assert_eq!(g.user_quota(1), uq(2, 5));
+        acquire_as(&g, 1).await.unwrap();
+        // A refresh replaces the default and every override.
+        g.set_user_limits(2, HashMap::from([(1, 10)]));
+        assert_eq!(g.user_quota(1), uq(3, 10));
+        assert_eq!(g.user_quota(2), uq(0, 2));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn reset_clears_user_counts() {
+        let g = user_gate(1000.0, 1000, 1);
+        acquire_as(&g, 1).await.unwrap();
+        assert_eq!(
+            acquire_as(&g, 1).await,
+            Err(SourceError::UserQuotaExhausted)
+        );
+        g.reset_quota();
+        acquire_as(&g, 1).await.unwrap();
+        assert_eq!(g.user_quota(1), uq(1, 1));
+        assert_eq!(g.used(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn user_reaching_the_limit_while_queued_is_refused_at_grant() {
+        let g = user_gate(2.0, 1000, 1);
+        let spawn_as = |user: i64| {
+            let g = g.clone();
+            tokio::spawn(async move { acquire_as(&g, user).await })
+        };
+        let first = spawn_as(1);
+        let second = spawn_as(1);
+        let other = spawn_as(2);
+        assert_eq!(first.await.unwrap(), Ok(()));
+        assert_eq!(second.await.unwrap(), Err(SourceError::UserQuotaExhausted));
+        assert_eq!(other.await.unwrap(), Ok(()));
+        assert_eq!(g.user_quota(1), uq(1, 1));
+        assert_eq!(g.used(), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn initial_user_usage_seeds_counts() {
+        let g = PriorityGate::spawn(GateConfig {
+            rate_per_sec: 2.0,
+            daily_limit: 1000,
+            initial_used: 4,
+            default_user_limit: 3,
+            user_limits: HashMap::from([(2, 10)]),
+            initial_user_used: HashMap::from([(1, 3), (2, 1)]),
+        });
+        assert_eq!(
+            acquire_as(&g, 1).await,
+            Err(SourceError::UserQuotaExhausted)
+        );
+        assert_eq!(g.user_quota(2), uq(1, 10));
+        assert_eq!(g.user_usage(), vec![(1, 3), (2, 1)]);
     }
 
     #[tokio::test(start_paused = true)]
