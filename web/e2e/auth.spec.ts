@@ -4,7 +4,7 @@ import type { LoginDto } from "../src/api/generated/LoginDto";
 import type { MeDto } from "../src/api/generated/MeDto";
 import type { SiweFieldsDto } from "../src/api/generated/SiweFieldsDto";
 import { FAKE_WALLET_NAME, installFakeWallet, type FakeWallet, type FakeWalletHooks } from "./fakeWallet";
-import { ME, expect, test, unauthorized, type MockApi } from "./mockApi";
+import { ME, expect, fixtures, test, unauthorized, type MockApi } from "./mockApi";
 
 const NONCE = "5f0c9e2a7b1d4c3e8a6f2b9d0c7e1a4b";
 
@@ -184,8 +184,15 @@ test("an ended session disconnects the wallet, so signing in again starts from c
   await expect(page.getByRole("alert")).toHaveText("Your session has ended. Sign in again.");
   await expect.poll(() => walletCalls(page)).toContain("wallet_revokePermissions");
 
+  // The server answers again once a new session exists.
+  mock.on("GET /api/status", () => ({ json: fixtures.status }));
+  mock.on("GET /api/jobs", () => ({ json: [] }));
+  const statusBefore = mock.count("GET /api/status");
   await signIn(page);
   await expect(page.getByRole("searchbox", { name: "Search" })).toBeVisible();
+  await expect.poll(() => mock.count("GET /api/status")).toBeGreaterThan(statusBefore);
+  await expect(page.getByRole("searchbox", { name: "Search" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Connect wallet" })).toHaveCount(0);
 });
 
 test("a 401 that is not about the session (an admin route, a bad origin) keeps the user signed in", async ({ page, mock }) => {
