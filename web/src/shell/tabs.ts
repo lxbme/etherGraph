@@ -12,6 +12,12 @@ export type TxView = "flow" | "calls";
 /** A saved flow-graph layout, applied once when the tab's canvas first shows the flow. */
 export type TxLayout = { positions?: Record<string, Pos>; viewport?: Viewport };
 
+/**
+ * The call graph's node positions, stored on every drag (its canvas is unmounted while the asset flow shows):
+ * nodes with one are placed there, the others are laid out.
+ */
+export type CallLayout = { positions?: Record<string, Pos> };
+
 export type TxTab = {
   id: string;
   kind: "tx";
@@ -21,6 +27,7 @@ export type TxTab = {
   view?: TxView;
   highlightedSeq?: number | null;
   layout?: TxLayout;
+  callLayout?: CallLayout;
   /** File data shown instead of the tx request until the tab is refreshed from the chain. */
   snapshot?: TxSnapshot;
   /** Set on tabs restored from a workspace: a new value gives the tab a fresh view (so its layout applies). */
@@ -29,7 +36,7 @@ export type TxTab = {
 export type Tab = { id: "graph" } | TxTab;
 
 /** A tx tab to restore (from a saved workspace). */
-export type TxTabInit = Pick<TxTab, "hash" | "detailTab" | "view" | "layout" | "snapshot">;
+export type TxTabInit = Pick<TxTab, "hash" | "detailTab" | "view" | "layout" | "callLayout" | "snapshot">;
 
 interface TabsState {
   tabs: Tab[];
@@ -43,6 +50,8 @@ interface TabsState {
   setTxView(id: string, view: TxView): void;
   /** Highlights the flow edge with this seq in a tx tab's graph (null clears); no-op for unknown ids. */
   setHighlightedSeq(id: string, seq: number | null): void;
+  /** Stores a tx tab's call-graph node positions (all of them, replacing the last); no-op for unknown ids. */
+  setCallLayout(id: string, positions: Record<string, Pos>): void;
   /** Opens a tx tab with this state (an imported snapshot) and activates it; false (nothing opened) when one for the hash is open. */
   addTx(tab: TxTabInit): boolean;
   /** Replaces every tx tab with these and activates `active` (the graph tab when it is not one of them). */
@@ -84,6 +93,9 @@ export const useTabs = create<TabsState>((set, get) => ({
   },
   setHighlightedSeq: (id, highlightedSeq) => {
     set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && "kind" in t ? { ...t, highlightedSeq } : t)) }));
+  },
+  setCallLayout: (id, positions) => {
+    set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && "kind" in t ? { ...t, callLayout: { positions } } : t)) }));
   },
   addTx: (init) => {
     const hash = init.hash.toLowerCase();

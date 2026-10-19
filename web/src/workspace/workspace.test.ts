@@ -35,6 +35,7 @@ vi.mock("../graph/cyRegistry", () => ({
   setMainCy: vi.fn(),
   getTxCy: vi.fn(() => null),
   registerTxCy: vi.fn(),
+  getCallCy: vi.fn(() => null),
 }));
 const m = vi.mocked(api);
 

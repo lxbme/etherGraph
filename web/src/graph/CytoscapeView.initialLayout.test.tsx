@@ -69,3 +69,36 @@ test("without a saved layout the dagre layout runs", () => {
   setup(undefined);
   expect(runDagreLayout).toHaveBeenCalledTimes(1);
 });
+
+describe("definition positions under dagre-lr", () => {
+  // The layout moves every node, as dagre does.
+  const scatter = () =>
+    vi.mocked(runDagreLayout).mockImplementation((cy) => cy.nodes().forEach((n, i) => void n.position({ x: 1000 + i, y: 1000 })));
+  afterEach(() => vi.mocked(runDagreLayout).mockReset());
+  // Counted, not matched: a failed match would print the whole canvas.
+  const dagreRuns = () => vi.mocked(runDagreLayout).mock.calls.length;
+  const at = (id: string, position: { x: number; y: number }): cytoscape.ElementDefinition => ({ ...node(id), position });
+
+  test("a later change lays out the new nodes; nodes whose definition has a position stay there", () => {
+    scatter();
+    const t = setup(undefined, [at("a", { x: 10, y: 20 }), at("b", { x: 300, y: -40 }), edge("a", "b")]);
+    expect(dagreRuns()).toBe(0);
+    expect(t.cy().getElementById("a").position()).toEqual({ x: 10, y: 20 });
+    t.rerender([at("a", { x: 10, y: 20 }), at("b", { x: 300, y: -40 }), node("c"), edge("a", "b"), edge("b", "c")]);
+    expect(dagreRuns()).toBe(1);
+    expect(t.cy().getElementById("a").position()).toEqual({ x: 10, y: 20 });
+    expect(t.cy().getElementById("b").position()).toEqual({ x: 300, y: -40 });
+    expect(t.cy().getElementById("c").position().y).toBe(1000);
+    // Removing a node again keeps them too.
+    t.rerender([at("a", { x: 10, y: 20 }), at("b", { x: 300, y: -40 }), edge("a", "b")]);
+    expect(t.cy().getElementById("b").position()).toEqual({ x: 300, y: -40 });
+  });
+
+  test("a node with a position and one without: dagre places the one without only", () => {
+    scatter();
+    const t = setup(undefined, [at("a", { x: 10, y: 20 }), node("b"), edge("a", "b")]);
+    expect(dagreRuns()).toBe(1);
+    expect(t.cy().getElementById("a").position()).toEqual({ x: 10, y: 20 });
+    expect(t.cy().getElementById("b").position().y).toBe(1000);
+  });
+});

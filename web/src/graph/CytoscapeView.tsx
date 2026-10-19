@@ -12,6 +12,7 @@ export const HOVER_DELAY_MS = 300;
 export type AppliedPositions = Map<string, Pos | undefined>;
 
 export interface CytoscapeViewProps {
+  /** Under `dagre-lr`, a node definition's `position` is kept through every layout (dagre places the others). */
   elements: cytoscape.ElementDefinition[];
   stylesheet: cytoscape.StylesheetJson;
   layout: "incremental" | "dagre-lr";
@@ -373,7 +374,14 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
           if (saved.viewport) restoreViewport(cy, saved.viewport);
           else fitClamped(cy, 30);
         } else {
-          runDagreLayout(cy);
+          // A node whose definition carries a position (one the user left it at) stays there; dagre places the rest.
+          const ids = cy.nodes().map((n) => n.id());
+          const kept = ids.filter((id) => r.positions.get(id));
+          if (kept.length < ids.length) runDagreLayout(cy);
+          if (kept.length > 0) {
+            cy.batch(() => kept.forEach((id) => void cy.getElementById(id).position({ ...r.positions.get(id)! })));
+            fitClamped(cy, 30);
+          }
           refitRef.current?.noteLayout();
         }
       }

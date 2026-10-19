@@ -146,6 +146,79 @@ test("call tree: fetched once opened, graph and tree linked, saved with the work
   expect(mock.unhandled).toEqual([]);
 });
 
+/** A call-graph node's model position and its page position (null before it is drawn). */
+function callNode(page: Page, id: string) {
+  return page.evaluate(
+    ({ tx, id }) => {
+      const cy = (window as unknown as { __etherGraphCallCy?: Record<string, Core> }).__etherGraphCallCy?.[tx];
+      const n = cy?.$id(id);
+      if (!cy || cy.destroyed() || !n || n.empty() || cy.width() < 100) return null;
+      const r = cy.container()!.getBoundingClientRect();
+      const rp = n.renderedPosition();
+      return { model: { ...n.position() }, page: { x: r.left + rp.x, y: r.top + rp.y } };
+    },
+    { tx: TX, id },
+  );
+}
+
+test("dragged call-graph nodes stay through view switches and filters, and are saved with the workspace", async ({ page, mock }) => {
+  mock.on(TRACE, () => ({ json: fixtures.trace }));
+  await openTx(page);
+  const txView = page.getByTestId("tx-view");
+  const views = txView.getByRole("group", { name: "Transaction view" });
+  const rows = txView.getByRole("tree", { name: "Call tree" }).getByRole("treeitem");
+  await page.getByRole("button", { name: "Workspace menu" }).click();
+  await page.getByRole("menuitem", { name: "Save", exact: true }).click();
+  await page.getByRole("textbox", { name: "Workspace name" }).fill("call layout");
+  await page.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(page.getByText("Workspace: Saved")).toBeVisible();
+
+  await views.getByRole("button", { name: "Call tree" }).click();
+  await expect(rows).toHaveCount(9);
+  await expect.poll(() => callNode(page, CONTROLLER)).not.toBeNull();
+  // Let the first layout and fit settle before grabbing.
+  await page.waitForTimeout(900);
+  const before = (await callNode(page, CONTROLLER))!;
+  await page.mouse.move(before.page.x, before.page.y);
+  await page.mouse.down();
+  await page.mouse.move(before.page.x + 60, before.page.y + 40, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await callNode(page, CONTROLLER))?.model.x).not.toBe(before.model.x);
+  const dragged = (await callNode(page, CONTROLLER))!.model;
+  await expect(page.getByText("Workspace: Unsaved changes")).toBeVisible();
+
+  // The call canvas is unmounted while the asset flow shows; back on the call tree the node is where it was left.
+  await views.getByRole("button", { name: "Asset flow" }).click();
+  await expect.poll(() => callNode(page, CONTROLLER)).toBeNull();
+  await views.getByRole("button", { name: "Call tree" }).click();
+  await expect.poll(async () => (await callNode(page, CONTROLLER))?.model).toEqual(dragged);
+  // Showing the read-only calls lays out the new parties around it.
+  await txView.getByRole("checkbox", { name: "Show read-only calls" }).check();
+  await expect(rows).toHaveCount(17);
+  await expect.poll(async () => (await callNode(page, CONTROLLER))?.model).toEqual(dragged);
+
+  await page.getByRole("button", { name: "Workspace menu" }).click();
+  await page.getByRole("menuitem", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Workspace: Saved")).toBeVisible();
+  const reqs = mock.requests("PUT /api/workspaces/*");
+  const body = reqs[reqs.length - 1]!.postDataJSON() as {
+    state: { tabs: { hash: string; call_positions?: Record<string, { x: number; y: number }> }[] };
+  };
+  expect(body.state.tabs[0]!.call_positions?.[CONTROLLER]).toEqual(dragged);
+
+  // Reopened on a fresh page, the call graph puts the node at its saved position.
+  await page.goto("/?e2e=1");
+  await page.getByRole("button", { name: "Workspace menu" }).click();
+  await page.getByRole("menuitem", { name: "Open…" }).click();
+  await page.getByRole("dialog", { name: "Open workspace" }).getByRole("button", { name: "call layout", exact: true }).click();
+  await expect(views.getByRole("button", { name: "Call tree" })).toHaveAttribute("aria-pressed", "true");
+  await expect(rows).toHaveCount(9);
+  await expect.poll(async () => (await callNode(page, CONTROLLER))?.model).toEqual(dragged);
+  await expect(page.getByText("Workspace: Saved")).toBeVisible();
+
+  expect(mock.unhandled).toEqual([]);
+});
+
 test("viewing and exporting only the asset flow never requests a call trace", async ({ page, mock }) => {
   await openTx(page);
   const txView = page.getByTestId("tx-view");

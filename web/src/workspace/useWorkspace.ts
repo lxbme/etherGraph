@@ -1,3 +1,4 @@
+import type cytoscape from "cytoscape";
 import { useEffect } from "react";
 import { create } from "zustand";
 import { api } from "../api/endpoints";
@@ -5,7 +6,7 @@ import { ApiError, messageFor } from "../api/errors";
 import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
 import type { JsonValue } from "../api/generated/serde_json/JsonValue";
 import { t } from "../i18n";
-import { getMainCy, getTxCy } from "../graph/cyRegistry";
+import { getCallCy, getMainCy, getTxCy } from "../graph/cyRegistry";
 import { isMoreId } from "../graph/elements";
 import { restoreViewport } from "../graph/refit";
 import { pairKey, useGraph, type NodeUi, type Pos } from "../graph/store";
@@ -112,28 +113,38 @@ export function captureState(): WorkspaceStateV2 {
   return { graph: captureGraph(), tabs: tabs.filter(isTx).map(captureTab), active };
 }
 
+/** Every node's position on a live canvas (null when there is none or it has no nodes yet). */
+export function livePositions(cy: cytoscape.Core | null): Record<string, Pos> | null {
+  if (!cy || cy.nodes().empty()) return null;
+  const live: Record<string, Pos> = {};
+  cy.nodes().forEach((n) => {
+    const p = n.position();
+    live[n.id()] = { x: p.x, y: p.y };
+  });
+  return live;
+}
+
 /**
  * A tx tab with its canvas's node positions and viewport; a canvas not showing the flow yet keeps the
  * layout the tab was restored with, and one without a size (laid out while hidden) its saved viewport.
+ * The call graph's positions come from its canvas while it is drawn, else from the tab (stored on each drag).
  */
 function captureTab(tab: TxTab): TxTabStateV2 {
   let { positions, viewport } = tab.layout ?? {};
   const cy = getTxCy(tab.hash);
-  if (cy && cy.nodes().nonempty()) {
-    const live: Record<string, Pos> = {};
-    cy.nodes().forEach((n) => {
-      const p = n.position();
-      live[n.id()] = { x: p.x, y: p.y };
-    });
+  const live = livePositions(cy);
+  if (cy && live) {
     positions = live;
     if (cy.width() > 0 && cy.height() > 0) viewport = { zoom: cy.zoom(), pan: { ...cy.pan() } };
   }
+  const calls = livePositions(getCallCy(tab.hash)) ?? tab.callLayout?.positions;
   return {
     hash: tab.hash,
     ...(tab.view === "calls" ? { view: tab.view } : {}),
     ...(tab.detailTab ? { detail_tab: tab.detailTab } : {}),
     ...(positions ? { positions } : {}),
     ...(viewport ? { viewport } : {}),
+    ...(calls && Object.keys(calls).length > 0 ? { call_positions: calls } : {}),
     ...(tab.snapshot !== undefined ? { snapshot: tab.snapshot } : {}),
   };
 }
@@ -265,12 +276,13 @@ function applyViewportLater(state: WorkspaceStateV1, gen: number): void {
 }
 
 /** A saved tx tab as a tab entry (absent fields stay absent). */
-function txInit({ hash, view, detail_tab, positions, viewport, snapshot }: TxTabStateV2): TxTabInit {
+function txInit({ hash, view, detail_tab, positions, viewport, call_positions, snapshot }: TxTabStateV2): TxTabInit {
   return {
     hash,
     ...(view ? { view } : {}),
     ...(detail_tab ? { detailTab: detail_tab } : {}),
     ...(positions || viewport ? { layout: { ...(positions ? { positions } : {}), ...(viewport ? { viewport } : {}) } } : {}),
+    ...(call_positions ? { callLayout: { positions: call_positions } } : {}),
     ...(snapshot !== undefined ? { snapshot } : {}),
   };
 }

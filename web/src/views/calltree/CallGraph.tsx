@@ -4,13 +4,16 @@ import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import { CytoscapeView } from "../../graph/CytoscapeView";
 import { getCallCy, registerCallCy } from "../../graph/cyRegistry";
 import { nodeElement } from "../../graph/elements";
+import type { Pos } from "../../graph/store";
 import { nodeTooltip, type TooltipLine } from "../../graph/tooltip";
 import { t, useLocale } from "../../i18n";
 import { formatAmount } from "../../lib/amount";
 import { ellipsize } from "../../lib/format";
 import { useUi } from "../../panels/uiStore";
+import { useTabs } from "../../shell/tabs";
 import { useTheme } from "../../shell/theme";
 import { requestExport } from "../../workspace/fileRequest";
+import { livePositions, markTxLayoutChanged } from "../../workspace/useWorkspace";
 import { CanvasTools, type CanvasExport } from "../CanvasTools";
 import { GraphTooltip } from "../GraphTooltip";
 import { EDGE_LABEL_MAX } from "../txElements";
@@ -37,13 +40,15 @@ function edgeClasses(e: CallEdge, highlighted: boolean): string {
 
 /**
  * Address nodes named as in the asset-flow view, and one edge per caller → callee pair: thicker with more calls,
- * labelled with the first call's order and method (`×N` when merged), a creation marker and the ETH sent.
+ * labelled with the first call's order and method (`×N` when merged), a creation marker and the ETH sent. A node
+ * with a saved position carries it (the canvas keeps it there; the others are laid out).
  */
 export function callElements(
   nodes: NodeSummaryDto[],
   edges: CallEdge[],
   selectedNode: string | null,
   highlightedEdge: string | null,
+  positions?: Record<string, Pos>,
 ): cytoscape.ElementDefinition[] {
   const hl = edges.find((e) => e.id === highlightedEdge);
   const ends = new Set(hl ? [hl.from, hl.to] : []);
@@ -51,6 +56,8 @@ export function callElements(
     const id = n.address.toLowerCase();
     const el = nodeElement(n, undefined, { selected: selectedNode === id, isCenter: false, omitted: 0 });
     if (ends.has(id)) el.classes = `${String(el.classes)} highlighted`;
+    const pos = positions?.[id];
+    if (pos) el.position = { ...pos };
     return el;
   });
   for (const e of edges) {
@@ -75,19 +82,23 @@ function edgeTooltip(e: CallEdge): TooltipLine[] {
 
 /**
  * The call graph of a transaction: tapping an edge steps through its calls (the parent selects them in the
- * tree), tapping a node selects it like in the asset flow (its detail opens in the right panel).
+ * tree), tapping a node selects it like in the asset flow (its detail opens in the right panel). Dragging a node
+ * stores every node's position on the tab (this canvas is unmounted while the asset flow shows);
+ * `initialPositions` are those stored (or restored from a workspace or file).
  */
 export function CallGraph({
   hash,
   nodes,
   edges,
   highlightedEdge,
+  initialPositions,
   onTapEdge,
 }: {
   hash: string;
   nodes: NodeSummaryDto[];
   edges: CallEdge[];
   highlightedEdge: string | null;
+  initialPositions?: Record<string, Pos>;
   onTapEdge(id: string): void;
 }) {
   const theme = useTheme((s) => s.resolved);
@@ -95,8 +106,8 @@ export function CallGraph({
   const stylesheet = useMemo(() => callGraphStylesheet(theme), [theme]);
   const selected = useUi((s) => s.txSelection[hash.toLowerCase()] ?? null);
   const elements = useMemo(
-    () => callElements(nodes, edges, selected, highlightedEdge),
-    [nodes, edges, selected, highlightedEdge, locale], // labels are translated when built
+    () => callElements(nodes, edges, selected, highlightedEdge, initialPositions),
+    [nodes, edges, selected, highlightedEdge, initialPositions, locale], // labels are translated when built
   );
   const [hover, setHover] = useState<{ kind: "node" | "edge"; id: string; pos: { x: number; y: number } } | null>(null);
   const tooltipLines = useMemo((): TooltipLine[] | null => {
@@ -116,6 +127,7 @@ export function CallGraph({
     }),
     [hash],
   );
+  const initialLayout = useMemo(() => ({ positions: initialPositions }), [initialPositions]);
   useEffect(() => () => registerCallCy(hash, null), [hash]);
 
   return (
@@ -131,7 +143,13 @@ export function CallGraph({
         onDblTapEdge={NOOP}
         onCxtNode={NOOP}
         onSelectionChange={NOOP}
-        onDragEnd={NOOP}
+        onDragEnd={() => {
+          const all = livePositions(getCallCy(hash));
+          if (!all) return;
+          useTabs.getState().setCallLayout(hash.toLowerCase(), all);
+          markTxLayoutChanged();
+        }}
+        initialLayout={initialLayout}
         onReady={(cy) => registerCallCy(hash, cy)}
         onHover={setHover}
       />

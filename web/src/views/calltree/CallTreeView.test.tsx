@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import cytoscape from "cytoscape";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { api } from "../../api/endpoints";
 import { ApiError } from "../../api/errors";
@@ -15,6 +16,7 @@ import { TxFlowView } from "../TxFlowView";
 import { getCallCy, getTxCy } from "../../graph/cyRegistry";
 import { exportImage } from "../../graph/exportImage";
 import { download } from "../../lib/download";
+import { useWorkspace } from "../../workspace/useWorkspace";
 import { CallTreeView, useTraceFailures } from "./CallTreeView";
 import { A, B, ensFrames, SENDER, synth, X } from "./fixtures.testutil";
 
@@ -32,6 +34,7 @@ vi.mock("../../graph/CytoscapeView", () => ({
 const HASH = "0x" + "22".repeat(32);
 const USER_QUOTA = en["error.userQuota"];
 const RESOLVER = "0x231b0ee14048e9dccd1d247744d114a4eb5e8e63";
+const lcSender = SENDER.toLowerCase();
 
 const node = (address: string, over: Partial<NodeSummaryDto> = {}): NodeSummaryDto => ({
   address, kind: "contract", display_name: null, ens: null, contract_name: null, labels: [],
@@ -468,4 +471,50 @@ test("tapping_a_node_selects_it_for_the_right_panel", async () => {
   act(() => h.props!.onTapNode(RESOLVER, { shift: false }));
   expect(useUi.getState().txSelection[HASH]).toBe(RESOLVER);
   expect(String(h.props!.elements.find((e) => e.data.id === RESOLVER)!.classes)).toContain("selected");
+});
+
+const nodeEls = () => h.props!.elements.filter((e) => e.data.source === undefined);
+const callLayout = () => {
+  const tab = useTabs.getState().tabs.find((t) => t.id === HASH);
+  return tab && "kind" in tab ? tab.callLayout : undefined;
+};
+
+test("drag_end_stores_all_positions_and_marks_dirty", async () => {
+  vi.spyOn(api, "txTrace").mockResolvedValue(ready(ensFrames));
+  useWorkspace.getState().setCurrent({ id: 1, name: "w", updated_at: "T" });
+  renderCalls();
+  await screen.findByRole("tree");
+  const ids = nodeEls().map((e) => e.data.id!);
+  const cy = cytoscape({ headless: true });
+  ids.forEach((id, i) => cy.add({ group: "nodes", data: { id }, position: { x: i * 10, y: -i } }));
+  act(() => h.props!.onReady?.(cy));
+  cy.getElementById(RESOLVER).position({ x: 500, y: 600 });
+  // Only the dragged node is reported; every node's position is stored.
+  act(() => h.props!.onDragEnd({ [RESOLVER]: { x: 500, y: 600 } }));
+  const all = Object.fromEntries(ids.map((id, i) => [id, id === RESOLVER ? { x: 500, y: 600 } : { x: i * 10, y: -i }]));
+  expect(callLayout()).toEqual({ positions: all });
+  expect(useWorkspace.getState().dirty).toBe(true);
+  // The stored positions are the graph's from now on.
+  expect(nodeEls().find((e) => e.data.id === RESOLVER)!.position).toEqual({ x: 500, y: 600 });
+  expect(h.props!.initialLayout).toEqual({ positions: all });
+});
+
+test("saved_positions_survive_a_filter_toggle", async () => {
+  vi.spyOn(api, "txTrace").mockResolvedValue(ready(ensFrames));
+  const saved = { [lcSender]: { x: 1, y: 2 }, [RESOLVER]: { x: 300, y: -40 } };
+  useTabs.getState().setCallLayout(HASH, saved);
+  renderCalls();
+  await screen.findByRole("tree");
+  expect(h.props!.initialLayout).toEqual({ positions: saved });
+  const placed = () => Object.fromEntries(nodeEls().filter((e) => e.position).map((e) => [e.data.id, e.position]));
+  expect(placed()).toEqual(saved);
+  const before = nodeEls().length;
+
+  fireEvent.click(screen.getByRole("checkbox", { name: "Show read-only calls" }));
+  // More parties are drawn; the saved ones keep their positions, the new ones are left to the layout.
+  expect(nodeEls().length).toBeGreaterThan(before);
+  expect(placed()).toEqual(saved);
+  expect(h.props!.initialLayout).toEqual({ positions: saved });
+  fireEvent.click(screen.getByRole("checkbox", { name: "Show read-only calls" }));
+  expect(placed()).toEqual(saved);
 });

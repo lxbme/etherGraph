@@ -14,7 +14,7 @@ import { shortAddr } from "../../lib/address";
 import { formatTime } from "../../lib/format";
 import { ResizableSide } from "../../shell/ResizableSide";
 import { useJobProgress, useQuota, type JobProgressEvent } from "../../shell/statusStore";
-import { useTxSnapshot } from "../../shell/tabs";
+import { useTabs, useTxSnapshot } from "../../shell/tabs";
 import { overlayIdentity, useLiveIdentities } from "../../workspace/snapshot";
 import type { FlowNodes } from "../txdetail/common";
 import { CallFrameDetail } from "./CallFrameDetail";
@@ -186,6 +186,10 @@ export function CallTreePanel({
   /** Bumped to scroll the selected row into view. */
   const [reveal, setReveal] = useState(0);
   const identifying = useIdentifying((s) => s.running);
+  const callPositions = useTabs((s) => {
+    const entry = s.tabs.find((x) => x.id === hash.toLowerCase());
+    return entry && "kind" in entry ? entry.callLayout?.positions : undefined;
+  });
 
   const rows = useMemo(() => treeRows(frames, filter, collapsed), [frames, filter, collapsed]);
   const graph = useMemo(() => buildCallGraph(frames, filter), [frames, filter]);
@@ -270,7 +274,16 @@ export function CallTreePanel({
         className="calltree__body"
         storageKey="ethergraph.callTreeWidth"
         defaultWidth="clamp(320px, 42%, 640px)"
-        main={<CallGraph hash={hash} nodes={graphNodes} edges={graph.edges} highlightedEdge={highlightedEdge} onTapEdge={onTapEdge} />}
+        main={
+          <CallGraph
+            hash={hash}
+            nodes={graphNodes}
+            edges={graph.edges}
+            highlightedEdge={highlightedEdge}
+            initialPositions={callPositions}
+            onTapEdge={onTapEdge}
+          />
+        }
         side={
           <div className="calltree__side">
             <CallTreeList

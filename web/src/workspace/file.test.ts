@@ -32,6 +32,7 @@ vi.mock("../graph/cyRegistry", () => ({
   setMainCy: vi.fn(),
   getTxCy: vi.fn(() => null),
   registerTxCy: vi.fn(),
+  getCallCy: vi.fn(() => null),
 }));
 vi.mock("../shell/Toasts", () => ({ toast: vi.fn() }));
 
@@ -376,6 +377,19 @@ describe("import", () => {
     expect(useWorkspace.getState()).toMatchObject({ id: 3, dirty: true });
   });
 
+  test("tx_file_carries_call_positions_and_its_snapshot_tab_restores_them", async () => {
+    liveTx(H1);
+    cacheTrace(H1);
+    const calls = { [A]: { x: 1, y: 2 }, [B]: { x: 30, y: -4 } };
+    useTabs.getState().setCallLayout(H1, calls);
+    const file = reparse(await buildFile("tx", { ...OFF, tabHash: H1 }));
+    expect(file.state.tabs[0]).toMatchObject({ hash: H1, call_positions: calls });
+    useTabs.getState().closeAllTx();
+    await importBlob(blobOf(file), vi.fn());
+    expect(txTabs()[0]).toMatchObject({ hash: H1, callLayout: { positions: calls } });
+    expect(txTabs()[0]!.snapshot).toEqual(file.state.tabs[0]!.snapshot);
+  });
+
   test("R1: a tx file for a transaction already open activates that tab and opens no second one", async () => {
     liveTx(H1);
     const file = reparse(await buildFile("tx", { ...ON, tabHash: H1 }));
@@ -485,6 +499,7 @@ describe("malformed or hostile files (Review Focus 4)", () => {
     ["a revert reason without its arguments", (f) => (delete f.state.tabs[0].snapshot.trace[1].revert.args, f)],
     ["a trace with two frames at one path", (f) => (f.state.tabs[0].snapshot.trace.push({ ...f.state.tabs[0].snapshot.trace[1] }), f)],
     ["a tab view that is neither flow nor calls", (f) => ((f.state.tabs[0].view = "graph"), f)],
+    ["call-graph positions that are not numbers", (f) => ((f.state.tabs[0].call_positions = { [A]: { x: "1", y: 2 } }), f)],
     ["tx tab without a snapshot", (f) => (delete f.state.tabs[0].snapshot, f)],
     ["tx tab whose snapshot is another transaction", (f) => ((f.state.tabs[0].snapshot.flow.tx.hash = H2), f)],
     ["tx tab with a bad hash", (f) => ((f.state.tabs[0].hash = "0x12"), f)],
@@ -521,6 +536,14 @@ describe("malformed or hostile files (Review Focus 4)", () => {
     const r = parseFile(JSON.stringify(bad));
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toContain("proxies");
+  });
+
+  test("hostile call-graph positions are rejected naming call_positions", () => {
+    const bad = JSON.parse(JSON.stringify(good)) as { state: { tabs: { call_positions?: unknown }[] } };
+    bad.state.tabs[0]!.call_positions = { [A]: { x: 1, y: "<img>" } };
+    const r = parseFile(JSON.stringify(bad));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toContain("call_positions");
   });
 
   test("not JSON", async () => {

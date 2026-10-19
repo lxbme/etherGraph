@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "../api/endpoints";
 import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
 import { useCanvasMetrics } from "../graph/canvasMetrics";
-import { getTxCy } from "../graph/cyRegistry";
+import { getCallCy, getTxCy } from "../graph/cyRegistry";
 import { useGraph } from "../graph/store";
 import { useTabs } from "../shell/tabs";
 import { deserialize, serialize, type WorkspaceStateV2 } from "./serialize";
@@ -33,6 +33,7 @@ vi.mock("../graph/cyRegistry", () => ({
   setMainCy: vi.fn(),
   getTxCy: vi.fn(() => null),
   registerTxCy: vi.fn(),
+  getCallCy: vi.fn(() => null),
 }));
 const m = vi.mocked(api);
 
@@ -66,6 +67,7 @@ const v1 = () => json(serialize((g().setCenters([A]), g()), VP, { nodes: [A] }))
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getTxCy).mockReturnValue(null);
+  vi.mocked(getCallCy).mockReturnValue(null);
   useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 0 });
   g().reset();
   useTabs.setState({ tabs: [{ id: "graph" }], active: "graph" });
@@ -221,6 +223,69 @@ describe("tx tabs round-trip", () => {
     vi.spyOn(cy, "width").mockReturnValue(0);
     vi.mocked(getTxCy).mockReturnValue(cy);
     expect(captureState().tabs).toEqual([{ hash: H1, positions: { [A]: { x: 9, y: 9 } }, viewport: layout.viewport }]);
+  });
+});
+
+describe("call-graph positions", () => {
+  const CALLS = { [A]: { x: 1, y: 2 }, [B]: { x: -3, y: 4.5 } };
+
+  test("call_positions_round_trip", async () => {
+    useTabs.setState({ tabs: [{ id: "graph" }, txTab(H1, { view: "calls" }), txTab(H2)], active: H1 });
+    // The live call canvas wins over what the tab last stored.
+    useTabs.getState().setCallLayout(H1, { [A]: { x: 0, y: 0 } });
+    vi.mocked(getCallCy).mockImplementation((h) => (h === H1 ? canvas(CALLS, VP) : null));
+    const saved = json(captureState());
+    expect(saved.tabs).toEqual([{ hash: H1, view: "calls", call_positions: CALLS }, { hash: H2 }]);
+    expect(deserialize(saved, 2)).toEqual({ ok: true, state: saved });
+
+    vi.mocked(getCallCy).mockReturnValue(null);
+    useTabs.setState({ tabs: [{ id: "graph" }], active: "graph" });
+    m.workspace.mockResolvedValue(dto({ state: saved as never }));
+    await loadWorkspace(7);
+    const open = useTabs.getState().tabs;
+    expect(open[1]).toMatchObject({ hash: H1, view: "calls", callLayout: { positions: CALLS } });
+    expect(open[2]).not.toHaveProperty("callLayout");
+    // Saved again before the call view is shown: the restored positions are kept.
+    expect(captureState().tabs[0]).toEqual({ hash: H1, view: "calls", call_positions: CALLS });
+  });
+
+  test("bad_call_positions_are_rejected", () => {
+    for (const call_positions of [{ [A]: { x: "1", y: 2 } }, { [A]: { x: 1 } }, { [A]: null }, [], "x", 3]) {
+      expect(deserialize({ graph: v1(), tabs: [{ hash: H1, call_positions }], active: H1 }, 2)).toEqual({
+        ok: false,
+        reason: "Invalid call_positions",
+      });
+    }
+    expect(deserialize({ graph: v1(), tabs: [{ hash: H1, call_positions: CALLS }], active: H1 }, 2).ok).toBe(true);
+  });
+
+  test("old_state_without_call_positions_opens", async () => {
+    const state = { graph: v1(), tabs: [{ hash: H1, view: "calls", positions: CALLS }], active: H1 };
+    m.workspace.mockResolvedValue(dto({ state: json(state) as never }));
+    await expect(loadWorkspace(7)).resolves.toBe(true);
+    const tab = useTabs.getState().tabs[1]!;
+    expect(tab).toMatchObject({ hash: H1, view: "calls", layout: { positions: CALLS } });
+    expect(tab).not.toHaveProperty("callLayout");
+    expect(captureState().tabs).toEqual([{ hash: H1, view: "calls", positions: CALLS }]);
+  });
+
+  test("captured_from_tab_state_when_the_call_view_is_not_mounted", () => {
+    useTabs.setState({ tabs: [{ id: "graph" }, txTab(H1)], active: H1 });
+    useTabs.getState().setCallLayout(H1, CALLS);
+    // Showing the asset flow: the call canvas is unmounted.
+    expect(captureState().tabs).toEqual([{ hash: H1, call_positions: CALLS }]);
+    // A call canvas with nothing drawn yet (its trace still loading) keeps them too.
+    vi.mocked(getCallCy).mockReturnValue(canvas({}, VP));
+    expect(captureState().tabs).toEqual([{ hash: H1, call_positions: CALLS }]);
+    // Empty positions are not written.
+    useTabs.getState().setCallLayout(H1, {});
+    expect(captureState().tabs).toEqual([{ hash: H1 }]);
+  });
+
+  test("set_call_layout_ignores_unknown_tabs", () => {
+    const before = useTabs.getState().tabs;
+    useTabs.getState().setCallLayout(H3, CALLS);
+    expect(useTabs.getState().tabs).toEqual(before);
   });
 });
 

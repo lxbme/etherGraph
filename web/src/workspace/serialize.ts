@@ -20,7 +20,7 @@ export interface WorkspaceStateV1 {
 
 export type Viewport = { zoom: number; pan: { x: number; y: number } };
 
-/** An open transaction tab: its view, its detail section and the layout of its flow graph. */
+/** An open transaction tab: its view, its detail section and the layouts of its flow and call graphs. */
 export interface TxTabStateV2 {
   hash: string;
   /** Written only for the call tree; absent (older states too) means the asset flow. */
@@ -28,6 +28,8 @@ export interface TxTabStateV2 {
   detail_tab?: TxDetailTab;
   positions?: Record<string, Pos>;
   viewport?: Viewport;
+  /** Call-graph node positions. Absent when the call graph was never drawn or moved, and in older states. */
+  call_positions?: Record<string, Pos>;
   snapshot?: TxSnapshot;
 }
 
@@ -138,6 +140,9 @@ export function deserialize(v: unknown, schemaVersion: number): Parsed<Workspace
     }
     if (tab.positions !== undefined && !isPositions(tab.positions)) return bad(t("ws.err.field", { field: "positions" }));
     if (tab.viewport !== undefined && !isViewport(tab.viewport)) return bad(t("ws.err.field", { field: "viewport" }));
+    if (tab.call_positions !== undefined && !isPositions(tab.call_positions)) {
+      return bad(t("ws.err.field", { field: "call_positions" }));
+    }
     if (tab.snapshot !== undefined && !isTxSnapshot(tab.snapshot)) return bad(t("ws.err.field", { field: "snapshot" }));
     tabs.push({ ...(tab as unknown as TxTabStateV2), hash });
   }
