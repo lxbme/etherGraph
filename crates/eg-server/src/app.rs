@@ -43,6 +43,7 @@ pub fn router(state: AppState) -> Router {
         .route("/transfers", get(transfers::list))
         .route("/tx/{hash}", get(tx::tx))
         .route("/tx/{hash}/raw", get(tx::raw))
+        .route("/tx/{hash}/trace", get(tx::trace))
         .route("/labels", get(labels::list).post(labels::create))
         .route("/labels/{id}", delete(labels::delete))
         .route(

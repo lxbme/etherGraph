@@ -483,6 +483,8 @@ async fn cross_site_reads_start_no_work(pool: PgPool) {
         }
         let (st, v) = get_from(&app, &tx, Some(site)).await;
         assert_not_found(st, &v);
+        let (st, v) = get_from(&app, &format!("{tx}/trace"), Some(site)).await;
+        assert_not_found(st, &v);
         let (st, v) = get_from(&app, "/api/search?q=vitalik.eth", Some(site)).await;
         assert_not_found(st, &v);
         assert_eq!(job_count(&state).await, 0, "{site}");
@@ -507,6 +509,48 @@ async fn cross_site_reads_start_no_work(pool: PgPool) {
 }
 
 // ------------------------------------------------------------------ job keys
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn another_users_trace_job_is_not_found_and_not_cancelled(pool: PgPool) {
+    let (app, state, fake) = test_app(pool).await;
+    let (b, b_id) = second_user(&app, &state).await;
+    seed_tx(&fake);
+    let (_, v) = get(&app, &format!("/api/tx/{HASH:#x}")).await;
+    let job = state.store.claim_next().await.unwrap().unwrap();
+    assert_eq!(job.id, v["job_id"].as_i64().unwrap());
+    FetchTxHandler.run(&job, &state.ctx).await.unwrap();
+    state.store.complete_job(job.id).await.unwrap();
+
+    let trace_uri = format!("/api/tx/{HASH:#x}/trace");
+    let (st, v) = get(&app, &trace_uri).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    let ja = v["job_id"].as_i64().unwrap();
+    let (_, theirs) = get_as(&app, &b, "/api/jobs").await;
+    assert!(!ids(&theirs).contains(&ja), "{theirs}");
+    let uri = format!("/api/jobs/{ja}");
+    let (st, v) = get_as(&app, &b, &uri).await;
+    assert_not_found(st, &v);
+    let (st, v) = delete_as(&app, &b, &uri).await;
+    assert_not_found(st, &v);
+    let (st, v) = delete_as(&app, &b, "/api/jobs?scope=background").await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert!(!v["cancelled"].to_string().contains(&ja.to_string()), "{v}");
+    let job = state.store.job(ja).await.unwrap().unwrap();
+    assert_eq!(job.status, JobStatus::Pending);
+    assert_eq!(job.kind.as_str(), "fetch_trace");
+
+    // The same view by B starts B's own job, which A does not see.
+    let (st, v) = get_as(&app, &b, &trace_uri).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    let jb = v["job_id"].as_i64().unwrap();
+    assert_ne!(ja, jb, "B was handed A's trace job id");
+    assert_eq!(
+        state.store.job(jb).await.unwrap().unwrap().user_id,
+        Some(b_id)
+    );
+    let (_, mine) = get(&app, "/api/jobs").await;
+    assert!(!ids(&mine).contains(&jb), "{mine}");
+}
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn the_same_request_by_two_users_makes_two_jobs(pool: PgPool) {
@@ -596,6 +640,10 @@ async fn every_enqueuing_route_attributes_jobs_to_the_viewer(pool: PgPool) {
     let (st, v) = get_as(&app, &b, &tx_uri).await;
     ok(st, &v);
     assert_eq!(v["status"], "ready");
+    // Opening its call tree fetches the trace.
+    let (st, v) = get_as(&app, &b, &format!("{tx_uri}/trace")).await;
+    ok(st, &v);
+    assert_eq!(v["status"], "pending");
 
     // An unsynced address with sync=auto, and one with stale coverage.
     let (st, v) = get_as(&app, &b, &format!("/api/address/{}?sync=auto", hex(X))).await;
@@ -663,6 +711,7 @@ async fn every_enqueuing_route_attributes_jobs_to_the_viewer(pool: PgPool) {
         [
             "contract_meta",
             "fetch_block",
+            "fetch_trace",
             "fetch_tx",
             "resolve_names",
             "sync_address",

@@ -1,17 +1,22 @@
 //! `GET /api/tx/{hash}`: fund-flow view and detail of one transaction, fetched
 //! on demand. `GET /api/tx/{hash}/raw`: its stored tx and receipt JSON.
+//! `GET /api/tx/{hash}/trace`: its decoded call trace, fetched on demand.
 
 use std::collections::HashMap;
 
 use axum::Json;
 use axum::extract::State;
+use eg_core::source::Priority;
 use eg_core::types::{Address, TransferKind};
-use eg_ingest::{auto_meta_parties, enqueue_fetch_block, enqueue_fetch_tx, load_tx_flow};
+use eg_ingest::{
+    MAX_AUTO_META, auto_meta_parties, auto_meta_targets, decode_trace, enqueue_fetch_block,
+    enqueue_fetch_trace, enqueue_fetch_tx, enqueue_meta_owned, load_tx_flow,
+};
 
 use crate::auth::extract::{CurrentUser, MayStartWork};
 use crate::dto::{
-    DecodedCallDto, DecodedEventDto, FlowDto, TxFlowDto, TxMetaDto, TxRawDto, TxResponseDto,
-    hex_addr, rfc3339,
+    CallFrameDto, CallTraceResponseDto, DecodedCallDto, DecodedEventDto, FlowDto, TxFlowDto,
+    TxMetaDto, TxRawDto, TxResponseDto, hex_addr, rfc3339,
 };
 use crate::error::ApiError;
 use crate::nodes::{enqueue_missing_meta, load_nodes, token_map};
@@ -136,5 +141,65 @@ pub async fn raw(
     Ok(Json(TxRawDto {
         tx: row.raw_tx,
         receipt: row.raw_receipt,
+    }))
+}
+
+/// Only the person viewing a call tree pays for its trace: the fetch job is
+/// started here, never by the fund-flow view. A cross-site request (see
+/// [`MayStartWork`]) is served from the cache and starts nothing. Of the
+/// contracts the default view shows (see [`auto_meta_targets`]), the first
+/// [`MAX_AUTO_META`] are identified automatically, billed to the viewer; the
+/// rest lacking metadata are listed in `undecoded`.
+pub async fn trace(
+    State(s): State<AppState>,
+    user: CurrentUser,
+    MayStartWork(may_start): MayStartWork,
+    ApiPath(raw): ApiPath<String>,
+) -> Result<Json<CallTraceResponseDto>, ApiError> {
+    let hash = parse_tx_hash(&raw)?;
+    let Some(row) = s.store.call_trace(hash).await? else {
+        if s.store.transaction(hash).await?.is_none() {
+            return Err(ApiError::not_found("transaction not fetched"));
+        }
+        if !may_start {
+            return Err(ApiError::not_found("trace not fetched"));
+        }
+        let job_id = enqueue_fetch_trace(&s.ctx, Some(user.id), hash).await?;
+        return Ok(Json(CallTraceResponseDto {
+            status: "pending".into(),
+            frames: None,
+            job_id: Some(job_id),
+            undecoded: Vec::new(),
+        }));
+    };
+
+    // The cap applies to the targets, not to those still lacking metadata,
+    // so repeat views never move on past the first `MAX_AUTO_META`.
+    let targets = auto_meta_targets(&row);
+    let split = targets.len().min(MAX_AUTO_META);
+    let (auto, rest) = targets.split_at(split);
+    let ttl = s.ctx.cfg.meta_ttl;
+    let mut undecoded = s.store.addrs_needing_meta(rest, ttl).await?;
+    let auto = s.store.addrs_needing_meta(auto, ttl).await?;
+    if !may_start {
+        undecoded.splice(0..0, auto);
+    } else if !auto.is_empty()
+        && let Err(e) =
+            enqueue_meta_owned(&s.ctx, Some(user.id), &auto, Priority::Interactive, None).await
+    {
+        tracing::warn!(error = %e, "enqueueing trace metadata jobs failed");
+    }
+
+    let frames = decode_trace(&s.store, &row).await?;
+    Ok(Json(CallTraceResponseDto {
+        status: "ready".into(),
+        frames: Some(
+            frames
+                .iter()
+                .map(|f| CallFrameDto::new(f, &row.delegates))
+                .collect(),
+        ),
+        job_id: None,
+        undecoded: undecoded.into_iter().map(hex_addr).collect(),
     }))
 }

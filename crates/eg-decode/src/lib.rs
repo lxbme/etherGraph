@@ -5,7 +5,9 @@ pub mod multicall;
 pub mod token;
 pub mod transfers;
 
-pub use abi::{DecodedArg, DecodedCall, DecodedEvent, decode_call, decode_event};
+pub use abi::{
+    DecodedArg, DecodedCall, DecodedError, DecodedEvent, decode_call, decode_error, decode_event,
+};
 pub use ens::{
     DecodeError, ReverseResult, decode_resolve_addr, decode_reverse, dns_encode,
     encode_resolve_addr, encode_reverse, namehash, normalize,

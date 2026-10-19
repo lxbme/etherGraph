@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use eg_core::filter::Edge;
-use eg_core::source::{Priority, TokenInfo};
+use eg_core::source::{CallKind, Priority, TokenInfo};
 use eg_core::types::{Address, Transfer, TransferKind};
 use eg_store::{AuditRow, JobRow, LabelRow, SyncRow};
 use serde::{Deserialize, Serialize};
@@ -1022,6 +1022,105 @@ impl From<&eg_ingest::Authorization> for AuthorizationDto {
 pub struct TxRawDto {
     pub tx: serde_json::Value,
     pub receipt: serde_json::Value,
+}
+
+/// `GET /api/tx/{hash}/trace`: the decoded call trace once cached, else the
+/// job fetching it.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CallTraceResponseDto {
+    #[ts(type = r#""ready" | "pending""#)]
+    pub status: String,
+    /// Pre-order (a parent before its children); set when `ready`.
+    pub frames: Option<Vec<CallFrameDto>>,
+    /// Set when `pending`: the fetch job to watch over SSE.
+    #[ts(type = "number | null")]
+    pub job_id: Option<i64>,
+    /// Callees shown by default that still lack metadata and were not
+    /// identified automatically (past the per-trace cap); `POST
+    /// /api/identify` takes them.
+    pub undecoded: Vec<String>,
+}
+
+/// One frame of a call trace. Wei amounts are decimal strings, bytes `0x` hex.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct CallFrameDto {
+    /// `[]` is the root, `[1, 0]` the first child of the root's second child.
+    pub path: Vec<u32>,
+    #[ts(
+        type = r#""call" | "staticcall" | "delegatecall" | "callcode" | "create" | "create2" | "selfdestruct""#
+    )]
+    pub kind: String,
+    pub from: String,
+    /// The callee; for a create, the new contract (null when it failed); for
+    /// a self-destruct, the beneficiary.
+    pub to: Option<String>,
+    pub value: String,
+    /// Calldata; for a create, the init code.
+    pub input: String,
+    /// Return or revert data; for a create, the deployed code.
+    pub output: Option<String>,
+    #[ts(type = "number")]
+    pub gas: u64,
+    #[ts(type = "number | null")]
+    pub gas_used: Option<u64>,
+    /// The source's failure text, e.g. `"Reverted"`.
+    pub error: Option<String>,
+    /// Null without an ABI that matches the selector: show the raw selector.
+    pub call: Option<DecodedCallDto>,
+    /// The decoded revert data of a failed frame.
+    pub revert: Option<DecodedErrorDto>,
+    /// The EIP-7702 delegate of `to` in this transaction, whose ABI decodes
+    /// its calls.
+    pub via_delegate: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct DecodedErrorDto {
+    pub name: String,
+    pub args: Vec<DecodedArgDto>,
+}
+
+fn call_kind(k: CallKind) -> &'static str {
+    match k {
+        CallKind::Call => "call",
+        CallKind::StaticCall => "staticcall",
+        CallKind::DelegateCall => "delegatecall",
+        CallKind::CallCode => "callcode",
+        CallKind::Create => "create",
+        CallKind::Create2 => "create2",
+        CallKind::SelfDestruct => "selfdestruct",
+    }
+}
+
+impl CallFrameDto {
+    pub fn new(d: &eg_ingest::DecodedFrame, delegates: &HashMap<Address, Address>) -> Self {
+        let f = &d.frame;
+        let via_delegate = f.to.and_then(|to| delegates.get(&to).copied());
+        Self {
+            path: f.path.clone(),
+            kind: call_kind(f.kind).to_owned(),
+            from: hex_addr(f.from),
+            to: f.to.map(hex_addr),
+            value: f.value.to_string(),
+            input: format!("{:#x}", f.input),
+            output: f.output.as_ref().map(|o| format!("{o:#x}")),
+            gas: f.gas,
+            gas_used: f.gas_used,
+            error: f.error.clone(),
+            call: d
+                .call
+                .as_ref()
+                .map(|c| DecodedCallDto::new(c, via_delegate)),
+            revert: d.revert.as_ref().map(|e| DecodedErrorDto {
+                name: e.name.clone(),
+                args: e.args.iter().map(DecodedArgDto::from).collect(),
+            }),
+            via_delegate: via_delegate.map(hex_addr),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

@@ -1,7 +1,7 @@
 use alloy_dyn_abi::{DynSolValue, EventExt, JsonAbiExt};
 use alloy_json_abi::{Event, JsonAbi};
 use alloy_primitives::{Address, B256, Bytes};
-use alloy_sol_types::SolEvent;
+use alloy_sol_types::{Panic, Revert, SolError, SolEvent};
 use eg_core::source::RawLog;
 
 use crate::transfers::{Approval, TransferEv, topic_address};
@@ -16,6 +16,13 @@ pub struct DecodedArg {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DecodedCall {
     pub signature: String,
+    pub name: String,
+    pub args: Vec<DecodedArg>,
+}
+
+/// A decoded revert: `Error(string)`, `Panic(uint256)` or a custom error.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecodedError {
     pub name: String,
     pub args: Vec<DecodedArg>,
 }
@@ -76,6 +83,41 @@ pub fn decode_call(abi: &JsonAbi, input: &[u8]) -> Option<DecodedCall> {
     Some(DecodedCall {
         signature: func.signature(),
         name: func.name.clone(),
+        args,
+    })
+}
+
+/// Decodes revert data: the built-in `Error(string)` (`0x08c379a0`) and
+/// `Panic(uint256)` (`0x4e487b71`), else a custom error of `abi` with a
+/// matching selector. `None` when nothing matches or the data does not decode.
+pub fn decode_error(abi: Option<&JsonAbi>, output: &[u8]) -> Option<DecodedError> {
+    let selector = output.get(..4)?;
+    if selector == Revert::SELECTOR {
+        let r = Revert::abi_decode(output).ok()?;
+        return Some(DecodedError {
+            name: "Error".into(),
+            args: vec![arg("reason", "string", r.reason)],
+        });
+    }
+    if selector == Panic::SELECTOR {
+        let p = Panic::abi_decode(output).ok()?;
+        return Some(DecodedError {
+            name: "Panic".into(),
+            args: vec![arg("code", "uint256", p.code.to_string())],
+        });
+    }
+    let err = abi?
+        .errors()
+        .find(|e| e.selector().as_slice() == selector)?;
+    let values = err.abi_decode_input(&output[4..]).ok()?;
+    let args = err
+        .inputs
+        .iter()
+        .zip(values.iter())
+        .map(|(p, v)| arg(&p.name, &p.ty, fmt_value(v)))
+        .collect();
+    Some(DecodedError {
+        name: err.name.clone(),
         args,
     })
 }
@@ -219,6 +261,7 @@ pub fn decode_event(abi: Option<&JsonAbi>, log: &RawLog) -> DecodedEvent {
 mod tests {
     use super::*;
     use alloy_primitives::U256;
+    use alloy_sol_types::{Panic, Revert, SolError};
 
     const ERC20_ABI: &str = r#"[
       {"type":"function","name":"transfer","stateMutability":"nonpayable",
@@ -266,6 +309,57 @@ mod tests {
         let abi: JsonAbi = serde_json::from_str(ERC20_ABI).unwrap();
         assert!(decode_call(&abi, &[1, 2, 3, 4, 0, 0]).is_none());
         assert!(decode_call(&abi, &[1]).is_none());
+    }
+
+    const ERRORS_ABI: &str = r#"[
+      {"type":"error","name":"InsufficientBalance",
+       "inputs":[{"name":"available","type":"uint256"},{"name":"required","type":"uint256"}]}
+    ]"#;
+
+    #[test]
+    fn decodes_error_string() {
+        let out = Revert::from("nope").abi_encode();
+        let e = decode_error(None, &out).unwrap();
+        assert_eq!(e.name, "Error");
+        assert_eq!(e.args, vec![arg("reason", "string", "nope".into())]);
+    }
+
+    #[test]
+    fn decodes_panic_code() {
+        let out = Panic::from(0x11u64).abi_encode();
+        let e = decode_error(None, &out).unwrap();
+        assert_eq!(e.name, "Panic");
+        assert_eq!(e.args, vec![arg("code", "uint256", "17".into())]);
+    }
+
+    #[test]
+    fn decodes_custom_error_from_abi() {
+        let abi: JsonAbi = serde_json::from_str(ERRORS_ABI).unwrap();
+        let err = abi.errors().next().unwrap();
+        let mut out = err.selector().to_vec();
+        out.extend_from_slice(&U256::from(3u8).to_be_bytes::<32>());
+        out.extend_from_slice(&U256::from(10u8).to_be_bytes::<32>());
+        let e = decode_error(Some(&abi), &out).unwrap();
+        assert_eq!(e.name, "InsufficientBalance");
+        assert_eq!(
+            e.args,
+            vec![
+                arg("available", "uint256", "3".into()),
+                arg("required", "uint256", "10".into()),
+            ]
+        );
+        // Without the ABI the selector is unknown.
+        assert!(decode_error(None, &out).is_none());
+    }
+
+    #[test]
+    fn unknown_selector_is_none() {
+        let abi: JsonAbi = serde_json::from_str(ERRORS_ABI).unwrap();
+        assert!(decode_error(Some(&abi), &[0xde, 0xad, 0xbe, 0xef, 0, 0]).is_none());
+        assert!(decode_error(Some(&abi), &[]).is_none());
+        assert!(decode_error(None, &[0x08, 0xc3]).is_none());
+        // The Error(string) selector with data that does not decode.
+        assert!(decode_error(None, &[0x08, 0xc3, 0x79, 0xa0, 1]).is_none());
     }
 
     #[test]

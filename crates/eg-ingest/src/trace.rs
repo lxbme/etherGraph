@@ -1,9 +1,20 @@
-//! Call traces: the completeness checks a trace must pass before it is cached.
+//! Call traces: the completeness checks a trace must pass before it is
+//! cached, per-frame decoding, and the contracts a view identifies
+//! automatically.
 
 use std::collections::{HashMap, HashSet};
 
+use alloy_json_abi::JsonAbi;
 use eg_core::source::{CallFrame, CallKind};
-use eg_store::TxRow;
+use eg_core::types::Address;
+use eg_decode::{DecodedCall, DecodedError, decode_call, decode_error};
+use eg_store::{AccountRow, CallTraceRow, Store, StoreError, TxRow};
+
+use crate::txflow::abi_for;
+
+/// Contracts identified automatically per viewed trace; the rest only on
+/// request.
+pub const MAX_AUTO_META: usize = 20;
 
 /// Whether the transaction carries calldata (or init code).
 fn has_input(tx: &TxRow) -> bool {
@@ -98,6 +109,125 @@ pub fn validate_trace(tx: &TxRow, frames: &[CallFrame]) -> Result<(), String> {
     Ok(())
 }
 
+/// One frame with its call and revert data decoded where an ABI allows.
+#[derive(Clone, Debug)]
+pub struct DecodedFrame {
+    pub frame: CallFrame,
+    /// `None` without an ABI matching the selector (or for a create or
+    /// self-destruct, whose input is not calldata).
+    pub call: Option<DecodedCall>,
+    /// The decoded revert data of a failed frame.
+    pub revert: Option<DecodedError>,
+}
+
+/// Decodes each frame with the ABI of its callee: the callee's EIP-7702
+/// delegate in `row.delegates` when it has one, else the callee itself, then
+/// [`abi_for`] (a proxy's implementation ABI). A DELEGATECALL's callee is the
+/// code that runs, so its own ABI applies. Revert data is decoded for frames
+/// with an `error`.
+pub fn decode_frames(
+    row: &CallTraceRow,
+    abis: &HashMap<Address, JsonAbi>,
+    accounts: &HashMap<Address, AccountRow>,
+) -> Vec<DecodedFrame> {
+    row.frames
+        .iter()
+        .map(|f| {
+            let creates = matches!(
+                f.kind,
+                CallKind::Create | CallKind::Create2 | CallKind::SelfDestruct
+            );
+            let abi =
+                f.to.filter(|_| !creates)
+                    .map(|to| row.delegates.get(&to).copied().unwrap_or(to))
+                    .and_then(|a| abi_for(a, abis, accounts));
+            let call = abi
+                .filter(|_| !f.input.is_empty())
+                .and_then(|abi| decode_call(abi, &f.input));
+            let revert = f
+                .error
+                .as_ref()
+                .and(f.output.as_ref())
+                .and_then(|out| decode_error(abi, out));
+            DecodedFrame {
+                frame: f.clone(),
+                call,
+                revert,
+            }
+        })
+        .collect()
+}
+
+/// Whether each frame is shown under the default filter: neither it nor an
+/// ancestor is a STATICCALL. `frames` is in pre-order, so a parent comes
+/// before its children.
+fn default_visible(frames: &[CallFrame]) -> Vec<bool> {
+    let mut hidden: HashSet<&[u32]> = HashSet::new();
+    frames
+        .iter()
+        .map(|f| {
+            let parent_hidden = f
+                .path
+                .split_last()
+                .is_some_and(|(_, parent)| hidden.contains(parent));
+            if parent_hidden || f.kind == CallKind::StaticCall {
+                hidden.insert(f.path.as_slice());
+                false
+            } else {
+                true
+            }
+        })
+        .collect()
+}
+
+/// The contracts a view of this trace identifies: the distinct callees of
+/// the frames shown under the default filter (see [`default_visible`]), each
+/// followed by its EIP-7702 delegate, in first-appearance order.
+pub fn auto_meta_targets(row: &CallTraceRow) -> Vec<Address> {
+    let mut seen = HashSet::new();
+    row.frames
+        .iter()
+        .zip(default_visible(&row.frames))
+        .filter(|(_, visible)| *visible)
+        .filter_map(|(f, _)| f.to)
+        .flat_map(|to| [Some(to), row.delegates.get(&to).copied()])
+        .flatten()
+        .filter(|a| seen.insert(*a))
+        .collect()
+}
+
+/// Loads the accounts and ABIs [`decode_frames`] needs (callees, their
+/// delegates and proxy implementations) and decodes `row`.
+pub async fn decode_trace(
+    store: &Store,
+    row: &CallTraceRow,
+) -> Result<Vec<DecodedFrame>, StoreError> {
+    let mut addrs: Vec<Address> = row
+        .frames
+        .iter()
+        .filter_map(|f| f.to)
+        .chain(row.delegates.values().copied())
+        .collect();
+    addrs.sort();
+    addrs.dedup();
+    let accounts: HashMap<Address, AccountRow> = store
+        .accounts(&addrs)
+        .await?
+        .into_iter()
+        .map(|a| (a.address, a))
+        .collect();
+    addrs.extend(accounts.values().filter_map(|a| a.implementation));
+    addrs.sort();
+    addrs.dedup();
+    let abis: HashMap<Address, JsonAbi> = store
+        .abis(&addrs)
+        .await?
+        .into_iter()
+        .filter_map(|(a, json)| Some((a, serde_json::from_str(&json?).ok()?)))
+        .collect();
+    Ok(decode_frames(row, &abis, &accounts))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,5 +300,75 @@ mod tests {
         assert!(err.contains("a sibling is missing"), "{err}");
         let two_roots = [ok[0].clone(), ok[0].clone()];
         assert!(validate_trace(&t, &two_roots).is_err());
+    }
+
+    fn row(frames: Vec<CallFrame>, delegates: &[(Address, Address)]) -> CallTraceRow {
+        CallTraceRow {
+            hash: B256::repeat_byte(9),
+            frames,
+            delegates: delegates.iter().copied().collect(),
+            source: "fake".into(),
+            fetched_at: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+        }
+    }
+
+    #[test]
+    fn auto_targets_skip_static_subtrees_and_follow_delegates() {
+        let a = |b| Some(Address::repeat_byte(b));
+        let r = row(
+            vec![
+                frame(&[], CallKind::Call, a(0x10), 3),
+                frame(&[0], CallKind::StaticCall, a(0x11), 1),
+                frame(&[0, 0], CallKind::Call, a(0x12), 0),
+                frame(&[1], CallKind::DelegateCall, a(0x13), 0),
+                frame(&[2], CallKind::Call, a(0x10), 0),
+            ],
+            &[(Address::repeat_byte(0x10), Address::repeat_byte(0xde))],
+        );
+        assert_eq!(
+            auto_meta_targets(&r),
+            vec![
+                Address::repeat_byte(0x10),
+                Address::repeat_byte(0xde),
+                Address::repeat_byte(0x13),
+            ]
+        );
+    }
+
+    #[test]
+    fn frames_decode_with_the_delegates_abi_and_revert_without_one() {
+        let abi: JsonAbi = serde_json::from_str(
+            r#"[{"type":"function","name":"ping","inputs":[],"outputs":[],"stateMutability":"nonpayable"}]"#,
+        )
+        .unwrap();
+        let ping = abi.functions().next().unwrap().selector().to_vec();
+        let (callee, delegate) = (Address::repeat_byte(0x10), Address::repeat_byte(0xde));
+        let mut root = frame(&[], CallKind::Call, Some(callee), 1);
+        root.input = Bytes::from(ping.clone());
+        let mut child = frame(&[0], CallKind::Create, Some(Address::repeat_byte(0x11)), 0);
+        child.input = Bytes::from(ping);
+        child.error = Some("Reverted".into());
+        // Panic(0x01)
+        let mut out = vec![0x4e, 0x48, 0x7b, 0x71];
+        out.extend_from_slice(&U256::from(1u8).to_be_bytes::<32>());
+        child.output = Some(Bytes::from(out));
+        let abis = HashMap::from([(delegate, abi)]);
+
+        let plain = decode_frames(
+            &row(vec![root.clone(), child.clone()], &[]),
+            &abis,
+            &HashMap::new(),
+        );
+        assert!(plain[0].call.is_none());
+        let d = decode_frames(
+            &row(vec![root, child], &[(callee, delegate)]),
+            &abis,
+            &HashMap::new(),
+        );
+        assert_eq!(d[0].call.as_ref().map(|c| c.name.as_str()), Some("ping"));
+        assert!(d[0].revert.is_none());
+        // A create's input is init code, never decoded as a call.
+        assert!(d[1].call.is_none());
+        assert_eq!(d[1].revert.as_ref().map(|e| e.name.as_str()), Some("Panic"));
     }
 }

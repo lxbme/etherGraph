@@ -68,7 +68,7 @@ pub struct TxFlow {
 
 /// The ABI to decode `addr`'s calls and events with: a proxy's implementation
 /// ABI when known, else the address's own.
-fn abi_for<'a>(
+pub(crate) fn abi_for<'a>(
     addr: Address,
     abis: &'a HashMap<Address, JsonAbi>,
     accounts: &HashMap<Address, AccountRow>,

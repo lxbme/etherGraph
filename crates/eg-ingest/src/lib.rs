@@ -24,5 +24,7 @@ pub use estimate::{Estimate, estimate, remaining_calls};
 pub use events::{Audience, Event, EventBus, Listener, NameItem, UserEvents};
 pub use handlers::default_handlers;
 pub use runner::{JobCtx, JobError, JobHandler, Runner};
-pub use trace::validate_trace;
+pub use trace::{
+    DecodedFrame, MAX_AUTO_META, auto_meta_targets, decode_frames, decode_trace, validate_trace,
+};
 pub use txflow::{Completeness, Flow, TxFlow, build_tx_flow, load_tx_flow};
