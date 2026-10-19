@@ -1146,9 +1146,10 @@ a.btn { text-decoration: none; }
  * basis, shrinking to what is left), otherwise wrap to a row of their own. Room is given up by shrink weight: the
  * recipient first, then the "Transfer" label (ellipsised), then the amount (never below 8ch), the symbol (capped,
  * ellipsised) last. The recipient never shows in part, whatever room each line gets (one line, or two side by side):
- * its slot is a one-row wrapping box led by an empty item, so what does not fit breaks onto the clipped second row - the
- * address buttons first, then the arrow and address together (clip, not hidden: focus never scrolls them back). Container
- * queries only drop the label once it would be uselessly small and shorten "+N more" to "+N".
+ * its slot is a one-row wrapping box led by an empty item, so an arrow and address that do not fit break together onto
+ * the clipped second row. It holds nothing focusable (the address has no copy / add buttons here), so a clipped
+ * recipient leaves no invisible tab stop. Container queries only drop the label once it would be uselessly small and
+ * shorten "+N more" to "+N".
  */
 .txbar__transfers { container: txfers / inline-size; display: flex; flex: 1 1 9rem; align-items: center; gap: var(--sp-2); min-width: 0; overflow: hidden; white-space: nowrap; }
 /* An explicit line height, so the one-row boxes below (--h-line) match the line whatever font the address uses. */
@@ -1167,7 +1168,7 @@ a.btn { text-decoration: none; }
 .txbar__transfer > .txbar__to { display: flex; flex: 0 10000000 auto; flex-wrap: wrap; height: var(--h-line); min-width: 0; overflow: clip; }
 .txbar__to::before { content: ""; height: var(--h-line); }
 .txbar__to-addr { display: flex; flex: 1 1 0; align-items: center; gap: var(--sp-1); min-width: min-content; }
-.txbar__to-addr > .addr-cell { flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-start; height: var(--h-line); min-width: min-content; overflow: clip; }
+.txbar__to-addr > .addr-cell { flex: none; }
 .txbar__transfer--muted { opacity: 0.7; }
 .txbar__more { flex: none; }
 .txbar__more-short { display: none; }

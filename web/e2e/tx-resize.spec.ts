@@ -169,6 +169,7 @@ for (const [width, height] of [
       await expect.poll(async () => (await page.getByTestId("tx-view").locator(".txview__graph").boundingBox())!.height).toBeGreaterThan(100);
       await expectFirstTransferReadable(page);
       await expectNoTransferPieceCut(page);
+      await expectTransferTabStopsVisible(page);
       expect(mock.unhandled).toEqual([]);
     });
   }
@@ -231,6 +232,46 @@ async function expectNoTransferPieceCut(page: Page) {
 }
 
 /**
+ * Tabbing through the transfers area stops only on what is fully on screen (the line clips its recipient whole, so the
+ * recipient offers no copy / add buttons to land on), and focus does leave the area again.
+ */
+async function expectTransferTabStopsVisible(page: Page) {
+  const area = page.getByTestId("tx-summary-bar").locator(".txbar__transfers");
+  await expect(area.getByRole("button", { name: /^(Copy|Add to graph)$/ })).toHaveCount(0);
+  // Start from the bar's last focusable control before the transfers area.
+  await area.evaluate((root) => {
+    const before = [...root.closest(".txbar")!.querySelectorAll<HTMLElement>("button, a[href], [tabindex]")].filter(
+      (el) => !!(root.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_PRECEDING) && el.getClientRects().length > 0,
+    );
+    before.at(-1)!.focus();
+  });
+  const stops: string[] = [];
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press("Tab");
+    const stop = await area.evaluate((root) => {
+      const el = document.activeElement;
+      if (!el || !root.contains(el)) return null;
+      const r = el.getBoundingClientRect();
+      let [left, top, right, bottom] = [r.left, r.top, r.right, r.bottom];
+      for (let a = el.parentElement; a && a !== root.parentElement; a = a.parentElement) {
+        if (getComputedStyle(a).overflow === "visible") continue;
+        const c = a.getBoundingClientRect();
+        [left, top, right, bottom] = [Math.max(left, c.left), Math.max(top, c.top), Math.min(right, c.right), Math.min(bottom, c.bottom)];
+      }
+      const whole = r.width > 0 && r.height > 0 && right - left >= r.width - 0.5 && bottom - top >= r.height - 0.5;
+      return `${el.getAttribute("aria-label") ?? el.textContent}: ${whole ? "whole" : "not whole"}`;
+    });
+    if (stop === null) {
+      if (stops.length > 0) break;
+      continue;
+    }
+    stops.push(stop);
+  }
+  expect(stops.length, "Tab reaches the transfers area").toBeGreaterThan(0);
+  expect(stops.filter((s) => !s.endsWith(": whole")), `tab stops ${JSON.stringify(stops)}`).toEqual([]);
+}
+
+/**
  * The first transfer line keeps its amount and symbol on screen once the layout has settled: inside the row that clips
  * them, the symbol whole (or ending in an ellipsis at its cap), and the amount untruncated whenever the recipient shows.
  */
@@ -270,6 +311,7 @@ test("at 1000×560 a single transfer still shows its amount and symbol", async (
   await openTx(page);
   await expectFirstTransferReadable(page);
   await expectNoTransferPieceCut(page);
+  await expectTransferTabStopsVisible(page);
   await expect(page.getByTestId("tx-summary-transfer").first().locator(".txbar__amt")).toHaveText("6,400");
   expect(mock.unhandled).toEqual([]);
 });

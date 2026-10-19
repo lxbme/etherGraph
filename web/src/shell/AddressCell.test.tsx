@@ -41,6 +41,12 @@ test("without onSelect the name is plain text", () => {
   expect(screen.getAllByRole("button")).toHaveLength(2); // copy, add to graph
 });
 
+test("without actions it is the name alone: no copy or add button, the full address still its title", () => {
+  render(<AddressCell address={A} actions={false} />);
+  expect(screen.getByTitle(A)).toHaveTextContent("0xaaaa…aaaa");
+  expect(screen.queryAllByRole("button")).toHaveLength(0);
+});
+
 test("Add to graph reveals a hidden center and confirms with a toast", () => {
   useGraph.getState().addCenter(A);
   useGraph.getState().setHidden([A], true);

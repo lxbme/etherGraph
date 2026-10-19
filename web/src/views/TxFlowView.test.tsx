@@ -705,6 +705,13 @@ describe("token transfers in the summary bar", () => {
     expect(within(line).getByText("4,699.465952")).toHaveAttribute("title", "4,699.465952 USDC");
     expect(within(line).getByTitle(DEST)).toHaveTextContent("0xae39…e72b");
     expect(within(line).queryByText(/more/)).toBeNull();
+    // The recipient is a name only (the line may clip it whole, so it holds nothing to tab to); the Token Transfers tab keeps both actions.
+    expect(within(line).queryByRole("button", { name: "Copy" })).toBeNull();
+    expect(within(line).queryByRole("button", { name: "Add to graph" })).toBeNull();
+    detailTab("Token Transfers");
+    const row = (await detail().findByTitle(DEST)).closest("tr")!;
+    expect(within(row).getAllByRole("button", { name: "Copy" }).length).toBeGreaterThan(0);
+    expect(within(row).getAllByRole("button", { name: "Add to graph" }).length).toBeGreaterThan(0);
   });
 
   test("the headline is a listed token, a scam airdrop is last and muted; +N more opens Token Transfers", async () => {

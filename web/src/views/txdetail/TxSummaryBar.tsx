@@ -39,7 +39,7 @@ function TransferLine({ flow, f, second }: { flow: TxFlowDto; f: FlowDto; second
   return (
     <div className={cls} data-testid="tx-summary-transfer">
       <span className="txbar__method txbar__transfer-label">{t("tx.summary.transfer")}</span>
-      {/* One line only. When room is short the recipient's buttons go, then the whole recipient, then the label ellipsises; the amount truncates last (full value in its title); one within its 8ch floor never shrinks, so keeps no wider floor. */}
+      {/* One line only. When room is short the whole recipient goes, then the label ellipsises; the amount truncates last (full value in its title); one within its 8ch floor never shrinks, so keeps no wider floor. */}
       {full !== null && <span className={full.length > 8 ? "num txbar__amt" : "num txbar__amt txbar__amt--short"} title={`${full} ${label}`}>{full}</span>}
       {f.asset ? (
         <AssetButton tab={flow.tx.hash.toLowerCase()} asset={f.asset.toLowerCase()} tokenId={f.token_id} kind={f.kind} title={`${label} · ${f.asset}`}>
@@ -49,11 +49,12 @@ function TransferLine({ flow, f, second }: { flow: TxFlowDto; f: FlowDto; second
         <span className="txbar__sym" title={label}>{symbol}</span>
       )}
       <TrustBadge trust={f.trust} />
-      {/* The slot the CSS shrinks; the arrow and address inside it show whole or not at all. */}
+      {/* The slot the CSS shrinks; the arrow and address inside it show whole or not at all. No copy / add buttons: a
+          clipped recipient would leave invisible tab stops (the Token Transfers tab offers both; the name's title is the address). */}
       <span className="txbar__to">
         <span className="txbar__to-addr">
           <ArrowRight size={14} className="txbar__arrow" />
-          <AddressCell address={f.to} node={nodeOf(flow, f.to)} />
+          <AddressCell address={f.to} node={nodeOf(flow, f.to)} actions={false} />
         </span>
       </span>
     </div>
