@@ -141,6 +141,8 @@ const HUGE = (2n ** 256n - 1n).toString();
 /** Extra token flows (they sort before the fixture's own USDT transfer). */
 const DATASETS: Record<string, ReturnType<typeof erc20>[]> = {
   "four long amounts": [1, 2, 3, 4].map((n) => erc20(n, HUGE, 18, `LONGSYMBOL${n}`)),
+  // Long enough that two lines side by side must squeeze, short enough that each keeps part of its recipient's room.
+  "four mid-length amounts": [1, 2, 3, 4].map((n) => erc20(n, "123456789012345678901234", 18, `TOKEN${n}`)),
   "a swap": [erc20(1, "4699465952", 6, "USDC"), erc20(2, "1500000000000000000", 18, "WETH")],
   "an unknown token with a very long symbol": [erc20(1, "4699465952", 6, "AVERYLONGUNKNOWNTOKENSYMBOLTHATGOESON")],
 };
@@ -148,6 +150,7 @@ const DATASETS: Record<string, ReturnType<typeof erc20>[]> = {
 for (const [width, height] of [
   [1000, 560],
   [360, 740],
+  [1440, 900],
   [1920, 1080],
 ] as const) {
   for (const [name, extra] of Object.entries(DATASETS)) {
@@ -165,9 +168,66 @@ for (const [width, height] of [
       expect(await bar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
       await expect.poll(async () => (await page.getByTestId("tx-view").locator(".txview__graph").boundingBox())!.height).toBeGreaterThan(100);
       await expectFirstTransferReadable(page);
+      await expectNoTransferPieceCut(page);
       expect(mock.unhandled).toEqual([]);
     });
   }
+}
+
+/**
+ * Every displayed transfer line (and the "+N" button) shows each of its pieces whole or not at all: nothing is cut by
+ * the box that clips it, the address name is never shortened, the "Transfer" label is whole or ends in an ellipsis,
+ * and the arrow and the address buttons never show without the address they belong to.
+ */
+async function expectNoTransferPieceCut(page: Page) {
+  const area = page.getByTestId("tx-summary-bar").locator(".txbar__transfers");
+  await expect
+    .poll(async () =>
+      area.evaluate((root) => {
+        const bad: string[] = [];
+        /** The part of `el` left on screen by its clipping ancestors up to the transfers area: "whole", "none" or "cut". */
+        const shown = (el: Element): "whole" | "none" | "cut" => {
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) return "none";
+          let [left, top, right, bottom] = [r.left, r.top, r.right, r.bottom];
+          for (let a = el.parentElement; a; a = a.parentElement) {
+            if (getComputedStyle(a).overflow !== "visible") {
+              const c = a.getBoundingClientRect();
+              [left, top, right, bottom] = [Math.max(left, c.left), Math.max(top, c.top), Math.min(right, c.right), Math.min(bottom, c.bottom)];
+            }
+            if (a === root) break;
+          }
+          if (right - left <= 0.5 || bottom - top <= 0.5) return "none";
+          return right - left >= r.width - 0.5 && bottom - top >= r.height - 0.5 ? "whole" : "cut";
+        };
+        const lines = [...root.querySelectorAll<HTMLElement>(".txbar__transfer")].filter((l) => shown(l) !== "none");
+        lines.forEach((line, i) => {
+          const tag = (what: string) => `line ${i + 1} ${what}`;
+          const label = line.querySelector<HTMLElement>(".txbar__transfer-label")!;
+          const labelShown = shown(label);
+          if (labelShown === "cut") bad.push(tag("label cut"));
+          if (labelShown === "whole" && label.scrollWidth > label.clientWidth + 1 && getComputedStyle(label).textOverflow !== "ellipsis")
+            bad.push(tag("label clipped without an ellipsis"));
+          for (const sel of [".txbar__amt", ".asset-link", ".txbar__sym", ".tag"]) {
+            const el = line.querySelector(sel);
+            if (el && shown(el) === "cut") bad.push(tag(`${sel} cut`));
+          }
+          const to = line.querySelector<HTMLElement>(".txbar__to")!;
+          const name = to.querySelector<HTMLElement>(".addr-cell__name")!;
+          const nameShown = shown(name);
+          if (nameShown === "cut") bad.push(tag("address cut"));
+          if (nameShown === "whole" && name.scrollWidth > name.clientWidth + 1) bad.push(tag("address shortened"));
+          for (const el of [to.querySelector(".txbar__arrow")!, ...to.querySelectorAll("button")]) {
+            const s = shown(el);
+            if (s === "cut") bad.push(tag(`recipient ${el.getAttribute("aria-label") ?? "arrow"} cut`));
+            if (s === "whole" && nameShown !== "whole") bad.push(tag(`recipient ${el.getAttribute("aria-label") ?? "arrow"} without its address`));
+          }
+        });
+        for (const more of root.querySelectorAll(".txbar__more")) if (shown(more) === "cut") bad.push("+N button cut");
+        return bad;
+      }),
+    { message: "no transfer piece is partly hidden", timeout: 5000 })
+    .toEqual([]);
 }
 
 /**
@@ -209,6 +269,7 @@ test("at 1000×560 a single transfer still shows its amount and symbol", async (
   await page.setViewportSize({ width: 1000, height: 560 });
   await openTx(page);
   await expectFirstTransferReadable(page);
+  await expectNoTransferPieceCut(page);
   await expect(page.getByTestId("tx-summary-transfer").first().locator(".txbar__amt")).toHaveText("6,400");
   expect(mock.unhandled).toEqual([]);
 });

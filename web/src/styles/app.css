@@ -1144,18 +1144,30 @@ a.btn { text-decoration: none; }
 /*
  * Token transfers take at most one line and never add height: they share the bar's last row when there is room (small
  * basis, shrinking to what is left), otherwise wrap to a row of their own. Room is given up by shrink weight: the
- * recipient first, then the "Transfer" label, then the amount (never below 8ch); the symbol is capped and ellipsised.
- * Container queries only remove a piece once it would be uselessly small (no half addresses, no cut-off buttons);
- * with a "+N" button beside the line they trip earlier, and below 300px the button says "+N" alone.
+ * recipient first, then the "Transfer" label (ellipsised), then the amount (never below 8ch), the symbol (capped,
+ * ellipsised) last. The recipient never shows in part, whatever room each line gets (one line, or two side by side):
+ * its slot is a one-row wrapping box led by an empty item, so what does not fit breaks onto the clipped second row - the
+ * address buttons first, then the arrow and address together (clip, not hidden: focus never scrolls them back). Container
+ * queries only drop the label once it would be uselessly small and shorten "+N more" to "+N".
  */
 .txbar__transfers { container: txfers / inline-size; display: flex; flex: 1 1 9rem; align-items: center; gap: var(--sp-2); min-width: 0; overflow: hidden; white-space: nowrap; }
-.txbar__transfer { display: flex; flex: 0 1 auto; align-items: center; gap: var(--sp-2); min-width: 0; overflow: hidden; }
+/* An explicit line height, so the one-row boxes below (--h-line) match the line whatever font the address uses. */
+.txbar__transfer { display: flex; flex: 0 1 auto; align-items: center; gap: var(--sp-2); min-width: 0; overflow: hidden; line-height: var(--lh-row); }
 .txbar__transfer > * { flex: none; }
-.txbar__transfer > .txbar__transfer-label { flex: 0 100 auto; min-width: 0; overflow: hidden; }
-.txbar__transfer > .txbar__amt { flex: 0 1 auto; min-width: 8ch; overflow: hidden; text-overflow: ellipsis; }
+.txbar__transfer-label { display: block; }
+.txbar__transfer > .txbar__transfer-label { flex: 0 1000 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.txbar__transfer > .txbar__amt { flex: 0 10 auto; min-width: 8ch; overflow: hidden; text-overflow: ellipsis; }
+.txbar__transfer > .txbar__amt--short { flex: none; min-width: 0; }
 .txbar__transfer > .asset-link, .txbar__transfer > .txbar__sym { flex: 0 1 auto; min-width: 5ch; max-width: 13ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.txbar__transfer > .txbar__to { flex: 0 1000 auto; min-width: 0; overflow: hidden; }
-.txbar__to { display: inline-flex; align-items: center; gap: var(--sp-1); }
+/*
+ * Weights scale with the base widths, so the recipient's is far above the label's: the label keeps its room until the
+ * recipient has given up all of its own. The smallest weight is 1 - a lone unfrozen item with a weight below 1 is only
+ * given that fraction of the shortfall and would overflow.
+ */
+.txbar__transfer > .txbar__to { display: flex; flex: 0 10000000 auto; flex-wrap: wrap; height: var(--h-line); min-width: 0; overflow: clip; }
+.txbar__to::before { content: ""; height: var(--h-line); }
+.txbar__to-addr { display: flex; flex: 1 1 0; align-items: center; gap: var(--sp-1); min-width: min-content; }
+.txbar__to-addr > .addr-cell { flex: 1 1 auto; flex-wrap: wrap; justify-content: flex-start; height: var(--h-line); min-width: min-content; overflow: clip; }
 .txbar__transfer--muted { opacity: 0.7; }
 .txbar__more { flex: none; }
 .txbar__more-short { display: none; }
@@ -1167,17 +1179,7 @@ a.btn { text-decoration: none; }
   .txbar__more--wide { display: inline-flex; }
   .txbar__more--narrow { display: none; }
 }
-@container txfers (max-width: 449px) {
-  .txbar__transfers--more .txbar__to .addr-cell > :not(.addr-cell__name) { display: none; }
-}
-@container txfers (max-width: 379px) {
-  .txbar__transfers:not(.txbar__transfers--more) .txbar__to .addr-cell > :not(.addr-cell__name) { display: none; }
-}
-@container txfers (max-width: 369px) {
-  .txbar__transfers--more .txbar__to { display: none; }
-}
 @container txfers (max-width: 299px) {
-  .txbar__transfers:not(.txbar__transfers--more) .txbar__to { display: none; }
   .txbar__more-full { display: none; }
   .txbar__more-short { display: inline; }
 }

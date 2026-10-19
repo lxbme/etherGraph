@@ -39,8 +39,8 @@ function TransferLine({ flow, f, second }: { flow: TxFlowDto; f: FlowDto; second
   return (
     <div className={cls} data-testid="tx-summary-transfer">
       <span className="txbar__method txbar__transfer-label">{t("tx.summary.transfer")}</span>
-      {/* One line only. When room is short the CSS drops the recipient's buttons, the recipient, then the label; the amount truncates last (full value in its title). */}
-      {full !== null && <span className="num txbar__amt" title={`${full} ${label}`}>{full}</span>}
+      {/* One line only. When room is short the recipient's buttons go, then the whole recipient, then the label ellipsises; the amount truncates last (full value in its title); one within its 8ch floor never shrinks, so keeps no wider floor. */}
+      {full !== null && <span className={full.length > 8 ? "num txbar__amt" : "num txbar__amt txbar__amt--short"} title={`${full} ${label}`}>{full}</span>}
       {f.asset ? (
         <AssetButton tab={flow.tx.hash.toLowerCase()} asset={f.asset.toLowerCase()} tokenId={f.token_id} kind={f.kind} title={`${label} · ${f.asset}`}>
           {label}
@@ -49,9 +49,12 @@ function TransferLine({ flow, f, second }: { flow: TxFlowDto; f: FlowDto; second
         <span className="txbar__sym" title={label}>{symbol}</span>
       )}
       <TrustBadge trust={f.trust} />
+      {/* The slot the CSS shrinks; the arrow and address inside it show whole or not at all. */}
       <span className="txbar__to">
-        <ArrowRight size={14} className="txbar__arrow" />
-        <AddressCell address={f.to} node={nodeOf(flow, f.to)} />
+        <span className="txbar__to-addr">
+          <ArrowRight size={14} className="txbar__arrow" />
+          <AddressCell address={f.to} node={nodeOf(flow, f.to)} />
+        </span>
       </span>
     </div>
   );
