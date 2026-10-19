@@ -10,6 +10,7 @@ import { useGraph } from "../../graph/store";
 import { useQuota } from "../../shell/statusStore";
 import { clearToasts, Toasts } from "../../shell/Toasts";
 import { ExpandSelfDialog } from "./ExpandSelfDialog";
+import { expandSelf } from "./expandSelf";
 
 const addr = (n: number) => "0x" + n.toString(16).padStart(40, "0");
 const node = (n: number, o: Partial<NodeSummaryDto> = {}): NodeSummaryDto => ({
@@ -44,16 +45,26 @@ function answer(addresses: string[]): GraphResponseDto {
   return { nodes, edges, omitted: Object.fromEntries(addresses.map((a) => [a, 7])), coverage: {} };
 }
 
-function mount(targets: NodeSummaryDto[]) {
+/**
+ * `data` with the targets' summaries in place of its own: the dialog reads the live ones from the result it is
+ * given. Targets the canvas lacks stay out (the dialog falls back to the summaries it was opened with).
+ */
+const withTargets = (targets: NodeSummaryDto[]): GraphResponseDto => {
+  const own = new Map(targets.map((n) => [n.address, n]));
+  return { ...data, nodes: data.nodes.map((n) => own.get(n.address) ?? n) };
+};
+
+function mount(targets: NodeSummaryDto[], canvas: GraphResponseDto = withTargets(targets)) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onClose = vi.fn();
-  render(
+  const view = (d: GraphResponseDto) => (
     <QueryClientProvider client={qc}>
-      <ExpandSelfDialog targets={targets} data={data} onClose={onClose} />
+      <ExpandSelfDialog targets={targets} data={d} onClose={onClose} />
       <Toasts />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  return { onClose };
+  const { rerender } = render(view(canvas));
+  return { onClose, setData: (d: GraphResponseDto) => rerender(view(d)) };
 }
 
 const expandBtn = () => screen.getByRole("button", { name: "Expand" });
@@ -103,7 +114,7 @@ test("an unsynced target: a range, the sync calls; Expand syncs only it (shallow
   expect(screen.getByText("1 address is not synced yet; the exact number is known after the sync")).toBeInTheDocument();
   expect(screen.getByText("1 address is synced first, about 6 calls")).toBeInTheDocument();
   expect(screen.getByText("4,900 calls left today")).toBeInTheDocument();
-  expect(screen.queryByText("Checked calls exceed today's remaining quota")).toBeNull();
+  expect(screen.queryByText("The calls needed exceed today's remaining quota")).toBeNull();
 
   fireEvent.click(expandBtn());
   await waitFor(() => expect(onClose).toHaveBeenCalled());
@@ -156,7 +167,7 @@ test("over the quota and the canvas: warnings, Expand stays enabled", async () =
   // First batch on a full canvas: K_FLOOR 3, so at most 3 - 1 = 2 fresh.
   expect(await screen.findByText("About 2 new nodes")).toBeInTheDocument();
   expect(screen.getByText("2 calls left today")).toBeInTheDocument();
-  expect(screen.getByText("Checked calls exceed today's remaining quota")).toBeInTheDocument();
+  expect(screen.getByText("The calls needed exceed today's remaining quota")).toBeInTheDocument();
   expect(screen.getByText("Over the canvas capacity: the graph may get crowded")).toBeInTheDocument();
   expect(expandBtn()).toBeEnabled();
 });
@@ -179,4 +190,34 @@ test("Escape and a backdrop click close it", async () => {
   expect(onClose).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole("dialog").parentElement!);
   expect(onClose).toHaveBeenCalledTimes(2);
+});
+
+test("more than 50 centers after the expansion: a warning, Expand disabled, and expandSelf refuses without syncing", async () => {
+  // 48 centers (C0 and 47 more) + 3 targets = 51: the live graph request would be rejected.
+  useGraph.getState().setCenters([addr(C0), ...Array.from({ length: 47 }, (_, i) => addr(1000 + i))]);
+  const targets = [node(T, { synced: false }), node(5, { synced: false }), node(6, { synced: false })];
+  const { onClose } = mount(targets);
+  expect(
+    screen.getByText("Centers would exceed 50 (now 51); the server shows at most 50 centers at once. Select fewer addresses or remove some centers first."),
+  ).toBeInTheDocument();
+  expect(expandBtn()).toBeDisabled();
+  fireEvent.click(expandBtn());
+  expect(await expandSelf(targets, 5)).toBe(false);
+  expect(api.sync).not.toHaveBeenCalled();
+  expect(centers()).toHaveLength(48);
+  expect(onClose).not.toHaveBeenCalled();
+});
+
+test("a target that finishes syncing while the dialog is open: the live result's flags win (exact headline, no sync)", async () => {
+  const unsynced: GraphResponseDto = { ...data, nodes: [node(C0), node(T, { synced: false }), node(A)] };
+  const { onClose, setData } = mount([node(T, { synced: false })], unsynced);
+  expect(await screen.findByText("About 2–55 new nodes")).toBeInTheDocument();
+  expect(screen.getByText("1 address is synced first, about 6 calls")).toBeInTheDocument();
+  setData(data); // the refetch after the sync: T is synced now
+  expect(await screen.findByText("About 2 new nodes")).toBeInTheDocument();
+  expect(screen.getByText("No calls needed")).toBeInTheDocument();
+  fireEvent.click(expandBtn());
+  await waitFor(() => expect(onClose).toHaveBeenCalled());
+  expect(api.sync).not.toHaveBeenCalled();
+  expect(centers()).toEqual([addr(C0), addr(T)]);
 });

@@ -194,6 +194,16 @@ describe("toElements", () => {
     expect(below.some((e) => e.data.id === `more:${A}`)).toBe(true);
   });
 
+  test("no proxy when a click would reveal nothing (the shown neighbours already reach the server's maximum)", () => {
+    const full = toElements(
+      nodes,
+      [],
+      { ...state({ centers: [A] }), limits: { [A]: 10 }, reveal: { batch: 12, shown: { [A]: MAX_NEIGHBOUR_LIMIT } } },
+      { [A]: 12 },
+    );
+    expect(full.some((e) => String(e.data.id).startsWith("more"))).toBe(false);
+  });
+
   test("selected pair marks edges in both directions", () => {
     const els = toElements(
       nodes,

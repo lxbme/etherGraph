@@ -128,3 +128,17 @@ test("a frozen (snapshot) graph sends no dry run", async () => {
   expect(result.current.estimate).toBeNull();
   expect(result.current.loading).toBe(true);
 });
+
+test("a target's sync flags are part of the cache key: once it is synced the dry run is sent again, not reused", async () => {
+  const { result, rerender } = renderHook(({ targets }) => useExpandEstimate({ targets, k: 7, data }), {
+    wrapper,
+    initialProps: { targets: [node(T, { synced: false })] },
+  });
+  await waitFor(() => expect(result.current.estimate).not.toBeNull());
+  expect(result.current.estimate!.targets[0]!.pending).toBe(true);
+  expect(edges).toHaveBeenCalledTimes(1);
+  rerender({ targets: [node(T, { synced: true })] });
+  await waitFor(() => expect(edges).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.estimate!.targets[0]!.pending).toBe(false);
+});

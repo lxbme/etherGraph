@@ -143,7 +143,10 @@ export function AddressGraph() {
   const [browsing, setBrowsing] = useState<NodeSummaryDto | null>(null);
   const closeExpand = useCallback(() => setExpanding(null), []);
   const closeBrowse = useCallback(() => setBrowsing(null), []);
-  /** Targets of the single-layer expansion being confirmed (the menu's "Expand…" or the batch bar). */
+  /**
+   * Targets of the single-layer expansion being confirmed (the menu's "Expand…" or the batch bar), as summaries
+   * at click time: the dialog reads the live ones from `data` on every render and keeps these only as a fallback.
+   */
   const [confirming, setConfirming] = useState<NodeSummaryDto[] | null>(null);
   const closeConfirm = useCallback(() => setConfirming(null), []);
   /** Opens the confirm dialog for `ids` that the result knows; making centers turns a snapshot live first. */

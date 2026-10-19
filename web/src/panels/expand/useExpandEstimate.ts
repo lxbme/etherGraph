@@ -4,11 +4,9 @@ import { api } from "../../api/endpoints";
 import type { GraphResponseDto } from "../../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import { estimateExpansion, mergeResults, type Estimate } from "../../graph/estimate";
-import { useGraph } from "../../graph/store";
+import { MAX_CENTERS, useGraph } from "../../graph/store";
 import { preferFor } from "../../graph/useGraphData";
 
-/** Most centers one POST /api/graph/edges accepts. */
-const CENTERS_MAX = 50;
 /** Quiet time after the last change of k before a new dry run. */
 const DEBOUNCE_MS = 250;
 
@@ -29,6 +27,8 @@ function useDebounced<T>(value: T, ms: number): T {
  * per chunk of targets, with the store's filter and sort and the real query's `prefer` (the targets are centers
  * after the expansion, so the real query no longer prefers them), compared with the canvas. No dry run for a
  * snapshot. While a new k settles or loads, `estimate` is the previous one (computed with its own k).
+ * `targets` should be the current result's summaries: their sync flags are part of the cache key, so a target
+ * synced since an earlier dry run (the graph query's staleTime is 30 s) gets a new one, not the cached answer.
  */
 export function useExpandEstimate(args: {
   targets: NodeSummaryDto[];
@@ -49,12 +49,14 @@ export function useExpandEstimate(args: {
     // preferFor reads the hidden flags from the store: `ui` re-runs it when they change.
   }, [data, addresses, ui]);
   const preferKey = useMemo(() => prefer.join(","), [prefer]);
+  /** Each target's synced/syncing flags: a sync adds neighbours the earlier dry run did not see. */
+  const syncKey = targets.map((n) => `${n.synced ? "s" : "-"}${n.syncing ? "y" : "-"}`).join("");
 
   const q = useQuery({
-    queryKey: ["expand-estimate", addresses, settledK, filter, sort, preferKey],
+    queryKey: ["expand-estimate", addresses, settledK, filter, sort, preferKey, syncKey],
     queryFn: async ({ signal }) => {
       const chunks: string[][] = [];
-      for (let i = 0; i < addresses.length; i += CENTERS_MAX) chunks.push(addresses.slice(i, i + CENTERS_MAX));
+      for (let i = 0; i < addresses.length; i += MAX_CENTERS) chunks.push(addresses.slice(i, i + MAX_CENTERS));
       const parts = await Promise.all(
         chunks.map((chunk) =>
           api.graphEdges(

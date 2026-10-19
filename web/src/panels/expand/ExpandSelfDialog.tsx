@@ -1,15 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { messageFor } from "../../api/errors";
 import type { GraphResponseDto } from "../../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import { nodeCapacity, SHALLOW_CALLS } from "../../graph/budget";
 import { useCanvasMetrics } from "../../graph/canvasMetrics";
 import type { TargetEstimate } from "../../graph/estimate";
-import { firstBatchFor, MAX_NEIGHBOUR_LIMIT, useGraph } from "../../graph/store";
+import { firstBatchFor, MAX_CENTERS, MAX_NEIGHBOUR_LIMIT, useGraph } from "../../graph/store";
 import { useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
 import { useQuota } from "../../shell/statusStore";
-import { expandSelf } from "./expandSelf";
+import { centersAfter, expandSelf } from "./expandSelf";
 import { useExpandEstimate } from "./useExpandEstimate";
 
 const lc = (s: string) => s.toLowerCase();
@@ -48,9 +48,16 @@ function facts(row: TargetEstimate, summary: NodeSummaryDto | undefined, k: numb
  * Confirm dialog of a single-layer expansion (spec §3–§4): makes `targets` centers with a per-address limit k,
  * showing how many nodes that adds (a dry run against the current canvas), the sync calls of unsynced targets
  * and the canvas size after. Budgets are soft: going over warns, never blocks; Expand works while estimating.
+ * More than MAX_CENTERS centers after it does block: the graph request would be rejected.
+ * `targets` are the summaries when the dialog was opened; every render reads them from `data` instead (a target
+ * can finish syncing, or a snapshot go live, while it is open), falling back to them only for an address it lacks.
  */
-export function ExpandSelfDialog({ targets, data, onClose }: { targets: NodeSummaryDto[]; data: GraphResponseDto; onClose(): void }) {
+export function ExpandSelfDialog({ targets: opened, data, onClose }: { targets: NodeSummaryDto[]; data: GraphResponseDto; onClose(): void }) {
   const t = useT();
+  const targets = useMemo(() => {
+    const now = new Map(data.nodes.map((n) => [lc(n.address), n]));
+    return opened.map((n) => now.get(lc(n.address)) ?? n);
+  }, [opened, data]);
   const many = targets.length > 1;
   const title = many ? t("expandSelf.titleMany", { count: targets.length }) : t("expandSelf.title", { name: nameOf(targets[0]!) });
   const [k, setK] = useState(() => firstBatchFor(targets.length));
@@ -58,6 +65,8 @@ export function ExpandSelfDialog({ targets, data, onClose }: { targets: NodeSumm
   const invalid = parseK(draft) === null;
   const { estimate, loading, error } = useExpandEstimate({ targets, k, data });
   const quota = useQuota((s) => s.quota);
+  const centerCount = useGraph((s) => centersAfter(s.centers, targets));
+  const tooMany = centerCount > MAX_CENTERS;
   const metrics = useCanvasMetrics();
   const [submitting, setSubmitting] = useState(false);
   const alive = useRef(true);
@@ -92,7 +101,7 @@ export function ExpandSelfDialog({ targets, data, onClose }: { targets: NodeSumm
   };
 
   const confirm = async () => {
-    if (submittingRef.current || invalid) return;
+    if (submittingRef.current || invalid || tooMany) return;
     // A snapshot asks to go live first; that question replaces this dialog.
     const deferred = !!useGraph.getState().frozen;
     submittingRef.current = true;
@@ -172,12 +181,13 @@ export function ExpandSelfDialog({ targets, data, onClose }: { targets: NodeSumm
           {after != null && <span className="expand-self__canvas">{t("expandSelf.canvas", { after, capacity })}</span>}
         </div>
         <div className="expand__warnings" aria-live="polite">
-          {quotaLeft != null && calls > quotaLeft && <div className="dialog__warn">{t("expand.overQuota")}</div>}
+          {tooMany && <div className="dialog__error" role="alert">{t("expandSelf.tooManyCenters", { max: MAX_CENTERS, count: centerCount })}</div>}
+          {quotaLeft != null && calls > quotaLeft && <div className="dialog__warn">{t("expandSelf.overQuota")}</div>}
           {after != null && after > capacity && <div className="dialog__warn">{t("expandSelf.overCanvas")}</div>}
         </div>
         <div className="dialog__actions">
           <button type="button" className="btn" disabled={submitting} onClick={onClose}>{t("common.cancel")}</button>
-          <button type="button" className="btn btn--primary" disabled={invalid || submitting} onClick={confirm}>
+          <button type="button" className="btn btn--primary" disabled={invalid || tooMany || submitting} onClick={confirm}>
             {t("expand.confirm")}
           </button>
         </div>

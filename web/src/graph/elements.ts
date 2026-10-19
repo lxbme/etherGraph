@@ -139,7 +139,8 @@ export function toElements(
     // At the server's maximum limit a click could reveal nothing more.
     if (count > 0 && present.has(c) && (state.limits?.[c] ?? 0) < MAX_NEIGHBOUR_LIMIT) {
       const next = moreNext(count, state.limits?.[c] ?? firstBatch(), state.reveal?.shown[c] ?? 0, state.reveal?.batch ?? K_FLOOR);
-      proxies.push(...moreElements(c, count, next));
+      // Shown neighbours can already reach the maximum: no "click +0" proxy.
+      if (next > 0) proxies.push(...moreElements(c, count, next));
     }
   }
   out.push(...proxies.filter((e) => e.group === "nodes"));

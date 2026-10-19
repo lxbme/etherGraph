@@ -329,4 +329,17 @@ describe("useRevealBatch", () => {
     act(() => useCanvasMetrics.getState().set({ visible: 200 }));
     expect(result.current).toBe(revealBatch());
   });
+
+  test("re-renders only when the batch changes, not on every metrics write", () => {
+    useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 0 });
+    let renders = 0;
+    renderHook(() => {
+      renders++;
+      return useRevealBatch();
+    });
+    const before = renders;
+    act(() => useCanvasMetrics.getState().set({ visible: 0 }));
+    act(() => useCanvasMetrics.getState().set({ width: 960, height: 576 }));
+    expect(renders).toBe(before);
+  });
 });

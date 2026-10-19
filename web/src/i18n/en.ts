@@ -414,6 +414,8 @@ export const en = {
   "expandSelf.quotaLeft": "{count} calls left today",
   "expandSelf.canvas": "Canvas after: about {after} / {capacity} nodes",
   "expandSelf.overCanvas": "Over the canvas capacity: the graph may get crowded",
+  "expandSelf.overQuota": "The calls needed exceed today's remaining quota",
+  "expandSelf.tooManyCenters": "Centers would exceed {max} (now {count}); the server shows at most {max} centers at once. Select fewer addresses or remove some centers first.",
   "interactions.title": "Interactions of {name}",
   "interactions.sort": "Sort",
   "interactions.sort.count": "Count",

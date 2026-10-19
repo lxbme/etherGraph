@@ -416,6 +416,8 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "expandSelf.quotaLeft": "今日剩余额度 {count}",
   "expandSelf.canvas": "展开后画布约 {after} / {capacity} 个节点",
   "expandSelf.overCanvas": "超出画布容量，图可能变得拥挤",
+  "expandSelf.overQuota": "所需调用超过今日剩余额度",
+  "expandSelf.tooManyCenters": "展开后中心将超过 {max} 个（当前 {count} 个），服务器一次最多显示 {max} 个中心。请减少所选地址或先移出一些中心。",
   "interactions.title": "{name} 的交互",
   "interactions.sort": "排序",
   "interactions.sort.count": "笔数",

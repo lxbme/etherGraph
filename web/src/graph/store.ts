@@ -155,6 +155,8 @@ type CanvasSize = { width: number; height: number; visible: number };
 const UNMEASURED_CANVAS_SHARE = 0.6;
 /** Highest neighbour limit the server accepts per center (POST /api/graph/edges clamps to it). */
 export const MAX_NEIGHBOUR_LIMIT = 1000;
+/** Most centers one graph request accepts (the server's `MAX_ADDRESSES`). */
+export const MAX_CENTERS = 50;
 
 /**
  * Neighbour limit of each of `n` centers that receive a first batch at once: the node budget is shared
@@ -182,9 +184,9 @@ export function revealBatch(): number {
   return revealBatchFor(useCanvasMetrics.getState());
 }
 
-/** `revealBatch()` as a hook: re-renders when the canvas size or the visible count changes. */
+/** `revealBatch()` as a hook: re-renders only when the batch itself changes (not on every metrics write). */
 export function useRevealBatch(): number {
-  return revealBatchFor(useCanvasMetrics());
+  return useCanvasMetrics(revealBatchFor);
 }
 
 function revealBatchFor(m: CanvasSize): number {

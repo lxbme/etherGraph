@@ -1,18 +1,32 @@
 import { api } from "../../api/endpoints";
 import { messageFor } from "../../api/errors";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
-import { useGraph } from "../../graph/store";
+import { MAX_CENTERS, useGraph } from "../../graph/store";
+import { t } from "../../i18n";
 import { newBatchId } from "../../lib/batchId";
 import { toast } from "../../shell/Toasts";
 import { offerUndo, SYNC_MAX } from "./expansion";
 
+/** How many centers there are once `targets` are centers too (targets already among `centers` count once). */
+export function centersAfter(centers: readonly string[], targets: readonly NodeSummaryDto[]): number {
+  return new Set([...centers, ...targets.map((n) => n.address)].map((a) => a.toLowerCase())).size;
+}
+
 /**
  * Makes `targets` centers with neighbour limit `k` as one undoable step (spec §3): shallow-syncs only the
  * targets that are neither synced nor syncing (never their neighbours) under a new batch, which Undo cancels.
+ * `targets` should be the current result's summaries: their sync flags decide what is synced.
  * A snapshot asks to go live first and runs again once it is. Resolves false when nothing was expanded
- * (a sync request failed, toasted; or the snapshot question is pending), true after the expansion.
+ * (more than MAX_CENTERS centers after it, which the graph request rejects; a sync request failed; both toasted;
+ * or the snapshot question is pending), true after the expansion.
  */
 export async function expandSelf(targets: NodeSummaryDto[], k: number): Promise<boolean> {
+  const count = centersAfter(useGraph.getState().centers, targets);
+  if (count > MAX_CENTERS) {
+    // The dialog blocks this already; nothing is synced for an expansion the graph could not show.
+    toast(t("expandSelf.tooManyCenters", { max: MAX_CENTERS, count }), "error");
+    return false;
+  }
   if (useGraph.getState().frozen) {
     useGraph.getState().guardLive(() => void expandSelf(targets, k));
     return false;
