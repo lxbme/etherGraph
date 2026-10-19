@@ -72,19 +72,54 @@ pub struct TxFlow {
 /// FiatTokenV2_2 "implements" SignatureChecker, a library it calls); followed,
 /// that second hop would decode calls to the implementation with the
 /// library's ABI. Only `accounts` is consulted, so the guard holds when the
-/// outer proxy's row is loaded with the implementation's.
+/// outer proxy's row is loaded with the implementation's
+/// ([`accounts_with_proxies`]).
 pub fn implementation_of(
     addr: Address,
     accounts: &HashMap<Address, AccountRow>,
+) -> Option<Address> {
+    implementation_among(addr, accounts, &implementations(accounts.values()))
+}
+
+/// The addresses some proxy among `rows` records as its implementation (a
+/// row naming itself excluded): the ones [`implementation_of`] does not
+/// follow. Built once per decode, it spares a scan of every row per lookup.
+pub fn implementations<'a>(rows: impl IntoIterator<Item = &'a AccountRow>) -> HashSet<Address> {
+    rows.into_iter()
+        .filter(|a| a.is_proxy)
+        .filter_map(|a| a.implementation.filter(|i| *i != a.address))
+        .collect()
+}
+
+/// [`implementation_of`] with `implemented` precomputed by [`implementations`]
+/// over (at least) `accounts`' rows.
+pub fn implementation_among(
+    addr: Address,
+    accounts: &HashMap<Address, AccountRow>,
+    implemented: &HashSet<Address>,
 ) -> Option<Address> {
     let implementation = accounts
         .get(&addr)
         .filter(|a| a.is_proxy)
         .and_then(|a| a.implementation)?;
-    let implements_another = accounts
-        .values()
-        .any(|a| a.address != addr && a.is_proxy && a.implementation == Some(addr));
-    (!implements_another).then_some(implementation)
+    (!implemented.contains(&addr)).then_some(implementation)
+}
+
+/// The account rows of `addrs`, plus those of the proxies whose recorded
+/// implementation is one of them ([`Store::proxies_of`]), keyed by address.
+/// Those proxies need not be among `addrs` (a call straight into USDC's
+/// implementation), yet [`implementation_of`] needs them to tell a
+/// misflagged implementation from a proxy, as node summaries do.
+pub(crate) async fn accounts_with_proxies(
+    store: &Store,
+    addrs: &[Address],
+) -> Result<HashMap<Address, AccountRow>, StoreError> {
+    let (own, proxies) = tokio::try_join!(store.accounts(addrs), store.proxies_of(addrs))?;
+    Ok(proxies
+        .into_iter()
+        .chain(own)
+        .map(|a| (a.address, a))
+        .collect())
 }
 
 /// The ABIs to decode `addr`'s calls and events with, in the order tried:
@@ -92,16 +127,18 @@ pub fn implementation_of(
 /// the recorded implementation the guard dropped. That last one keeps a
 /// genuine chain decoding (P → Q → R: Q's own proxy ABI fails, R's decodes),
 /// while a misflagged implementation's own ABI (USDC's FiatToken) wins.
+/// `implemented` is [`implementations`] of `accounts`.
 pub(crate) fn abis_for<'a>(
     addr: Address,
     abis: &'a HashMap<Address, JsonAbi>,
     accounts: &HashMap<Address, AccountRow>,
+    implemented: &HashSet<Address>,
 ) -> impl Iterator<Item = &'a JsonAbi> {
     let recorded = accounts
         .get(&addr)
         .filter(|a| a.is_proxy)
         .and_then(|a| a.implementation);
-    let followed = implementation_of(addr, accounts);
+    let followed = implementation_among(addr, accounts, implemented);
     let dropped = recorded.filter(|_| followed.is_none());
     followed
         .and_then(|i| abis.get(&i))
@@ -116,8 +153,9 @@ fn decode_call_for(
     input: &[u8],
     abis: &HashMap<Address, JsonAbi>,
     accounts: &HashMap<Address, AccountRow>,
+    implemented: &HashSet<Address>,
 ) -> Option<DecodedCall> {
-    abis_for(addr, abis, accounts).find_map(|abi| decode_call(abi, input))
+    abis_for(addr, abis, accounts, implemented).find_map(|abi| decode_call(abi, input))
 }
 
 /// The first of [`abis_for`] the log's emitter that declares its event.
@@ -125,9 +163,10 @@ fn event_abi<'a>(
     log: &RawLog,
     abis: &'a HashMap<Address, JsonAbi>,
     accounts: &HashMap<Address, AccountRow>,
+    implemented: &HashSet<Address>,
 ) -> Option<&'a JsonAbi> {
     let topic0 = log.topics.first()?;
-    abis_for(log.address, abis, accounts).find(|abi| {
+    abis_for(log.address, abis, accounts, implemented).find(|abi| {
         abi.events()
             .any(|e| !e.anonymous && e.selector() == *topic0)
     })
@@ -195,14 +234,15 @@ fn top_call(
     to_delegate: Option<Address>,
     abis: &HashMap<Address, JsonAbi>,
     accounts: &HashMap<Address, AccountRow>,
+    implemented: &HashSet<Address>,
 ) -> Option<(DecodedCall, Option<Address>)> {
     let to = tx.to?;
     let input = input_of(tx)?;
-    if let Some(call) = decode_call_for(to, &input, abis, accounts) {
+    if let Some(call) = decode_call_for(to, &input, abis, accounts, implemented) {
         return Some((call, None));
     }
     let delegate = to_delegate?;
-    let call = decode_call_for(delegate, &input, abis, accounts)?;
+    let call = decode_call_for(delegate, &input, abis, accounts, implemented)?;
     Some((call, Some(delegate)))
 }
 
@@ -223,7 +263,8 @@ fn build(
     accounts: &HashMap<Address, AccountRow>,
 ) -> TxFlow {
     let (delegations, to_delegate) = delegations_of(tx, &auths);
-    let (call, call_via_delegate) = match top_call(tx, to_delegate, abis, accounts) {
+    let implemented = implementations(accounts.values());
+    let (call, call_via_delegate) = match top_call(tx, to_delegate, abis, accounts, &implemented) {
         Some((call, via)) => (Some(call), via),
         None => (None, None),
     };
@@ -274,7 +315,7 @@ fn build(
     let logs: &[RawLog] = receipt.as_ref().map_or(&[], |r| &r.logs);
     let events = logs
         .iter()
-        .map(|l| decode_event(event_abi(l, abis, accounts), l))
+        .map(|l| decode_event(event_abi(l, abis, accounts, &implemented), l))
         .collect();
 
     TxFlow {
@@ -308,12 +349,7 @@ pub async fn load_tx_flow(store: &Store, hash: TxHash) -> Result<Option<TxFlow>,
         &delegations,
     );
     participants.extend(to_delegate.filter(|d| !participants.contains(d)));
-    let accounts: HashMap<Address, AccountRow> = store
-        .accounts(&participants)
-        .await?
-        .into_iter()
-        .map(|a| (a.address, a))
-        .collect();
+    let accounts = accounts_with_proxies(store, &participants).await?;
     let mut needed = participants;
     needed.extend(accounts.values().filter_map(|a| a.implementation));
     needed.sort();
@@ -783,6 +819,12 @@ mod tests {
         let own = HashMap::from([(A, proxy_row(A, A))]);
         assert_eq!(implementation_of(A, &own), Some(A));
         assert_eq!(implementation_of(D, &accounts), None);
+        // The precomputed set: C and D, not A (it names itself).
+        let implemented = implementations(accounts.values().chain(own.values()));
+        assert_eq!(implemented, HashSet::from([C, D]));
+        assert_eq!(implementation_among(B, &accounts, &implemented), Some(C));
+        assert_eq!(implementation_among(C, &accounts, &implemented), None);
+        assert_eq!(implementation_among(A, &own, &implemented), Some(A));
 
         // C's ABI wins over B's own, which decodes the same call under other
         // argument names.

@@ -5,7 +5,9 @@ use std::collections::{HashMap, HashSet};
 
 use eg_core::source::TokenInfo;
 use eg_core::types::{AccountKind, Address, TransferKind, category_rank};
-use eg_ingest::{enqueue_meta, enqueue_names, enqueue_tokens, implementation_of};
+use eg_ingest::{
+    enqueue_meta, enqueue_names, enqueue_tokens, implementation_among, implementations,
+};
 use eg_store::{
     AccountRow, EnsRow, EnsStatus, LabelRow, StatsRow, Store, StoreError, SyncRow, SyncState,
 };
@@ -49,8 +51,7 @@ pub async fn load_nodes(
         accounts.into_iter().map(|a| (a.address, a)).collect();
     // The proxies each node implements, which need not be among the nodes,
     // tell a misflagged implementation from a proxy.
-    let mut known = accounts.clone();
-    known.extend(implementers.into_iter().map(|a| (a.address, a)));
+    let implemented = implementations(accounts.values().chain(&implementers));
     let ens: HashMap<Address, EnsRow> = ens.into_iter().map(|e| (e.address, e)).collect();
     let mut by_addr: HashMap<Address, Vec<LabelRow>> = HashMap::new();
     for l in labels {
@@ -78,7 +79,7 @@ pub async fn load_nodes(
                 n.nonce = st.nonce;
                 n.balance = st.balance.map(|b| b.to_string());
             }
-            n.is_proxy = is_proxy(*a, &known);
+            n.is_proxy = is_proxy(*a, &accounts, &implemented);
             n.token = tokens.get(a).and_then(NodeTokenDto::from_info);
             n
         })
@@ -91,11 +92,17 @@ pub async fn load_nodes(
 }
 
 /// `addr` is flagged a proxy and is not the recorded implementation of
-/// another proxy in `known` ([`implementation_of`]); a flag without a recorded
-/// implementation still counts.
-fn is_proxy(addr: Address, known: &HashMap<Address, AccountRow>) -> bool {
-    known.get(&addr).is_some_and(|a| {
-        a.is_proxy && (a.implementation.is_none() || implementation_of(addr, known).is_some())
+/// another proxy (`implemented`, see [`implementation_among`]); a flag
+/// without a recorded implementation still counts.
+fn is_proxy(
+    addr: Address,
+    accounts: &HashMap<Address, AccountRow>,
+    implemented: &HashSet<Address>,
+) -> bool {
+    accounts.get(&addr).is_some_and(|a| {
+        a.is_proxy
+            && (a.implementation.is_none()
+                || implementation_among(addr, accounts, implemented).is_some())
     })
 }
 
@@ -446,10 +453,17 @@ mod tests {
                 .collect();
         // A → B is a proxy; B is A's implementation (misflagged); D has the
         // flag but no recorded implementation; C has no row.
-        assert!(is_proxy(A, &known));
-        assert!(!is_proxy(b, &known));
-        assert!(is_proxy(d, &known));
-        assert!(!is_proxy(c, &known));
+        let implemented = implementations(known.values());
+        assert!(is_proxy(A, &known, &implemented));
+        assert!(!is_proxy(b, &known, &implemented));
+        assert!(is_proxy(d, &known, &implemented));
+        assert!(!is_proxy(c, &known, &implemented));
+        // A's row need not be among the nodes' own: the implementers loaded
+        // beside them still mark B.
+        let only_b: HashMap<Address, AccountRow> = HashMap::from([(b, known[&b].clone())]);
+        let implemented = implementations(only_b.values().chain([&known[&A]]));
+        assert!(!is_proxy(b, &only_b, &implemented));
+        assert!(is_proxy(b, &only_b, &implementations(only_b.values())));
     }
 
     #[test]

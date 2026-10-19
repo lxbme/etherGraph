@@ -11,7 +11,7 @@ use eg_decode::{DecodedCall, DecodedError, decode_call, decode_error};
 use eg_store::{AccountRow, CallTraceRow, Store, StoreError, TxRow};
 
 use crate::authorization::{applied_delegations, authorizations, tx_nonce};
-use crate::txflow::abis_for;
+use crate::txflow::{abis_for, accounts_with_proxies, implementations};
 
 /// Contracts identified automatically per viewed trace; the rest only on
 /// request.
@@ -196,6 +196,7 @@ pub fn decode_frames(
     abis: &HashMap<Address, JsonAbi>,
     accounts: &HashMap<Address, AccountRow>,
 ) -> Vec<DecodedFrame> {
+    let implemented = implementations(accounts.values());
     row.frames
         .iter()
         .map(|f| {
@@ -204,11 +205,13 @@ pub fn decode_frames(
                 CallKind::Create | CallKind::Create2 | CallKind::SelfDestruct
             );
             let callee = f.to.filter(|_| !creates);
-            let own: Vec<&JsonAbi> =
-                callee.map_or_else(Vec::new, |a| abis_for(a, abis, accounts).collect());
+            let own: Vec<&JsonAbi> = callee.map_or_else(Vec::new, |a| {
+                abis_for(a, abis, accounts, &implemented).collect()
+            });
             let delegate = callee.and_then(|a| delegates.get(&a)).copied();
-            let delegate_abis: Vec<&JsonAbi> =
-                delegate.map_or_else(Vec::new, |d| abis_for(d.address, abis, accounts).collect());
+            let delegate_abis: Vec<&JsonAbi> = delegate.map_or_else(Vec::new, |d| {
+                abis_for(d.address, abis, accounts, &implemented).collect()
+            });
             let mut via_delegate = None;
             let decoded = if callee.is_some() && !f.input.is_empty() {
                 first_call(&own, &f.input).or_else(|| {
@@ -287,7 +290,8 @@ pub fn auto_meta_targets(
 }
 
 /// Loads the accounts and ABIs [`decode_frames`] needs (callees, their
-/// `delegates` and proxy implementations) and decodes `row`.
+/// `delegates` and proxy implementations, and the proxies implemented by
+/// callees or delegates) and decodes `row`.
 pub async fn decode_trace(
     store: &Store,
     row: &CallTraceRow,
@@ -301,12 +305,7 @@ pub async fn decode_trace(
         .collect();
     addrs.sort();
     addrs.dedup();
-    let accounts: HashMap<Address, AccountRow> = store
-        .accounts(&addrs)
-        .await?
-        .into_iter()
-        .map(|a| (a.address, a))
-        .collect();
+    let accounts = accounts_with_proxies(store, &addrs).await?;
     addrs.extend(accounts.values().filter_map(|a| a.implementation));
     addrs.sort();
     addrs.dedup();

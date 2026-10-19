@@ -400,17 +400,36 @@ fn proxy_account(address: Address, implementation: Address) -> AccountRow {
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn delegatecall_into_usdcs_implementation_decodes_as_transfer(pool: PgPool) {
     let (app, state, _, _) = test_app_traced(pool).await;
-    // transfer(0x77…77, 1_000_000)
+    let mut root = frame(&[], CallKind::Call, USDC, 1);
+    root.input = usdc_transfer_input();
+    let mut inner = frame(&[0], CallKind::DelegateCall, FIAT_TOKEN, 0);
+    inner.from = USDC;
+    inner.input = usdc_transfer_input();
+    cache(&state, SYNTH, vec![root, inner], &[]).await;
+    seed_usdc(&state).await;
+
+    let (st, v) = get(&app, &format!("/api/tx/{SYNTH:#x}/trace")).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    for path in [&[][..], &[0]] {
+        let f = frame_at(&v, path);
+        assert_eq!(f["call"]["name"], "transfer", "{f}");
+        assert_eq!(f["call"]["args"][1]["value"], "1000000", "{f}");
+        assert_eq!(f["call"]["args"][0]["name"], "to", "{f}");
+        assert!(f["via_delegate"].is_null(), "{f}");
+    }
+}
+
+/// `transfer(0x77…77, 1_000_000)`.
+fn usdc_transfer_input() -> Bytes {
     let mut input = vec![0xa9, 0x05, 0x9c, 0xbb];
     input.extend_from_slice(&[0; 12]);
     input.extend_from_slice(Address::repeat_byte(0x77).as_slice());
     input.extend_from_slice(&U256::from(1_000_000u64).to_be_bytes::<32>());
-    let mut root = frame(&[], CallKind::Call, USDC, 1);
-    root.input = Bytes::from(input.clone());
-    let mut inner = frame(&[0], CallKind::DelegateCall, FIAT_TOKEN, 0);
-    inner.from = USDC;
-    inner.input = Bytes::from(input);
-    cache(&state, SYNTH, vec![root, inner], &[]).await;
+    Bytes::from(input)
+}
+
+/// USDC's proxy and implementation rows with their ABIs, as stored.
+async fn seed_usdc(state: &AppState) {
     state
         .store
         .upsert_accounts(&[
@@ -426,14 +445,40 @@ async fn delegatecall_into_usdcs_implementation_decodes_as_transfer(pool: PgPool
     ] {
         state.store.upsert_abi(addr, Some(abi)).await.unwrap();
     }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_direct_call_into_usdcs_implementation_uses_its_own_abi(pool: PgPool) {
+    // The trace never touches the USDC proxy; its stored row still marks
+    // FiatToken as an implementation, as node summaries see it.
+    let (app, state, _, _) = test_app_traced(pool).await;
+    let mut root = frame(&[], CallKind::Call, FIAT_TOKEN, 0);
+    root.input = usdc_transfer_input();
+    cache(&state, SYNTH, vec![root], &[]).await;
+    seed_usdc(&state).await;
 
     let (st, v) = get(&app, &format!("/api/tx/{SYNTH:#x}/trace")).await;
     assert_eq!(st, StatusCode::OK, "{v}");
-    for path in [&[][..], &[0]] {
-        let f = frame_at(&v, path);
-        assert_eq!(f["call"]["name"], "transfer", "{f}");
-        assert_eq!(f["call"]["args"][1]["value"], "1000000", "{f}");
-        assert_eq!(f["call"]["args"][0]["name"], "to", "{f}");
-        assert!(f["via_delegate"].is_null(), "{f}");
-    }
+    let f = frame_at(&v, &[]);
+    assert_eq!(f["call"]["name"], "transfer", "{f}");
+    assert_eq!(f["call"]["args"][0]["name"], "to", "{f}");
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_transaction_straight_to_usdcs_implementation_uses_its_own_abi(pool: PgPool) {
+    let (app, state, _, _) = test_app_traced(pool).await;
+    let mut tx = ens_tx();
+    tx.to = Some(FIAT_TOKEN);
+    tx.value = U256::ZERO;
+    tx.selector = Some([0xa9, 0x05, 0x9c, 0xbb]);
+    tx.raw_tx =
+        json!({"hash": format!("{HASH:#x}"), "input": format!("{}", usdc_transfer_input())});
+    state.store.upsert_transaction(&tx).await.unwrap();
+    seed_usdc(&state).await;
+
+    let (st, v) = get(&app, &format!("/api/tx/{HASH:#x}")).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    let call = &v["flow"]["call"];
+    assert_eq!(call["name"], "transfer", "{v}");
+    assert_eq!(call["args"][0]["name"], "to", "{v}");
 }
