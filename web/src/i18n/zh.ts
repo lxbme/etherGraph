@@ -406,7 +406,10 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "expandSelf.row.nonce": "已发出 {count} 笔交易",
   "expandSelf.slotsUsed": "它的 {count} 个交易对手已在画布上，占用了本批名额",
   "expandSelf.noCalls": "无需调用",
-  "expandSelf.calls": "需要先同步 {count} 个地址，约 {calls} 次调用",
+  "expandSelf.calls": {
+    one: "需要先同步 {count} 个地址，约 {calls} 次调用",
+    other: "需要先同步 {count} 个地址，约 {calls} 次调用",
+  },
   "expandSelf.quotaLeft": "今日剩余额度 {count}",
   "expandSelf.canvas": "展开后画布约 {after} / {capacity} 个节点",
   "expandSelf.overCanvas": "超出画布容量，图可能变得拥挤",

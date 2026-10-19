@@ -939,6 +939,9 @@ a.btn { text-decoration: none; }
 .expand-self__estimate[aria-busy="true"] { opacity: 0.6; }
 .expand-self__facts { display: flex; flex-direction: column; gap: var(--sp-1); margin: 0; padding-left: var(--sp-4); font-size: var(--fs-12); }
 .expand-self__table { min-height: 0; overflow-y: auto; }
+/* Facts wrap inside the dialog (table cells default to nowrap); the name stays on one line at the top. */
+.expand-self__table td { vertical-align: top; padding-top: var(--sp-1); padding-bottom: var(--sp-1); }
+.expand-self__table .expand-self__facts-cell { white-space: normal; }
 .expand-self__lines { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); color: var(--fg-muted); font-size: var(--fs-12); }
 .expand-self__canvas { flex-basis: 100%; }
 

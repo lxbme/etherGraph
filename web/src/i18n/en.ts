@@ -404,7 +404,10 @@ export const en = {
   "expandSelf.row.nonce": "{count} transactions sent",
   "expandSelf.slotsUsed": "{count} of its counterparties are already on the canvas and use up this batch",
   "expandSelf.noCalls": "No calls needed",
-  "expandSelf.calls": "{count} addresses are synced first, about {calls} calls",
+  "expandSelf.calls": {
+    one: "{count} address is synced first, about {calls} calls",
+    other: "{count} addresses are synced first, about {calls} calls",
+  },
   "expandSelf.quotaLeft": "{count} calls left today",
   "expandSelf.canvas": "Canvas after: about {after} / {capacity} nodes",
   "expandSelf.overCanvas": "Over the canvas capacity: the graph may get crowded",

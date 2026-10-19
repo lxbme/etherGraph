@@ -145,8 +145,8 @@ export function ExpandSelfDialog({ targets, data, onClose }: { targets: NodeSumm
                       const summary = summaries.get(row.address);
                       return (
                         <tr key={row.address}>
-                          <td title={row.address}>{summary ? nameOf(summary) : shortAddr(row.address)}</td>
-                          <td>{facts(row, summary, k, t).join(" · ")}</td>
+                          <td className="expand-self__name" title={row.address}>{summary ? nameOf(summary) : shortAddr(row.address)}</td>
+                          <td className="expand-self__facts-cell">{facts(row, summary, k, t).join(" · ")}</td>
                         </tr>
                       );
                     })}

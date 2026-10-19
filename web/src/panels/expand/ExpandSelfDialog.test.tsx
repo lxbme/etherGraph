@@ -101,7 +101,7 @@ test("an unsynced target: a range, the sync calls; Expand syncs only it (shallow
   expect(screen.getByText("At least 3, up to 8 after the sync")).toBeInTheDocument();
   expect(screen.getByText("42 transactions sent")).toBeInTheDocument();
   expect(screen.getByText("1 address is not synced yet; the exact number is known after the sync")).toBeInTheDocument();
-  expect(screen.getByText("1 addresses are synced first, about 6 calls")).toBeInTheDocument();
+  expect(screen.getByText("1 address is synced first, about 6 calls")).toBeInTheDocument();
   expect(screen.getByText("4,900 calls left today")).toBeInTheDocument();
   expect(screen.queryByText("Checked calls exceed today's remaining quota")).toBeNull();
 
@@ -140,6 +140,8 @@ test("many targets: a row each, already-syncing targets are not synced again", a
   expect(within(rows[0]!).getByText("bob.eth")).toBeInTheDocument();
   expect(within(rows[0]!).getByText(/2 shown now/)).toBeInTheDocument();
   expect(within(rows[1]!).getByText(/At least 2, up to 26 after the sync/)).toBeInTheDocument();
+  // The facts wrap inside the dialog: their cell opts out of the table's nowrap.
+  for (const r of rows) expect(within(r).getByText(/shown now|after the sync/)).toHaveClass("expand-self__facts-cell");
   expect(screen.getByText("No calls needed")).toBeInTheDocument();
   fireEvent.click(expandBtn());
   await waitFor(() => expect(onClose).toHaveBeenCalled());
