@@ -108,8 +108,8 @@ test("with the view above at its minimum the Export menu still opens over the pa
 });
 
 for (const [width, height] of [
-  [1000, 560],
-  [700, 560],
+  [1000, 600],
+  [700, 600],
 ] as const) {
   test(`at ${width}×${height} a large remembered detail height covers nothing, in both views`, async ({ page, mock }) => {
     mock.on("GET /api/tx/*/trace", () => ({ json: fixtures.trace }));

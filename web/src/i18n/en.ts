@@ -471,6 +471,8 @@ export const en = {
   "tx.call": "Call",
   "tx.delegatesTo": "delegates to",
   "tx.transfer": "Transfer",
+  "tx.summary.transfer": "Transfer",
+  "tx.summary.more": "+{count} more",
   "tx.success": "Success",
   "tx.failed": "Failed",
   "tx.block": "Block",

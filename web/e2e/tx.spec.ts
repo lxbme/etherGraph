@@ -148,7 +148,7 @@ test("clicking a token in the transfers table opens its details in the right pan
   await expect(panel.getByRole("button", { name: "Add to graph" })).toBeVisible();
 
   await txView.getByTestId("tx-detail").getByRole("button", { name: "Token Transfers" }).click();
-  await txView.getByRole("button", { name: "USDT", exact: true }).click();
+  await txView.getByTestId("tx-detail").getByRole("button", { name: "USDT", exact: true }).click();
   await expect(panel.getByTestId("info-panel")).toBeVisible();
   await expect(panel.getByText("Uniswap default list")).toBeVisible();
   await expect(panel.getByText("Tether USD")).toBeVisible();

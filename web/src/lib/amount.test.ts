@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { formatAmount, formatFixed, parseHumanAmount } from "./amount";
+import { formatAmount, formatFixed, formatFull, parseHumanAmount } from "./amount";
 
 const MAX = (2n ** 256n - 1n).toString();
 
@@ -97,5 +97,19 @@ describe("formatFixed", () => {
   });
   test("invalid raw", () => {
     expect(formatFixed("12a", 6, "stable")).toEqual({ text: "?", full: "12a", unknownDecimals: false });
+  });
+});
+
+describe("formatFull", () => {
+  test("keeps every fraction digit of a stablecoin and groups thousands", () => {
+    expect(formatFull("4699465952", 6)).toBe("4,699.465952");
+    expect(formatFull("1500000", 6)).toBe("1.5");
+    expect(formatFull("5000000", 6)).toBe("5");
+    expect(formatFull("1", 18)).toBe("0.000000000000000001");
+  });
+  test("unknown or zero decimals show the raw integer", () => {
+    expect(formatFull("1234567", null)).toBe("1,234,567");
+    expect(formatFull("1234567", 0)).toBe("1,234,567");
+    expect(formatFull("abc", 6)).toBe("?");
   });
 });

@@ -473,6 +473,8 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "tx.call": "调用",
   "tx.delegatesTo": "委托给",
   "tx.transfer": "转账",
+  "tx.summary.transfer": "转账",
+  "tx.summary.more": "还有 {count} 笔",
   "tx.success": "成功",
   "tx.failed": "失败",
   "tx.block": "区块",

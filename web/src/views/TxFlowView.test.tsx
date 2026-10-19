@@ -55,6 +55,8 @@ const flow: FlowDto = {
   trace_path: null, log_index: 0, decimals: 6, symbol: "USDT", trust: { level: "listed", impersonates: null, reason: null },
 };
 const bar = () => within(screen.getByTestId("tx-summary-bar"));
+/** The sender -> recipient of the call; the bar's transfer lines name addresses of their own. */
+const parties = () => within(screen.getByTestId("tx-summary-bar").querySelector<HTMLElement>(".txbar__parties")!);
 const detail = () => within(screen.getByTestId("tx-detail"));
 const detailTab = (name: string) => fireEvent.click(detail().getByRole("button", { name }));
 
@@ -113,7 +115,7 @@ test("pending shows loading and ready renders the summary bar, overview and bann
   await screen.findByTestId("tx-summary-bar");
   expect(bar().getByText("Success").querySelector("svg.lucide-circle-check")).not.toBeNull();
   expect(bar().getByText("swap")).toHaveAttribute("title", "swap(uint256,address)");
-  expect(bar().getByText("Router")).toBeInTheDocument();
+  expect(parties().getByText("Router")).toBeInTheDocument();
   expect(bar().getByText("0.001500 ETH")).toBeInTheDocument();
   expect(bar().getByText("2026-01-01 00:00:00 UTC")).toBeInTheDocument();
   // The detail tabs open on the overview.
@@ -238,7 +240,7 @@ test("a contract creation's summary bar points at the created contract", async (
   renderView();
   await screen.findByTestId("tx-summary-bar");
   expect(bar().getAllByText("Contract creation")).toHaveLength(1);
-  expect(bar().getByText("Router")).toHaveAttribute("title", B);
+  expect(parties().getByText("Router")).toHaveAttribute("title", B);
 });
 
 test("a failed contract creation's summary bar does not point at the undeployed address", async () => {
@@ -251,7 +253,7 @@ test("a failed contract creation's summary bar does not point at the undeployed 
   renderView();
   await screen.findByTestId("tx-summary-bar");
   expect(bar().getAllByText("Contract creation")).toHaveLength(2);
-  expect(bar().queryByTitle(B)).toBeNull();
+  expect(parties().queryByTitle(B)).toBeNull();
 });
 
 test("pending refetches every 5s and stops once ready", async () => {
@@ -632,7 +634,7 @@ describe("a snapshot tab (frozen)", () => {
     const banner = screen.getByText("Snapshot from a file · exported 2026-10-01 12:00:00 UTC");
     expect(banner).toHaveAttribute("title", formatLocalTime("2026-10-01T12:00:00Z"));
     // B's name comes from the receiver's own data.
-    expect(await bar().findByText("Router")).toBeInTheDocument();
+    expect(await parties().findByText("Router")).toBeInTheDocument();
     expect(nodes).toHaveBeenCalledWith([A, B]);
     expect(tx).not.toHaveBeenCalled();
     // The node detail shows the file's own labels for the selected node.
@@ -648,7 +650,7 @@ describe("a snapshot tab (frozen)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Refresh from chain" }));
     await waitFor(() => expect(tx).toHaveBeenCalledWith(HASH));
     await screen.findByTestId("tx-summary-bar");
-    expect(await bar().findByText("LiveRouter")).toBeInTheDocument();
+    expect(await parties().findByText("LiveRouter")).toBeInTheDocument();
     expect(screen.queryByText(/Snapshot from a file/)).toBeNull();
     const tab = useTabs.getState().tabs.find((t) => t.id === HASH);
     expect(tab && "kind" in tab ? tab.snapshot : "missing").toBeUndefined();
@@ -683,4 +685,57 @@ test("the_detail_panel_sits_in_a_resizable_split", async () => {
   expect(split.querySelector(".split__bottom")).toContainElement(screen.getByTestId("tx-detail"));
   // Until resized, the panel keeps the 40% the fixed-height panel had.
   expect((split.querySelector(".split__bottom") as HTMLElement).style.height).toBe("40%");
+});
+
+describe("token transfers in the summary bar", () => {
+  const USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
+  const SCAM = "0x5ca0000000000000000000000000000000000001";
+  const DEST = "0xae39" + "0".repeat(32) + "e72b";
+  const LISTED = { level: "listed", impersonates: null, reason: null } as const;
+  const SCAMMY = { level: "scam", impersonates: null, reason: "spam-token" } as const;
+  const tf = (seq: number, over: Partial<FlowDto>): FlowDto => ({ ...flow, seq, log_index: seq, ...over });
+  const usdc = (seq: number) => tf(seq, { to: DEST, asset: USDC, amount: "4699465952", decimals: 6, symbol: "USDC" });
+  const scam = (seq: number) => tf(seq, { asset: SCAM, amount: "1000000000000000000", decimals: 18, symbol: "FREE", trust: SCAMMY });
+
+  test("a stablecoin transfer reads in full precision with the recipient", async () => {
+    vi.spyOn(api, "tx").mockResolvedValue(ready({ flows: [usdc(1)] }));
+    renderView();
+    const line = await screen.findByTestId("tx-summary-transfer");
+    expect(line).toHaveTextContent(/Transfer\s*4,699\.465952\s*USDC/);
+    expect(within(line).getByText("4,699.465952")).toHaveAttribute("title", "4,699.465952");
+    expect(within(line).getByTitle(DEST)).toHaveTextContent("0xae39…e72b");
+    expect(within(line).queryByText(/more/)).toBeNull();
+  });
+
+  test("the headline is a listed token, a scam airdrop is last and muted; +N more opens Token Transfers", async () => {
+    vi.spyOn(api, "tx").mockResolvedValue(ready({ flows: [scam(1), usdc(2), tf(3, { symbol: "USDT", trust: LISTED })] }));
+    renderView();
+    const lines = await screen.findAllByTestId("tx-summary-transfer");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toHaveTextContent("USDC");
+    expect(lines[1]).toHaveTextContent("USDT");
+    expect(bar().queryByText("FREE")).toBeNull();
+    fireEvent.click(bar().getByRole("button", { name: "+1 more" }));
+    expect(useTabs.getState().tabs.find((x) => x.id === HASH)).toMatchObject({ detailTab: "transfers" });
+    expect(await detail().findByText("FREE")).toBeInTheDocument();
+  });
+
+  test("a scam-only transaction still shows its line, muted with the badge", async () => {
+    vi.spyOn(api, "tx").mockResolvedValue(ready({ flows: [scam(1)] }));
+    renderView();
+    const line = await screen.findByTestId("tx-summary-transfer");
+    expect(line).toHaveClass("txbar__transfer--muted");
+    expect(line).toHaveTextContent("FREE");
+    expect(line.querySelector(".tag--scam")).not.toBeNull();
+  });
+
+  test("an NFT reads as symbol #id; no token flows add no line", async () => {
+    const nft = tf(1, { kind: "erc721", token_id: "77", amount: "1", decimals: null, symbol: "APE" });
+    vi.spyOn(api, "tx").mockResolvedValue(ready({ flows: [nft] }));
+    renderView();
+    expect(await screen.findByTestId("tx-summary-transfer")).toHaveTextContent(/APE\s*#77/);
+    vi.mocked(api.tx).mockResolvedValue(ready({ flows: [{ ...flow, kind: "native", asset: null, symbol: null }] }));
+    await act(() => qc.invalidateQueries({ queryKey: ["tx", HASH] }));
+    await waitFor(() => expect(screen.queryByTestId("tx-summary-transfer")).toBeNull());
+  });
 });

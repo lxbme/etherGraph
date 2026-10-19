@@ -63,6 +63,17 @@ export function formatFixed(
   return { text: places === 0 ? intText : `${intText}.${frac}`, full, unknownDecimals: false };
 }
 
+/** Exact amount: thousands separators and every fraction digit (trailing zeros dropped). Unknown decimals show the raw integer. */
+export function formatFull(raw: string, decimals: number | null): string {
+  if (!/^\d+$/.test(raw)) return "?";
+  const value = BigInt(raw);
+  if (decimals === null || decimals === 0) return withCommas(value.toString());
+  const base = 10n ** BigInt(decimals);
+  const frac = (value % base).toString().padStart(decimals, "0").replace(/0+$/, "");
+  const int = withCommas((value / base).toString());
+  return frac === "" ? int : `${int}.${frac}`;
+}
+
 export function parseHumanAmount(input: string, decimals: number): string | null {
   const s = input.trim();
   if (s === "") return null;
