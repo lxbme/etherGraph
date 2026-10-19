@@ -38,21 +38,21 @@ function TransferLine({ flow, f, second }: { flow: TxFlowDto; f: FlowDto; second
   const label = nft ? `${quantity}${symbol} #${f.token_id}` : symbol;
   return (
     <div className={cls} data-testid="tx-summary-transfer">
-      <span className="txbar__method">{t("tx.summary.transfer")}</span>
-      {/* One line only: a long amount or symbol truncates here, its full value in the title. */}
-      <span className="txbar__amt" title={full !== null ? `${full} ${label}` : label}>
-        {full !== null && <span className="num" title={full}>{full}</span>}
-        {f.asset ? (
-          <AssetButton tab={flow.tx.hash.toLowerCase()} asset={f.asset.toLowerCase()} tokenId={f.token_id} kind={f.kind} title={f.asset}>
-            {label}
-          </AssetButton>
-        ) : (
-          <span>{symbol}</span>
-        )}
-      </span>
+      <span className="txbar__method txbar__transfer-label">{t("tx.summary.transfer")}</span>
+      {/* One line only. When room is short the CSS drops the recipient's buttons, the recipient, then the label; the amount truncates last (full value in its title). */}
+      {full !== null && <span className="num txbar__amt" title={`${full} ${label}`}>{full}</span>}
+      {f.asset ? (
+        <AssetButton tab={flow.tx.hash.toLowerCase()} asset={f.asset.toLowerCase()} tokenId={f.token_id} kind={f.kind} title={f.asset}>
+          {label}
+        </AssetButton>
+      ) : (
+        <span>{symbol}</span>
+      )}
       <TrustBadge trust={f.trust} />
-      <ArrowRight size={14} className="txbar__arrow" />
-      <AddressCell address={f.to} node={nodeOf(flow, f.to)} />
+      <span className="txbar__to">
+        <ArrowRight size={14} className="txbar__arrow" />
+        <AddressCell address={f.to} node={nodeOf(flow, f.to)} />
+      </span>
     </div>
   );
 }
@@ -97,7 +97,7 @@ export function TxSummaryBar({ flow }: { flow: TxFlowDto }) {
           {transfers.slice(0, SHOWN).map((f, i) => (
             <TransferLine key={`${f.seq}-${i}`} flow={flow} f={f} second={i > 0} />
           ))}
-          {/* Narrow or short viewports show one line (the CSS hides the second), so the count differs there. */}
+          {/* Where the transfers area is too narrow for two lines the CSS hides the second and swaps in the count that includes it; only one button is ever displayed. */}
           {transfers.length > SHOWN && (
             <button type="button" className="btn btn--ghost btn--compact txbar__more txbar__more--wide" onClick={openTransfers}>
               {t("tx.summary.more", { count: transfers.length - SHOWN })}

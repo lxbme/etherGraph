@@ -1142,22 +1142,34 @@ a.btn { text-decoration: none; }
 .txbar__item { color: var(--fg-muted); }
 .txbar__item .num { color: var(--fg); }
 /*
- * Token transfers take at most one line: they share the bar's last row when there is room (the basis is small and the
- * row shrinks to what is left), otherwise they wrap to a row of their own. Nothing in it wraps; long values truncate
- * (full value in the title), and short or narrow viewports show only the first transfer.
+ * Token transfers take at most one line and never add height: they share the bar's last row when there is room (small
+ * basis, shrinking to what is left), otherwise wrap to a row of their own. What shows follows the area's own width
+ * (container queries), and room is given up in this order: the recipient's copy / add buttons, the recipient, the
+ * "Transfer" label, the second transfer; the amount truncates last (full value in its title), the symbol never.
  */
-.txbar__transfers { display: flex; flex: 1 1 9rem; align-items: center; gap: var(--sp-2); min-width: 0; overflow: hidden; white-space: nowrap; }
+.txbar__transfers { container: txfers / inline-size; display: flex; flex: 1 1 9rem; align-items: center; gap: var(--sp-2); min-width: 0; overflow: hidden; white-space: nowrap; }
 .txbar__transfer { display: flex; flex: 0 1 auto; align-items: center; gap: var(--sp-2); min-width: 0; overflow: hidden; }
 .txbar__transfer > * { flex: none; }
-.txbar__transfer > .txbar__amt { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.txbar__transfer > .txbar__amt { flex: 0 1 auto; min-width: 8ch; overflow: hidden; text-overflow: ellipsis; }
+.txbar__to { display: inline-flex; align-items: center; gap: var(--sp-1); }
 .txbar__transfer--muted { opacity: 0.7; }
 .txbar__more { flex: none; }
 /* Compact controls keep the line as tall as the bar's text, so the transfers never add height to a row they share. */
 .txbar__transfers .btn, .txbar__transfers .tag { height: auto; min-height: 0; padding-block: 0; }
-.txbar__more--narrow { display: none; }
-@media (max-width: 900px), (max-height: 640px) {
-  .txbar__transfer--second, .txbar__more--wide { display: none; }
-  .txbar__more--narrow { display: inline-flex; }
+.txbar__more--wide, .txbar__transfer--second { display: none; }
+@container txfers (min-width: 860px) {
+  .txbar__transfer--second { display: flex; }
+  .txbar__more--wide { display: inline-flex; }
+  .txbar__more--narrow { display: none; }
+}
+@container txfers (max-width: 379px) {
+  .txbar__to .addr-cell > :not(.addr-cell__name) { display: none; }
+}
+@container txfers (max-width: 299px) {
+  .txbar__to { display: none; }
+}
+@container txfers (max-width: 209px) {
+  .txbar__transfer-label { display: none; }
 }
 
 /*

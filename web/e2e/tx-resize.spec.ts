@@ -134,6 +134,7 @@ for (const [width, height] of [
 for (const [width, height] of [
   [1000, 560],
   [360, 740],
+  [1920, 1080],
 ] as const) {
   test(`at ${width}×${height} many transfers with long amounts leave the graph area above 100 px`, async ({ page, mock }) => {
     const huge = (2n ** 256n - 1n).toString();
@@ -155,6 +156,27 @@ for (const [width, height] of [
     expect(await bar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     const graph = (await page.getByTestId("tx-view").locator(".txview__graph").boundingBox())!;
     expect(graph.height).toBeGreaterThan(100);
+    await expectFirstTransferReadable(page);
     expect(mock.unhandled).toEqual([]);
   });
 }
+
+/** The first transfer line keeps its amount and symbol on screen, inside the transfers area, whatever else gave way. */
+async function expectFirstTransferReadable(page: Page) {
+  const area = (await page.locator(".txbar__transfers").boundingBox())!;
+  const line = page.getByTestId("tx-summary-transfer").first();
+  for (const part of [line.locator(".txbar__amt"), line.locator(".asset-link")]) {
+    const box = (await part.boundingBox())!;
+    expect(box.width, "amount and symbol have width").toBeGreaterThan(0);
+    expect(box.x + box.width, "amount and symbol end inside the transfers area").toBeLessThanOrEqual(area.x + area.width + 0.5);
+  }
+}
+
+test("at 1000×560 a single transfer still shows its amount and symbol", async ({ page, mock }) => {
+  mock.on("GET /api/tx/*/trace", () => ({ json: fixtures.trace }));
+  await page.setViewportSize({ width: 1000, height: 560 });
+  await openTx(page);
+  await expectFirstTransferReadable(page);
+  await expect(page.getByTestId("tx-summary-transfer").first().locator(".txbar__amt")).toHaveText("6,400");
+  expect(mock.unhandled).toEqual([]);
+});

@@ -702,7 +702,7 @@ describe("token transfers in the summary bar", () => {
     renderView();
     const line = await screen.findByTestId("tx-summary-transfer");
     expect(line).toHaveTextContent(/Transfer\s*4,699\.465952\s*USDC/);
-    expect(within(line).getByText("4,699.465952")).toHaveAttribute("title", "4,699.465952");
+    expect(within(line).getByText("4,699.465952")).toHaveAttribute("title", "4,699.465952 USDC");
     expect(within(line).getByTitle(DEST)).toHaveTextContent("0xae39…e72b");
     expect(within(line).queryByText(/more/)).toBeNull();
   });
