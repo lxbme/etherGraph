@@ -26,6 +26,7 @@ export const qk = {
   tx: (h: string) => ["tx", h],
   token: (a: string) => ["token", a],
   txRaw: (h: string) => ["txRaw", h],
+  txTrace: (h: string) => ["txTrace", h],
   transfers: (p: unknown) => ["transfers", p],
   labels: (a: string) => ["labels", a],
   status: () => ["status"],

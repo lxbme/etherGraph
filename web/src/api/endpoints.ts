@@ -1,4 +1,5 @@
 import { request } from "./client";
+import type { CallTraceResponseDto } from "./generated/CallTraceResponseDto";
 import type { AddressProfileDto } from "./generated/AddressProfileDto";
 import type { AdminAction } from "./generated/AdminAction";
 import type { AdminActionNonceDto } from "./generated/AdminActionNonceDto";
@@ -132,6 +133,7 @@ export const api = {
   token: (addr: string, kind?: string) =>
     request<TokenDetailDto>("GET", `/api/token/${encodeURIComponent(addr)}`, kind ? { query: { kind } } : undefined),
   tx: (hash: string) => request<TxResponseDto>("GET", `/api/tx/${encodeURIComponent(hash)}`),
+  txTrace: (hash: string) => request<CallTraceResponseDto>("GET", `/api/tx/${encodeURIComponent(hash)}/trace`),
   txRaw: (hash: string) => request<TxRawDto>("GET", `/api/tx/${encodeURIComponent(hash)}/raw`),
   labels: (addr: string) => request<LabelDto[]>("GET", "/api/labels", { query: { addr } }),
   addLabel: (l: NewLabelDto) => request<LabelDto>("POST", "/api/labels", { body: l }),

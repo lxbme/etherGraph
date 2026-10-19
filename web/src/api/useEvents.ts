@@ -108,6 +108,8 @@ export function useEvents(): void {
       invalidateGraph();
       invalidateAddresses(addrs);
       for (const a of addrs) void qc.invalidateQueries({ queryKey: qk.token(a) });
+      // Decoded call names come from the ABIs that just arrived.
+      void qc.invalidateQueries({ queryKey: ["txTrace"] });
       // A tx's flow nodes carry their type and name: refetch the cached txs these addresses take part in.
       void qc.invalidateQueries({
         predicate: (q) => {
@@ -167,6 +169,9 @@ export function useEvents(): void {
           break;
         case "TxReady":
           void qc.invalidateQueries({ queryKey: qk.tx(e.hash.toLowerCase()) });
+          break;
+        case "TraceReady":
+          void qc.invalidateQueries({ queryKey: qk.txTrace(e.hash.toLowerCase()) });
           break;
         case "JobProgress":
           useJobProgress.getState().upsert(e);
