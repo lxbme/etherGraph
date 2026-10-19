@@ -2,6 +2,7 @@ import cytoscape from "cytoscape";
 import { useEffect, useRef, type JSX } from "react";
 import { createRefitGuard, fitClamped, restoreViewport, setFitInset, setRefitGuard } from "./refit";
 import { runDagreLayout, runIncrementalLayout } from "./layout";
+import { isMoreId } from "./moreId";
 
 type Pos = { x: number; y: number };
 /** How long the pointer rests on an element before its explanation shows. */
@@ -66,6 +67,10 @@ const isNodeDef = (d: cytoscape.ElementDefinition) => d.group !== "edges" && d.d
  *
  * `lastPos` (updated in place) remembers where removed nodes were: a node that comes back
  * without a definition position (unhidden, filter undone…) returns there and is not new.
+ * "+N more" proxies are not remembered: one that comes back is placed afresh.
+ *
+ * A node whose `placed` flag is dropped (a dragged proxy's position forgotten) while it still sits where
+ * its definition last put it is reported as new, so the layout places it again.
  */
 export function syncElements(
   cy: cytoscape.Core,
@@ -90,6 +95,7 @@ export function syncElements(
     if (stale.nonempty()) {
       structureChanged = true;
       stale.nodes().forEach((node) => {
+        if (isMoreId(node.id())) return;
         const p = node.position();
         lastPos.set(node.id(), { x: p.x, y: p.y });
       });
@@ -110,12 +116,15 @@ export function syncElements(
         continue;
       }
       const cur = el.data() as Record<string, unknown>;
+      const unplaced = isNode && cur.placed === true && !d.data.placed;
       for (const k of Object.keys(cur)) if (!FIXED_KEYS.has(k) && !(k in d.data)) el.removeData(k);
       const changed = Object.entries(d.data).some(([k, v]) => !FIXED_KEYS.has(k) && cur[k] !== v);
       if (changed) el.data(d.data);
       const cls = classStr(d.classes);
       if (classStr(el.classes()) !== cls) el.classes(cls);
       if (isNode && d.position && !samePos(d.position, prev.get(id))) el.position({ ...d.position });
+      const applied = prev.get(id);
+      if (unplaced && applied && samePos(el.position(), applied)) newNodeIds.push(id);
     }
     if (toAdd.length > 0) {
       structureChanged = true;

@@ -290,7 +290,8 @@ export const useGraph = create<GraphState>()((set, get) => {
   const applyEntry = (s: GraphState, entry: HistoryEntry): [Partial<GraphState>, HistoryEntry] => {
     if (entry.positions) {
       const cur: Record<string, Pos | null> = {};
-      const ui = { ...s.ui };
+      // Copied only when an address moves: a proxy-only step leaves `ui` (what a workspace saves) alone.
+      const ui = Object.keys(entry.positions).some((k) => !k.startsWith(MORE_PREFIX)) ? { ...s.ui } : s.ui;
       const proxyPos = { ...s.proxyPos };
       for (const [k, p] of Object.entries(entry.positions)) {
         if (k.startsWith(MORE_PREFIX)) {
@@ -426,7 +427,7 @@ export const useGraph = create<GraphState>()((set, get) => {
     setNote: (a, note) => tracked((s) => ({ ui: applyUiPatch(s.ui, [a], { note }) })),
     setPositions: (p) =>
       set((s) => {
-        const ui = { ...s.ui };
+        const ui = Object.keys(p).some((k) => !lc(k).startsWith(MORE_PREFIX)) ? { ...s.ui } : s.ui;
         const proxyPos = { ...s.proxyPos };
         for (const [k, pos] of Object.entries(p)) {
           const id = lc(k);
@@ -441,12 +442,13 @@ export const useGraph = create<GraphState>()((set, get) => {
         for (const [k, p] of Object.entries(prev)) positions[lc(k)] = p;
         return { _past: pushCapped(s._past, { positions }), _future: [] };
       }),
-    clearProxyPositions: () => set((s) => (Object.keys(s.proxyPos).length === 0 ? {} : { proxyPos: {} })),
+    clearProxyPositions: () => set((s) => (Object.keys(s.proxyPos).length === 0 ? s : { proxyPos: {} })),
     pruneProxyPositions: (shown) =>
       set((s) => {
         const keep = new Set([...shown].map(lc));
         const gone = Object.keys(s.proxyPos).filter((c) => !keep.has(c));
-        if (gone.length === 0) return {};
+        // The same state: no update, no listener runs (this is called on every canvas change).
+        if (gone.length === 0) return s;
         const proxyPos = { ...s.proxyPos };
         for (const c of gone) delete proxyPos[c];
         return { proxyPos };

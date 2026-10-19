@@ -156,9 +156,23 @@ describe("graph store", () => {
     g().setPositions({ [`more:${A}`]: { x: 1, y: 1 }, [`more:${B}`]: { x: 2, y: 2 } });
     g().pruneProxyPositions([B]);
     expect(g().proxyPos).toEqual({ [B]: { x: 2, y: 2 } });
-    const before = g().proxyPos;
+    const before = g();
     g().pruneProxyPositions([B, C]);
-    expect(g().proxyPos).toBe(before);
+    expect(g()).toBe(before);
+    g().reset();
+    const empty = g();
+    g().clearProxyPositions();
+    expect(g()).toBe(empty);
+  });
+
+  test("moving only a proxy leaves the address ui untouched (a workspace has nothing new to save)", () => {
+    g().setPositions({ [A]: { x: 1, y: 1 } });
+    const ui = g().ui;
+    g().setPositions({ [`more:${A}`]: { x: 5, y: 5 } });
+    g().commitMove({ [`more:${A}`]: { x: 0, y: 0 } });
+    expect(g().ui).toBe(ui);
+    g().undo();
+    expect(g().ui).toBe(ui);
   });
 
   test("reset and loadSnapshot forget proxy positions", () => {
