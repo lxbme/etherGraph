@@ -88,16 +88,26 @@ pub fn implementation_of(
 }
 
 /// The ABIs to decode `addr`'s calls and events with, in the order tried:
-/// its implementation's ([`implementation_of`]), then its own.
+/// its implementation's ([`implementation_of`]), then its own, then that of
+/// the recorded implementation the guard dropped. That last one keeps a
+/// genuine chain decoding (P → Q → R: Q's own proxy ABI fails, R's decodes),
+/// while a misflagged implementation's own ABI (USDC's FiatToken) wins.
 pub(crate) fn abis_for<'a>(
     addr: Address,
     abis: &'a HashMap<Address, JsonAbi>,
     accounts: &HashMap<Address, AccountRow>,
 ) -> impl Iterator<Item = &'a JsonAbi> {
-    implementation_of(addr, accounts)
+    let recorded = accounts
+        .get(&addr)
+        .filter(|a| a.is_proxy)
+        .and_then(|a| a.implementation);
+    let followed = implementation_of(addr, accounts);
+    let dropped = recorded.filter(|_| followed.is_none());
+    followed
         .and_then(|i| abis.get(&i))
         .into_iter()
         .chain(abis.get(&addr))
+        .chain(dropped.and_then(|i| abis.get(&i)))
 }
 
 /// `input` decoded with the first of [`abis_for`] `addr` that decodes it.

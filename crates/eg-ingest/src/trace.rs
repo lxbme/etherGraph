@@ -664,4 +664,41 @@ mod tests {
         );
         assert_eq!(d[0].via_delegate, None);
     }
+
+    #[test]
+    fn a_delegatecall_into_a_real_proxy_chain_decodes_with_the_last_hop_abi() {
+        // B is a proxy of C, which really is a proxy of D. The guard does
+        // not follow C to D first, but D's ABI is still tried after C's own,
+        // which lacks the function.
+        let (b, c, d) = (
+            Address::repeat_byte(0xb0),
+            Address::repeat_byte(0xc0),
+            Address::repeat_byte(0xd0),
+        );
+        let c_own = JsonAbi::parse(["function upgradeTo(address implementation)"]).unwrap();
+        let d_abi = JsonAbi::parse(["function foo(uint256 x)"]).unwrap();
+        let mut input = d_abi.functions().next().unwrap().selector().to_vec();
+        input.extend_from_slice(&U256::from(42u8).to_be_bytes::<32>());
+        let mut root = frame(&[], CallKind::Call, Some(b), 1);
+        root.input = Bytes::from(input.clone());
+        let mut inner = frame(&[0], CallKind::DelegateCall, Some(c), 0);
+        inner.from = b;
+        inner.input = Bytes::from(input);
+        let accounts = HashMap::from([(b, proxy(b, c)), (c, proxy(c, d))]);
+        let abis = HashMap::from([(c, c_own), (d, d_abi)]);
+
+        let decoded = decode_frames(
+            &row(vec![root, inner], &[]),
+            &HashMap::new(),
+            &abis,
+            &accounts,
+        );
+        assert!(decoded[0].call.is_none(), "B follows one hop, to C");
+        let call = decoded[1].call.as_ref().expect("decoded with D's ABI");
+        assert_eq!(
+            (call.name.as_str(), call.args[0].value.as_str()),
+            ("foo", "42")
+        );
+        assert_eq!(decoded[1].via_delegate, None);
+    }
 }

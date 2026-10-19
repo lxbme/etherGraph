@@ -374,9 +374,14 @@ const FIAT_TOKEN_PROXY_ABI: &str = r#"[{"type":"function","name":"admin","stateM
 const FIAT_TOKEN_ABI: &str = r#"[{"type":"function","name":"transfer","stateMutability":"nonpayable",
   "inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],
   "outputs":[{"name":"","type":"bool"}]}]"#;
+/// SignatureChecker's real ABI plus a same-selector `transfer` under other
+/// argument names: decoding FiatToken's frames with it must not happen.
 const SIGNATURE_CHECKER_ABI: &str = r#"[{"type":"function","name":"isValidSignatureNow","stateMutability":"view",
   "inputs":[{"name":"signer","type":"address"},{"name":"digest","type":"bytes32"},
             {"name":"signature","type":"bytes"}],
+  "outputs":[{"name":"","type":"bool"}]},
+  {"type":"function","name":"transfer","stateMutability":"nonpayable",
+  "inputs":[{"name":"dst","type":"address"},{"name":"wad","type":"uint256"}],
   "outputs":[{"name":"","type":"bool"}]}]"#;
 
 fn proxy_account(address: Address, implementation: Address) -> AccountRow {
@@ -428,6 +433,7 @@ async fn delegatecall_into_usdcs_implementation_decodes_as_transfer(pool: PgPool
         let f = frame_at(&v, path);
         assert_eq!(f["call"]["name"], "transfer", "{f}");
         assert_eq!(f["call"]["args"][1]["value"], "1000000", "{f}");
+        assert_eq!(f["call"]["args"][0]["name"], "to", "{f}");
         assert!(f["via_delegate"].is_null(), "{f}");
     }
 }
