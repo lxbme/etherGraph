@@ -137,10 +137,9 @@ pub fn tx_nonce(raw_tx: &Value) -> Option<U256> {
     quantity(raw_tx, "nonce")
 }
 
-/// The delegation each recovered signer holds after the list is applied in
-/// order, in the order of the signers' first applying entries; a signer whose
-/// delegation ends cleared (zero delegate) has none. An entry without a
-/// signer never applies.
+/// The delegate each recovered signer is left with after the list is applied
+/// in order, zero when its delegation ends cleared, in the order of the
+/// signers' first applying entries. An entry without a signer never applies.
 ///
 /// EIP-7702 applies an entry only when its nonce equals the signer's current
 /// nonce, which then increments. Only the sender's nonce is known: the list is
@@ -149,11 +148,11 @@ pub fn tx_nonce(raw_tx: &Value) -> Option<U256> {
 /// unknown, so its last entry wins — an approximation that also counts an
 /// entry the EVM would skip for a stale nonce. The sender too falls back to
 /// its last entry when `sender_nonce` is unknown.
-pub fn effective_delegations(
+pub fn applied_delegations(
     auths: &[Authorization],
     sender: Address,
     sender_nonce: Option<U256>,
-) -> Vec<Delegation> {
+) -> Vec<(Address, Address)> {
     let mut sender_next = sender_nonce.map(|n| n.saturating_add(U256::from(1)));
     let mut signers = Vec::new();
     let mut current = HashMap::new();
@@ -175,11 +174,25 @@ pub fn effective_delegations(
     }
     signers
         .into_iter()
-        .map(|authority| Delegation {
+        .map(|authority| (authority, current[&authority]))
+        .collect()
+}
+
+/// The delegation each recovered signer holds after the list is applied (see
+/// [`applied_delegations`]); a signer whose delegation ends cleared (zero
+/// delegate) has none.
+pub fn effective_delegations(
+    auths: &[Authorization],
+    sender: Address,
+    sender_nonce: Option<U256>,
+) -> Vec<Delegation> {
+    applied_delegations(auths, sender, sender_nonce)
+        .into_iter()
+        .filter(|(_, delegate)| !delegate.is_zero())
+        .map(|(authority, delegate)| Delegation {
             authority,
-            delegate: current[&authority],
+            delegate,
         })
-        .filter(|d| !d.delegate.is_zero())
         .collect()
 }
 

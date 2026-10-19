@@ -10,7 +10,7 @@ use eg_core::source::Priority;
 use eg_core::types::{Address, TransferKind};
 use eg_ingest::{
     MAX_AUTO_META, auto_meta_parties, auto_meta_targets, decode_trace, enqueue_fetch_block,
-    enqueue_fetch_trace, enqueue_fetch_tx, enqueue_meta_owned, load_tx_flow,
+    enqueue_fetch_trace, enqueue_fetch_tx, enqueue_meta_owned, load_tx_flow, trace_delegates,
 };
 
 use crate::auth::extract::{CurrentUser, MayStartWork};
@@ -175,7 +175,9 @@ pub async fn trace(
 
     // The cap applies to the targets, not to those still lacking metadata,
     // so repeat views never move on past the first `MAX_AUTO_META`.
-    let targets = auto_meta_targets(&row);
+    let tx = s.store.transaction(hash).await?;
+    let delegates = trace_delegates(tx.as_ref(), &row);
+    let targets = auto_meta_targets(&row, &delegates);
     let split = targets.len().min(MAX_AUTO_META);
     let (auto, rest) = targets.split_at(split);
     let ttl = s.ctx.cfg.meta_ttl;
@@ -190,15 +192,10 @@ pub async fn trace(
         tracing::warn!(error = %e, "enqueueing trace metadata jobs failed");
     }
 
-    let frames = decode_trace(&s.store, &row).await?;
+    let frames = decode_trace(&s.store, &row, &delegates).await?;
     Ok(Json(CallTraceResponseDto {
         status: "ready".into(),
-        frames: Some(
-            frames
-                .iter()
-                .map(|f| CallFrameDto::new(f, &row.delegates))
-                .collect(),
-        ),
+        frames: Some(frames.iter().map(CallFrameDto::new).collect()),
         job_id: None,
         undecoded: undecoded.into_iter().map(hex_addr).collect(),
     }))

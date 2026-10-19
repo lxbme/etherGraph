@@ -4,7 +4,7 @@ import type { CallFrameDto } from "../../api/generated/CallFrameDto";
 import { useT } from "../../i18n";
 import { formatAmount } from "../../lib/amount";
 import { ellipsize } from "../../lib/format";
-import { callName, type TreeRow } from "./model";
+import { callName, sendsEth, type TreeRow } from "./model";
 
 /** Every row is this tall (--h-compact in tokens.css), so the window of rows in view is plain arithmetic. */
 export const ROW_HEIGHT = 28;
@@ -111,7 +111,7 @@ export function CallTreeList({
         {rows.slice(first, last).map((r, i) => {
           const f = r.frame;
           const open = r.hasChildren && !collapsed.has(r.id);
-          const value = BigInt(f.value);
+          const value = sendsEth(f) ? BigInt(f.value) : 0n;
           const isSel = r.id === selected;
           return (
             <div

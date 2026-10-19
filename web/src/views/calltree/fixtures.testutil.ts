@@ -32,6 +32,7 @@ function frameOf(r: Raw): CallFrameDto {
     call: null,
     revert: null,
     via_delegate: null,
+    via_delegate_current: false,
   };
 }
 
@@ -45,5 +46,5 @@ export const X = "0x" + "cc".repeat(20);
 
 export const synth = (path: number[], over: Partial<CallFrameDto> = {}): CallFrameDto => ({
   path, kind: "call", from: A, to: B, value: "0", input: "0x", output: "0x", gas: 1, gas_used: 1,
-  error: null, call: null, revert: null, via_delegate: null, ...over,
+  error: null, call: null, revert: null, via_delegate: null, via_delegate_current: false, ...over,
 });

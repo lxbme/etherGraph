@@ -137,6 +137,7 @@ export const docsEn = {
       "Overview lists the authorization list (signer, delegate, chain, nonce).",
       "The graph draws a dashed “delegates to” edge from the signer to the delegate.",
       "A call to an address that delegated in the same transaction is decoded with the delegate's ABI.",
+      "In the call tree, a call its callee's own ABI cannot decode is decoded with its delegate's: the one this transaction's authorization list sets, otherwise the account's current delegation, marked as current since it may differ from the one at the transaction.",
     ],
   },
   "erc-20": {

@@ -92,7 +92,7 @@ const RAW = { tx: { nonce: "0x1" }, receipt: { status: "0x1" } };
 const frame = (path: number[], over: Partial<CallFrameDto> = {}): CallFrameDto => ({
   path, kind: "call", from: A, to: B, value: "0", input: "0xa9059cbb", output: "0x", gas: 100, gas_used: 50, error: null,
   call: { signature: "transfer(address,uint256)", name: "transfer", args: [{ name: "to", ty: "address", value: C }], via_delegate: null },
-  revert: null, via_delegate: null, ...over,
+  revert: null, via_delegate: null, via_delegate_current: false, ...over,
 });
 /** A decoded trace: the root call, a failed static call under it with its revert reason, a plain ETH transfer. */
 const FRAMES: CallFrameDto[] = [
@@ -483,6 +483,7 @@ describe("malformed or hostile files (Review Focus 4)", () => {
     ["a trace frame with a path that is not a list of indexes", (f) => ((f.state.tabs[0].snapshot.trace[1].path = ["0"]), f)],
     ["a decoded call without its name", (f) => (delete f.state.tabs[0].snapshot.trace[0].call.name, f)],
     ["a revert reason without its arguments", (f) => (delete f.state.tabs[0].snapshot.trace[1].revert.args, f)],
+    ["a trace with two frames at one path", (f) => (f.state.tabs[0].snapshot.trace.push({ ...f.state.tabs[0].snapshot.trace[1] }), f)],
     ["a tab view that is neither flow nor calls", (f) => ((f.state.tabs[0].view = "graph"), f)],
     ["tx tab without a snapshot", (f) => (delete f.state.tabs[0].snapshot, f)],
     ["tx tab whose snapshot is another transaction", (f) => ((f.state.tabs[0].snapshot.flow.tx.hash = H2), f)],
@@ -543,6 +544,24 @@ describe("malformed or hostile files (Review Focus 4)", () => {
     expect(text).not.toHaveBeenCalled();
     expect(toasted()).toEqual([["Cannot import the file: The file is larger than 32 MiB", "error"]]);
     expect(before()).toEqual(was);
+  });
+
+  test("a duplicate trace path is rejected naming the trace", () => {
+    const bad = JSON.parse(JSON.stringify(good)) as { state: { tabs: { snapshot: { trace: CallFrameDto[] } }[] } };
+    const trace = bad.state.tabs[0]!.snapshot.trace;
+    trace.push({ ...trace[0]!, path: [] });
+    const r = parseFile(JSON.stringify(bad));
+    expect(r).toEqual({ ok: false, reason: "Invalid trace" });
+  });
+
+  test("trace frames are put in pre-order by path", () => {
+    const shuffled = JSON.parse(JSON.stringify(good)) as { state: { tabs: { snapshot: { trace: CallFrameDto[] } }[] } };
+    const pre = [[], [0], [0, 1], [0, 10], [2], [10]].map((path) => frame(path));
+    shuffled.state.tabs[0]!.snapshot.trace = [pre[5]!, pre[3]!, pre[0]!, pre[4]!, pre[2]!, pre[1]!];
+    const r = parseFile(JSON.stringify(shuffled));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.file.state.tabs[0]!.snapshot!.trace!.map((f) => f.path)).toEqual([[], [0], [0, 1], [0, 10], [2], [10]]);
   });
 
   test("the unmodified file is accepted", () => {

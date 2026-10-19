@@ -8,7 +8,7 @@ import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import type { TxResponseDto } from "../../api/generated/TxResponseDto";
 import type { CytoscapeViewProps } from "../../graph/CytoscapeView";
 import { en } from "../../i18n/en";
-import { useJobProgress, type JobProgressEvent } from "../../shell/statusStore";
+import { useJobProgress, useQuota, type JobProgressEvent } from "../../shell/statusStore";
 import { useTabs } from "../../shell/tabs";
 import { useUi } from "../../panels/uiStore";
 import { TxFlowView } from "../TxFlowView";
@@ -76,6 +76,7 @@ beforeEach(() => {
   h.props = null;
   useJobProgress.setState({ byId: {} });
   useTraceFailures.setState({ byHash: {} });
+  useQuota.setState({ quota: null });
   useTabs.setState({ tabs: [{ id: "graph" }, { id: HASH, kind: "tx", hash: HASH }], active: HASH });
   useUi.setState({ txSelection: {} });
   vi.spyOn(api, "nodes").mockResolvedValue([]);
@@ -272,6 +273,84 @@ test("source_quota_pause_shows_specific_copy", async () => {
   expect(screen.queryByText(/Etherscan/)).toBeNull();
   act(() => useJobProgress.getState().upsert(progress("paused_user_quota")));
   expect(screen.getByText("Waiting for tomorrow's quota")).toBeInTheDocument();
+});
+
+test("server_quota_pause_shows_the_etherscan_copy", async () => {
+  // A trace job also looks up EIP-7702 delegations on Etherscan: the server's daily total can pause it too.
+  useQuota.setState({ quota: { used: 100, limit: 100, paused: true, server_paused: true, reset_at: "2026-10-18T00:00:00Z" } });
+  vi.spyOn(api, "txTrace").mockResolvedValue(pending());
+  renderCalls();
+  await screen.findByText("Fetching call trace…");
+  act(() => useJobProgress.getState().upsert(progress("paused_quota")));
+  expect(await screen.findByText("The server's Etherscan quota is used up for today; all jobs resume at 2026-10-18 00:00:00 UTC")).toBeInTheDocument();
+  expect(screen.queryByText(/call-trace service/)).toBeNull();
+  // Once the server quota is back, a paused trace job is Blockscout's.
+  act(() => useQuota.setState({ quota: { used: 0, limit: 100, paused: false, server_paused: false, reset_at: "2026-10-18T00:00:00Z" } }));
+  expect(await screen.findByText("The call-trace service's quota is used up; it will resume automatically")).toBeInTheDocument();
+});
+
+test("a_cancelled_job_is_not_requested_again_until_retry", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const trace = vi.spyOn(api, "txTrace").mockResolvedValue(pending(9));
+    renderCalls();
+    await screen.findByText("Fetching call trace…");
+    act(() => useJobProgress.getState().upsert(progress("cancelled")));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The call-trace fetch was cancelled");
+    // Polling or a reconnect would start (and bill) the fetch again.
+    act(() => useJobProgress.getState().remove([9]));
+    await act(() => qc.invalidateQueries());
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(trace).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert")).toHaveTextContent("The call-trace fetch was cancelled");
+
+    trace.mockResolvedValue(ready(ensFrames));
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByRole("tree");
+    expect(trace).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a_delegatecall_shows_its_value_as_inherited_not_sent", async () => {
+  const ETH = "1500000000000000000";
+  const frames = [
+    synth([], { from: A, to: B, value: ETH }),
+    synth([0], { kind: "delegatecall", from: B, to: X, value: ETH }),
+  ];
+  vi.spyOn(api, "txTrace").mockResolvedValue(ready(frames));
+  renderCalls();
+  await screen.findByRole("tree");
+  const [root, inner] = screen.getAllByRole("treeitem");
+  expect(root).toHaveTextContent("1.5 ETH");
+  expect(inner).not.toHaveTextContent("ETH");
+  expect(String(edgeById(`${A}>${B}`).data.label)).toContain("1.5 ETH");
+  expect(String(edgeById(`${B}>${X}`).data.label)).not.toContain("ETH");
+  fireEvent.click(inner!);
+  const detail = within(screen.getByTestId("call-detail"));
+  expect(detail.getByText("Inherited value")).toBeInTheDocument();
+  expect(detail.queryByText("Value")).toBeNull();
+  fireEvent.click(root!);
+  expect(within(screen.getByTestId("call-detail")).getByText("Value")).toBeInTheDocument();
+});
+
+test("a_current_delegate_is_said_to_be_todays", async () => {
+  const D = "0x" + "dd".repeat(20);
+  const call = { signature: "ping()", name: "ping", args: [], via_delegate: D };
+  const frames = [
+    synth([], { from: A, to: B, input: "0x5c36b186", call, via_delegate: D, via_delegate_current: true }),
+    synth([0], { from: B, to: A, input: "0x5c36b186", call, via_delegate: D, via_delegate_current: false }),
+  ];
+  vi.spyOn(api, "txTrace").mockResolvedValue(ready(frames));
+  renderCalls();
+  await screen.findByRole("tree");
+  const [root, inner] = screen.getAllByRole("treeitem");
+  fireEvent.click(root!);
+  expect(screen.getByTestId("call-detail")).toHaveTextContent("Decoded with the ABI of its current EIP-7702 delegate 0xdddd…dddd");
+  fireEvent.click(inner!);
+  expect(screen.getByTestId("call-detail")).toHaveTextContent("Decoded with the ABI of its EIP-7702 delegate 0xdddd…dddd");
+  expect(screen.getByTestId("call-detail")).not.toHaveTextContent("current");
 });
 
 test("snapshot_without_trace_says_the_file_has_none", () => {

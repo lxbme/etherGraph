@@ -1071,9 +1071,13 @@ pub struct CallFrameDto {
     pub call: Option<DecodedCallDto>,
     /// The decoded revert data of a failed frame.
     pub revert: Option<DecodedErrorDto>,
-    /// The EIP-7702 delegate of `to` in this transaction, whose ABI decodes
-    /// its calls.
+    /// The EIP-7702 delegate of `to` whose ABI decoded `call` (or, with no
+    /// call decoded, `revert`); null when `to`'s own ABI did or none did.
     pub via_delegate: Option<String>,
+    /// `via_delegate` is the delegation read from `to`'s code when the trace
+    /// was fetched (today's), not one from this transaction's authorization
+    /// list: the delegation at the transaction may have differed.
+    pub via_delegate_current: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -1096,9 +1100,9 @@ fn call_kind(k: CallKind) -> &'static str {
 }
 
 impl CallFrameDto {
-    pub fn new(d: &eg_ingest::DecodedFrame, delegates: &HashMap<Address, Address>) -> Self {
+    pub fn new(d: &eg_ingest::DecodedFrame) -> Self {
         let f = &d.frame;
-        let via_delegate = f.to.and_then(|to| delegates.get(&to).copied());
+        let via_delegate = d.via_delegate.map(|v| v.address);
         Self {
             path: f.path.clone(),
             kind: call_kind(f.kind).to_owned(),
@@ -1119,6 +1123,7 @@ impl CallFrameDto {
                 args: e.args.iter().map(DecodedArgDto::from).collect(),
             }),
             via_delegate: via_delegate.map(hex_addr),
+            via_delegate_current: d.via_delegate.is_some_and(|v| v.current),
         }
     }
 }

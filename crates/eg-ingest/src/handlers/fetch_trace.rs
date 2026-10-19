@@ -8,12 +8,12 @@ use async_trait::async_trait;
 use chrono::Utc;
 use eg_core::source::{CallFrame, CallKind, Priority, SourceError};
 use eg_core::types::{AccountKind, Address, TxHash};
-use eg_store::{CallTraceRow, JobRow};
+use eg_store::{CallTraceRow, JobRow, TxRow};
 use serde::Deserialize;
 
 use crate::events::{Audience, Event};
 use crate::runner::{JobCtx, JobError, JobHandler};
-use crate::trace::validate_trace;
+use crate::trace::{tx_delegations, validate_trace};
 
 /// Callees probed for an EIP-7702 delegation designator per transaction.
 pub(crate) const MAX_DELEGATE_LOOKUPS: usize = 5;
@@ -34,27 +34,45 @@ fn designated(code: &[u8]) -> Option<Address> {
     (rest.len() == 20).then(|| Address::from_slice(rest))
 }
 
-/// Distinct callees, in first-appearance order, of the calls that run code
-/// (not STATICCALL, with calldata).
+/// Distinct callees, in first-appearance order, of the calls that run the
+/// callee's code with calldata (CALL, DELEGATECALL, CALLCODE: not a
+/// STATICCALL, a creation or a self-destruct).
 fn code_callees(frames: &[CallFrame]) -> Vec<Address> {
     let mut seen = HashSet::new();
     frames
         .iter()
-        .filter(|f| f.kind != CallKind::StaticCall && !f.input.is_empty())
+        .filter(|f| {
+            matches!(
+                f.kind,
+                CallKind::Call | CallKind::DelegateCall | CallKind::CallCode
+            ) && !f.input.is_empty()
+        })
         .filter_map(|f| f.to)
         .filter(|a| seen.insert(*a))
         .collect()
 }
 
-/// The EIP-7702 delegates of the trace's callees that are not known
-/// contracts, looking up at most [`MAX_DELEGATE_LOOKUPS`] accounts' code
-/// (billed to the job's user). A lookup that fails for that account is
-/// skipped; retryable errors, quota exhaustion and a rejected key propagate.
+/// The EIP-7702 delegates of the trace's callees that are neither known
+/// contracts nor set or cleared by the transaction's own authorization list
+/// (which decides theirs, see [`tx_delegations`]), looking up at most
+/// [`MAX_DELEGATE_LOOKUPS`] accounts' code (billed to the job's user).
+///
+/// The code is today's (`latest`), not the code at the transaction: Etherscan
+/// serves state only for the last ~128 blocks ("historical state … is not
+/// available"), so a delegation changed since then is not seen; the stored
+/// delegates are shown as current ones. A lookup that fails for that account
+/// is skipped; retryable errors, quota exhaustion and a rejected key
+/// propagate.
 async fn delegates(
     ctx: &JobCtx,
+    tx: &TxRow,
     frames: &[CallFrame],
 ) -> Result<HashMap<Address, Address>, JobError> {
-    let callees = code_callees(frames);
+    let own = tx_delegations(tx);
+    let callees: Vec<Address> = code_callees(frames)
+        .into_iter()
+        .filter(|a| !own.contains_key(a))
+        .collect();
     let contracts: HashSet<Address> = ctx
         .store
         .accounts(&callees)
@@ -126,7 +144,7 @@ impl JobHandler for FetchTraceHandler {
                 return Err(incomplete("no frames for a call to a contract".into()));
             }
         }
-        let delegates = delegates(ctx, &frames).await?;
+        let delegates = delegates(ctx, &tx, &frames).await?;
         ctx.store
             .upsert_call_trace(&CallTraceRow {
                 hash,
@@ -156,5 +174,36 @@ mod tests {
         assert_eq!(designated(&code), None);
         assert_eq!(designated(&[0x60, 0x80]), None);
         assert_eq!(designated(&[]), None);
+    }
+
+    #[test]
+    fn code_callees_skip_creations_and_static_calls() {
+        use eg_core::types::{Bytes, U256};
+        let f = |path: &[u32], kind, to: u8| CallFrame {
+            path: path.to_vec(),
+            kind,
+            from: Address::repeat_byte(1),
+            to: Some(Address::repeat_byte(to)),
+            value: U256::ZERO,
+            input: Bytes::from(vec![0x60, 0x80, 0x60, 0x40]),
+            output: None,
+            gas: 0,
+            gas_used: None,
+            error: None,
+            subtraces: 0,
+        };
+        let frames = [
+            f(&[], CallKind::Call, 2),
+            f(&[0], CallKind::Create, 3),
+            f(&[1], CallKind::Create2, 4),
+            f(&[2], CallKind::StaticCall, 5),
+            f(&[3], CallKind::DelegateCall, 6),
+            f(&[4], CallKind::CallCode, 7),
+            f(&[5], CallKind::Call, 2),
+        ];
+        assert_eq!(
+            code_callees(&frames),
+            [2, 6, 7].map(Address::repeat_byte).to_vec()
+        );
     }
 }

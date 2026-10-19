@@ -30,6 +30,7 @@ export interface CallEdge {
   kinds: Set<CallFrameDto["kind"]>;
   /** "①register" or "①register ×3". */
   label: string;
+  /** ETH sent by its frames (see `sendsEth`). */
   valueWei: bigint;
   failed: boolean;
   selfLoop: boolean;
@@ -40,6 +41,13 @@ export function frameId(path: number[]): string {
 }
 
 const isFailed = (f: CallFrameDto) => f.error !== null;
+
+/**
+ * Whether the frame's value is ETH it sends. A DELEGATECALL repeats the value of the call it runs in (traces carry
+ * it, e.g. a payable proxy's call into its implementation) and a CALLCODE pays its value to the caller itself: no
+ * ETH moves in either.
+ */
+export const sendsEth = (f: CallFrameDto) => f.kind !== "delegatecall" && f.kind !== "callcode";
 
 /** Frames are in pre-order, so a subtree is a contiguous run of deeper paths. */
 function withoutStaticSubtrees(frames: CallFrameDto[]): CallFrameDto[] {
@@ -129,7 +137,7 @@ export function buildCallGraph(frames: CallFrameDto[], f: TreeFilter): { nodes: 
     }
     e.frameIds.push(frameId(fr.path));
     e.kinds.add(fr.kind);
-    e.valueWei += BigInt(fr.value);
+    if (sendsEth(fr)) e.valueWei += BigInt(fr.value);
     if (isFailed(fr)) e.failed = true;
   }
   for (const e of edges.values()) if (e.frameIds.length > 1) e.label += ` ×${e.frameIds.length}`;

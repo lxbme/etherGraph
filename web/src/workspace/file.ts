@@ -1,4 +1,5 @@
 import { api } from "../api/endpoints";
+import type { CallFrameDto } from "../api/generated/CallFrameDto";
 import type { CallTraceResponseDto } from "../api/generated/CallTraceResponseDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { LabelDto } from "../api/generated/LabelDto";
@@ -225,6 +226,7 @@ const callFrame = shape({
   kind: oneOf("call", "staticcall", "delegatecall", "callcode", "create", "create2", "selfdestruct"),
   from: address, to: opt(address), value: wei, input: hex, output: opt(hex), gas: num, gas_used: opt(num), error: opt(str),
   call: opt(decodedCall), revert: opt(shape({ name: str, args: arr(arg) })), via_delegate: opt(address),
+  via_delegate_current: optField(bool),
 });
 const isIncludes = shape({ labels: bool, notes: bool });
 const isFullGraphSnapshot = shape({ exported_at: str, includes: isIncludes, data: graphData }) as (v: unknown) => v is GraphSnapshot;
@@ -233,6 +235,18 @@ const isFullTxSnapshot = shape({
 }) as (v: unknown) => v is TxSnapshot;
 
 export type ParseResult = { ok: true; file: EtherGraphFileV1 } | { ok: false; reason: string };
+
+/** Paths compared index by index, a parent before its children: sorted this way, frames are in pre-order. */
+function comparePaths(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i]! - b[i]!;
+  return a.length - b.length;
+}
+
+/** The trace in pre-order (the call-tree model relies on it); `null` when two frames share a path. */
+function preOrder(trace: CallFrameDto[]): CallFrameDto[] | null {
+  const sorted = [...trace].sort((a, b) => comparePaths(a.path, b.path));
+  return sorted.some((f, i) => i > 0 && comparePaths(sorted[i - 1]!.path, f.path) === 0) ? null : sorted;
+}
 const bad = (reason: string) => ({ ok: false as const, reason });
 const badField = (field: string) => bad(t("ws.err.field", { field }));
 
@@ -278,14 +292,25 @@ export function parseFile(text: string): ParseResult {
   if (!Object.keys(graph.proxies ?? {}).every(address)) return badField("proxies");
   if (graph.snapshot !== undefined && !isFullGraphSnapshot(graph.snapshot)) return badField("snapshot");
   if (graph.centers.length > 0 && kind !== "tx" && !graph.snapshot) return badField("snapshot");
+  const ordered: TxTabStateV2[] = [];
   for (const tab of tabs) {
     if (!isFullTxSnapshot(tab.snapshot) || lc(tab.snapshot.flow.tx.hash) !== tab.hash) return badField("snapshot");
+    if (tab.snapshot.trace === undefined) {
+      ordered.push(tab);
+      continue;
+    }
+    const trace = preOrder(tab.snapshot.trace);
+    if (!trace) return badField("trace");
+    ordered.push({ ...tab, snapshot: { ...tab.snapshot, trace } });
   }
   if (kind === "tx" && tabs.length !== 1) return badField("tabs");
   if (kind === "graph" && (tabs.length > 0 || !graph.snapshot)) return badField(tabs.length > 0 ? "tabs" : "snapshot");
   return {
     ok: true,
-    file: { format: FORMAT, version: VERSION, kind, exported_at: v.exported_at as string, includes: v.includes as FileIncludes, state: retag(r.state) },
+    file: {
+      format: FORMAT, version: VERSION, kind, exported_at: v.exported_at as string, includes: v.includes as FileIncludes,
+      state: retag({ ...r.state, tabs: ordered }),
+    },
   };
 }
 

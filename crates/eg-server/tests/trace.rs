@@ -185,6 +185,7 @@ async fn trace_pending_then_ready(pool: PgPool) {
     assert_eq!(call["args"][1]["name"], "owner");
     assert!(call["via_delegate"].is_null());
     assert!(frame_at(&v, &[3, 0])["via_delegate"].is_null());
+    assert_eq!(frame_at(&v, &[3, 0])["via_delegate_current"], false);
 }
 
 /// Root → T0, its first 29 children → T1..T29 (30 distinct non-static
@@ -323,10 +324,15 @@ async fn delegate_abi_is_used_for_7702_callee(pool: PgPool) {
     assert_eq!(f["call"]["name"], "onERC1155Received", "{f}");
     assert_eq!(f["call"]["via_delegate"], hex(DELEGATE));
     assert_eq!(f["via_delegate"], hex(DELEGATE));
-    // The refund to the sender carries no calldata: nothing to decode.
+    // Looked up from the sender's code when the trace was fetched (the tx
+    // has no authorization list): today's delegation, said to be so.
+    assert_eq!(f["via_delegate_current"], true);
+    // The refund to the sender carries no calldata: nothing to decode, the
+    // delegate's ABI is not used.
     let refund = frame_at(&v, &[5]);
     assert!(refund["call"].is_null());
-    assert_eq!(refund["via_delegate"], hex(DELEGATE));
+    assert!(refund["via_delegate"].is_null(), "{refund}");
+    assert_eq!(refund["via_delegate_current"], false);
     // The delegate is queued for metadata along with the sender.
     let meta = jobs_of_kind(&state, "contract_meta").await;
     let queued = meta[0].2["addresses"].as_array().unwrap();

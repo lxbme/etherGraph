@@ -13,7 +13,10 @@ pub struct CallTraceRow {
     pub hash: TxHash,
     /// Sorted by `path` (pre-order).
     pub frames: Vec<CallFrame>,
-    /// EIP-7702 delegated callees: account → the contract it delegates to.
+    /// EIP-7702 delegated callees: account → the contract it delegates to,
+    /// read from the account's code at `fetched_at` (today's delegation, not
+    /// necessarily the one at the transaction). Accounts the transaction's own
+    /// authorization list sets or clears are left out: the list decides.
     pub delegates: HashMap<Address, Address>,
     /// The trace source's name, e.g. `"blockscout"`.
     pub source: String,

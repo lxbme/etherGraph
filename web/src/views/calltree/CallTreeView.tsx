@@ -11,7 +11,8 @@ import { qk } from "../../api/queryClient";
 import { identifyAddresses, useIdentifying } from "../../graph/identify";
 import { useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
-import { useJobProgress } from "../../shell/statusStore";
+import { formatTime } from "../../lib/format";
+import { useJobProgress, useQuota, type JobProgressEvent } from "../../shell/statusStore";
 import { useTxSnapshot } from "../../shell/tabs";
 import { overlayIdentity, useLiveIdentities } from "../../workspace/snapshot";
 import type { FlowNodes } from "../txdetail/common";
@@ -60,12 +61,20 @@ export function CallTreeView({ hash }: { hash: string }) {
   return <LiveCallTree hash={hash} />;
 }
 
-/** A trace fetch job seen failing; `reason` is the job's error. */
-type TraceFailure = { jobId: number; reason: string | null };
+/** A trace fetch job seen failing or cancelled; `reason` is the failed job's error. */
+type TraceFailure = { jobId: number; reason: string | null; cancelled?: boolean };
+
+/** The watched job's end when it ended without a trace: failed, or cancelled (from the jobs list). */
+function failureOf(job: JobProgressEvent | undefined): TraceFailure | null {
+  if (job?.status === "failed") return { jobId: job.job_id, reason: job.error };
+  if (job?.status === "cancelled") return { jobId: job.job_id, reason: null, cancelled: true };
+  return null;
+}
 
 /**
- * Failed trace fetches by lowercased tx hash, kept apart from the job-progress store (which drops finished jobs on
- * every SSE reconnect): while one is recorded the trace is never requested on its own; only Retry clears it.
+ * Failed or cancelled trace fetches by lowercased tx hash, kept apart from the job-progress store (which drops
+ * finished jobs on every SSE reconnect): while one is recorded the trace is never requested on its own; only Retry
+ * clears it.
  */
 export const useTraceFailures = create<{
   byHash: Record<string, TraceFailure>;
@@ -81,8 +90,9 @@ export const useTraceFailures = create<{
 
 /**
  * The trace from the server: progress of its fetch job, its failure with Retry, then the tree. Every request while
- * nothing is cached starts (and bills) a new fetch job, so once the watched job has failed nothing requests again
- * (no polling, no SSE invalidation or reconnect) until the user presses Retry.
+ * nothing is cached starts (and bills) a new fetch job, so once the watched job has failed or been cancelled nothing
+ * requests again (no polling, no SSE invalidation or reconnect) until the user presses Retry. A job paused for quota
+ * waits for Blockscout's reset, or for Etherscan's when the server's total is used up (its EIP-7702 code lookups).
  */
 function LiveCallTree({ hash }: { hash: string }) {
   const t = useT();
@@ -90,13 +100,11 @@ function LiveCallTree({ hash }: { hash: string }) {
   const watched = useQueryClient().getQueryData<CallTraceResponseDto>(qk.txTrace(hash))?.job_id ?? null;
   const watchedJob = useJobProgress((s) => (watched === null ? undefined : s.byId[watched]));
   const recorded = useTraceFailures((s) => s.byHash[key]);
-  const failure: TraceFailure | null =
-    recorded ?? (watchedJob?.status === "failed" ? { jobId: watchedJob.job_id, reason: watchedJob.error } : null);
+  const ended = failureOf(watchedJob);
+  const failure: TraceFailure | null = recorded ?? ended;
   useEffect(() => {
-    if (watchedJob?.status === "failed" && recorded?.jobId !== watchedJob.job_id) {
-      useTraceFailures.getState().set(key, { jobId: watchedJob.job_id, reason: watchedJob.error });
-    }
-  }, [watchedJob, recorded, key]);
+    if (ended && recorded?.jobId !== ended.jobId) useTraceFailures.getState().set(key, ended);
+  }, [ended, recorded, key]);
   const q = useQuery({
     queryKey: qk.txTrace(hash),
     queryFn: () => api.txTrace(hash),
@@ -108,6 +116,7 @@ function LiveCallTree({ hash }: { hash: string }) {
   });
   const jobId = q.data?.job_id ?? null;
   const job = useJobProgress((s) => (jobId === null ? undefined : s.byId[jobId]));
+  const quota = useQuota((s) => s.quota);
 
   if (q.data?.status === "ready" && q.data.frames) {
     return <CallTreePanel hash={hash} frames={q.data.frames} undecoded={q.data.undecoded} />;
@@ -139,13 +148,16 @@ function LiveCallTree({ hash }: { hash: string }) {
   if (failure) {
     return (
       <div className="placeholder calltree__state" role="alert">
-        {t("tx.calls.failed", { reason: failure.reason ?? t("events.unknownReason") })} {retry}
+        {failure.cancelled ? t("tx.calls.cancelled") : t("tx.calls.failed", { reason: failure.reason ?? t("events.unknownReason") })}{" "}
+        {retry}
       </div>
     );
   }
   let text = t("tx.calls.loading");
   if (job?.status === "pending") text = t("tx.calls.queued");
-  else if (job?.status === "paused_quota") text = t("tx.calls.sourceQuota");
+  else if (job?.status === "paused_quota") {
+    text = quota?.server_paused ? t("banner.quotaPaused", { time: formatTime(quota.reset_at) }) : t("tx.calls.sourceQuota");
+  }
   else if (job?.status === "paused_user_quota") text = t("job.status.paused_user_quota");
   return <div className="placeholder calltree__state">{text}</div>;
 }

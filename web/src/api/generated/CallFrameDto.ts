@@ -36,7 +36,13 @@ call: DecodedCallDto | null,
  */
 revert: DecodedErrorDto | null, 
 /**
- * The EIP-7702 delegate of `to` in this transaction, whose ABI decodes
- * its calls.
+ * The EIP-7702 delegate of `to` whose ABI decoded `call` (or, with no
+ * call decoded, `revert`); null when `to`'s own ABI did or none did.
  */
-via_delegate: string | null, };
+via_delegate: string | null, 
+/**
+ * `via_delegate` is the delegation read from `to`'s code when the trace
+ * was fetched (today's), not one from this transaction's authorization
+ * list: the delegation at the transaction may have differed.
+ */
+via_delegate_current: boolean, };

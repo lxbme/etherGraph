@@ -1,7 +1,7 @@
 import type { CallFrameDto } from "../../api/generated/CallFrameDto";
 import { A, B, ensFrames, SENDER, synth, X } from "./fixtures.testutil";
 import {
-  buildCallGraph, callName, defaultCollapsed, edgeOfFrame, frameId, nextFrameOfEdge, treeRows, visibleFrames,
+  buildCallGraph, callName, defaultCollapsed, edgeOfFrame, frameId, nextFrameOfEdge, sendsEth, treeRows, visibleFrames,
 } from "./model";
 
 const ALL = { showStatic: true, failedOnly: false };
@@ -62,6 +62,22 @@ describe("call-tree model", () => {
     expect(e.label).toBe("② ×2");
     expect(e.valueWei).toBe(12n);
     expect(edges).toHaveLength(3);
+  });
+
+  it("delegatecall_and_callcode_values_send_no_eth", () => {
+    // As Lido's payable stETH proxy runs submit(): the DELEGATECALL into the implementation repeats the call's value.
+    const frames = [
+      synth([], { from: A, to: B, value: "9" }),
+      synth([0], { kind: "delegatecall", from: B, to: X, value: "9" }),
+      synth([1], { kind: "callcode", from: B, to: X, value: "4" }),
+      synth([2], { kind: "call", from: B, to: X, value: "2" }),
+      synth([3], { kind: "delegatecall", from: B, to: A, value: "9" }),
+    ];
+    const { edges } = buildCallGraph(frames, DEFAULT);
+    expect(edges.find((e) => e.id === `${A}>${B}`)!.valueWei).toBe(9n);
+    expect(edges.find((e) => e.id === `${B}>${X}`)!.valueWei).toBe(2n);
+    expect(edges.find((e) => e.id === `${B}>${A}`)!.valueWei).toBe(0n);
+    expect(frames.map(sendsEth)).toEqual([true, false, false, true, false]);
   });
 
   it("self_delegatecall_is_a_self_loop", () => {

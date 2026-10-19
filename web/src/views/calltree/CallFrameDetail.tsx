@@ -8,15 +8,19 @@ import { ArgsTable, nodeOf, RawHex, useFlowLink, type FlowNodes } from "../txdet
 import { KIND_TEXT } from "./CallTreeList";
 
 /**
- * One call in full: caller → callee, the decoded method and arguments (addresses select their node), value, gas,
- * the failure and decoded revert, and the raw input / output with copy.
+ * One call in full: caller → callee, the decoded method and arguments (addresses select their node), value (labelled
+ * apart where it is not ETH sent, see `sendsEth`), gas, the failure and decoded revert, and the raw input / output
+ * with copy.
  */
 export function CallFrameDetail({ frame, flow }: { frame: CallFrameDto; flow: FlowNodes }) {
   const t = useT();
   const { select } = useFlowLink(flow.tx.hash);
   const creation = frame.kind === "create" || frame.kind === "create2";
   const value = formatFixed(frame.value, 18, "eth");
-  const via = frame.call?.via_delegate ?? null;
+  const via = frame.via_delegate;
+  // No ETH moves on a DELEGATECALL (it repeats its context's value) or a CALLCODE (it pays the caller itself).
+  const valueLabel =
+    frame.kind === "delegatecall" ? "tx.calls.inheritedValue" : frame.kind === "callcode" ? "tx.calls.callcodeValue" : "tx.value";
   return (
     <div className="calltree__detail txdetail__pane" data-testid="call-detail">
       <div className="txdetail__line">
@@ -35,9 +39,13 @@ export function CallFrameDetail({ frame, flow }: { frame: CallFrameDto; flow: Fl
           </div>
         )
       )}
-      {via && <div className="detail__muted">{t("tx.calls.viaDelegate", { address: shortAddr(via) })}</div>}
+      {via && (
+        <div className="detail__muted">
+          {t(frame.via_delegate_current ? "tx.calls.viaCurrentDelegate" : "tx.calls.viaDelegate", { address: shortAddr(via) })}
+        </div>
+      )}
       <dl className="kv">
-        <dt>{t("tx.value")}</dt>
+        <dt>{t(valueLabel)}</dt>
         <dd className="num" title={value.full}>{value.text} ETH</dd>
         <dt>{t("tx.ov.gasLimit")}</dt>
         <dd className="num">{formatCount(frame.gas)}</dd>

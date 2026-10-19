@@ -60,7 +60,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -88,7 +89,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -126,7 +128,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -149,7 +152,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -173,7 +177,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -196,7 +201,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -220,7 +226,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -248,7 +255,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -296,7 +304,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -335,7 +344,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -365,7 +375,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -405,7 +416,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -454,7 +466,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -488,7 +501,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -521,7 +535,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -560,7 +575,8 @@
         "via_delegate": null
       },
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     {
       "path": [
@@ -577,7 +593,8 @@
       "error": null,
       "call": null,
       "revert": null,
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     }
   ],
   "job_id": null,

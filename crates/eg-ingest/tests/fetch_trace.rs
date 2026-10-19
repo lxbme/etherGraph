@@ -239,6 +239,102 @@ async fn records_7702_delegates_for_callees_with_code_designator(pool: PgPool) {
     assert_eq!(e.fake.calls(), 4);
 }
 
+/// An authorization signed by the key of all `byte`s.
+fn signed_auth(byte: u8, delegate: Address, nonce: u64) -> serde_json::Value {
+    let key = k256::ecdsa::SigningKey::from_slice(&[byte; 32]).unwrap();
+    let hash =
+        eg_ingest::authorization::authorization_hash(U256::from(1), delegate, U256::from(nonce));
+    let (sig, recid) = key.sign_prehash_recoverable(hash.as_slice()).unwrap();
+    let sig = alloy_primitives::Signature::from_signature_and_parity(sig, recid.is_y_odd());
+    json!({"chainId": "0x1", "address": format!("{delegate:#x}"), "nonce": format!("{nonce:#x}"),
+        "yParity": if sig.v() { "0x1" } else { "0x0" },
+        "r": format!("{:#x}", sig.r()), "s": format!("{:#x}", sig.s())})
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn the_transactions_own_authorizations_are_not_looked_up(pool: PgPool) {
+    let e = env(pool).await;
+    // The sender delegates in this very tx and is called back during it; a
+    // second signer clears its delegation; a third account is only called.
+    let sender = Address::from_private_key(&k256::ecdsa::SigningKey::from_slice(&[7; 32]).unwrap());
+    let cleared =
+        Address::from_private_key(&k256::ecdsa::SigningKey::from_slice(&[8; 32]).unwrap());
+    let other = Address::repeat_byte(0x44);
+    let mut tx = ens_tx();
+    tx.from = sender;
+    tx.value = U256::ZERO;
+    tx.raw_tx = json!({"hash": format!("{HASH:#x}"), "input": "0x01020304", "nonce": "0x4",
+        "authorizationList": [signed_auth(7, DELEGATE, 5), signed_auth(8, Address::ZERO, 0)]});
+    e.ctx.store.upsert_transaction(&tx).await.unwrap();
+    e.ctx
+        .store
+        .upsert_accounts(&[contract(CONTROLLER)])
+        .await
+        .unwrap();
+    let call = |path: &[u32], from, to, subtraces| CallFrame {
+        path: path.to_vec(),
+        kind: eg_core::source::CallKind::Call,
+        from,
+        to: Some(to),
+        value: U256::ZERO,
+        input: Bytes::from(vec![1, 2, 3, 4]),
+        output: None,
+        gas: 0,
+        gas_used: None,
+        error: None,
+        subtraces,
+    };
+    let frames = vec![
+        call(&[], sender, CONTROLLER, 3),
+        call(&[0], CONTROLLER, sender, 0),
+        call(&[1], CONTROLLER, cleared, 0),
+        call(&[2], CONTROLLER, other, 0),
+    ];
+    let designator = |d: Address| {
+        let mut code = vec![0xef, 0x01, 0x00];
+        code.extend_from_slice(d.as_slice());
+        Bytes::from(code)
+    };
+    // Today's delegations, which the tx's own list overrides.
+    e.fake
+        .set_code(sender, designator(Address::repeat_byte(0xd0)));
+    e.fake
+        .set_code(cleared, designator(Address::repeat_byte(0xd0)));
+    e.fake
+        .set_code(other, designator(Address::repeat_byte(0xd3)));
+    e.trace.set(HASH, Some(frames));
+
+    run(&e, HASH).await.unwrap();
+
+    let row = e.ctx.store.call_trace(HASH).await.unwrap().unwrap();
+    assert_eq!(
+        row.delegates,
+        HashMap::from([(other, Address::repeat_byte(0xd3))])
+    );
+    // Only `other` is looked up.
+    assert_eq!(e.fake.calls(), 1);
+    let delegates = eg_ingest::trace_delegates(Some(&tx), &row);
+    assert_eq!(
+        delegates,
+        HashMap::from([
+            (
+                sender,
+                eg_ingest::FrameDelegate {
+                    address: DELEGATE,
+                    current: false
+                }
+            ),
+            (
+                other,
+                eg_ingest::FrameDelegate {
+                    address: Address::repeat_byte(0xd3),
+                    current: true
+                }
+            ),
+        ])
+    );
+}
+
 async fn wait_status(ctx: &JobCtx, id: i64, want: JobStatus) -> i32 {
     for _ in 0..200 {
         let job = ctx.store.job(id).await.unwrap().unwrap();
