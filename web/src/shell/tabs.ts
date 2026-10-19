@@ -6,6 +6,9 @@ import type { TxSnapshot } from "../workspace/snapshot";
 /** The detail section shown under a transaction's flow graph. */
 export type TxDetailTab = "overview" | "input" | "transfers" | "internal" | "logs" | "raw";
 
+/** What a transaction tab shows above its detail sections: the asset flow or the call tree. */
+export type TxView = "flow" | "calls";
+
 /** A saved flow-graph layout, applied once when the tab's canvas first shows the flow. */
 export type TxLayout = { positions?: Record<string, Pos>; viewport?: Viewport };
 
@@ -14,6 +17,8 @@ export type TxTab = {
   kind: "tx";
   hash: string;
   detailTab?: TxDetailTab;
+  /** Absent means the asset flow. */
+  view?: TxView;
   highlightedSeq?: number | null;
   layout?: TxLayout;
   /** File data shown instead of the tx request until the tab is refreshed from the chain. */
@@ -24,7 +29,7 @@ export type TxTab = {
 export type Tab = { id: "graph" } | TxTab;
 
 /** A tx tab to restore (from a saved workspace). */
-export type TxTabInit = Pick<TxTab, "hash" | "detailTab" | "layout" | "snapshot">;
+export type TxTabInit = Pick<TxTab, "hash" | "detailTab" | "view" | "layout" | "snapshot">;
 
 interface TabsState {
   tabs: Tab[];
@@ -34,6 +39,8 @@ interface TabsState {
   activate(id: string): void;
   /** Remembers a tx tab's detail section; no-op for unknown ids. */
   setDetailTab(id: string, detailTab: TxDetailTab): void;
+  /** Switches a tx tab between the asset flow and the call tree; no-op for unknown ids. */
+  setTxView(id: string, view: TxView): void;
   /** Highlights the flow edge with this seq in a tx tab's graph (null clears); no-op for unknown ids. */
   setHighlightedSeq(id: string, seq: number | null): void;
   /** Opens a tx tab with this state (an imported snapshot) and activates it; false (nothing opened) when one for the hash is open. */
@@ -71,6 +78,9 @@ export const useTabs = create<TabsState>((set, get) => ({
   },
   setDetailTab: (id, detailTab) => {
     set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && "kind" in t ? { ...t, detailTab } : t)) }));
+  },
+  setTxView: (id, view) => {
+    set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && "kind" in t ? { ...t, view } : t)) }));
   },
   setHighlightedSeq: (id, highlightedSeq) => {
     set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && "kind" in t ? { ...t, highlightedSeq } : t)) }));

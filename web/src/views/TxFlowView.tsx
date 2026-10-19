@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { api } from "../api/endpoints";
 import { messageFor } from "../api/errors";
-import { useLocale, useT } from "../i18n";
+import { useLocale, useT, type MsgKey } from "../i18n";
 import { qk } from "../api/queryClient";
 import { createBoxSelection } from "../graph/boxSelection";
 import { CytoscapeView } from "../graph/CytoscapeView";
@@ -20,11 +20,12 @@ import { TxBatchBar } from "../panels/TxBatchBar";
 import { useInfo } from "../panels/info/infoStore";
 import { useUi } from "../panels/uiStore";
 import { useJobProgress } from "../shell/statusStore";
-import { useTabs, useTxSnapshot } from "../shell/tabs";
+import { useTabs, useTxSnapshot, type TxView } from "../shell/tabs";
 import { useTheme } from "../shell/theme";
 import { markTxLayoutChanged } from "../workspace/useWorkspace";
 import { requestExport } from "../workspace/fileRequest";
 import { fileLabelsOf, overlayNodes, useLiveIdentities } from "../workspace/snapshot";
+import { CallTreeView } from "./calltree/CallTreeView";
 import { CanvasTools, IdentifyAllButton, type CanvasExport } from "./CanvasTools";
 import { GraphTooltip } from "./GraphTooltip";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
@@ -35,6 +36,10 @@ import { TxSummaryBar } from "./txdetail/TxSummaryBar";
 
 const NOOP = () => {};
 const NO_ADDRS: string[] = [];
+const VIEWS: readonly [TxView, MsgKey][] = [
+  ["flow", "tx.view.flow"],
+  ["calls", "tx.view.calls"],
+];
 
 /**
  * The active tx tab's node detail, shown in the app's right panel (so the flow canvas keeps its width):
@@ -71,8 +76,10 @@ export function TxNodeDetail({ hash }: { hash: string }) {
 }
 
 /**
- * The transaction tab: summary bar, fund-flow graph and detail tabs; its node detail lives in the right panel.
- * A tab with a snapshot shows the file's flow (no tx request) with the receiver's live identities, until refreshed.
+ * The transaction tab: summary bar, the asset-flow graph or the call tree (a switch kept on the tab), and detail
+ * tabs; its node detail lives in the right panel. A tab with a snapshot shows the file's flow (no tx request) with
+ * the receiver's live identities, until refreshed. The flow canvas stays mounted under the call tree, so it keeps
+ * its layout; the call tree mounts (and requests its trace) only while shown.
  */
 export function TxFlowView({ hash }: { hash: string }) {
   const snapshot = useTxSnapshot(hash);
@@ -107,6 +114,17 @@ export function TxFlowView({ hash }: { hash: string }) {
     const entry = s.tabs.find((x) => x.id === hash.toLowerCase());
     return entry && "kind" in entry ? entry.layout : undefined;
   });
+  const storedView = useTabs((s) => {
+    const entry = s.tabs.find((x) => x.id === hash.toLowerCase());
+    return entry && "kind" in entry ? entry.view : undefined;
+  });
+  // Used only when the view is shown without a tab entry (nothing to store the choice on).
+  const [localView, setLocalView] = useState<TxView>("flow");
+  const view = storedView ?? localView;
+  const pickView = (v: TxView) => {
+    setLocalView(v);
+    useTabs.getState().setTxView(hash.toLowerCase(), v);
+  };
   const flow = snapshotFlow ?? (q.data?.status === "ready" ? q.data.flow : null);
   const elements = useMemo(
     () => (flow ? txElements(flow, selected, highlightedSeq) : []),
@@ -205,8 +223,17 @@ export function TxFlowView({ hash }: { hash: string }) {
           <SnapshotBanner exportedAt={snapshot.exported_at} onRefresh={() => useTabs.getState().refreshTx(hash.toLowerCase())} />
         )}
         <TxSummaryBar flow={flow} />
-        {flow.completeness === "fund_flow" && <div className="txview__banner">{t("tx.banner")}</div>}
-        <div className="txview__graph" ref={graphRef}>
+        <div className="txview__views">
+          <div className="seg" role="group" aria-label={t("tx.view.label")}>
+            {VIEWS.map(([v, key]) => (
+              <button key={v} type="button" className="seg__item" aria-pressed={view === v} onClick={() => pickView(v)}>
+                {t(key)}
+              </button>
+            ))}
+          </div>
+        </div>
+        {view === "flow" && flow.completeness === "fund_flow" && <div className="txview__banner">{t("tx.banner")}</div>}
+        <div className="txview__graph" ref={graphRef} hidden={view !== "flow"}>
           <CytoscapeView
             elements={elements}
             stylesheet={stylesheet}
@@ -257,6 +284,7 @@ export function TxFlowView({ hash }: { hash: string }) {
           <TxBatchBar selection={box} insetLeft={legendCover} nodes={flow.nodes} />
           {menu && <TxContextMenu x={menu.x} y={menu.y} node={menu.node} onClose={closeMenu} />}
         </div>
+        {view === "calls" && <CallTreeView hash={hash} />}
         <TxDetailTabs flow={flow} />
       </div>
     </div>

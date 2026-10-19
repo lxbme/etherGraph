@@ -1,7 +1,6 @@
 import { Fragment, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import type { DecodedArgDto } from "../../api/generated/DecodedArgDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
-import type { TxFlowDto } from "../../api/generated/TxFlowDto";
 import { useT } from "../../i18n";
 import { useUi } from "../../panels/uiStore";
 import { AddressCell } from "../../shell/AddressCell";
@@ -34,7 +33,10 @@ export function useFlowLink(hash: string) {
   return { select, rowProps };
 }
 
-export function nodeOf(flow: TxFlowDto, address: string): NodeSummaryDto | undefined {
+/** What address cells need from a transaction: its hash (to select in its tab) and the nodes that name addresses. */
+export type FlowNodes = { tx: { hash: string }; nodes: NodeSummaryDto[] };
+
+export function nodeOf(flow: FlowNodes, address: string): NodeSummaryDto | undefined {
   const a = address.toLowerCase();
   return flow.nodes.find((n) => n.address.toLowerCase() === a);
 }
@@ -65,7 +67,7 @@ const ADDRESS = /(0x[0-9a-fA-F]{40})(?![0-9a-fA-F])/;
  * A decoded argument value; long values fold. Addresses (also inside arrays / tuples) are address cells: the text
  * selects the node in the tx graph, "+" adds it to the address graph.
  */
-export function ArgValue({ arg, flow }: { arg: DecodedArgDto; flow: TxFlowDto }) {
+export function ArgValue({ arg, flow }: { arg: DecodedArgDto; flow: FlowNodes }) {
   const t = useT();
   const { select } = useFlowLink(flow.tx.hash);
   const long = arg.value.length > LONG_VALUE;
@@ -101,7 +103,7 @@ export function ArgValue({ arg, flow }: { arg: DecodedArgDto; flow: TxFlowDto })
 }
 
 /** Name / Type / Value table of decoded arguments. */
-export function ArgsTable({ args, flow }: { args: DecodedArgDto[]; flow: TxFlowDto }) {
+export function ArgsTable({ args, flow }: { args: DecodedArgDto[]; flow: FlowNodes }) {
   const t = useT();
   return (
     <table className="table">

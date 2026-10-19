@@ -1,54 +1,11 @@
 import type { CallFrameDto } from "../../api/generated/CallFrameDto";
-import ens from "../../../../crates/eg-blockscout/tests/data/ens_register.json";
+import { A, B, ensFrames, SENDER, synth, X } from "./fixtures.testutil";
 import {
   buildCallGraph, callName, defaultCollapsed, edgeOfFrame, frameId, nextFrameOfEdge, treeRows, visibleFrames,
 } from "./model";
 
-type Raw = {
-  action: { callType?: string; from: string; to?: string; gas: string; input: string; value?: string };
-  result?: { gasUsed: string; output: string };
-  error?: string;
-  traceAddress: number[];
-  type: string;
-};
-
-const KINDS: Record<string, CallFrameDto["kind"]> = {
-  call: "call", staticcall: "staticcall", delegatecall: "delegatecall", callcode: "callcode",
-  create: "create", create2: "create2", suicide: "selfdestruct",
-};
-
-function frameOf(r: Raw): CallFrameDto {
-  const a = r.action;
-  return {
-    path: r.traceAddress,
-    kind: KINDS[a.callType ?? r.type]!,
-    from: a.from,
-    to: a.to ?? null,
-    value: BigInt(a.value ?? "0x0").toString(),
-    input: a.input,
-    output: r.result?.output ?? null,
-    gas: Number(BigInt(a.gas)),
-    gas_used: r.result ? Number(BigInt(r.result.gasUsed)) : null,
-    error: r.error ?? null,
-    call: null,
-    revert: null,
-    via_delegate: null,
-  };
-}
-
-const ensFrames = (ens as Raw[]).map(frameOf);
-const SENDER = "0x82eb45562f991329ed2867f43fc60f0ba52c3dab";
 const ALL = { showStatic: true, failedOnly: false };
 const DEFAULT = { showStatic: false, failedOnly: false };
-
-const A = "0x" + "aa".repeat(20);
-const B = "0x" + "bb".repeat(20);
-const X = "0x" + "cc".repeat(20);
-
-const synth = (path: number[], over: Partial<CallFrameDto> = {}): CallFrameDto => ({
-  path, kind: "call", from: A, to: B, value: "0", input: "0x", output: "0x", gas: 1, gas_used: 1,
-  error: null, call: null, revert: null, via_delegate: null, ...over,
-});
 
 describe("call-tree model", () => {
   it("static_frames_and_their_subtrees_are_hidden_by_default", () => {
@@ -75,6 +32,21 @@ describe("call-tree model", () => {
     expect(rows.map((r) => r.seq)).toEqual([1, 2, 3]);
     expect(rows[2]!.failed).toBe(true);
     expect(rows[0]!.failed).toBe(false);
+  });
+
+  it("failed_only_shows_failed_static_frames_and_static_ancestors", () => {
+    const frames = [
+      synth([]),
+      synth([0], { kind: "staticcall" }), synth([0, 0], { error: "Reverted" }),
+      synth([1], { kind: "staticcall", error: "Reverted" }),
+      synth([2], { kind: "staticcall" }), synth([3]),
+    ];
+    for (const showStatic of [false, true]) {
+      const vis = visibleFrames(frames, { showStatic, failedOnly: true });
+      expect(vis.map((f) => frameId(f.path))).toEqual(["root", "0", "0.0", "1"]);
+    }
+    const { edges } = buildCallGraph(frames, { showStatic: false, failedOnly: true });
+    expect(edges.flatMap((e) => e.frameIds).sort()).toEqual(["0", "0.0", "1", "root"]);
   });
 
   it("graph_merges_repeated_calls_and_keeps_execution_order", () => {

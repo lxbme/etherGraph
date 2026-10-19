@@ -57,16 +57,18 @@ function withoutStaticSubtrees(frames: CallFrameDto[]): CallFrameDto[] {
   return out;
 }
 
-/** Static subtrees go unless `showStatic`; `failedOnly` keeps failed frames and their ancestors. */
+/**
+ * Static subtrees go unless `showStatic`; `failedOnly` keeps just the failed frames and their ancestors, static
+ * ones included (a failure under a read-only call is still on a failed path).
+ */
 export function visibleFrames(frames: CallFrameDto[], f: TreeFilter): CallFrameDto[] {
-  const shown = f.showStatic ? frames : withoutStaticSubtrees(frames);
-  if (!f.failedOnly) return shown;
+  if (!f.failedOnly) return f.showStatic ? frames : withoutStaticSubtrees(frames);
   const keep = new Set<string>();
-  for (const fr of shown) {
+  for (const fr of frames) {
     if (!isFailed(fr)) continue;
     for (let n = 0; n <= fr.path.length; n++) keep.add(frameId(fr.path.slice(0, n)));
   }
-  return shown.filter((fr) => keep.has(frameId(fr.path)));
+  return frames.filter((fr) => keep.has(frameId(fr.path)));
 }
 
 export function treeRows(frames: CallFrameDto[], f: TreeFilter, collapsed: ReadonlySet<string>): TreeRow[] {

@@ -20,7 +20,7 @@ export interface CanvasExport {
 
 /**
  * The top-right tool group of a canvas: `children` (more tools, e.g. "show hidden"), the select-mode
- * toggle and the Export menu, in one row so they never overlap.
+ * toggle (on canvases with a box selection) and the Export menu, in one row so they never overlap.
  */
 export function CanvasTools({
   selectMode,
@@ -28,8 +28,8 @@ export function CanvasTools({
   exporter,
   children,
 }: {
-  selectMode: boolean;
-  onSelectModeChange(v: boolean): void;
+  selectMode?: boolean;
+  onSelectModeChange?(v: boolean): void;
   exporter: CanvasExport;
   children?: ReactNode;
 }) {
@@ -38,16 +38,18 @@ export function CanvasTools({
   return (
     <div className="canvas-tools" role="toolbar" aria-label={t("tools.label")}>
       {children}
-      <button
-        type="button"
-        className="btn btn--icon btn--compact"
-        aria-pressed={selectMode}
-        aria-label={label}
-        title={label}
-        onClick={() => onSelectModeChange(!selectMode)}
-      >
-        <SquareDashedMousePointer size={14} />
-      </button>
+      {onSelectModeChange && (
+        <button
+          type="button"
+          className="btn btn--icon btn--compact"
+          aria-pressed={!!selectMode}
+          aria-label={label}
+          title={label}
+          onClick={() => onSelectModeChange(!selectMode)}
+        >
+          <SquareDashedMousePointer size={14} />
+        </button>
+      )}
       <ExportMenu exporter={exporter} />
     </div>
   );

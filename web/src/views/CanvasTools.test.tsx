@@ -36,6 +36,13 @@ test("a toolbar with the select-mode toggle (aria-pressed) and room for more too
   expect(onSelectModeChange).toHaveBeenLastCalledWith(false);
 });
 
+test("a canvas without a box selection has no select-mode toggle", () => {
+  render(<CanvasTools exporter={exporter()} />);
+  const bar = screen.getByRole("toolbar", { name: "Canvas tools" });
+  expect(within(bar).queryByRole("button", { name: "Box select (Shift+drag)" })).toBeNull();
+  expect(within(bar).getByRole("button", { name: "Export" })).toBeInTheDocument();
+});
+
 test("Identify all is disabled while an identification run is in flight", () => {
   const nodes = [{ address: "0x" + "1".repeat(40), kind: "unknown", identified: false }] as unknown as NodeSummaryDto[];
   render(<IdentifyAllButton nodes={nodes} />);

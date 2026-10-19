@@ -188,6 +188,11 @@ export function trustColors(theme: Theme): { suspicious: string; scam: string } 
   return { suspicious: cssVar("--trust-suspicious", TRUST_SUSPICIOUS_HEX[theme]), scam: cssVar("--cat-scam", CAT_HEX[theme].scam) };
 }
 
+/** The negative/failure red (--neg): failed calls in the call graph. */
+export function negColor(theme: Theme): string {
+  return cssVar("--neg", CAT_HEX[theme].scam);
+}
+
 /** Colour of the tx view's delegation edges. */
 export function delegationColor(theme: Theme): string {
   return cssVar("--tx-delegation", DELEGATION_HEX[theme]);
