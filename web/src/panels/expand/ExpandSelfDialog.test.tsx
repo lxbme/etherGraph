@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { api } from "../../api/endpoints";
 import { ApiError, messageFor } from "../../api/errors";
 import type { EdgeDto } from "../../api/generated/EdgeDto";
@@ -202,7 +202,12 @@ test("more than 50 centers after the expansion: a warning, Expand disabled, and 
   ).toBeInTheDocument();
   expect(expandBtn()).toBeDisabled();
   fireEvent.click(expandBtn());
-  expect(await expandSelf(targets, 5)).toBe(false);
+  // The guard behind the button: refused (and toasted), nothing synced or expanded.
+  let done = true;
+  await act(async () => {
+    done = await expandSelf(targets, 5);
+  });
+  expect(done).toBe(false);
   expect(api.sync).not.toHaveBeenCalled();
   expect(centers()).toHaveLength(48);
   expect(onClose).not.toHaveBeenCalled();
