@@ -55,6 +55,18 @@ async function expectSeparatorAndTabsReachable(page: Page) {
   await expect.poll(async () => (await bottom.boundingBox())!.height).not.toBe(before);
 }
 
+/** The canvas tools' Export menu opens over the panel and its last item ("File…") can be clicked. */
+async function expectExportMenuReachable(page: Page) {
+  const txView = page.getByTestId("tx-view");
+  const tools = txView.locator(".canvas-tools:visible");
+  await tools.getByRole("button", { name: "Export" }).click();
+  const file = page.getByRole("menuitem", { name: "File…" });
+  await expect(file).toBeVisible();
+  expect(await onTop(file), "the Export menu's File… item is not covered").toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(file).toBeHidden();
+}
+
 test("the detail panel maximised with the keyboard never covers its separator or tabs, also after a reload", async ({ page, mock }) => {
   mock.on("GET /api/tx/*/trace", () => ({ json: fixtures.trace }));
   await openTx(page);
@@ -78,6 +90,20 @@ test("the detail panel maximised with the keyboard never covers its separator or
   for (let i = 0; i < 40; i++) await page.keyboard.press("ArrowUp");
   await expectSeparatorAndTabsReachable(page);
 
+  expect(mock.unhandled).toEqual([]);
+});
+
+test("with the view above at its minimum the Export menu still opens over the panel, in both views", async ({ page, mock }) => {
+  mock.on("GET /api/tx/*/trace", () => ({ json: fixtures.trace }));
+  await page.addInitScript(() => localStorage.setItem("ethergraph.txDetailHeight", "5000"));
+  await openTx(page);
+  const txView = page.getByTestId("tx-view");
+  // The remembered height squeezes the view above to its 200 px minimum, so the menu reaches below the separator.
+  expect((await txView.locator(".split__top").boundingBox())!.height).toBeLessThan(210);
+  await expectExportMenuReachable(page);
+  await txView.getByRole("group", { name: "Transaction view" }).getByRole("button", { name: "Call tree" }).click();
+  await expect(txView.getByRole("tree", { name: "Call tree" }).getByRole("treeitem")).toHaveCount(9);
+  await expectExportMenuReachable(page);
   expect(mock.unhandled).toEqual([]);
 });
 

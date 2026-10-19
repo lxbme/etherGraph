@@ -1018,9 +1018,9 @@ a.btn { text-decoration: none; }
 .txview__split { min-height: 0; }
 /*
  * The view above the detail panel gives way to the separator: the graphs shrink (on a tiny window down to
- * nothing) and the pane clips, so neither ever spills over the separator or the detail tabs.
+ * nothing), so they never spill over the separator or the detail tabs. The pane itself does not clip, so the
+ * canvas tools' dropdowns can still open over the panel.
  */
-.txview__split > .split__top { overflow: hidden; }
 .txview__split .txview__graph,
 .txview__split .calltree,
 .txview__split .calltree__state { min-height: 0; }
