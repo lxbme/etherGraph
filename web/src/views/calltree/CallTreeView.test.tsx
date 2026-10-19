@@ -16,6 +16,7 @@ import { TxFlowView } from "../TxFlowView";
 import { getCallCy, getTxCy } from "../../graph/cyRegistry";
 import { exportImage } from "../../graph/exportImage";
 import { download } from "../../lib/download";
+import { formatLocalTime } from "../../lib/format";
 import { useWorkspace } from "../../workspace/useWorkspace";
 import { CallTreeView, useTraceFailures } from "./CallTreeView";
 import { A, B, ensFrames, SENDER, synth, X } from "./fixtures.testutil";
@@ -285,7 +286,8 @@ test("server_quota_pause_shows_the_etherscan_copy", async () => {
   renderCalls();
   await screen.findByText("Fetching call trace…");
   act(() => useJobProgress.getState().upsert(progress("paused_quota")));
-  expect(await screen.findByText("The server's Etherscan quota is used up for today; all jobs resume at 2026-10-18 00:00:00 UTC")).toBeInTheDocument();
+  const msg = await screen.findByText("The server's Etherscan quota is used up for today; all jobs resume at 2026-10-18 00:00:00 UTC");
+  expect(msg).toHaveAttribute("title", formatLocalTime("2026-10-18T00:00:00Z"));
   expect(screen.queryByText(/call-trace service/)).toBeNull();
   // Once the server quota is back, a paused trace job is Blockscout's.
   act(() => useQuota.setState({ quota: { used: 0, limit: 100, paused: false, server_paused: false, reset_at: "2026-10-18T00:00:00Z" } }));

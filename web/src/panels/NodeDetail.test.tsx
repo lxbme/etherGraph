@@ -133,10 +133,17 @@ describe("token and proxy tags", () => {
     expect(within(tags).getByText("CEX")).toBeInTheDocument();
     expect(within(tags).queryByText("Other")).toBeNull();
     cleanup();
-    // The profile's own node has no tags (a file saved before they existed).
-    renderDetail(undefined, { ...profile, node: { ...profile.node, labels: [other] } });
+    // The profile's own node has no tags (a file saved before they existed) and the profile no proxy flag.
+    renderDetail(undefined, { ...profile, is_proxy: false, node: { ...profile.node, labels: [other] } });
     expect(await screen.findByText("Contract")).toHaveClass("overline");
     expect(within(screen.getByTestId("node-tags")).getByText("Other")).toBeInTheDocument();
+  });
+
+  test("a node saved before the proxy flag takes it from the profile, in the kind line as in the proxy row", async () => {
+    // `profile.node` has no `is_proxy`; the profile itself says proxy.
+    renderDetail(undefined, profile);
+    expect(await screen.findByText("Contract · Proxy")).toHaveClass("overline");
+    expect(within(screen.getByTestId("node-kv")).getByText("Proxy", { selector: "dt" })).toBeInTheDocument();
   });
 });
 

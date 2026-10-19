@@ -727,6 +727,16 @@ describe("token transfers in the summary bar", () => {
     expect(await detail().findByText("FREE")).toBeInTheDocument();
   });
 
+  test("a listed token heads the summary over an unknown one earlier in the log", async () => {
+    const UNKNOWN = { level: "unknown", impersonates: null, reason: null } as const;
+    const odd = tf(1, { asset: "0x0dd0000000000000000000000000000000000001", amount: "5", decimals: 0, symbol: "ODD", trust: UNKNOWN });
+    vi.spyOn(api, "tx").mockResolvedValue(ready({ flows: [odd, usdc(2)] }));
+    renderView();
+    const lines = await screen.findAllByTestId("tx-summary-transfer");
+    expect(lines[0]).toHaveTextContent("USDC");
+    expect(lines[1]).toHaveTextContent("ODD");
+  });
+
   test("a scam-only transaction still shows its line, muted with the badge", async () => {
     vi.spyOn(api, "tx").mockResolvedValue(ready({ flows: [scam(1)] }));
     renderView();

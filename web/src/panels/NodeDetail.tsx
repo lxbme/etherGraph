@@ -149,7 +149,9 @@ export function NodeDetail({
   const stats = canvasStats(address, graph?.edges ?? []);
   const balance = n.balance != null ? formatFixed(n.balance, 18, "eth") : null;
   const labels = [...n.labels, ...fileLabels];
-  const tags = nodeTags(n);
+  // Etherscan's raw flag, unless the node says this is a misflagged implementation (nodes saved before the flag lack it).
+  const isProxy = n.is_proxy ?? p.is_proxy;
+  const tags = nodeTags({ token: n.token, is_proxy: isProxy });
   const categories = shownCategories([...new Set(labels.map((l) => l.category))], tags);
   const syncKey: MsgKey = n.syncing ? "sync.syncing" : n.synced ? "sync.ok" : "node.notSynced";
 
@@ -229,8 +231,7 @@ export function NodeDetail({
         <dd className="num">{`${covered} / ${KINDS.length}`}</dd>
         {n.ens && (<><dt>ENS</dt><dd title={n.ens}>{n.ens}</dd></>)}
         {n.contract_name && (<><dt>{t("node.contractName")}</dt><dd title={n.contract_name}>{n.contract_name}</dd></>)}
-        {/* Etherscan's raw flag, unless the node says this is a misflagged implementation. */}
-        {(n.is_proxy ?? p.is_proxy) && (
+        {isProxy && (
           <>
             <dt>{t("node.proxy")}</dt>
             <dd>{p.implementation ? <AddrButton addr={p.implementation} onNavigate={onNavigate} /> : t("common.yes")}</dd>

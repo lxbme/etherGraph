@@ -17,9 +17,12 @@ const TOKEN_KINDS: ReadonlySet<FlowDto["kind"]> = new Set(["erc20", "erc721", "e
 /** Transfer lines shown before the rest collapse into "+N more". */
 const SHOWN = 2;
 
-/** The token transfers in log order, listed / unknown tokens ahead of suspicious ahead of scam (stable within a rank). */
+/** Headline order by trust: listed tokens first, then unknown, suspicious, scam. */
+const TRUST_RANK: Record<FlowDto["trust"]["level"], number> = { listed: 0, unknown: 1, suspicious: 2, scam: 3 };
+
+/** The token transfers in log order, ranked listed ahead of unknown ahead of suspicious ahead of scam (stable within a rank). */
 function headlineTransfers(flows: readonly FlowDto[]): FlowDto[] {
-  const key = (f: FlowDto) => { const flag = trustFlag(f.trust); return flag === "scam" ? 2 : flag === "suspicious" ? 1 : 0; };
+  const key = (f: FlowDto) => TRUST_RANK[f.trust.level];
   return flows
     .filter((f) => TOKEN_KINDS.has(f.kind))
     .sort((a, b) => (a.log_index ?? Number.MAX_SAFE_INTEGER) - (b.log_index ?? Number.MAX_SAFE_INTEGER) || a.seq - b.seq)

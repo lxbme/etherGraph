@@ -12,7 +12,7 @@ import { qk } from "../../api/queryClient";
 import { identifyAddresses, useIdentifying } from "../../graph/identify";
 import { useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
-import { formatTime } from "../../lib/format";
+import { formatLocalTime, formatTime } from "../../lib/format";
 import { ResizableSide } from "../../shell/ResizableSide";
 import { useJobProgress, useQuota, type JobProgressEvent } from "../../shell/statusStore";
 import { useTabs, useTxSnapshot } from "../../shell/tabs";
@@ -158,12 +158,17 @@ function LiveCallTree({ hash, flows }: { hash: string; flows?: readonly FlowDto[
     );
   }
   let text = t("tx.calls.loading");
+  // The server's reset time reads in UTC; its local time is the hover, as on the quota banner.
+  let title: string | undefined;
   if (job?.status === "pending") text = t("tx.calls.queued");
   else if (job?.status === "paused_quota") {
-    text = quota?.server_paused ? t("banner.quotaPaused", { time: formatTime(quota.reset_at) }) : t("tx.calls.sourceQuota");
+    if (quota?.server_paused) {
+      text = t("banner.quotaPaused", { time: formatTime(quota.reset_at) });
+      title = formatLocalTime(quota.reset_at);
+    } else text = t("tx.calls.sourceQuota");
   }
   else if (job?.status === "paused_user_quota") text = t("job.status.paused_user_quota");
-  return <div className="placeholder calltree__state">{text}</div>;
+  return <div className="placeholder calltree__state" title={title}>{text}</div>;
 }
 
 /**
