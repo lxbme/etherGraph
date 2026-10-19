@@ -198,7 +198,7 @@ test("more than 50 centers after the expansion: a warning, Expand disabled, and 
   const targets = [node(T, { synced: false }), node(5, { synced: false }), node(6, { synced: false })];
   const { onClose } = mount(targets);
   expect(
-    screen.getByText("Centers would exceed 50 (now 51); the server shows at most 50 centers at once. Select fewer addresses or remove some centers first."),
+    screen.getByText("Centers would exceed 50 (51 after expanding); the server shows at most 50 centers at once. Select fewer addresses or remove some centers first."),
   ).toBeInTheDocument();
   expect(expandBtn()).toBeDisabled();
   fireEvent.click(expandBtn());
