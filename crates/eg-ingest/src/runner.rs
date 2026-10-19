@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use eg_core::source::{ChainSource, Priority, SourceError};
+use eg_core::source::{ChainSource, Priority, SourceError, TraceSource};
 use eg_store::{JobKind, JobRow, JobStatus, Store, StoreError};
 use futures::FutureExt;
 use tokio::sync::Notify;
@@ -56,6 +56,8 @@ pub struct JobCtx {
     /// The rate gate the source's calls go through; enqueueing reads its
     /// per-user quota.
     pub gate: Arc<PriorityGate>,
+    /// Call traces (Blockscout), billed to the job's user through its own gate.
+    pub trace_source: Arc<dyn TraceSource>,
 }
 
 #[async_trait]

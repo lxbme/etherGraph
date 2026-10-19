@@ -16,6 +16,7 @@ const TRACE_PATH: &str = "/api/v2/transactions/0x461e681fd0ab400c16e06f617d2afa9
 struct CountingGate {
     acquires: AtomicU32,
     rate_limited: AtomicU32,
+    quota_exhausted: AtomicU32,
     priorities: Mutex<Vec<Priority>>,
     fail_with: Option<SourceError>,
 }
@@ -32,6 +33,9 @@ impl CallGate for CountingGate {
     }
     fn on_rate_limited(&self) {
         self.rate_limited.fetch_add(1, Ordering::SeqCst);
+    }
+    fn on_quota_exhausted(&self) {
+        self.quota_exhausted.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -112,6 +116,33 @@ async fn too_many_requests_is_rate_limited_and_notifies_gate() {
     // No client-side retry: the job runner retries.
     assert_eq!(gate.acquires.load(Ordering::SeqCst), 1);
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn spent_daily_credits_are_quota_exhausted_and_pause_the_gate() {
+    for body in [
+        r#"{"message":"Daily credits limit exceeded"}"#,
+        r#"{"error":"API key quota exhausted"}"#,
+    ] {
+        let server = MockServer::start().await;
+        respond(&server, ResponseTemplate::new(429).set_body_string(body)).await;
+        let (src, gate) = source(&server, CountingGate::default(), Some("proapi_k"));
+        let err = src.call_trace(Priority::Low, hash()).await.unwrap_err();
+        assert_eq!(err, SourceError::QuotaExhausted, "{body}");
+        assert_eq!(gate.quota_exhausted.load(Ordering::SeqCst), 1);
+        assert_eq!(gate.rate_limited.load(Ordering::SeqCst), 0);
+    }
+    // A plain rate-limit reply is not exhaustion.
+    let server = MockServer::start().await;
+    respond(
+        &server,
+        ResponseTemplate::new(429).set_body_string(r#"{"message":"Too Many Requests"}"#),
+    )
+    .await;
+    let (src, gate) = source(&server, CountingGate::default(), None);
+    let err = src.call_trace(Priority::Low, hash()).await.unwrap_err();
+    assert_eq!(err, SourceError::RateLimited);
+    assert_eq!(gate.quota_exhausted.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]

@@ -320,8 +320,8 @@ impl ChainSource for FakeSource {
     }
 }
 
-/// Wraps a source so that every call first takes a permit from `gate`, as the
-/// Etherscan client does for each HTTP attempt: calls count toward the gate's
+/// Wraps a source (chain or trace) so that every call first takes a permit
+/// from `gate`, as the Etherscan client does for each HTTP attempt: calls count toward the gate's
 /// quotas and are refused like real ones when a quota is used up.
 pub struct GatedSource<S> {
     inner: Arc<S>,
@@ -420,6 +420,23 @@ impl<S: ChainSource> ChainSource for GatedSource<S> {
     ) -> Result<Vec<(Address, U256)>, SourceError> {
         self.gate.acquire(p).await?;
         self.inner.balances(p, addrs).await
+    }
+}
+
+/// As the Blockscout client does for each request.
+#[async_trait]
+impl<S: TraceSource> TraceSource for GatedSource<S> {
+    async fn call_trace(
+        &self,
+        p: Priority,
+        hash: TxHash,
+    ) -> Result<Option<Vec<CallFrame>>, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.call_trace(p, hash).await
+    }
+
+    fn name(&self) -> &'static str {
+        self.inner.name()
     }
 }
 

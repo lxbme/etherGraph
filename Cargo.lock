@@ -1397,6 +1397,7 @@ dependencies = [
  "chrono",
  "clap",
  "csv",
+ "eg-blockscout",
  "eg-core",
  "eg-decode",
  "eg-etherscan",

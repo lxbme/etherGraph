@@ -4,6 +4,13 @@ api_key = "..."            # 也可以用环境变量 ETHERSCAN_API_KEY
 rate_per_sec = 2.5
 daily_limit = 100000
 
+[blockscout]
+# Call traces. Each request counts toward the user's daily quota (not toward
+# etherscan.daily_limit).
+base_url = "https://eth.blockscout.com/api/v2"
+# api_key = "..."          # optional PRO key; also BLOCKSCOUT_API_KEY
+rate_per_sec = 2
+
 [sync]
 max_records_per_category = 10000
 stale_after_secs = 600

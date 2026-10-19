@@ -9,11 +9,14 @@ use std::time::Duration;
 use alloy_primitives::{Address, B256, Bytes, U256};
 use axum::http::StatusCode;
 use chrono::{NaiveDate, TimeZone, Utc};
-use common::{default_user_id, gated_app, get, get_as, post_json, post_json_as, second_user};
-use eg_core::source::{RawLog, RawReceipt, RawTx};
+use common::{
+    default_user_id, gated_app, gated_app_traced, get, get_as, post_json, post_json_as, second_user,
+};
+use eg_core::source::{CallGate, Priority, RawLog, RawReceipt, RawTx, SourceError};
 use eg_core::testing::FakeSource;
+use eg_ingest::billing::billed;
 use eg_ingest::{Runner, default_handlers};
-use eg_server::background::rollover;
+use eg_server::background::{persist_quota, rollover};
 use eg_server::config::Config;
 use eg_server::state::AppState;
 use eg_store::JobStatus;
@@ -334,4 +337,42 @@ async fn cache_hits_cost_nothing(pool: PgPool) {
     assert_eq!(fetches, 0);
     assert_eq!(state.gate.user_quota(b_id).used, 0);
     assert_eq!(state.gate.user_quota(a).used, paid);
+}
+
+/// Trace calls take permits from `state.trace_gate`: they count toward the
+/// user's quota (and its stored usage) only, and still run while the
+/// server's Etherscan total is used up.
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn trace_calls_bill_only_the_users_quota(pool: PgPool) {
+    let mut cfg = Config::default();
+    cfg.etherscan.daily_limit = 1;
+    let (_, state, _, trace) = gated_app_traced(pool, cfg).await;
+    let a = default_user_id(&state).await;
+    state.gate.set_user_limit(a, Some(3));
+    billed(Some(a), state.gate.acquire(Priority::Interactive))
+        .await
+        .unwrap();
+    assert_eq!(
+        state.gate.acquire(Priority::Interactive).await,
+        Err(SourceError::QuotaExhausted)
+    );
+
+    let call = || {
+        billed(
+            Some(a),
+            state
+                .ctx
+                .trace_source
+                .call_trace(Priority::Interactive, HASH),
+        )
+    };
+    assert_eq!(call().await, Ok(None));
+    assert_eq!(call().await, Ok(None));
+    assert_eq!(call().await, Err(SourceError::UserQuotaExhausted));
+    assert_eq!(trace.calls(), 2);
+    assert_eq!(state.gate.used(), 1);
+    assert_eq!(state.gate.user_quota(a).used, 3);
+    persist_quota(&state).await;
+    let today = Utc::now().date_naive();
+    assert_eq!(state.store.user_usage_get(a, today).await.unwrap(), 3);
 }

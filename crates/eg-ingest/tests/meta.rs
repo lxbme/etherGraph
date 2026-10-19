@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use alloy_primitives::{Address, B256, Bytes, U256, address};
 use alloy_sol_types::{SolCall, SolValue, sol};
 use eg_core::source::{ContractCreation, ContractSource, Priority, SourceError};
-use eg_core::testing::FakeSource;
+use eg_core::testing::{FakeSource, FakeTraceSource};
 use eg_core::types::AccountKind;
 use eg_decode::encode_reverse;
 use eg_ingest::config::IngestConfig;
@@ -44,6 +44,7 @@ fn env(pool: PgPool) -> Env {
             user_limits: Default::default(),
             initial_user_used: Default::default(),
         }),
+        trace_source: Arc::new(FakeTraceSource::new()),
     };
     Env { ctx, fake }
 }

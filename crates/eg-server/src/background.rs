@@ -216,14 +216,16 @@ async fn quota_loop(state: AppState) {
 }
 
 /// Day change: stores `finished_day`'s final counts (server and per user),
-/// resets the gate's quotas, requeues the jobs paused on either quota and
-/// wakes the workers. Returns false when the paused jobs could not be
-/// resumed (the caller retries).
+/// resets the gates' quotas (Etherscan's and Blockscout's pause), requeues
+/// the jobs paused on either quota and wakes the workers. Returns false when
+/// the paused jobs could not be resumed (the caller retries).
 pub async fn rollover(state: &AppState, finished_day: NaiveDate) -> bool {
     persist(state, finished_day).await;
     let mut rx = state.gate.subscribe_quota();
     let used = rx.borrow().used;
     state.gate.reset_quota();
+    // Blockscout's daily credits renew at the same time.
+    state.trace_gate.reset_quota();
     // The reset is applied asynchronously; `used` only grows until it lands,
     // so a smaller value means the reset is in effect.
     if used > 0 {

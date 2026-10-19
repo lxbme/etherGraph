@@ -268,8 +268,12 @@ async fn rollover_persists_resets_and_resumes(pool: PgPool) {
     tokio::pin!(notified);
     notified.as_mut().enable();
 
+    // Blockscout reported its daily credits spent.
+    state.trace_gate.on_quota_exhausted();
+
     let day = NaiveDate::from_ymd_opt(2026, 10, 16).unwrap();
     rollover(&state, day).await;
+    assert!(!state.trace_gate.paused());
 
     assert_eq!(state.store.quota_get(day).await.unwrap(), 3);
     assert_eq!(state.gate.used(), 0);
@@ -523,6 +527,9 @@ fn config_example_parses() {
     assert_eq!(cfg.auth.session_days, 7);
     assert_eq!(cfg.auth.admin_session_minutes, 60);
     assert!(!cfg.auth.trust_forwarded_for);
+    assert_eq!(cfg.blockscout.base_url, "https://eth.blockscout.com/api/v2");
+    assert_eq!(cfg.blockscout.api_key, None);
+    assert_eq!(cfg.blockscout.rate_per_sec, 2.0);
 }
 
 const AUTH_BASE: &str = "[etherscan]\napi_key = \"k\"\n[server]\ndatabase_url = \"x\"\n";
@@ -747,6 +754,40 @@ fn config_debug_redacts_api_key() {
     }
     let none = Config::default();
     assert!(format!("{none:?}").contains("api_key: None"));
+}
+
+#[test]
+fn blockscout_config_defaults_and_redaction() {
+    let cfg = Config::parse(AUTH_BASE, env(&[])).unwrap();
+    assert_eq!(cfg.blockscout.base_url, "https://eth.blockscout.com/api/v2");
+    assert_eq!(cfg.blockscout.api_key, None);
+    assert_eq!(cfg.blockscout.rate_per_sec, 2.0);
+
+    let text = format!(
+        "{AUTH_BASE}[blockscout]\napi_key = \"BSKEY-FILE\"\nbase_url = \"https://b.example/api/v2\"\nrate_per_sec = 0.5\n"
+    );
+    let cfg = Config::parse(&text, env(&[])).unwrap();
+    assert_eq!(cfg.blockscout.api_key.as_deref(), Some("BSKEY-FILE"));
+    assert_eq!(cfg.blockscout.base_url, "https://b.example/api/v2");
+    assert_eq!(cfg.blockscout.rate_per_sec, 0.5);
+    for s in [format!("{cfg:?}"), format!("{:#?}", cfg.blockscout)] {
+        assert!(!s.contains("BSKEY-FILE"), "{s}");
+        assert!(s.contains("***"), "{s}");
+        assert!(s.contains("rate_per_sec"), "{s}");
+    }
+
+    let cfg = Config::parse(&text, env(&[("BLOCKSCOUT_API_KEY", "BSKEY-ENV")])).unwrap();
+    assert_eq!(cfg.blockscout.api_key.as_deref(), Some("BSKEY-ENV"));
+    assert!(!format!("{cfg:?}").contains("BSKEY-ENV"));
+
+    for rate in ["0", "-1", "nan", "inf"] {
+        let bad = format!("{AUTH_BASE}[blockscout]\nrate_per_sec = {rate}\n");
+        let err = Config::parse(&bad, env(&[])).unwrap_err();
+        assert!(
+            err.to_string().contains("blockscout.rate_per_sec"),
+            "{rate}: {err}"
+        );
+    }
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]

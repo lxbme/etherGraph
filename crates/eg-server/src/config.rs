@@ -1,5 +1,5 @@
-//! `config.toml` (spec §9). Every field has a default; `ETHERSCAN_API_KEY` and
-//! `DATABASE_URL` override the file.
+//! `config.toml` (spec §9). Every field has a default; `ETHERSCAN_API_KEY`,
+//! `BLOCKSCOUT_API_KEY` and `DATABASE_URL` override the file.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -19,6 +19,7 @@ pub struct Config {
     pub server: ServerCfg,
     pub source: SourceCfg,
     pub auth: AuthCfg,
+    pub blockscout: BlockscoutCfg,
 }
 
 /// `Debug` prints the API key as `***`.
@@ -49,6 +50,38 @@ impl Default for EtherscanCfg {
             base_url: "https://api.etherscan.io/v2/api".into(),
             rate_per_sec: 2.5,
             daily_limit: 100_000,
+        }
+    }
+}
+
+/// The Blockscout REST API (call traces). Its calls count only toward each
+/// user's daily quota, never toward `etherscan.daily_limit`. `Debug` prints
+/// the API key as `***`.
+#[derive(Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BlockscoutCfg {
+    pub base_url: String,
+    /// Optional PRO API key; never logged nor sent to the frontend.
+    pub api_key: Option<String>,
+    pub rate_per_sec: f64,
+}
+
+impl std::fmt::Debug for BlockscoutCfg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BlockscoutCfg")
+            .field("base_url", &self.base_url)
+            .field("api_key", &self.api_key.as_ref().map(|_| "***"))
+            .field("rate_per_sec", &self.rate_per_sec)
+            .finish()
+    }
+}
+
+impl Default for BlockscoutCfg {
+    fn default() -> Self {
+        Self {
+            base_url: "https://eth.blockscout.com/api/v2".into(),
+            api_key: None,
+            rate_per_sec: 2.0,
         }
     }
 }
@@ -350,6 +383,9 @@ impl Config {
         if let Some(key) = env("ETHERSCAN_API_KEY") {
             cfg.etherscan.api_key = Some(key);
         }
+        if let Some(key) = env("BLOCKSCOUT_API_KEY") {
+            cfg.blockscout.api_key = Some(key);
+        }
         if let Some(url) = env("DATABASE_URL") {
             cfg.server.database_url = url;
         }
@@ -374,6 +410,10 @@ impl Config {
         let rate = self.etherscan.rate_per_sec;
         if !(rate.is_finite() && rate > 0.0) {
             bail!("etherscan.rate_per_sec must be > 0, got {rate}");
+        }
+        let rate = self.blockscout.rate_per_sec;
+        if !(rate.is_finite() && rate > 0.0) {
+            bail!("blockscout.rate_per_sec must be > 0, got {rate}");
         }
         if self.sync.workers == 0 {
             bail!("sync.workers must be > 0");

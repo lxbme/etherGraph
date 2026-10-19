@@ -10,6 +10,7 @@ eg-core = { path = "../eg-core" }
 eg-decode = { path = "../eg-decode" }
 eg-store = { path = "../eg-store" }
 eg-etherscan = { path = "../eg-etherscan" }
+eg-blockscout = { path = "../eg-blockscout" }
 eg-ingest = { path = "../eg-ingest" }
 alloy-primitives = { workspace = true, features = ["k256"] }
 anyhow = { workspace = true }

@@ -2,15 +2,19 @@
 
 use std::sync::Arc;
 
-use eg_core::source::ChainSource;
+use eg_blockscout::{
+    BlockscoutTraceSource, FixturePathTransport, HttpPathTransport, PathTransport,
+    RecordingPathTransport,
+};
+use eg_core::source::{ChainSource, TraceSource};
 use eg_etherscan::ClientStats;
-use eg_ingest::gate::PriorityGate;
+use eg_ingest::gate::{PriorityGate, TraceGate};
 use eg_ingest::{EventBus, JobCtx};
 use eg_store::Store;
 use tokio::sync::Notify;
 
 use crate::auth::AuthState;
-use crate::config::Config;
+use crate::config::{Config, SourceMode};
 use crate::head::HeadCache;
 use crate::trust::TrustCache;
 
@@ -19,6 +23,8 @@ pub struct AppState {
     pub store: Store,
     pub source: Arc<dyn ChainSource>,
     pub gate: Arc<PriorityGate>,
+    /// Blockscout's own rate and pause; reset with `gate` at UTC midnight.
+    pub trace_gate: Arc<TraceGate>,
     pub stats: Arc<ClientStats>,
     pub ctx: JobCtx,
     pub cfg: Arc<Config>,
@@ -28,13 +34,30 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// Builds the job context (fresh event bus and wake handle) around the given parts.
+    /// Builds the job context (fresh event bus and wake handle) around the
+    /// given parts, and the Blockscout trace source `cfg` describes, billed
+    /// to the users of `gate`.
     pub fn new(
         cfg: Arc<Config>,
         store: Store,
         source: Arc<dyn ChainSource>,
         gate: Arc<PriorityGate>,
         stats: Arc<ClientStats>,
+    ) -> Self {
+        let trace_gate = TraceGate::spawn(cfg.blockscout.rate_per_sec, gate.clone());
+        let trace_source = blockscout_source(&cfg, trace_gate.clone());
+        Self::with_trace(cfg, store, source, gate, stats, trace_gate, trace_source)
+    }
+
+    /// Like [`AppState::new`] with the given trace source (tests).
+    pub fn with_trace(
+        cfg: Arc<Config>,
+        store: Store,
+        source: Arc<dyn ChainSource>,
+        gate: Arc<PriorityGate>,
+        stats: Arc<ClientStats>,
+        trace_gate: Arc<TraceGate>,
+        trace_source: Arc<dyn TraceSource>,
     ) -> Self {
         let ctx = JobCtx {
             store: store.clone(),
@@ -43,12 +66,14 @@ impl AppState {
             cfg: Arc::new(cfg.ingest()),
             wake: Arc::new(Notify::new()),
             gate: gate.clone(),
+            trace_source,
         };
         Self {
             auth: Arc::new(AuthState::new(&cfg)),
             store,
             source,
             gate,
+            trace_gate,
             stats,
             ctx,
             cfg,
@@ -56,4 +81,20 @@ impl AppState {
             trust: Arc::new(TrustCache::default()),
         }
     }
+}
+
+/// Blockscout over the transport of `cfg.source.mode`: live, replaying
+/// `<fixtures_dir>/blockscout/`, or live while recording there.
+pub fn blockscout_source(cfg: &Config, gate: Arc<TraceGate>) -> Arc<dyn TraceSource> {
+    let bs = &cfg.blockscout;
+    let transport: Arc<dyn PathTransport> = match cfg.source.mode {
+        SourceMode::Etherscan => Arc::new(HttpPathTransport::new(&bs.base_url)),
+        SourceMode::Fixture => Arc::new(FixturePathTransport::new(&cfg.source.fixtures_dir)),
+        SourceMode::Record => Arc::new(RecordingPathTransport::new(
+            HttpPathTransport::new(&bs.base_url),
+            &cfg.source.fixtures_dir,
+        )),
+    };
+    let api_key = bs.api_key.clone().filter(|k| !k.trim().is_empty());
+    Arc::new(BlockscoutTraceSource::new(transport, gate, api_key))
 }

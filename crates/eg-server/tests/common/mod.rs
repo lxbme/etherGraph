@@ -7,10 +7,10 @@ use axum::Router;
 use axum::body::Body;
 use axum::http::{HeaderValue, Request, StatusCode, header};
 use chrono::Duration;
-use eg_core::source::ChainSource;
-use eg_core::testing::{FakeSource, GatedSource};
+use eg_core::source::{ChainSource, TraceSource};
+use eg_core::testing::{FakeSource, FakeTraceSource, GatedSource};
 use eg_etherscan::ClientStats;
-use eg_ingest::gate::{GateConfig, PriorityGate};
+use eg_ingest::gate::{GateConfig, PriorityGate, TraceGate};
 use eg_server::app::router;
 use eg_server::auth::siwe::canonical_message;
 use eg_server::config::Config;
@@ -29,12 +29,26 @@ pub const ORIGIN: &str = "http://127.0.0.1:8080";
 /// The whitelisted, non-admin user every [`test_app`] request runs as.
 pub const DEFAULT_USER: Address = address!("0x00000000000000000000000000000000000d3fa1");
 
-/// App wired to a `FakeSource` and a fast gate, every request sent as
-/// [`DEFAULT_USER`] (see [`as_default_user`]). No runner workers are spawned.
+/// App wired to a `FakeSource`, a `FakeTraceSource` and fast gates, every
+/// request sent as [`DEFAULT_USER`] (see [`as_default_user`]). No runner
+/// workers are spawned.
 pub async fn test_app(pool: PgPool) -> (Router, AppState, Arc<FakeSource>) {
-    let fake = Arc::new(FakeSource::new());
-    let (app, state) = test_app_with(pool, fake.clone()).await;
+    let (app, state, fake, _) = test_app_traced(pool).await;
     (app, state, fake)
+}
+
+/// Like [`test_app`], also returning the `FakeTraceSource` behind
+/// `state.ctx.trace_source` (its calls take no gate permit).
+pub async fn test_app_traced(
+    pool: PgPool,
+) -> (Router, AppState, Arc<FakeSource>, Arc<FakeTraceSource>) {
+    let fake = Arc::new(FakeSource::new());
+    let trace = Arc::new(FakeTraceSource::new());
+    let cfg = Config::default();
+    let gate = gate_for(&cfg);
+    let (raw, state) = app_with_gate(cfg, pool, fake.clone(), gate, trace.clone(), false);
+    let app = as_default_user(raw, &state).await;
+    (app, state, fake, trace)
 }
 
 /// Like [`test_app`] with any source.
@@ -56,12 +70,25 @@ pub fn anon_app(pool: PgPool, cfg: Config) -> (Router, AppState, Arc<FakeSource>
 /// app's gate as the Etherscan client does, billed to the calling task's
 /// user: calls count toward the server and per-user quotas.
 pub async fn gated_app(pool: PgPool, cfg: Config) -> (Router, AppState, Arc<FakeSource>) {
+    let (app, state, fake, _) = gated_app_traced(pool, cfg).await;
+    (app, state, fake)
+}
+
+/// Like [`gated_app`], also returning the `FakeTraceSource` behind
+/// `state.ctx.trace_source`, whose calls each take a permit from
+/// `state.trace_gate` as the Blockscout client does: they count toward the
+/// per-user quota only.
+pub async fn gated_app_traced(
+    pool: PgPool,
+    cfg: Config,
+) -> (Router, AppState, Arc<FakeSource>, Arc<FakeTraceSource>) {
     let fake = Arc::new(FakeSource::new());
+    let trace = Arc::new(FakeTraceSource::new());
     let gate = gate_for(&cfg);
     let source = Arc::new(GatedSource::new(fake.clone(), gate.clone()));
-    let (raw, state) = app_with_gate(cfg, pool, source, gate);
+    let (raw, state) = app_with_gate(cfg, pool, source, gate, trace.clone(), true);
     let app = as_default_user(raw, &state).await;
-    (app, state, fake)
+    (app, state, fake, trace)
 }
 
 fn gate_for(cfg: &Config) -> Arc<PriorityGate> {
@@ -77,22 +104,33 @@ fn gate_for(cfg: &Config) -> Arc<PriorityGate> {
 
 fn app_with(cfg: Config, pool: PgPool, source: Arc<dyn ChainSource>) -> (Router, AppState) {
     let gate = gate_for(&cfg);
-    app_with_gate(cfg, pool, source, gate)
+    let trace = Arc::new(FakeTraceSource::new());
+    app_with_gate(cfg, pool, source, gate, trace, false)
 }
 
+/// `gated_trace`: `trace`'s calls take permits from the app's trace gate.
 fn app_with_gate(
     cfg: Config,
     pool: PgPool,
     source: Arc<dyn ChainSource>,
     gate: Arc<PriorityGate>,
+    trace: Arc<FakeTraceSource>,
+    gated_trace: bool,
 ) -> (Router, AppState) {
-    let cfg = Arc::new(cfg);
-    let state = AppState::new(
-        cfg,
+    let trace_gate = TraceGate::spawn(1000.0, gate.clone());
+    let trace_source: Arc<dyn TraceSource> = if gated_trace {
+        Arc::new(GatedSource::new(trace, trace_gate.clone()))
+    } else {
+        trace
+    };
+    let state = AppState::with_trace(
+        Arc::new(cfg),
         Store::from_pool(pool),
         source,
         gate,
         Arc::new(ClientStats::default()),
+        trace_gate,
+        trace_source,
     );
     (router(state.clone()), state)
 }

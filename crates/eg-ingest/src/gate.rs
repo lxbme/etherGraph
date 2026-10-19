@@ -1,11 +1,12 @@
-//! Priority rate gate: every upstream call acquires a permit here.
+//! Rate gates: every upstream call acquires a permit here.
 //!
-//! Each permit counts toward the server's daily total and, when the calling
-//! task is [`billed`](crate::billing::billed) to a user, toward that user's
-//! own daily limit.
+//! An Etherscan permit ([`PriorityGate`]) counts toward the server's daily
+//! total and, when the calling task is [`billed`](crate::billing::billed) to a
+//! user, toward that user's own daily limit. A Blockscout permit
+//! ([`TraceGate`]) counts only toward the user's limit, in the same book.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -54,8 +55,8 @@ impl UserQuota {
     }
 }
 
-/// Per-user counts and limits. Counts are written only by the dispatcher;
-/// limits by the admin/refresh setters.
+/// Per-user counts and limits. Counts are written by the dispatcher and by
+/// [`PriorityGate::charge_user`]; limits by the admin/refresh setters.
 struct UserBook {
     used: HashMap<i64, u32>,
     limits: HashMap<i64, u32>,
@@ -102,7 +103,8 @@ struct Shared {
     queue_len: AtomicUsize,
     quota_tx: watch::Sender<QuotaSnapshot>,
     users: Mutex<UserBook>,
-    /// Ticks whenever a per-user limit changes.
+    /// Ticks whenever a per-user limit changes, or a count changes without
+    /// the server snapshot ([`PriorityGate::charge_user`]).
     limits_tx: watch::Sender<()>,
 }
 
@@ -203,11 +205,29 @@ impl PriorityGate {
         v
     }
 
-    /// Changes after every [`set_user_limit`](Self::set_user_limit) and
-    /// [`set_user_limits`](Self::set_user_limits) (per-user counts change
-    /// with the server snapshot of [`subscribe_quota`](Self::subscribe_quota)).
+    /// Changes after every [`set_user_limit`](Self::set_user_limit),
+    /// [`set_user_limits`](Self::set_user_limits) and
+    /// [`charge_user`](Self::charge_user) (other per-user counts change with
+    /// the server snapshot of [`subscribe_quota`](Self::subscribe_quota)).
     pub fn subscribe_user_limits(&self) -> watch::Receiver<()> {
         self.shared.limits_tx.subscribe()
+    }
+
+    /// Counts one call of another upstream (Blockscout) against `user`'s
+    /// daily quota only: the server total is neither read nor counted.
+    /// `Err(UserQuotaExhausted)` when the user has no calls left; `None`
+    /// (an unbilled call) is always `Ok`.
+    pub fn charge_user(&self, user: Option<i64>) -> Result<(), SourceError> {
+        let Some(u) = user else { return Ok(()) };
+        {
+            let mut users = self.shared.users();
+            if users.quota(u).exhausted() {
+                return Err(SourceError::UserQuotaExhausted);
+            }
+            *users.used.entry(u).or_insert(0) += 1;
+        }
+        self.shared.limits_tx.send_replace(());
+        Ok(())
     }
 
     /// Sets `user`'s own limit (`None`: back to the default); requests made
@@ -366,20 +386,25 @@ impl Dispatcher {
                 .pop_front()
                 .expect("picked non-empty queue");
             self.sync_len();
-            if self.user_exhausted(user) {
-                // The user reached their limit while this request waited; it
-                // uses no slot.
-                let _ = reply.send(Err(SourceError::UserQuotaExhausted));
-                continue;
-            }
-            if reply.send(Ok(())).is_err() {
-                // Cancelled after pruning: try the next request in this slot.
-                continue;
+            {
+                // Check and count under one lock: `charge_user` writes the
+                // same book from other threads.
+                let mut users = self.shared.users();
+                if user.is_some_and(|u| users.quota(u).exhausted()) {
+                    // The user reached their limit while this request waited;
+                    // it uses no slot.
+                    let _ = reply.send(Err(SourceError::UserQuotaExhausted));
+                    continue;
+                }
+                if reply.send(Ok(())).is_err() {
+                    // Cancelled after pruning: try the next request in this slot.
+                    continue;
+                }
+                if let Some(u) = user {
+                    *users.used.entry(u).or_insert(0) += 1;
+                }
             }
             self.quota.used += 1;
-            if let Some(u) = user {
-                *self.shared.users().used.entry(u).or_insert(0) += 1;
-            }
             self.publish();
             self.since_low = if idx == Priority::Low.as_i16() as usize {
                 0
@@ -436,6 +461,104 @@ impl Dispatcher {
     fn sync_len(&self) {
         let len = self.queues.iter().map(VecDeque::len).sum();
         self.shared.queue_len.store(len, Ordering::SeqCst);
+    }
+}
+
+/// Rate gate for Blockscout trace requests: its own rate and its own pause
+/// (Blockscout's daily credits), never counted toward the server's Etherscan
+/// total. Each permit is billed to the calling task's [`bill_to`] user in the
+/// per-user book of the [`PriorityGate`] it was given, shared with Etherscan
+/// calls.
+pub struct TraceGate {
+    rate: f64,
+    users: Arc<PriorityGate>,
+    /// Blockscout reported its daily credits spent; cleared at the UTC-midnight
+    /// reset.
+    paused: AtomicBool,
+    slow_until: Mutex<Option<Instant>>,
+    /// When the next permit may be handed out; each request reserves its slot
+    /// in arrival order.
+    next_slot: Mutex<Instant>,
+}
+
+impl TraceGate {
+    /// Named like [`PriorityGate::spawn`], but runs no task: each request
+    /// sleeps until its reserved slot.
+    ///
+    /// # Panics
+    /// If `rate_per_sec` is not finite and positive.
+    pub fn spawn(rate_per_sec: f64, users: Arc<PriorityGate>) -> Arc<Self> {
+        assert!(
+            rate_per_sec.is_finite() && rate_per_sec > 0.0,
+            "TraceGate rate_per_sec must be finite and > 0, got {rate_per_sec}"
+        );
+        Arc::new(Self {
+            rate: rate_per_sec,
+            users,
+            paused: AtomicBool::new(false),
+            slow_until: Mutex::new(None),
+            next_slot: Mutex::new(Instant::now()),
+        })
+    }
+
+    /// Lifts the pause; called at the UTC-midnight reset.
+    pub fn reset_quota(&self) {
+        self.paused.store(false, Ordering::SeqCst);
+    }
+
+    pub fn paused(&self) -> bool {
+        self.paused.load(Ordering::SeqCst)
+    }
+
+    /// `rate * SLOWDOWN_FACTOR` while a slowdown is active.
+    pub fn current_rate(&self) -> f64 {
+        match *self.slow_until.lock().unwrap() {
+            Some(until) if Instant::now() < until => self.rate * SLOWDOWN_FACTOR,
+            _ => self.rate,
+        }
+    }
+
+    fn check_paused(&self) -> Result<(), SourceError> {
+        if self.paused() {
+            Err(SourceError::QuotaExhausted)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[async_trait]
+impl CallGate for TraceGate {
+    /// `Err(QuotaExhausted)` at once while paused, `Err(UserQuotaExhausted)`
+    /// at once when the [`bill_to`] user has no calls left; otherwise waits
+    /// for a slot, then charges the user (checked again: their Etherscan
+    /// calls may have used the rest meanwhile), so only requests that are
+    /// actually sent count. A pause reported while waiting fails the request.
+    async fn acquire(&self, _p: Priority) -> Result<(), SourceError> {
+        let user = bill_to();
+        self.check_paused()?;
+        if user.is_some_and(|u| self.users.user_quota(u).exhausted()) {
+            return Err(SourceError::UserQuotaExhausted);
+        }
+        let slot = {
+            let interval = Duration::from_secs_f64(1.0 / self.current_rate());
+            let mut next = self.next_slot.lock().unwrap();
+            let slot = (*next).max(Instant::now());
+            *next = slot + interval;
+            slot
+        };
+        sleep_until(slot).await;
+        self.check_paused()?;
+        self.users.charge_user(user)
+    }
+
+    fn on_rate_limited(&self) {
+        *self.slow_until.lock().unwrap() = Some(Instant::now() + SLOWDOWN);
+    }
+
+    /// Pauses until [`TraceGate::reset_quota`].
+    fn on_quota_exhausted(&self) {
+        self.paused.store(true, Ordering::SeqCst);
     }
 }
 
@@ -892,6 +1015,167 @@ mod tests {
         );
         assert_eq!(g.user_quota(2), uq(1, 10));
         assert_eq!(g.user_usage(), vec![(1, 3), (2, 1)]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn charge_user_counts_only_the_user_book() {
+        let g = user_gate(1000.0, 1, 5);
+        let limits = g.subscribe_user_limits();
+        acquire_as(&g, 1).await.unwrap();
+        // The server total is used up: Etherscan calls pause, charges do not.
+        assert_eq!(acquire_as(&g, 2).await, Err(SourceError::QuotaExhausted));
+        assert!(!limits.has_changed().unwrap());
+        g.charge_user(Some(1)).unwrap();
+        // A count change outside the server snapshot is signalled.
+        assert!(limits.has_changed().unwrap());
+        g.charge_user(Some(2)).unwrap();
+        // Unbilled calls charge nobody.
+        g.charge_user(None).unwrap();
+        assert_eq!(g.used(), 1);
+        assert_eq!(*g.subscribe_quota().borrow(), snap(1, 1, true));
+        assert_eq!(g.user_quota(1), uq(2, 5));
+        assert_eq!(g.user_usage(), vec![(1, 2), (2, 1)]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn charge_user_refuses_an_exhausted_user() {
+        let g = user_gate(1000.0, 1000, 2);
+        g.charge_user(Some(1)).unwrap();
+        acquire_as(&g, 1).await.unwrap();
+        assert_eq!(g.charge_user(Some(1)), Err(SourceError::UserQuotaExhausted));
+        // Both paths share one book.
+        assert_eq!(
+            acquire_as(&g, 1).await,
+            Err(SourceError::UserQuotaExhausted)
+        );
+        assert_eq!(g.user_quota(1), uq(2, 2));
+        g.charge_user(Some(2)).unwrap();
+        g.reset_quota();
+        acquire_as(&g, 3).await.unwrap(); // ordered after the reset
+        g.charge_user(Some(1)).unwrap();
+        assert_eq!(g.user_quota(1), uq(1, 2));
+    }
+
+    /// Real threads: Etherscan grants and Blockscout charges for one user
+    /// interleave; together they never lose a count or pass the limit.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_grants_and_charges_share_the_user_limit() {
+        const LIMIT: u32 = 200;
+        let g = user_gate(1_000_000.0, u32::MAX, LIMIT);
+        let granted = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let mut handles = Vec::new();
+        for i in 0..8 {
+            let (g, granted) = (g.clone(), granted.clone());
+            handles.push(tokio::spawn(async move {
+                loop {
+                    let r = if i % 2 == 0 {
+                        acquire_as(&g, 1).await
+                    } else {
+                        let r = g.charge_user(Some(1));
+                        tokio::task::yield_now().await;
+                        r
+                    };
+                    match r {
+                        Ok(()) => {
+                            granted.fetch_add(1, Ordering::SeqCst);
+                        }
+                        Err(SourceError::UserQuotaExhausted) => return,
+                        Err(e) => panic!("{e:?}"),
+                    }
+                }
+            }));
+        }
+        for h in handles {
+            h.await.unwrap();
+        }
+        assert_eq!(granted.load(Ordering::SeqCst), LIMIT);
+        assert_eq!(g.user_quota(1), uq(LIMIT, LIMIT));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn trace_gate_bills_the_task_local_user() {
+        let users = user_gate(1000.0, 1000, 2);
+        let t = TraceGate::spawn(2.0, users.clone());
+        billed(Some(7), t.acquire(Priority::Interactive))
+            .await
+            .unwrap();
+        assert_eq!(users.user_quota(7), uq(1, 2));
+        // Never counted toward the server's Etherscan total.
+        assert_eq!(users.used(), 0);
+        // Unbilled requests charge nobody.
+        t.acquire(Priority::Interactive).await.unwrap();
+        assert_eq!(users.user_usage(), vec![(7, 1)]);
+        acquire_as(&users, 7).await.unwrap();
+        // The user's Etherscan call used the rest of their quota.
+        let start = Instant::now();
+        assert_eq!(
+            billed(Some(7), t.acquire(Priority::Interactive)).await,
+            Err(SourceError::UserQuotaExhausted)
+        );
+        assert_eq!(start.elapsed(), Duration::ZERO, "refused without waiting");
+        assert_eq!(users.user_quota(7), uq(2, 2));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn trace_gate_spacing_and_slowdown() {
+        let users = gate(1000.0, 1000);
+        let t = TraceGate::spawn(2.0, users);
+        let start = Instant::now();
+        for _ in 0..5 {
+            t.acquire(Priority::Interactive).await.unwrap();
+        }
+        assert_eq!(start.elapsed(), Duration::from_secs(2));
+        t.on_rate_limited();
+        assert_eq!(t.current_rate(), 2.0 * SLOWDOWN_FACTOR);
+        let start = Instant::now();
+        for _ in 0..2 {
+            t.acquire(Priority::Interactive).await.unwrap();
+        }
+        // The slot reserved before the slowdown still applies at the old rate.
+        assert_eq!(
+            start.elapsed(),
+            Duration::from_secs_f64(0.5 + 1.0 / (2.0 * SLOWDOWN_FACTOR))
+        );
+        tokio::time::advance(SLOWDOWN).await;
+        assert_eq!(t.current_rate(), 2.0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn trace_gate_paused_returns_quota_exhausted_until_reset() {
+        let users = user_gate(1000.0, 1000, 10);
+        let t = TraceGate::spawn(2.0, users.clone());
+        t.acquire(Priority::Interactive).await.unwrap();
+        // The next request waits 0.5 s for its slot when Blockscout reports
+        // its daily credits spent; it fails without charging its user.
+        let queued = {
+            let t = t.clone();
+            tokio::spawn(billed(Some(1), async move {
+                t.acquire(Priority::Interactive).await
+            }))
+        };
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        t.on_quota_exhausted();
+        assert!(t.paused());
+        assert_eq!(queued.await.unwrap(), Err(SourceError::QuotaExhausted));
+        assert_eq!(
+            billed(Some(1), t.acquire(Priority::Interactive)).await,
+            Err(SourceError::QuotaExhausted)
+        );
+        assert_eq!(users.user_quota(1), uq(0, 10));
+        // Etherscan is unaffected.
+        acquire_as(&users, 1).await.unwrap();
+        t.reset_quota();
+        assert!(!t.paused());
+        billed(Some(1), t.acquire(Priority::Interactive))
+            .await
+            .unwrap();
+        assert_eq!(users.user_quota(1), uq(2, 10));
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "rate_per_sec must be finite and > 0")]
+    async fn trace_gate_rejects_zero_rate() {
+        TraceGate::spawn(0.0, gate(1.0, 1));
     }
 
     #[tokio::test(start_paused = true)]

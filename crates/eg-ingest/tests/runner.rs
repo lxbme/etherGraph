@@ -5,7 +5,7 @@ use std::time::Duration;
 use alloy_primitives::Address;
 use async_trait::async_trait;
 use eg_core::source::{Priority, SourceError};
-use eg_core::testing::FakeSource;
+use eg_core::testing::{FakeSource, FakeTraceSource};
 use eg_ingest::billing::bill_to;
 use eg_ingest::config::IngestConfig;
 use eg_ingest::gate::{GateConfig, PriorityGate};
@@ -37,6 +37,7 @@ fn ctx(pool: PgPool) -> JobCtx {
         cfg: Arc::new(IngestConfig::default()),
         wake: Arc::new(Notify::new()),
         gate: gate(),
+        trace_source: Arc::new(FakeTraceSource::new()),
     }
 }
 

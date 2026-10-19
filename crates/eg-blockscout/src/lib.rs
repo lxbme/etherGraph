@@ -58,6 +58,10 @@ impl TraceSource for BlockscoutTraceSource {
                 Ok((!frames.is_empty()).then_some(frames))
             }
             404 => Ok(None),
+            429 if credits_spent(&reply.body) => {
+                self.gate.on_quota_exhausted();
+                Err(SourceError::QuotaExhausted)
+            }
             429 => {
                 self.gate.on_rate_limited();
                 Err(SourceError::RateLimited)
@@ -70,4 +74,18 @@ impl TraceSource for BlockscoutTraceSource {
     fn name(&self) -> &'static str {
         "blockscout"
     }
+}
+
+/// Blockscout answers 429 both to its per-second rate limit and, for a PRO API
+/// key, once the key's daily credits are spent. It documents no
+/// machine-readable code for the latter (and the transport passes no headers
+/// on), so this is a heuristic on the body: a 429 that mentions credits, a
+/// daily limit or a quota is exhaustion (trace fetching pauses until the
+/// UTC-midnight reset); any other 429 is a rate limit (retried after a
+/// slowdown).
+fn credits_spent(body: &str) -> bool {
+    let body = body.to_ascii_lowercase();
+    ["credit", "daily", "quota"]
+        .iter()
+        .any(|w| body.contains(w))
 }

@@ -8,7 +8,7 @@ use eg_core::source::{
     ChainSource, ContractCreation, ContractSource, HistoryPage, HistoryQuery, Priority, RawBlock,
     RawReceipt, RawTx, SourceError,
 };
-use eg_core::testing::FakeSource;
+use eg_core::testing::{FakeSource, FakeTraceSource};
 use eg_core::types::{Transfer, TransferKind, TxHash};
 use eg_ingest::config::IngestConfig;
 use eg_ingest::gate::{GateConfig, PriorityGate};
@@ -171,6 +171,7 @@ fn env(pool: PgPool, cap: u32) -> Env {
             user_limits: Default::default(),
             initial_user_used: Default::default(),
         }),
+        trace_source: Arc::new(FakeTraceSource::new()),
     };
     Env { ctx, fake, spy }
 }
