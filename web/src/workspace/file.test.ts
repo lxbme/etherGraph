@@ -169,6 +169,13 @@ describe("stripPrivate", () => {
     expect(stripPrivate(s, ON)).toEqual(s);
   });
 
+  test("dragged \"+N more\" positions survive for both includes settings", () => {
+    const s = state();
+    s.graph.proxies = { [A.toLowerCase()]: { x: 3, y: 4 } };
+    expect(stripPrivate(s, OFF).graph.proxies).toEqual({ [A.toLowerCase()]: { x: 3, y: 4 } });
+    expect(stripPrivate(s, ON).graph.proxies).toEqual({ [A.toLowerCase()]: { x: 3, y: 4 } });
+  });
+
   test("a snapshot that left labels out says so even when this export includes them", () => {
     const s = state();
     s.graph.snapshot!.includes = { labels: false, notes: true };
@@ -396,6 +403,7 @@ describe("malformed or hostile files (Review Focus 4)", () => {
     ["a center that is not an address", (f) => ((f.state.graph.centers = ["0x12"]), f)],
     ["an expanded pair with a member that is not an address", (f) => ((f.state.graph.expanded_pairs = [[A, "x"]]), f)],
     ["a limit keyed by something that is not an address", (f) => ((f.state.graph.limits = { [A]: 5, junk: 5 }), f)],
+    ["a \"+N more\" position keyed by something that is not an address", (f) => ((f.state.graph.proxies = { [A]: { x: 1, y: 2 }, junk: { x: 1, y: 2 } }), f)],
     ["absurd token decimals", (f) => ((f.state.graph.snapshot.data.edges[0].decimals = 1e9), f)],
     ["coverage of the wrong shape", (f) => ((f.state.graph.snapshot.data.coverage = { x: [1] }), f)],
     ["tx flow without detail", (f) => (delete f.state.tabs[0].snapshot.flow.detail, f)],
@@ -429,6 +437,14 @@ describe("malformed or hostile files (Review Focus 4)", () => {
     expect(toasted()[0]![0]).toMatch(/^Cannot import the file: /);
     expect(toasted()[0]![1]).toBe("error");
     expect(before()).toEqual(was);
+  });
+
+  test("a non-address proxies key is rejected naming proxies", () => {
+    const bad = JSON.parse(JSON.stringify(good)) as { state: { graph: { proxies?: unknown } } };
+    bad.state.graph.proxies = { junk: { x: 1, y: 2 } };
+    const r = parseFile(JSON.stringify(bad));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toContain("proxies");
   });
 
   test("not JSON", async () => {
