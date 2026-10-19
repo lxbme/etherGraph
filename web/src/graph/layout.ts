@@ -90,6 +90,11 @@ const ANIMATION_MS = 400;
  */
 const inFlight = new WeakMap<cytoscape.Core, Map<string, Pos>>();
 
+/** Where an in-flight glide is taking node `id` (undefined when it is not gliding). */
+export function layoutTarget(cy: cytoscape.Core, id: string): Pos | undefined {
+  return inFlight.get(cy)?.get(id);
+}
+
 /** Finish an in-flight glide: stop the animations and put the nodes at their end positions. */
 function settle(cy: cytoscape.Core): void {
   const targets = inFlight.get(cy);

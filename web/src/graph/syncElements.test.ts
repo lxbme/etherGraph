@@ -1,6 +1,7 @@
 import cytoscape from "cytoscape";
 import { describe, expect, test } from "vitest";
 import { syncElements } from "./CytoscapeView";
+import { runRelayout } from "./layout";
 
 const n = (id: string, extra: Partial<cytoscape.ElementDefinition> = {}): cytoscape.ElementDefinition => ({
   group: "nodes", data: { id, label: id }, classes: "kind-eoa", ...extra,
@@ -115,5 +116,20 @@ describe("syncElements", () => {
     const r2 = syncElements(cy, [n("p")], r1.positions);
     expect(r2.newNodeIds).toEqual([]);
     expect(cy.getElementById("p").position()).toEqual({ x: 10, y: 20 });
+  });
+
+  test("a dragged proxy whose flag is dropped while a Re-layout glide carries it off is not laid out again", () => {
+    const cy = cytoscape({ headless: true, styleEnabled: true });
+    const leaves = Array.from({ length: 6 }, (_, i) => [n(`l${i}`, { position: { x: i, y: 0 } }), e(`cl${i}`, "c", `l${i}`)]).flat();
+    const proxy = (placed: boolean) =>
+      n("more:c", { data: { id: "more:c", ...(placed && { placed: true }) }, classes: "more", ...(placed && { position: { x: 900, y: 900 } }) });
+    const base = [n("c", { position: { x: 0, y: 0 } }), ...leaves, e("more-edge:c", "c", "more:c")];
+    const r1 = syncElements(cy, [...base, proxy(true)], new Map());
+    // Re-layout animates: the glide puts every moving node back where it was and heads it to its target.
+    runRelayout(cy, new Set(), { viewport: { width: 1200, height: 700 }, animate: true });
+    expect(cy.getElementById("more:c").position()).toEqual({ x: 900, y: 900 });
+    const r2 = syncElements(cy, [...base, proxy(false)], r1.positions);
+    expect(r2.newNodeIds).toEqual([]);
+    cy.stop();
   });
 });
