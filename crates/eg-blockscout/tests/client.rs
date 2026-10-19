@@ -118,31 +118,61 @@ async fn too_many_requests_is_rate_limited_and_notifies_gate() {
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }
 
+/// Mock answering every trace request with 429 and `body`.
+async fn too_many(body: &str) -> MockServer {
+    let server = MockServer::start().await;
+    respond(&server, ResponseTemplate::new(429).set_body_string(body)).await;
+    server
+}
+
 #[tokio::test]
-async fn spent_daily_credits_are_quota_exhausted_and_pause_the_gate() {
+async fn keyed_spent_credits_are_quota_exhausted_and_pause_the_gate() {
     for body in [
         r#"{"message":"Daily credits limit exceeded"}"#,
-        r#"{"error":"API key quota exhausted"}"#,
+        r#"{"error":"API key has no credits left"}"#,
     ] {
-        let server = MockServer::start().await;
-        respond(&server, ResponseTemplate::new(429).set_body_string(body)).await;
+        let server = too_many(body).await;
         let (src, gate) = source(&server, CountingGate::default(), Some("proapi_k"));
         let err = src.call_trace(Priority::Low, hash()).await.unwrap_err();
         assert_eq!(err, SourceError::QuotaExhausted, "{body}");
         assert_eq!(gate.quota_exhausted.load(Ordering::SeqCst), 1);
         assert_eq!(gate.rate_limited.load(Ordering::SeqCst), 0);
     }
-    // A plain rate-limit reply is not exhaustion.
-    let server = MockServer::start().await;
-    respond(
-        &server,
-        ResponseTemplate::new(429).set_body_string(r#"{"message":"Too Many Requests"}"#),
-    )
-    .await;
-    let (src, gate) = source(&server, CountingGate::default(), None);
-    let err = src.call_trace(Priority::Low, hash()).await.unwrap_err();
-    assert_eq!(err, SourceError::RateLimited);
-    assert_eq!(gate.quota_exhausted.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn other_429s_stay_rate_limited() {
+    // Keyless requests have no credits: no body pauses the gate.
+    let keyless = [
+        r#"{"message":"Too Many Requests"}"#,
+        r#"{"message":"quota exceeded, try again later"}"#,
+        r#"{"message":"Daily credits limit exceeded"}"#,
+    ];
+    // With a key, only a mention of credits counts as exhaustion.
+    let keyed = [
+        r#"{"message":"Too Many Requests"}"#,
+        r#"{"message":"daily quota exceeded"}"#,
+    ];
+    let cases = keyless
+        .iter()
+        .map(|b| (None, *b))
+        .chain(keyed.iter().map(|b| (Some("proapi_k"), *b)));
+    for (key, body) in cases {
+        let server = too_many(body).await;
+        let (src, gate) = source(&server, CountingGate::default(), key);
+        let err = src.call_trace(Priority::Low, hash()).await.unwrap_err();
+        assert_eq!(err, SourceError::RateLimited, "{key:?} {body}");
+        assert_eq!(
+            gate.rate_limited.load(Ordering::SeqCst),
+            1,
+            "{key:?} {body}"
+        );
+        assert_eq!(
+            gate.quota_exhausted.load(Ordering::SeqCst),
+            0,
+            "{key:?} {body}"
+        );
+    }
 }
 
 #[tokio::test]
