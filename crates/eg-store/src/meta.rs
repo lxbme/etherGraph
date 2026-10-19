@@ -198,6 +198,21 @@ impl Store {
         rows.iter().map(account_from_row).collect()
     }
 
+    /// The accounts flagged as proxies of any of `addrs` (whose recorded
+    /// implementation is one of them), by address; none for an empty list.
+    pub async fn proxies_of(&self, addrs: &[Address]) -> Result<Vec<AccountRow>> {
+        if addrs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query(
+            "SELECT * FROM accounts WHERE is_proxy AND implementation = ANY($1) ORDER BY address",
+        )
+        .bind(keys(addrs))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(account_from_row).collect()
+    }
+
     /// Addresses with no account row or whose metadata is older than `ttl`.
     pub async fn addrs_needing_meta(
         &self,
@@ -587,6 +602,32 @@ mod tests {
         assert_eq!(got.len(), 2);
         assert_eq!(got[0], full);
         assert_eq!(got[1].contract_name.as_deref(), Some("last"));
+    }
+
+    #[sqlx::test]
+    async fn proxies_of_finds_the_proxies_implemented_by_each_address(pool: PgPool) {
+        let store = Store::from_pool(pool);
+        let proxy = |n: u8, implementation: u8| AccountRow {
+            is_proxy: true,
+            implementation: Some(Address::repeat_byte(implementation)),
+            ..acct(n, 0)
+        };
+        // 1 and 2 → 9, 3 → 8; 4 records 9 but is no longer flagged a proxy.
+        let mut stale = proxy(4, 9);
+        stale.is_proxy = false;
+        store
+            .upsert_accounts(&[proxy(1, 9), proxy(2, 9), proxy(3, 8), stale, acct(9, 0)])
+            .await
+            .unwrap();
+        let got: Vec<Address> = store
+            .proxies_of(&[Address::repeat_byte(9), Address::repeat_byte(7)])
+            .await
+            .unwrap()
+            .iter()
+            .map(|a| a.address)
+            .collect();
+        assert_eq!(got, [Address::repeat_byte(1), Address::repeat_byte(2)]);
+        assert!(store.proxies_of(&[]).await.unwrap().is_empty());
     }
 
     #[sqlx::test]

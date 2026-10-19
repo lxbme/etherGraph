@@ -180,6 +180,7 @@ const label = shape({ id: num, text: str, category: re(/^[a-z0-9-]{1,32}$/), sou
 const nodeSummary = shape({
   address, kind: oneOf("eoa", "contract", "unknown"), display_name: opt(str), ens: opt(str), contract_name: opt(str),
   labels: arr(label), partial: bool, syncing: bool, synced: bool, hot: bool, identified: bool, nonce: opt(num), balance: opt(str),
+  is_proxy: optField(bool), token: optField(opt(shape({ standard: oneOf("erc20", "erc721", "erc1155"), symbol: opt(str), decimals }))),
 });
 const transferKind = oneOf("native", "erc20", "erc721", "erc1155");
 const edge = shape({

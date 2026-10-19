@@ -548,6 +548,42 @@ pub struct NodeSummaryDto {
     pub nonce: Option<u64>,
     /// Native balance in wei (decimal) from the probe cache; null when never probed.
     pub balance: Option<String>,
+    /// A proxy that delegates to its recorded implementation; false for an
+    /// implementation Etherscan also flags as a proxy (it implements another
+    /// proxy). Absent in files saved before it existed.
+    #[serde(default)]
+    #[ts(as = "Option<bool>", optional)]
+    pub is_proxy: bool,
+    /// The token the address is, from the tokens table; null when it is none
+    /// known. Absent in files saved before it existed.
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub token: Option<NodeTokenDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct NodeTokenDto {
+    #[ts(type = r#""erc20" | "erc721" | "erc1155""#)]
+    pub standard: String,
+    pub symbol: Option<String>,
+    pub decimals: Option<u8>,
+}
+
+impl NodeTokenDto {
+    /// The token row as a node fact; none for a kind that is no token
+    /// standard (a row never has one).
+    pub fn from_info(t: &TokenInfo) -> Option<Self> {
+        matches!(
+            t.kind,
+            TransferKind::Erc20 | TransferKind::Erc721 | TransferKind::Erc1155
+        )
+        .then(|| Self {
+            standard: t.kind.as_str().to_owned(),
+            symbol: t.symbol.clone(),
+            decimals: t.decimals,
+        })
+    }
 }
 
 // ------------------------------------------------------------------ probe

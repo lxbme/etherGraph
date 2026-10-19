@@ -317,6 +317,107 @@ async fn nodes_endpoint_returns_summaries_in_request_order_without_jobs(pool: Pg
     assert_eq!(s, StatusCode::BAD_REQUEST);
 }
 
+fn contract(address: Address, implementation: Option<Address>) -> AccountRow {
+    AccountRow {
+        address,
+        kind: AccountKind::Contract,
+        contract_name: None,
+        is_proxy: implementation.is_some(),
+        implementation,
+        creator: None,
+        creation_tx: None,
+        meta_fetched_at: Utc::now(),
+    }
+}
+
+/// The node with `addr` in a `/api/nodes` response.
+fn node_of(b: &Value, addr: Address) -> &Value {
+    b.as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["address"] == hex(addr))
+        .unwrap_or_else(|| panic!("{} missing from {b}", hex(addr)))
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn nodes_say_when_they_are_tokens_or_proxies(pool: PgPool) {
+    let (app, state, _) = test_app(pool).await;
+    // USDC as Etherscan records it: the proxy's implementation FiatTokenV2_2
+    // is itself flagged a proxy of the SignatureChecker library.
+    let usdc = address!("a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
+    let fiat = address!("43506849d7c04f9138d1a2050bbf3a0c054402dd");
+    let checker = address!("800c32eaa2a6c93cf4cb51794450ed77fbfbb172");
+    // A genuine proxy whose implementation implements no one else.
+    let (vault, vault_impl) = (Address::repeat_byte(0x71), Address::repeat_byte(0x72));
+    let nft = Address::repeat_byte(0x73);
+    state
+        .store
+        .upsert_accounts(&[
+            contract(usdc, Some(fiat)),
+            contract(fiat, Some(checker)),
+            contract(checker, None),
+            contract(vault, Some(vault_impl)),
+            contract(vault_impl, None),
+        ])
+        .await
+        .unwrap();
+    let info = |address, kind, symbol: &str, decimals| TokenInfo {
+        address,
+        kind,
+        name: None,
+        symbol: Some(symbol.into()),
+        decimals,
+    };
+    state
+        .store
+        .upsert_tokens(&[
+            info(usdc, TransferKind::Erc20, "USDC", Some(6)),
+            info(nft, TransferKind::Erc721, "PNK", None),
+        ])
+        .await
+        .unwrap();
+
+    // Many nodes, one response: the token rows come from one batched query.
+    let mut addrs: Vec<String> = (0..1990u32)
+        .map(|i| {
+            let mut b = [0x10u8; 20];
+            b[16..].copy_from_slice(&i.to_be_bytes());
+            hex(Address::from(b))
+        })
+        .collect();
+    addrs.extend([usdc, fiat, checker, vault, vault_impl, nft, A].map(hex));
+    let (s, b) = post_json(&app, "/api/nodes", &json!({ "addresses": addrs })).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let n = node_of(&b, usdc);
+    assert_eq!(n["is_proxy"], true, "{n}");
+    assert_eq!(
+        n["token"],
+        json!({"standard": "erc20", "symbol": "USDC", "decimals": 6}),
+        "{n}"
+    );
+    let n = node_of(&b, nft);
+    assert_eq!(
+        n["token"],
+        json!({"standard": "erc721", "symbol": "PNK", "decimals": null}),
+        "{n}"
+    );
+    assert_eq!(node_of(&b, vault)["is_proxy"], true, "{b}");
+    for a in [fiat, checker, vault_impl, nft, A] {
+        assert_eq!(node_of(&b, a)["is_proxy"], false, "{}", node_of(&b, a));
+    }
+    assert!(node_of(&b, A)["token"].is_null(), "{b}");
+
+    // Asked for alone, the implementation is still no proxy: the proxies it
+    // implements are looked up even when they are not among the nodes.
+    let (s, b) = post_json(&app, "/api/nodes", &json!({ "addresses": [hex(fiat)] })).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(node_of(&b, fiat)["is_proxy"], false, "{b}");
+    let (s, b) = get(&app, &format!("/api/address/{}", hex(usdc))).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["node"]["is_proxy"], true, "{b}");
+    assert_eq!(b["node"]["token"]["decimals"], 6, "{b}");
+}
+
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_edges_carry_each_assets_trust(pool: PgPool) {
     let (app, state, _) = test_app(pool).await;
@@ -1194,6 +1295,7 @@ fn export_bindings_task19() {
         "GraphRequestDto",
         "GraphResponseDto",
         "NodeSummaryDto",
+        "NodeTokenDto",
         "EdgeDto",
         "SyncStatusDto",
         "LabelDto",

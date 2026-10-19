@@ -5,6 +5,7 @@ import type { TrustDto } from "../api/generated/TrustDto";
 import { t, type MsgKey } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { formatFixed } from "../lib/amount";
+import { nodeTags, shownCategories } from "../lib/nodeTags";
 import { assetClass, NATIVE_SYMBOL } from "../lib/assets";
 import { circled, formatCount, formatLocalTime, formatTime } from "../lib/format";
 import { trustFlag, trustReason, trustText } from "../lib/trust";
@@ -81,8 +82,9 @@ export function nodeTooltip(
       ? { label: t("tooltip.name"), value: n.display_name, ...(xchain && { sub: xchain }) }
       : { label: t("tooltip.name"), value: shortAddr(n.address.toLowerCase()), mono: true },
   );
-  lines.push({ label: t("tooltip.type"), value: t(`node.kind.${n.kind}`) });
-  const cats = [...new Set(n.labels.map((l) => l.category))].map((c) => ((CATEGORIES as string[]).includes(c) ? t(`category.${c}` as MsgKey) : c));
+  const tags = nodeTags(n);
+  lines.push({ label: t("tooltip.type"), value: [t(`node.kind.${n.kind}`), ...tags.map((k) => t(k))].join(" · ") });
+  const cats = shownCategories([...new Set(n.labels.map((l) => l.category))], tags).map((c) => ((CATEGORIES as string[]).includes(c) ? t(`category.${c}` as MsgKey) : c));
   if (cats.length > 0) lines.push({ label: t("tooltip.category"), value: cats.join(", ") });
   const states: MsgKey[] = [];
   if (extra.center) states.push("tooltip.state.center");

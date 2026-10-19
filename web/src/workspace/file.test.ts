@@ -486,6 +486,9 @@ describe("malformed or hostile files (Review Focus 4)", () => {
     ["a limit keyed by something that is not an address", (f) => ((f.state.graph.limits = { [A]: 5, junk: 5 }), f)],
     ["a \"+N more\" position keyed by something that is not an address", (f) => ((f.state.graph.proxies = { [A]: { x: 1, y: 2 }, junk: { x: 1, y: 2 } }), f)],
     ["absurd token decimals", (f) => ((f.state.graph.snapshot.data.edges[0].decimals = 1e9), f)],
+    ["a node token of an unknown standard", (f) => ((f.state.graph.snapshot.data.nodes[0].token = { standard: "erc777", symbol: null, decimals: null }), f)],
+    ["a node token with absurd decimals", (f) => ((f.state.graph.snapshot.data.nodes[0].token = { standard: "erc20", symbol: "X", decimals: 1e9 }), f)],
+    ["a tx node whose proxy flag is not a boolean", (f) => ((f.state.tabs[0].snapshot.flow.nodes[0].is_proxy = "yes"), f)],
     ["coverage of the wrong shape", (f) => ((f.state.graph.snapshot.data.coverage = { x: [1] }), f)],
     ["tx flow without detail", (f) => (delete f.state.tabs[0].snapshot.flow.detail, f)],
     ["raw data without its receipt", (f) => (delete f.state.tabs[0].snapshot.raw.receipt, f)],
@@ -590,5 +593,14 @@ describe("malformed or hostile files (Review Focus 4)", () => {
   test("the unmodified file is accepted", () => {
     expect(good.state.tabs[0]!.snapshot!.trace).toHaveLength(FRAMES.length);
     expect(parseFile(JSON.stringify(good)).ok).toBe(true);
+  });
+
+  test("nodes saying they are tokens or proxies are accepted, as are nodes from before these facts", () => {
+    const f = JSON.parse(JSON.stringify(good)) as { state: { graph: { snapshot: { data: { nodes: Record<string, unknown>[] } } } } };
+    const [first, second] = f.state.graph.snapshot.data.nodes;
+    Object.assign(first!, { is_proxy: true, token: { standard: "erc20", symbol: "USDC", decimals: 6 } });
+    Object.assign(second!, { is_proxy: false, token: null });
+    expect(parseFile(JSON.stringify(f)).ok).toBe(true);
+    expect(good.state.graph.snapshot!.data.nodes.some((n) => "token" in n || "is_proxy" in n)).toBe(false);
   });
 });

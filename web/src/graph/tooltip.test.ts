@@ -1,6 +1,7 @@
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import type { SyncStatusDto } from "../api/generated/SyncStatusDto";
 import type { FlowDto } from "../api/generated/FlowDto";
+import { useLocale } from "../i18n";
 import { callTooltip, delegationTooltip, flowTooltip, edgeTooltip, moreTooltip, nodeTooltip } from "./tooltip";
 import type { VisualEdge } from "./visualEdges";
 
@@ -64,6 +65,34 @@ describe("nodeTooltip", () => {
     expect(cut.find((l) => l.label === "Coverage")?.sub).toBe("partial");
     expect(nodeTooltip(node(), { coverage: [cov(null, null)] }).find((l) => l.label === "Coverage")).toBeUndefined();
     expect(nodeTooltip(node(), {}).find((l) => l.label === "Coverage")).toBeUndefined();
+  });
+  describe("token and proxy tags", () => {
+    const other = { id: 1, text: "Centre: USD Coin", category: "other", source: "import:eth-labels" } as const;
+    const usdc = node({
+      kind: "contract", labels: [other], is_proxy: true, token: { standard: "erc20", symbol: "USDC", decimals: 6 },
+    });
+    afterEach(() => useLocale.getState().setLocale("en"));
+    test("sit next to the type and leave out the Other category", () => {
+      const ls = nodeTooltip(usdc, {});
+      expect(text(ls)).toContain("Type Contract · ERC-20 token · Proxy");
+      expect(ls.find((l) => l.label === "Category")).toBeUndefined();
+      useLocale.getState().setLocale("zh");
+      expect(text(nodeTooltip(usdc, {}))).toContain("类型 合约 · ERC-20 代币 · 代理");
+    });
+    test("name each standard; a proxy alone is tagged too", () => {
+      const tag = (o: Partial<NodeSummaryDto>) => nodeTooltip(node({ kind: "contract", ...o }), {}).find((l) => l.label === "Type")?.value;
+      expect(tag({ token: { standard: "erc721", symbol: "PNK", decimals: null } })).toBe("Contract · ERC-721");
+      expect(tag({ token: { standard: "erc1155", symbol: null, decimals: null } })).toBe("Contract · ERC-1155");
+      expect(tag({ is_proxy: true, token: null })).toBe("Contract · Proxy");
+      // Saved before the fields existed: no tags.
+      expect(tag({})).toBe("Contract");
+    });
+    test("other categories still show; Other shows without a tag", () => {
+      const cex = { ...other, id: 2, category: "cex" } as const;
+      expect(text(nodeTooltip({ ...usdc, labels: [other, cex] }, {}))).toContain("Category CEX");
+      expect(text(nodeTooltip({ ...usdc, labels: [other, cex] }, {}))).not.toContain("Other");
+      expect(text(nodeTooltip(node({ kind: "contract", labels: [other] }), {}))).toContain("Category Other");
+    });
   });
 });
 

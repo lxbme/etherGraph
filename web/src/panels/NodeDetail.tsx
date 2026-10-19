@@ -12,6 +12,7 @@ import { useGraph } from "../graph/store";
 import { useGraphData } from "../graph/useGraphData";
 import { formatFixed } from "../lib/amount";
 import { formatCount, formatLocalTime, formatTime } from "../lib/format";
+import { nodeTags, shownCategories } from "../lib/nodeTags";
 import { shortAddr } from "../lib/address";
 import { TRANSFER_KINDS, transferKindName } from "../lib/transferKinds";
 import { type MsgKey, useT } from "../i18n";
@@ -148,13 +149,14 @@ export function NodeDetail({
   const stats = canvasStats(address, graph?.edges ?? []);
   const balance = n.balance != null ? formatFixed(n.balance, 18, "eth") : null;
   const labels = [...n.labels, ...fileLabels];
-  const categories = [...new Set(labels.map((l) => l.category))];
+  const tags = nodeTags(n);
+  const categories = shownCategories([...new Set(labels.map((l) => l.category))], tags);
   const syncKey: MsgKey = n.syncing ? "sync.syncing" : n.synced ? "sync.ok" : "node.notSynced";
 
   return (
     <div className="detail__section">
-      {/* 1. Kind */}
-      <div className="overline">{KIND_KEYS[n.kind] ? t(KIND_KEYS[n.kind]!) : n.kind}</div>
+      {/* 1. Kind, with what else the node is (token standard, proxy) */}
+      <div className="overline">{[KIND_KEYS[n.kind] ? t(KIND_KEYS[n.kind]!) : n.kind, ...tags.map((k) => t(k))].join(" · ")}</div>
       {n.display_name && <h3 className="detail__title">{n.display_name}</h3>}
 
       {/* 2. Address */}
@@ -227,7 +229,8 @@ export function NodeDetail({
         <dd className="num">{`${covered} / ${KINDS.length}`}</dd>
         {n.ens && (<><dt>ENS</dt><dd title={n.ens}>{n.ens}</dd></>)}
         {n.contract_name && (<><dt>{t("node.contractName")}</dt><dd title={n.contract_name}>{n.contract_name}</dd></>)}
-        {p.is_proxy && (
+        {/* Etherscan's raw flag, unless the node says this is a misflagged implementation. */}
+        {(n.is_proxy ?? p.is_proxy) && (
           <>
             <dt>{t("node.proxy")}</dt>
             <dd>{p.implementation ? <AddrButton addr={p.implementation} onNavigate={onNavigate} /> : t("common.yes")}</dd>

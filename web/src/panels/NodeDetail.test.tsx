@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { api } from "../api/endpoints";
 import type { AddressProfileDto } from "../api/generated/AddressProfileDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import { useGraph } from "../graph/store";
 import { graphQueryKey } from "../graph/useGraphData";
+import { useLocale } from "../i18n";
 import { formatLocalTime } from "../lib/format";
 import { NodeDetail } from "./NodeDetail";
 
@@ -90,6 +91,53 @@ test("follows the spec hierarchy: kind, address with copy, tags, key/value grid,
   for (let i = 1; i < order.length; i++) {
     expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   }
+});
+
+describe("token and proxy tags", () => {
+  const other = { id: 1, text: "Centre: USD Coin", category: "other", source: "import:eth-labels" } as const;
+  const usdc: AddressProfileDto = {
+    ...profile,
+    node: { ...profile.node, labels: [other], is_proxy: true, token: { standard: "erc20", symbol: "USDC", decimals: 6 } },
+  };
+  afterEach(() => useLocale.getState().setLocale("en"));
+
+  test("sit next to the kind and leave out the Other category", async () => {
+    renderDetail(undefined, usdc);
+    const kind = await screen.findByText("Contract · ERC-20 token · Proxy");
+    expect(kind).toHaveClass("overline");
+    const tags = screen.getByTestId("node-tags");
+    expect(within(tags).getByText("Centre: USD Coin")).toBeInTheDocument();
+    expect(within(tags).queryByText("Other")).toBeNull();
+  });
+
+  test("are translated", async () => {
+    act(() => useLocale.getState().setLocale("zh"));
+    renderDetail(undefined, usdc);
+    expect(await screen.findByText("合约 · ERC-20 代币 · 代理")).toHaveClass("overline");
+  });
+
+  test("a misflagged implementation has no proxy row (Etherscan flags it, the node says no)", async () => {
+    renderDetail(undefined, { ...usdc, node: { ...usdc.node, is_proxy: false } });
+    const kv = await screen.findByTestId("node-kv");
+    expect(within(kv).queryByText("Proxy", { selector: "dt" })).toBeNull();
+    expect(screen.queryByTitle(IMPL)).toBeNull();
+    cleanup();
+    renderDetail(undefined, usdc);
+    expect(await screen.findByTitle(IMPL)).toBeInTheDocument();
+  });
+
+  test("other categories still show, and Other shows on an untagged node", async () => {
+    const cex = { ...other, id: 2, category: "cex" } as const;
+    renderDetail(undefined, { ...usdc, node: { ...usdc.node, labels: [other, cex] } });
+    const tags = await screen.findByTestId("node-tags");
+    expect(within(tags).getByText("CEX")).toBeInTheDocument();
+    expect(within(tags).queryByText("Other")).toBeNull();
+    cleanup();
+    // The profile's own node has no tags (a file saved before they existed).
+    renderDetail(undefined, { ...profile, node: { ...profile.node, labels: [other] } });
+    expect(await screen.findByText("Contract")).toHaveClass("overline");
+    expect(within(screen.getByTestId("node-tags")).getByText("Other")).toBeInTheDocument();
+  });
 });
 
 test("transactions and neighbours come from the canvas edges", async () => {
