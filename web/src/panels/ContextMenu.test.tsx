@@ -14,8 +14,17 @@ const node = (partial: boolean, kind: NodeSummaryDto["kind"] = "eoa"): NodeSumma
   partial, syncing: false, synced: true, hot: false, identified: true, nonce: null, balance: null,
 });
 const data: GraphResponseDto = { nodes: [], edges: [], omitted: {}, coverage: {} };
-const menu = (partial: boolean, kind: NodeSummaryDto["kind"] = "eoa", onExpand = () => {}, onBrowse = () => {}) => (
-  <ContextMenu x={1} y={2} node={node(partial, kind)} data={data} onExpand={onExpand} onBrowse={onBrowse} onClose={() => {}} />
+const menu = (
+  partial: boolean,
+  kind: NodeSummaryDto["kind"] = "eoa",
+  onExpand = () => {},
+  onBrowse = () => {},
+  onExpandSelf = () => {},
+) => (
+  <ContextMenu
+    x={1} y={2} node={node(partial, kind)} data={data}
+    onExpand={onExpand} onBrowse={onBrowse} onExpandSelf={onExpandSelf} onClose={() => {}}
+  />
 );
 
 beforeEach(() => {
@@ -48,6 +57,21 @@ test("wallets and unknown nodes get one 'Expand neighbors…' item; contracts ge
   expect(screen.queryByRole("menuitem", { name: "Expand neighbors…" })).toBeNull();
   fireEvent.click(screen.getByRole("menuitem", { name: "Browse interactions…" }));
   expect(onBrowse).toHaveBeenCalledTimes(1);
+});
+
+test("'Expand…' sits right before the neighbours item for wallets and contracts, runs onExpandSelf, and is absent for a center", () => {
+  for (const [kind, next] of [["eoa", "Expand neighbors…"], ["contract", "Browse interactions…"]] as const) {
+    const onExpandSelf = vi.fn();
+    const { unmount } = render(menu(false, kind, () => {}, () => {}, onExpandSelf));
+    const labels = screen.getAllByRole("menuitem").map((m) => m.textContent);
+    expect(labels[labels.indexOf("Expand…") + 1]).toBe(next);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Expand…" }));
+    expect(onExpandSelf).toHaveBeenCalledTimes(1);
+    unmount();
+  }
+  act(() => useGraph.getState().addCenter(A));
+  render(menu(false, "eoa"));
+  expect(screen.queryByRole("menuitem", { name: "Expand…" })).toBeNull();
 });
 
 test("wallets have no 'Browse interactions…' item", () => {
@@ -133,7 +157,7 @@ test("'Identify type' shows only for a node that needs it and queues just that a
   expect(screen.queryByRole("menuitem", { name: "Identify type" })).toBeNull();
   unmount();
   const { unmount: u2 } = render(
-    <ContextMenu x={1} y={2} node={{ ...node(false, "unknown"), identified: false }} data={data} onExpand={() => {}} onBrowse={() => {}} onClose={() => {}} />,
+    <ContextMenu x={1} y={2} node={{ ...node(false, "unknown"), identified: false }} data={data} onExpand={() => {}} onBrowse={() => {}} onExpandSelf={() => {}} onClose={() => {}} />,
   );
   await act(async () => screen.getByRole("menuitem", { name: "Identify type" }).click());
   expect(identify).toHaveBeenCalledWith(expect.objectContaining({ addresses: [A] }));

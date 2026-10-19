@@ -16,6 +16,7 @@ import { useShortcuts } from "../graph/useShortcuts";
 import { BatchBar } from "../panels/BatchBar";
 import { ContextMenu } from "../panels/ContextMenu";
 import { ExpandDialog } from "../panels/expand/ExpandDialog";
+import { ExpandSelfDialog } from "../panels/expand/ExpandSelfDialog";
 import { InteractionsDialog } from "../panels/expand/InteractionsDialog";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
@@ -142,6 +143,15 @@ export function AddressGraph() {
   const [browsing, setBrowsing] = useState<NodeSummaryDto | null>(null);
   const closeExpand = useCallback(() => setExpanding(null), []);
   const closeBrowse = useCallback(() => setBrowsing(null), []);
+  /** Targets of the single-layer expansion being confirmed (the menu's "Expand…" or the batch bar). */
+  const [confirming, setConfirming] = useState<NodeSummaryDto[] | null>(null);
+  const closeConfirm = useCallback(() => setConfirming(null), []);
+  /** Opens the confirm dialog for `ids` that the result knows; making centers turns a snapshot live first. */
+  const confirmExpand = (ids: string[]) => {
+    const want = new Set(ids.map(lc));
+    const targets = (data?.nodes ?? []).filter((n) => want.has(lc(n.address)));
+    if (targets.length > 0) useGraph.getState().guardLive(() => setConfirming(targets));
+  };
 
   const onCxtNode = (id: string, pos: Pos) => {
     const node = data?.nodes.find((n) => lc(n.address) === lc(id));
@@ -263,7 +273,7 @@ export function AddressGraph() {
       />
       {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
       <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
-      <BatchBar insetLeft={legendCover} nodes={data?.nodes ?? NO_NODES} />
+      <BatchBar insetLeft={legendCover} nodes={data?.nodes ?? NO_NODES} onMakeCenters={confirmExpand} />
       <CanvasTools selectMode={selectMode} onSelectModeChange={useBoxSelection.getState().setSelectMode} exporter={EXPORTER}>
         <IdentifyAllButton nodes={shownNodes} />
         <button
@@ -305,11 +315,13 @@ export function AddressGraph() {
             const target = menu.node;
             useGraph.getState().guardLive(() => setBrowsing(target));
           }}
+          onExpandSelf={() => confirmExpand([menu.node.address])}
           onClose={closeMenu}
         />
       )}
       {expanding && <ExpandDialog node={expanding} onClose={closeExpand} />}
       {browsing && <InteractionsDialog contract={browsing} onClose={closeBrowse} />}
+      {confirming && data && <ExpandSelfDialog targets={confirming} data={data} onClose={closeConfirm} />}
       {centers.length === 0 && !frozen && <div className="address-graph__empty">{tr("view.empty")}</div>}
       {centers.length > 0 && error != null && (
         <div className="address-graph__status address-graph__status--error" role="alert">{messageFor(error)}</div>

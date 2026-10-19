@@ -278,6 +278,10 @@ export function ExpandDialog({ node, preset, onClose, onDone = onClose }: Expand
     [wallets, contracts, checked],
   );
   const used = usage(selected.map((r) => r.cand), budget);
+  // An upper estimate (spec §7): the checked addresses not on the canvas, plus each one's first batch at the
+  // per-center limit the confirm uses; most checked addresses are unsynced, so their real counts come later.
+  const newSelf = selected.filter((r) => !r.cand.onCanvas).length;
+  const estimate = newSelf + selected.length * perCenterBatch(budget.nodes, selected.length, newSelf);
   const seconds = rate > 0 ? String(Math.ceil((queued + used.calls) / rate)) : "?";
   const noDefaults = sources != null && sources.length > 0 && !rows.some(eligible) && checked.size === 0;
 
@@ -304,7 +308,6 @@ export function ExpandDialog({ node, preset, onClose, onDone = onClose }: Expand
       if (alive.current) setSubmitting(false);
       return;
     }
-    const newSelf = selected.filter((r) => !r.cand.onCanvas).length;
     useGraph.getState().expand(addresses, batch, perCenterBatch(budget.nodes, addresses.length, newSelf));
     offerUndo(addresses.length);
     onDone();
@@ -314,6 +317,9 @@ export function ExpandDialog({ node, preset, onClose, onDone = onClose }: Expand
     <div className="dialog-backdrop" onClick={(e) => e.target === e.currentTarget && !submittingRef.current && onClose()}>
       <div className="dialog expand" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={dialogRef}>
         <h3 className="dialog__title">{title}</h3>
+        {selected.length > 0 && (
+          <div className="expand__estimate" title={t("expand.estimateHint")}>{t("expand.estimate", { count: estimate })}</div>
+        )}
         <div className="expand__budget">
           <BudgetBar label={t("expand.budget.nodes")} used={used.nodes} budget={budget.nodes} />
           <BudgetBar label={t("expand.budget.calls")} used={used.calls} budget={budget.calls} />

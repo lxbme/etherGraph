@@ -382,6 +382,21 @@ test("preset candidates skip counterparties, resolve names from the cached graph
   expect(screen.getByRole("meter", { name: "Nodes" })).toHaveAttribute("aria-valuenow", "16"); // 7 and 9 already on the canvas: 5 + 5 + 6
 });
 
+test("an 'up to about' line counts the checked addresses not on the canvas plus each one's first batch", async () => {
+  mockCounterparties([cp(1), cp(2)]);
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  useGraph.getState().addCenter(ME);
+  qc.setQueryData(graphQueryKey(useGraph.getState()), { nodes: [node(999), node(1)], edges: [], omitted: {}, coverage: {} });
+  mount({ qc });
+  await waitFor(() => expect(checkedAddrs()).toEqual([addr(1), addr(2)]));
+  // 1 new address + 2 × perCenterBatch(60, 2, 1) = 1 + 2 × 29
+  const line = screen.getByText("Up to about 59 new nodes");
+  expect(line).toHaveAttribute("title", "The checked addresses plus each one's first batch of counterparties; the exact number is known after they sync");
+  fireEvent.click(box(1));
+  fireEvent.click(box(2));
+  expect(screen.queryByText(/^Up to about/)).toBeNull();
+});
+
 test("a busy queue zeroes the call budget and says so", async () => {
   vi.mocked(api.status).mockResolvedValue(status({ queued_calls: 300 }));
   mockCounterparties(range(1, 3).map((n) => cp(n)));

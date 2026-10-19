@@ -46,6 +46,7 @@ function bullets(id: SectionId, mac: boolean, quota: number): { key: MsgKey; par
         { key: "help.expanding.body6" },
         { key: "help.expanding.body7", params: { undo: formatCombo("Mod+Z", mac) } },
         { key: "help.expanding.body8", params: { max: MAX_NEIGHBOUR_LIMIT } },
+        { key: "help.expanding.body10" },
         { key: "help.expanding.body9" },
       ];
     case "selecting":

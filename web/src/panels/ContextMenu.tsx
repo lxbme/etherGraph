@@ -17,6 +17,8 @@ export interface ContextMenuProps {
   onExpand(): void;
   /** Opens the interactions list of `node` (contracts only). */
   onBrowse(): void;
+  /** Opens the confirm dialog of a single-layer expansion of `node` (not shown for a center). */
+  onExpandSelf(): void;
   onClose(): void;
 }
 
@@ -36,6 +38,8 @@ export function ContextMenu(p: ContextMenuProps) {
       {item(t("ctx.sync"), () => syncNode(addr))}
       {needsIdentify(node) && item(t("ctx.identify"), () => void identifyAddresses([addr]))}
       {node.partial && item(t("ctx.older"), () => syncNode(addr, "older"))}
+      {/* One layer syncs no neighbour, so contracts get it too (spec §3); a center already shows its neighbours. */}
+      {!isCenter && item(t("ctx.expandSelf"), p.onExpandSelf)}
       {/* Contracts are never expanded directly: their counterparties are picked from a list (spec §5.9). */}
       {node.kind !== "contract" ? item(t("ctx.expand"), p.onExpand) : item(t("ctx.browse"), p.onBrowse)}
       {item(pinned ? t("ctx.unpin") : t("ctx.pin"), () => togglePin(addr))}

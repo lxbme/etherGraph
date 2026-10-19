@@ -103,11 +103,24 @@ export function identifyAction(
   ];
 }
 
-/** The address graph's batch bar, over its box selection. */
-export function BatchBar({ insetLeft, nodes }: { insetLeft?: number; nodes: readonly NodeSummaryDto[] }) {
+/**
+ * The address graph's batch bar, over its box selection. "Expand as centers" hands the selected non-centers to
+ * `onMakeCenters` (a confirm dialog, spec §5) and is left out when every selected node is already a center.
+ */
+export function BatchBar({
+  insetLeft,
+  nodes,
+  onMakeCenters,
+}: {
+  insetLeft?: number;
+  nodes: readonly NodeSummaryDto[];
+  onMakeCenters(ids: string[]): void;
+}) {
   const ids = useBoxSelection((s) => s.ids);
   const clear = useBoxSelection((s) => s.clear);
   const anyPinned = useGraph((s) => ids.some((id) => !!s.ui[id]?.pinned));
+  const centers = useGraph((s) => s.centers);
+  const fresh = ids.filter((id) => !centers.some((c) => c.toLowerCase() === id));
   const tr = useT();
   const g = () => useGraph.getState();
   const actions: BatchAction[] = [
@@ -115,7 +128,7 @@ export function BatchBar({ insetLeft, nodes }: { insetLeft?: number; nodes: read
     { id: "pin", label: tr("batch.pin"), onClick: () => { g().setPinned(ids, true); clear(); } },
     ...(anyPinned ? [{ id: "unpin", label: tr("batch.unpin"), onClick: () => { g().setPinned(ids, false); clear(); } }] : []),
     { id: "hide", label: tr("batch.hide"), onClick: () => { g().setHidden(ids, true); clear(); } },
-    { id: "makeCenters", label: tr("batch.makeCenters"), onClick: () => { g().setCenters([...g().centers, ...ids]); clear(); } },
+    ...(fresh.length > 0 ? [{ id: "makeCenters", label: tr("batch.makeCenters"), onClick: () => { onMakeCenters(fresh); clear(); } }] : []),
   ];
   return <BatchBarShell ids={ids} actions={actions} onCancel={clear} insetLeft={insetLeft} />;
 }

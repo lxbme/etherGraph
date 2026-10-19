@@ -389,7 +389,7 @@ test("Escape with nothing box-selected is left alone (not consumed)", async () =
   expect(e.defaultPrevented).toBe(false);
 });
 
-test("batch bar: Unpin only while a selected node is pinned; hide, make centers, copy", async () => {
+test("batch bar: Unpin only while a selected node is pinned; hide, expand as centers (asks first), copy", async () => {
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
   await mountWithData();
@@ -407,8 +407,13 @@ test("batch bar: Unpin only while a selected node is pinned; hide, make centers,
   expect(await screen.findByText("Copied 2 addresses")).toBeInTheDocument();
   expect(useBoxSelection.getState().ids).toEqual([A, B]); // copying keeps the selection
 
+  // "Expand as centers" asks first, for the selected non-centers only (A already is one).
   act(() => bar().getByRole("button", { name: "Expand as centers" }).click());
-  expect(useGraph.getState().centers).toEqual([A, B]);
+  const confirm = screen.getByRole("dialog", { name: /^Expand 0xbbbb/ });
+  expect(useGraph.getState().centers).toEqual([A]);
+  expect(useBoxSelection.getState().ids).toEqual([]);
+  act(() => within(confirm).getByRole("button", { name: "Cancel" }).click());
+  expect(screen.queryByRole("dialog")).toBeNull();
   act(() => props().onSelectionChange([B]));
   act(() => bar().getByRole("button", { name: "Hide" }).click());
   expect(useGraph.getState().ui[B]?.hidden).toBe(true);

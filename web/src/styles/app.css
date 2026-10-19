@@ -899,6 +899,7 @@ a.btn { text-decoration: none; }
 
 /* Expansion dialog: budget meters, candidate tables, probe footer (spec §5.3–5.5). */
 .dialog.expand { width: min(680px, 92vw); }
+.expand__estimate { font-size: var(--fs-16); font-weight: 600; font-variant-numeric: tabular-nums; cursor: help; }
 .expand__budget {
   display: grid;
   grid-template-columns: auto 1fr auto;
