@@ -29,7 +29,7 @@ export function graphQueryKey(s: Pick<GraphState, "centers" | "filter" | "sort" 
 }
 
 /** Visible non-center nodes of the shown result, ranked ahead by the server when a limit applies. */
-function preferred(shown: GraphResponseDto | undefined): string[] {
+export function preferFor(shown: GraphResponseDto | undefined): string[] {
   if (!shown) return [];
   const { centers, ui } = useGraph.getState();
   const skip = new Set(centers);
@@ -65,7 +65,7 @@ export function useGraphData(): { data?: GraphResponseDto; isFetching: boolean; 
     // The signal aborts the HTTP request when the query is cancelled (e.g. superseded by a refetch).
     queryFn: ({ signal }) =>
       api.graphEdges(
-        { addresses: centers, filter, sort, limits: centerLimits({ centers, limits }), prefer: preferred(shown.current) },
+        { addresses: centers, filter, sort, limits: centerLimits({ centers, limits }), prefer: preferFor(shown.current) },
         { signal },
       ),
     enabled,
