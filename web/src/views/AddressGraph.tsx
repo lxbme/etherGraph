@@ -19,7 +19,8 @@ import { ExpandDialog } from "../panels/expand/ExpandDialog";
 import { InteractionsDialog } from "../panels/expand/InteractionsDialog";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
-import { MAX_NEIGHBOUR_LIMIT, revealBatch, useGraph, type Pos } from "../graph/store";
+import { firstBatch, revealBatch, useGraph, useRevealBatch, type Pos } from "../graph/store";
+import { revealStep, shownNeighbourCounts } from "../graph/estimate";
 import { graphStylesheet } from "../graph/styles";
 import { useGraphData } from "../graph/useGraphData";
 import { deriveVisualEdges } from "../graph/visualEdges";
@@ -59,18 +60,8 @@ export function AddressGraph() {
   const ui = useGraph((s) => s.ui);
   const selection = useGraph((s) => s.selection);
   const highlightTransfer = useGraph((s) => s.highlightTransfer);
-  // Only the centers at the server's maximum limit matter here (they get no "+N more"); keyed so a raised
-  // limit below it does not re-derive the elements.
-  const maxedKey = useGraph((s) =>
-    Object.keys(s.limits)
-      .filter((c) => (s.limits[c] ?? 0) >= MAX_NEIGHBOUR_LIMIT)
-      .sort()
-      .join(","),
-  );
-  const limits = useMemo(
-    () => Object.fromEntries((maxedKey ? maxedKey.split(",") : []).map((c) => [c, MAX_NEIGHBOUR_LIMIT])),
-    [maxedKey],
-  );
+  const limits = useGraph((s) => s.limits);
+  const batch = useRevealBatch();
   const epoch = useGraph((s) => s.epoch);
   const frozen = useGraph((s) => s.frozen !== null);
 
@@ -97,9 +88,10 @@ export function AddressGraph() {
     () => (data ? deriveVisualEdges(data.edges, expandedPairs, hidden) : []),
     [data, expandedPairs, hidden, locale],
   );
+  const shown = useMemo(() => (data ? shownNeighbourCounts(data, centers) : {}), [data, centers]);
   const elements = useMemo(
-    () => (data ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer, limits }, data.omitted) : []),
-    [data, visual, ui, centers, selection, highlightTransfer, limits],
+    () => (data ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer, limits, reveal: { batch, shown } }, data.omitted) : []),
+    [data, visual, ui, centers, selection, highlightTransfer, limits, batch, shown],
   );
   const boxCount = useBoxSelection((s) => s.ids.length);
   const legend = useMemo(() => legendFor(elements, theme, boxCount), [elements, theme, boxCount]);
@@ -209,7 +201,10 @@ export function AddressGraph() {
     const last = lastReveal.current;
     if (last && last.center === center && now - last.at < REVEAL_DEBOUNCE_MS) return;
     lastReveal.current = { center, at: now };
-    useGraph.getState().raiseLimit(center, revealBatch());
+    useGraph.getState().raiseLimit(
+      center,
+      revealStep(useGraph.getState().limits[lc(center)] ?? firstBatch(), shown[lc(center)] ?? 0, revealBatch()),
+    );
   };
 
   const onDblTapNode = (id: string) => {

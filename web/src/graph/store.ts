@@ -149,6 +149,8 @@ function changesGraph(s: GraphState, entry: HistoryEntry): boolean {
 const lc = (s: string) => s.toLowerCase();
 const blankUi = (): NodeUi => ({ pinned: false, hidden: false, note: "" });
 
+type CanvasSize = { width: number; height: number; visible: number };
+
 /** Share of the window area taken as the canvas before the canvas was first measured (ruling R4). */
 const UNMEASURED_CANVAS_SHARE = 0.6;
 /** Highest neighbour limit the server accepts per center (POST /api/graph/edges clamps to it). */
@@ -164,8 +166,7 @@ export function firstBatchFor(n: number, opts: { fresh?: boolean } = {}): number
 }
 
 /** The node budget now: canvas capacity (60% of the window before the first measure, ruling R4) minus the shown nodes. */
-function currentNodeBudget(fresh = false): number {
-  const m = useCanvasMetrics.getState();
+function currentNodeBudget(fresh = false, m: CanvasSize = useCanvasMetrics.getState()): number {
   const canvas =
     m.width > 0 && m.height > 0
       ? m
@@ -178,7 +179,16 @@ function currentNodeBudget(fresh = false): number {
 
 /** How many more neighbours one click on a "+N more" node reveals: a single center's share of the free budget. */
 export function revealBatch(): number {
-  return perCenterBatch(currentNodeBudget(), 1, 0);
+  return revealBatchFor(useCanvasMetrics.getState());
+}
+
+/** `revealBatch()` as a hook: re-renders when the canvas size or the visible count changes. */
+export function useRevealBatch(): number {
+  return revealBatchFor(useCanvasMetrics());
+}
+
+function revealBatchFor(m: CanvasSize): number {
+  return perCenterBatch(currentNodeBudget(false, m), 1, 0);
 }
 
 /** Neighbour limit of a new center: the per-center batch for one new center under the current node budget. */

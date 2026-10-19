@@ -3,7 +3,9 @@ import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { t } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { flaggedLabel, worstFlag } from "../lib/trust";
-import { graphSelection, MAX_NEIGHBOUR_LIMIT, type GraphSelection, type GraphState, type NodeUi } from "./store";
+import { K_FLOOR } from "./budget";
+import { moreNext } from "./estimate";
+import { firstBatch, graphSelection, MAX_NEIGHBOUR_LIMIT, type GraphSelection, type GraphState, type NodeUi } from "./store";
 import { edgeWidth, type VisualEdge } from "./visualEdges";
 
 const lc = (s: string) => s.toLowerCase();
@@ -50,12 +52,12 @@ export function nodeElement(
 }
 
 /** The placeholder for a center's omitted neighbours; clicking it reveals the next batch. Not selectable or draggable. */
-export function moreElements(center: string, count: number): cytoscape.ElementDefinition[] {
+export function moreElements(center: string, count: number, next: number): cytoscape.ElementDefinition[] {
   const id = `${MORE_PREFIX}${center}`;
   return [
     {
       group: "nodes",
-      data: { id, label: t("graph.more", { count }), center },
+      data: { id, label: t("graph.more", { count, next }), center },
       classes: "more",
       selectable: false,
       grabbable: false,
@@ -90,7 +92,10 @@ export function edgeElement(v: VisualEdge, highlighted: boolean): cytoscape.Elem
   };
 }
 
-type ViewState = Pick<GraphState, "ui" | "centers" | "selection" | "highlightTransfer"> & Partial<Pick<GraphState, "limits">>;
+type ViewState = Pick<GraphState, "ui" | "centers" | "selection" | "highlightTransfer"> & Partial<Pick<GraphState, "limits">> & {
+    /** What one click on "+N more" adds: the reveal batch and each center's distinct shown neighbours. */
+    reveal?: { batch: number; shown: Record<string, number> };
+  };
 
 function isHighlighted(v: VisualEdge, h: ViewState["highlightTransfer"]): boolean {
   if (!h || lc(v.from) !== lc(h.from) || lc(v.to) !== lc(h.to)) return false;
@@ -132,7 +137,10 @@ export function toElements(
   for (const c of state.centers.map(lc)) {
     const count = omitted[c] ?? 0;
     // At the server's maximum limit a click could reveal nothing more.
-    if (count > 0 && present.has(c) && (state.limits?.[c] ?? 0) < MAX_NEIGHBOUR_LIMIT) proxies.push(...moreElements(c, count));
+    if (count > 0 && present.has(c) && (state.limits?.[c] ?? 0) < MAX_NEIGHBOUR_LIMIT) {
+      const next = moreNext(count, state.limits?.[c] ?? firstBatch(), state.reveal?.shown[c] ?? 0, state.reveal?.batch ?? K_FLOOR);
+      proxies.push(...moreElements(c, count, next));
+    }
   }
   out.push(...proxies.filter((e) => e.group === "nodes"));
   for (const v of visual) {

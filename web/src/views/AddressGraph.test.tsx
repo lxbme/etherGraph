@@ -512,7 +512,7 @@ describe("+N more proxy", () => {
     vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
     await mountWithData();
     await waitFor(() => expect(ids()).toContain(`more:${A}`));
-    expect(props().elements.find((e) => e.data.id === `more:${A}`)?.data.label).toBe("+12 more");
+    expect(props().elements.find((e) => e.data.id === `more:${A}`)?.data.label).toBe("+12 more · click +12");
     act(() => {
       useGraph.getState().select({ kind: "node", address: B });
       useBoxSelection.getState().set([A]);
@@ -540,6 +540,8 @@ describe("+N more proxy", () => {
     act(() => props().onTapNode(`more:${A}`, { shift: false }));
     expect(useGraph.getState().limits[A]).toBe(before + 40);
     now.mockReturnValue(1500);
+    // The raised limit re-derived the elements, so the visible count was re-measured; pin it again.
+    useCanvasMetrics.getState().set({ visible: 20 });
     act(() => props().onTapNode(`more:${A}`, { shift: false }));
     expect(useGraph.getState().limits[A]).toBe(before + 80);
   });

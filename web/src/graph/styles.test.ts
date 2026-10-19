@@ -85,6 +85,20 @@ describe("graphStylesheet", () => {
     );
   });
 
+  test("a zh +N more pill counts each CJK glyph as two characters", () => {
+    const label = "还有 40 个 · 单击 +12";
+    withCy(
+      sheet(),
+      [
+        { group: "nodes", data: { id: "a" } },
+        { group: "nodes", data: { id: "more:a", label }, classes: "more" },
+      ],
+      (cy) => {
+        expect(ps(cy.getElementById("more:a") as never, "width").pfValue).toBeGreaterThan(label.length * 6.5 + 18);
+      },
+    );
+  });
+
   test("edge badges use the smallest type-scale size (11px)", () => {
     expect(styleOf(sheet(), "edge")["font-size"]).toBe(11);
   });

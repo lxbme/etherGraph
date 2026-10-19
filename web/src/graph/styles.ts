@@ -47,6 +47,8 @@ const TINT_WEIGHT: Record<Theme, number> = { light: 0.15, dark: 0.28 };
 /** Per-character width and horizontal padding of the "+N more" pill. */
 const MORE_CHAR_PX = 6.5;
 const MORE_PAD_PX = 18;
+/** Label length in Latin-glyph widths: CJK and other wide glyphs (above U+2E7F) take two. */
+const moreLabelChars = (s: string): number => [...s].reduce((n, ch) => n + (ch.codePointAt(0)! > 0x2e7f ? 2 : 1), 0);
 /** The center node's ring stays white in both themes. */
 const CENTER_RING = "#ffffff";
 
@@ -307,7 +309,7 @@ function graphBlocks(theme: Theme): Block[] {
       style: {
         shape: "round-rectangle",
         // `width: "label"` is deprecated; an estimate from the text length (11px font) is close enough.
-        width: (ele) => String(ele.data("label") ?? "").length * MORE_CHAR_PX + MORE_PAD_PX,
+        width: (ele) => moreLabelChars(String(ele.data("label") ?? "")) * MORE_CHAR_PX + MORE_PAD_PX,
         height: 22,
         "background-color": state.more.fill,
         "border-color": state.more.stroke,

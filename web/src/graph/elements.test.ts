@@ -157,7 +157,7 @@ describe("toElements", () => {
   test("a center with omitted neighbours gets a +N more proxy node and a dashed-style edge", () => {
     const els = toElements(nodes, [vedge()], state({ centers: [A] }), { [A]: 12 });
     const more = els.find((e) => e.data.id === `more:${A}`)!;
-    expect(more.data.label).toBe("+12 more");
+    expect(more.data.label).toBe("+12 more · click +3");
     expect(more.data.center).toBe(A);
     expect(classesOf(more)).toEqual(["more"]);
     expect(more.selectable).toBe(false);
@@ -167,6 +167,15 @@ describe("toElements", () => {
     expect(edge.data).toMatchObject({ source: A, target: `more:${A}` });
     expect(els.filter((e) => String(e.data.id).startsWith("more")).length).toBe(2);
     expect(els[0]!.data.text).not.toMatch(/\+12/);
+  });
+
+  test("the +N more label says what one click adds: the batch, capped by what is left (limit raised past the shown count)", () => {
+    const label = (omitted: number) => {
+      const els = toElements(nodes, [], { ...state({ centers: [A] }), limits: { [A]: 10 }, reveal: { batch: 12, shown: { [A]: 25 } } }, { [A]: omitted });
+      return els.find((e) => e.data.id === `more:${A}`)!.data.label;
+    };
+    expect(label(40)).toBe("+40 more · click +12");
+    expect(label(5)).toBe("+5 more · click +5");
   });
 
   test("no proxy when the center is hidden, nothing is omitted, or the address is not a center", () => {
