@@ -211,6 +211,56 @@ pub trait ChainSource: Send + Sync {
     ) -> Result<Vec<(Address, U256)>, SourceError>;
 }
 
+/// The EVM operation that opened a call frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CallKind {
+    Call,
+    StaticCall,
+    DelegateCall,
+    CallCode,
+    Create,
+    Create2,
+    SelfDestruct,
+}
+
+/// One frame of a transaction's call trace.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CallFrame {
+    /// Position in the tree: `[]` is the root, `[1, 0]` the first child of
+    /// the root's second child.
+    pub path: Vec<u32>,
+    pub kind: CallKind,
+    pub from: Address,
+    /// The callee; for a create, the new contract (`None` when it failed);
+    /// for a self-destruct, the beneficiary.
+    pub to: Option<Address>,
+    pub value: U256,
+    /// Calldata; for a create, the init code.
+    pub input: Bytes,
+    /// Return or revert data; for a create, the deployed code.
+    pub output: Option<Bytes>,
+    pub gas: u64,
+    pub gas_used: Option<u64>,
+    pub error: Option<String>,
+    pub subtraces: u32,
+}
+
+/// Where call traces come from; separate from [`ChainSource`] so the trace
+/// provider can be swapped independently of Etherscan.
+#[async_trait]
+pub trait TraceSource: Send + Sync {
+    /// Frames sorted by `path` (pre-order). `None`: the source has no trace
+    /// for this hash (not indexed / unknown).
+    async fn call_trace(
+        &self,
+        p: Priority,
+        hash: TxHash,
+    ) -> Result<Option<Vec<CallFrame>>, SourceError>;
+    /// Stored in `call_traces.source`, e.g. `"blockscout"`.
+    fn name(&self) -> &'static str;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,5 +277,30 @@ mod tests {
         assert!(SourceError::UserQuotaExhausted.is_quota());
         assert!(!SourceError::RateLimited.is_quota());
         assert!(!SourceError::Parse("x".into()).is_retryable());
+    }
+
+    #[test]
+    fn call_frame_json_round_trip() {
+        let f = CallFrame {
+            path: vec![4, 0],
+            kind: CallKind::DelegateCall,
+            from: Address::repeat_byte(0x23),
+            to: Some(Address::repeat_byte(0x23)),
+            value: U256::from(7u64),
+            input: Bytes::from(vec![0x8b, 0x95, 0xdd, 0x71]),
+            output: None,
+            gas: 100,
+            gas_used: Some(42),
+            error: Some("Reverted".into()),
+            subtraces: 0,
+        };
+        let v = serde_json::to_value(&f).unwrap();
+        assert_eq!(v["kind"], "delegatecall");
+        assert_eq!(serde_json::from_value::<CallFrame>(v).unwrap(), f);
+        assert_eq!(
+            serde_json::to_value(CallKind::StaticCall).unwrap(),
+            "staticcall"
+        );
+        assert_eq!(serde_json::to_value(CallKind::Create2).unwrap(), "create2");
     }
 }

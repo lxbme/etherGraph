@@ -1,14 +1,14 @@
 //! In-memory `ChainSource` test double (feature `testing`).
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
 
 use crate::source::{
-    CallGate, ChainSource, ContractCreation, ContractSource, HistoryPage, HistoryQuery, Priority,
-    RawBlock, RawReceipt, RawTx, SourceError, TokenInfo,
+    CallFrame, CallGate, ChainSource, ContractCreation, ContractSource, HistoryPage, HistoryQuery,
+    Priority, RawBlock, RawReceipt, RawTx, SourceError, TokenInfo, TraceSource,
 };
 use crate::types::{Address, Bytes, Transfer, TransferKind, TxHash, U256};
 
@@ -423,6 +423,52 @@ impl<S: ChainSource> ChainSource for GatedSource<S> {
     }
 }
 
+/// In-memory `TraceSource`: unknown hashes have no trace (`Ok(None)`).
+#[derive(Default)]
+pub struct FakeTraceSource {
+    traces: Mutex<HashMap<TxHash, Option<Vec<CallFrame>>>>,
+    fail: Mutex<Option<SourceError>>,
+    calls: AtomicUsize,
+}
+
+impl FakeTraceSource {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set(&self, hash: TxHash, frames: Option<Vec<CallFrame>>) {
+        self.traces.lock().unwrap().insert(hash, frames);
+    }
+
+    /// The next call returns this error.
+    pub fn fail_next(&self, err: SourceError) {
+        *self.fail.lock().unwrap() = Some(err);
+    }
+
+    pub fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+}
+
+#[async_trait]
+impl TraceSource for FakeTraceSource {
+    async fn call_trace(
+        &self,
+        _p: Priority,
+        hash: TxHash,
+    ) -> Result<Option<Vec<CallFrame>>, SourceError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(e) = self.fail.lock().unwrap().take() {
+            return Err(e);
+        }
+        Ok(self.traces.lock().unwrap().get(&hash).cloned().flatten())
+    }
+
+    fn name(&self) -> &'static str {
+        "fake"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -542,5 +588,45 @@ mod tests {
         );
         assert_eq!(f.latest_block(Priority::Low).await.unwrap(), 0);
         assert_eq!(f.calls(), 2);
+    }
+
+    #[tokio::test]
+    async fn fake_trace_source_set_fail_and_count() {
+        use crate::source::{CallFrame, CallKind, TraceSource};
+        let f = FakeTraceSource::new();
+        let known = B256::repeat_byte(1);
+        let frame = CallFrame {
+            path: vec![],
+            kind: CallKind::Call,
+            from: Address::ZERO,
+            to: Some(Address::ZERO),
+            value: U256::ZERO,
+            input: Default::default(),
+            output: None,
+            gas: 21_000,
+            gas_used: Some(21_000),
+            error: None,
+            subtraces: 0,
+        };
+        f.set(known, Some(vec![frame.clone()]));
+        assert_eq!(
+            f.call_trace(Priority::Interactive, known).await.unwrap(),
+            Some(vec![frame])
+        );
+        assert_eq!(
+            f.call_trace(Priority::Interactive, B256::ZERO)
+                .await
+                .unwrap(),
+            None
+        );
+        f.fail_next(SourceError::RateLimited);
+        assert_eq!(
+            f.call_trace(Priority::Interactive, known)
+                .await
+                .unwrap_err(),
+            SourceError::RateLimited
+        );
+        assert!(f.call_trace(Priority::Interactive, known).await.is_ok());
+        assert_eq!(f.calls(), 4);
     }
 }

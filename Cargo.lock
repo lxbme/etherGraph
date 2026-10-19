@@ -1299,6 +1299,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-blockscout"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "eg-core",
+ "hex",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "wiremock",
+]
+
+[[package]]
 name = "eg-core"
 version = "0.1.0"
 dependencies = [
