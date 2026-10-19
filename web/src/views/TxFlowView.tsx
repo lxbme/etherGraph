@@ -294,7 +294,7 @@ export function TxFlowView({ hash }: { hash: string }) {
                 <TxBatchBar selection={box} insetLeft={legendCover} nodes={flow.nodes} />
                 {menu && <TxContextMenu x={menu.x} y={menu.y} node={menu.node} onClose={closeMenu} />}
               </div>
-              {view === "calls" && <CallTreeView hash={hash} />}
+              {view === "calls" && <CallTreeView hash={hash} flows={flow.flows} />}
             </div>
           }
           bottom={<TxDetailTabs flow={flow} />}

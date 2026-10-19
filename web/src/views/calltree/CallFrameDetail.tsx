@@ -4,13 +4,14 @@ import { shortAddr } from "../../lib/address";
 import { formatFixed } from "../../lib/amount";
 import { formatCount } from "../../lib/format";
 import { AddressCell } from "../../shell/AddressCell";
-import { ArgsTable, nodeOf, RawHex, useFlowLink, type FlowNodes } from "../txdetail/common";
+import { ArgsTable, erc20Of, nodeOf, RawHex, useFlowLink, type FlowNodes } from "../txdetail/common";
 import { KIND_TEXT } from "./CallTreeList";
+import { contextOf } from "./model";
 
 /**
  * One call in full: caller → callee, the decoded method and arguments (addresses select their node), value (labelled
  * apart where it is not ETH sent, see `sendsEth`), gas, the failure and decoded revert, and the raw input / output
- * with copy.
+ * with copy. ERC-20 amounts read in the decimals of the token the frame acts as (`contextOf`).
  */
 export function CallFrameDetail({ frame, flow }: { frame: CallFrameDto; flow: FlowNodes }) {
   const t = useT();
@@ -68,7 +69,7 @@ export function CallFrameDetail({ frame, flow }: { frame: CallFrameDto; flow: Fl
       {frame.call && frame.call.args.length > 0 && (
         <>
           <div className="popover__section">{t("tx.calls.args")}</div>
-          <ArgsTable args={frame.call.args} flow={flow} />
+          <ArgsTable args={frame.call.args} flow={flow} signature={frame.call.signature} token={erc20Of(flow, contextOf(frame))} />
         </>
       )}
       <div className="popover__section">{t("tx.calls.input")}</div>

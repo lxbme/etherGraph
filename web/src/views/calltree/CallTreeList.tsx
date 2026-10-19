@@ -4,6 +4,8 @@ import type { CallFrameDto } from "../../api/generated/CallFrameDto";
 import { useT } from "../../i18n";
 import { formatAmount } from "../../lib/amount";
 import { ellipsize } from "../../lib/format";
+import { argAmounts, type ArgAmount, type ArgToken } from "../../lib/tokenArgs";
+import { flaggedLabel, trustFlag } from "../../lib/trust";
 import { callName, sendsEth, type TreeRow } from "./model";
 
 /** Every row is this tall (--h-compact in tokens.css), so the window of rows in view is plain arithmetic. */
@@ -22,17 +24,31 @@ export const KIND_TEXT: Record<CallFrameDto["kind"], string> = {
   create: "CREATE", create2: "CREATE2", selfdestruct: "SELFDESTRUCT",
 };
 
-/** `register(alice, 0xab…, 31536000)`: the method (or raw selector) with shortened argument values. */
-export function callSummary(frame: CallFrameDto): string {
+/** A token amount in a row: four places and the symbol, `unlimited` for an unlimited allowance; a flagged token's marked. */
+function shortAmount(m: ArgAmount, unlimited: string): string {
+  const text = `${m.unlimited ? unlimited : formatAmount(m.raw, m.decimals, { maxFrac: 4 }).text}${m.symbol ? ` ${m.symbol}` : ""}`;
+  return m.trust && trustFlag(m.trust) ? flaggedLabel(text) : text;
+}
+
+/**
+ * `register(alice, 0xab…, 31536000)`: the method (or raw selector) with shortened argument values. With the `token`
+ * the frame acts as, an ERC-20 amount reads `4,699.4659 USDC` (`unlimited` is the word for an unlimited allowance).
+ */
+export function callSummary(frame: CallFrameDto, token?: ArgToken, unlimited = "∞"): string {
   const name = callName(frame);
   if (!frame.call || frame.call.args.length === 0) return name;
-  return ellipsize(`${name}(${frame.call.args.map((a) => ellipsize(a.value, ARG_MAX)).join(", ")})`, SUMMARY_MAX);
+  const amounts = argAmounts(frame.call.signature, frame.call.args, token);
+  const values = frame.call.args.map((a, i) => {
+    const m = amounts[i];
+    return m ? shortAmount(m, unlimited) : ellipsize(a.value, ARG_MAX);
+  });
+  return ellipsize(`${name}(${values.join(", ")})`, SUMMARY_MAX);
 }
 
 /**
  * The indented call tree, windowed: only the rows in view (plus overscan) are in the DOM, so thousands of
  * frames stay responsive. A click selects a row; arrow keys move the selection (Right/Left expand/collapse);
- * a new `reveal` value scrolls the selected row into view.
+ * a new `reveal` value scrolls the selected row into view. `tokenOf` is the ERC-20 a frame acts as, for its amounts.
  */
 export function CallTreeList({
   rows,
@@ -40,6 +56,7 @@ export function CallTreeList({
   selected,
   reveal,
   nameOf,
+  tokenOf,
   onSelect,
   onToggle,
 }: {
@@ -48,6 +65,7 @@ export function CallTreeList({
   selected: string | null;
   reveal: number;
   nameOf(address: string): string;
+  tokenOf?(frame: CallFrameDto): ArgToken | undefined;
   onSelect(id: string, reveal?: boolean): void;
   onToggle(id: string): void;
 }) {
@@ -144,7 +162,7 @@ export function CallTreeList({
               <span className="calltree__seq num">{r.seq}</span>
               <span className={`calltree__kind calltree__kind--${f.kind}`}>{KIND_TEXT[f.kind]}</span>
               <span className="calltree__callee" title={f.to ?? undefined}>{f.to ? nameOf(f.to) : "—"}</span>
-              <span className="calltree__call detail__mono" title={f.call?.signature}>{callSummary(f)}</span>
+              <span className="calltree__call detail__mono" title={f.call?.signature}>{callSummary(f, tokenOf?.(f), t("tx.args.unlimited"))}</span>
               {value > 0n && <span className="calltree__value num">{formatAmount(f.value, 18, { maxFrac: 4 }).text} ETH</span>}
               {r.failed && <span className="tag tag--neg calltree__failed">{t("tx.calls.failedMark")}</span>}
             </div>

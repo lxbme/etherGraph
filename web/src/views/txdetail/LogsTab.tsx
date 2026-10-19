@@ -3,7 +3,8 @@ import type { DecodedEventDto } from "../../api/generated/DecodedEventDto";
 import type { TxFlowDto } from "../../api/generated/TxFlowDto";
 import { useT } from "../../i18n";
 import { AddressCell } from "../../shell/AddressCell";
-import { ArgsTable, nodeOf, RawHex, useFlowLink } from "./common";
+import { eventSignature } from "../../lib/tokenArgs";
+import { ArgsTable, erc20Of, nodeOf, RawHex, useFlowLink } from "./common";
 
 /** Cards rendered before "Show all". */
 export const LOG_LIMIT = 200;
@@ -42,7 +43,14 @@ function LogCard({ event: e, flow }: { event: DecodedEventDto; flow: TxFlowDto }
           <RawHex hex={e.data} selector={false} />
         </div>
       ) : (
-        e.args.length > 0 && <ArgsTable args={e.args} flow={flow} />
+        e.args.length > 0 && (
+          <ArgsTable
+            args={e.args}
+            flow={flow}
+            signature={e.name === null ? undefined : eventSignature(e.name, e.args)}
+            token={erc20Of(flow, e.address)}
+          />
+        )
       )}
     </article>
   );

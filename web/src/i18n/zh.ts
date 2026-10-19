@@ -588,6 +588,8 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "tx.input.hide": "收起",
   "tx.input.showMore": "展开全部",
   "tx.input.showLess": "收起",
+  "tx.args.unlimited": "无限",
+  "tx.args.claimed": "精度和符号是该代币自己声明的，未经核实。{reason}",
   "tx.col.name": "名称",
   "tx.col.type": "类型",
   "tx.col.argValue": "值",

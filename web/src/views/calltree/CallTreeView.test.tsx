@@ -518,3 +518,36 @@ test("saved_positions_survive_a_filter_toggle", async () => {
   fireEvent.click(screen.getByRole("checkbox", { name: "Show read-only calls" }));
   expect(placed()).toEqual(saved);
 });
+
+test("a_tokens_transfer_frames_show_its_amount_in_its_decimals", async () => {
+  // tx 0x9aaeae79…e252: USDC's proxy runs `transfer` in its implementation by DELEGATECALL (USDC's own context).
+  const USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
+  const IMPL = "0x43506849d7c04f9138d1a2050bbf3a0c054402dd";
+  const TO = "0xae39efdbb5d8a50e7031b6f9f957d43cdfbae72b";
+  const input = "0xa9059cbb000000000000000000000000ae39efdbb5d8a50e7031b6f9f957d43cdfbae72b00000000000000000000000000000000000000000000000000000001181c28e0";
+  const call = {
+    signature: "transfer(address,uint256)", name: "transfer", via_delegate: null,
+    args: [{ name: "to", ty: "address", value: TO }, { name: "value", ty: "uint256", value: "4699465952" }],
+  };
+  const frames = [
+    synth([], { from: A, to: USDC, input, call }),
+    synth([0], { kind: "delegatecall", from: USDC, to: IMPL, input, call }),
+  ];
+  vi.spyOn(api, "txTrace").mockResolvedValue(ready(frames));
+  vi.mocked(api.nodes).mockResolvedValue([
+    node(USDC, { display_name: "USD Coin", is_proxy: true, token: { standard: "erc20", symbol: "USDC", decimals: 6 } }),
+    node(IMPL, { contract_name: "FiatTokenV2_2" }),
+  ]);
+  renderCalls();
+  await screen.findByRole("tree");
+  // The rows stay compact: the amount alone, to four places.
+  await waitFor(() => expect(screen.getAllByRole("treeitem")[0]).toHaveTextContent("4,699.4659 USDC"));
+  const [root, inner] = screen.getAllByRole("treeitem");
+  expect(inner).toHaveTextContent("4,699.4659 USDC");
+  for (const row of [root!, inner!]) {
+    fireEvent.click(row);
+    const detail = within(screen.getByTestId("call-detail"));
+    expect(detail.getByText("4,699.465952")).toBeInTheDocument();
+    expect(detail.getByText("4699465952")).toBeInTheDocument();
+  }
+});

@@ -589,6 +589,8 @@ export const en = {
   "tx.input.hide": "Hide",
   "tx.input.showMore": "Show more",
   "tx.input.showLess": "Show less",
+  "tx.args.unlimited": "Unlimited",
+  "tx.args.claimed": "Decimals and symbol are the token's own claim, unverified. {reason}",
   "tx.col.name": "Name",
   "tx.col.type": "Type",
   "tx.col.argValue": "Value",

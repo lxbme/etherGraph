@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import fixture from "../../../e2e/fixtures/tx.json";
 import { api } from "../../api/endpoints";
+import type { DecodedArgDto } from "../../api/generated/DecodedArgDto";
 import type { DecodedEventDto } from "../../api/generated/DecodedEventDto";
 import type { TxFlowDto } from "../../api/generated/TxFlowDto";
 import { useGraph } from "../../graph/store";
@@ -432,5 +433,103 @@ describe("Overview authorizations (type 4)", () => {
     expect(region.getByText("任意链")).toBeInTheDocument();
     expect(region.getByText("清除委托")).toBeInTheDocument();
     expect(region.getByText("未知签名者")).toBeInTheDocument();
+  });
+});
+
+describe("ERC-20 amounts in arguments", () => {
+  const USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
+  const SCAM = "0x5ca5000000000000000000000000000000000006";
+  /** `f` calling `signature` on `token` (a node that is an ERC-20 of `decimals`, or none known with `null`). */
+  function calling(signature: string, args: DecodedArgDto[], token: TxFlowDto["nodes"][number]["token"]): TxFlowDto {
+    const f = base();
+    f.tx.to = USDC;
+    f.nodes.push({ ...f.nodes[0]!, address: USDC, kind: "contract", display_name: "USD Coin", is_proxy: true, token });
+    f.call = { signature, name: signature.slice(0, signature.indexOf("(")), args, via_delegate: null };
+    return f;
+  }
+  const usdc = { standard: "erc20" as const, symbol: "USDC", decimals: 6 };
+  const valueCell = (name: string) => screen.getByRole("cell", { name }).parentElement!.lastElementChild as HTMLElement;
+
+  test("a transfer's amount reads in the token's decimals with its symbol, the raw value beside it", () => {
+    renderTabs(calling("transfer(address,uint256)", [
+      { name: "to", ty: "address", value: BOB }, { name: "value", ty: "uint256", value: "4699465952" },
+    ], usdc));
+    fireEvent.click(tab("Input"));
+    const cell = valueCell("value");
+    expect(within(cell).getByText("4,699.465952")).toBeInTheDocument();
+    expect(within(cell).getByText("USDC")).toBeInTheDocument();
+    expect(within(cell).getByText("4699465952")).toBeInTheDocument();
+    // The recipient stays an address cell.
+    expect(within(valueCell("to")).getByTitle(BOB)).toBeInTheDocument();
+  });
+
+  test("an approval of the uint256 max reads Unlimited, not 78 digits", () => {
+    const max = ((1n << 256n) - 1n).toString();
+    renderTabs(calling("approve(address,uint256)", [
+      { name: "spender", ty: "address", value: BOB }, { name: "value", ty: "uint256", value: max },
+    ], usdc));
+    fireEvent.click(tab("Input"));
+    const cell = valueCell("value");
+    expect(cell).toHaveTextContent(/^Unlimited USDC$/);
+    expect(within(cell).getByText("Unlimited")).toHaveAttribute("title", max);
+    act(() => useLocale.getState().setLocale("zh"));
+    expect(valueCell("value")).toHaveTextContent(/^无限 USDC$/);
+  });
+
+  test("a token of unknown decimals, or none known, keeps the raw amount with no guess", () => {
+    const args: DecodedArgDto[] = [{ name: "to", ty: "address", value: BOB }, { name: "value", ty: "uint256", value: "4699465952" }];
+    const { unmount } = renderTabs(calling("transfer(address,uint256)", args, { standard: "erc20", symbol: "USDC", decimals: null }));
+    fireEvent.click(tab("Input"));
+    expect(valueCell("value")).toHaveTextContent(/^4699465952$/);
+    unmount();
+    renderTabs(calling("transfer(address,uint256)", args, null));
+    fireEvent.click(tab("Input"));
+    expect(valueCell("value")).toHaveTextContent(/^4699465952$/);
+  });
+
+  test("a uint256 of a non-standard function of a token stays raw", () => {
+    renderTabs(calling("mint(address,uint256)", [
+      { name: "to", ty: "address", value: BOB }, { name: "amount", ty: "uint256", value: "4699465952" },
+    ], usdc));
+    fireEvent.click(tab("Input"));
+    expect(valueCell("amount")).toHaveTextContent(/^4699465952$/);
+  });
+
+  test("an amount of a scam token is marked as the token's own claim", () => {
+    const f = base();
+    f.nodes.push({ ...f.nodes[0]!, address: SCAM, kind: "contract", token: { standard: "erc20", symbol: "USDC", decimals: 6 } });
+    f.flows.push({
+      ...f.flows[2]!, seq: 9, asset: SCAM, symbol: "USDC", decimals: 6, amount: "1000000", log_index: 13,
+      trust: { level: "scam", impersonates: null, reason: "spam-token" },
+    });
+    f.events = [{ ...f.events[0]!, address: SCAM, log_index: 13, args: [
+      { name: "from", ty: "address", value: BOB }, { name: "to", ty: "address", value: ALICE }, { name: "value", ty: "uint256", value: "1000000" },
+    ] }];
+    renderTabs(f);
+    fireEvent.click(tab("Logs"));
+    const cell = valueCell("value");
+    expect(within(cell).getByText("1")).toBeInTheDocument();
+    const mark = within(cell).getByText("Known scam");
+    expect(mark.getAttribute("title")).toContain("the token's own claim");
+    expect(mark.getAttribute("title")).toContain("Flagged as spam by eth-labels");
+  });
+
+  test("a file saved before nodes named their token reads the amount from the token's transfers in the tx", () => {
+    const f = base();
+    for (const n of f.nodes) delete n.token;
+    renderTabs(f);
+    fireEvent.click(tab("Logs"));
+    expect(valueCell("value")).toHaveTextContent(/^6,400 USDT 6400000000$/);
+  });
+
+  test("a listed token's event amount carries no mark", () => {
+    const f = base();
+    f.nodes.push({ ...f.nodes[0]!, address: f.events[0]!.address, kind: "contract", token: { standard: "erc20", symbol: "USDT", decimals: 6 } });
+    renderTabs(f);
+    fireEvent.click(tab("Logs"));
+    const cell = valueCell("value");
+    expect(cell).toHaveTextContent("6,400 USDT");
+    expect(within(cell).queryByText("Known scam")).toBeNull();
+    expect(within(cell).queryByText("Possible impersonation")).toBeNull();
   });
 });

@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { TxFlowDto } from "../../api/generated/TxFlowDto";
 import { useT } from "../../i18n";
 import { CopyButton } from "../../shell/CopyButton";
-import { ArgsTable, hexBytes, RawHex } from "./common";
+import { ArgsTable, erc20Of, hexBytes, RawHex } from "./common";
 
 /**
  * Calldata: the decoded signature and arguments with a "Raw hex" toggle; undecodable calls show their selector and
@@ -45,7 +45,7 @@ export function InputTab({ flow }: { flow: TxFlowDto }) {
           </button>
         </div>
       </div>
-      {call.args.length > 0 && <ArgsTable args={call.args} flow={flow} />}
+      {call.args.length > 0 && <ArgsTable args={call.args} flow={flow} signature={call.signature} token={erc20Of(flow, tx.to)} />}
       {showHex && <RawHex hex={detail.input} selector />}
     </div>
   );

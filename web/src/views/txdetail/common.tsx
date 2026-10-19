@@ -1,7 +1,11 @@
 import { Fragment, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import type { DecodedArgDto } from "../../api/generated/DecodedArgDto";
+import type { FlowDto } from "../../api/generated/FlowDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import { useT } from "../../i18n";
+import { formatFull } from "../../lib/amount";
+import { argAmounts, type ArgAmount, type ArgToken } from "../../lib/tokenArgs";
+import { trustFlag, trustReason, trustText } from "../../lib/trust";
 import { useUi } from "../../panels/uiStore";
 import { AddressCell } from "../../shell/AddressCell";
 import { CopyButton } from "../../shell/CopyButton";
@@ -33,12 +37,29 @@ export function useFlowLink(hash: string) {
   return { select, rowProps };
 }
 
-/** What address cells need from a transaction: its hash (to select in its tab) and the nodes that name addresses. */
-export type FlowNodes = { tx: { hash: string }; nodes: NodeSummaryDto[] };
+/**
+ * What address cells need from a transaction: its hash (to select in its tab) and the nodes that name addresses;
+ * its flows, where known, say how far each moved token is trusted.
+ */
+export type FlowNodes = { tx: { hash: string }; nodes: NodeSummaryDto[]; flows?: readonly FlowDto[] };
 
 export function nodeOf(flow: FlowNodes, address: string): NodeSummaryDto | undefined {
   const a = address.toLowerCase();
   return flow.nodes.find((n) => n.address.toLowerCase() === a);
+}
+
+/**
+ * The ERC-20 token at `address`, whose amounts its calls and events carry: its node's token, else (no node, or a file
+ * saved before nodes said) its ERC-20 transfers in this tx. Its trust comes from this tx's transfers of it, so a token
+ * that did not move here has none. Undefined when `address` is no known ERC-20.
+ */
+export function erc20Of(flow: FlowNodes, address: string | null): ArgToken | undefined {
+  if (!address) return undefined;
+  const a = address.toLowerCase();
+  const moved = flow.flows?.filter((f) => f.asset?.toLowerCase() === a) ?? [];
+  const token = nodeOf(flow, a)?.token;
+  const known = token === undefined ? moved.find((f) => f.kind === "erc20") : token?.standard === "erc20" ? token : undefined;
+  return known && { decimals: known.decimals, symbol: known.symbol, trust: moved[0]?.trust };
 }
 
 /** Byte length of `0x` hex data. */
@@ -64,14 +85,47 @@ export function hexLines(hex: string, selector: boolean): string[] {
 const ADDRESS = /(0x[0-9a-fA-F]{40})(?![0-9a-fA-F])/;
 
 /**
- * A decoded argument value; long values fold. Addresses (also inside arrays / tuples) are address cells: the text
- * selects the node in the tx graph, "+" adds it to the address graph.
+ * A token amount: every fraction digit and the symbol, the raw integer beside it; the uint256 max of an allowance reads
+ * "Unlimited" (raw in its title). A flagged token's amount is muted and marked: its decimals and symbol are its own claim.
  */
-export function ArgValue({ arg, flow }: { arg: DecodedArgDto; flow: FlowNodes }) {
+function TokenAmount({ amount: m }: { amount: ArgAmount }) {
+  const t = useT();
+  const flag = m.trust ? trustFlag(m.trust) : null;
+  return (
+    <span className={flag ? "txdetail__amount detail__muted" : "txdetail__amount"}>
+      {m.unlimited ? <span title={m.raw}>{t("tx.args.unlimited")}</span> : <span className="num">{formatFull(m.raw, m.decimals)}</span>}
+      {m.symbol && ` ${m.symbol}`}
+      {flag && m.trust && (
+        <>
+          {" "}
+          <span
+            className={flag === "scam" ? "tag tag--scam" : "tag tag--warn"}
+            title={t("tx.args.claimed", { reason: trustReason(m.trust, t) ?? "" })}
+          >
+            {trustText(flag, t)}
+          </span>
+        </>
+      )}
+      {!m.unlimited && (
+        <>
+          {" "}
+          <span className="detail__mono detail__muted">{m.raw}</span>
+        </>
+      )}
+    </span>
+  );
+}
+
+/**
+ * A decoded argument value; long values fold. Addresses (also inside arrays / tuples) are address cells: the text
+ * selects the node in the tx graph, "+" adds it to the address graph. With `amount`, it is a token amount.
+ */
+export function ArgValue({ arg, flow, amount }: { arg: DecodedArgDto; flow: FlowNodes; amount?: ArgAmount | null }) {
   const t = useT();
   const { select } = useFlowLink(flow.tx.hash);
   const long = arg.value.length > LONG_VALUE;
   const [open, setOpen] = useState(false);
+  if (amount) return <TokenAmount amount={amount} />;
   let body: ReactNode;
   if (long && !open) {
     body = <span className="detail__mono">{`${arg.value.slice(0, LONG_VALUE)}…`}</span>;
@@ -102,9 +156,23 @@ export function ArgValue({ arg, flow }: { arg: DecodedArgDto; flow: FlowNodes })
   );
 }
 
-/** Name / Type / Value table of decoded arguments. */
-export function ArgsTable({ args, flow }: { args: DecodedArgDto[]; flow: FlowNodes }) {
+/**
+ * Name / Type / Value table of decoded arguments. With the call's or event's canonical `signature` and the `token`
+ * (from `erc20Of`) of its callee or emitter, the amount of a standard ERC-20 function or event reads in its decimals.
+ */
+export function ArgsTable({
+  args,
+  flow,
+  signature,
+  token,
+}: {
+  args: DecodedArgDto[];
+  flow: FlowNodes;
+  signature?: string;
+  token?: ArgToken;
+}) {
   const t = useT();
+  const amounts = signature ? argAmounts(signature, args, token) : [];
   return (
     <table className="table">
       <thead>
@@ -119,7 +187,7 @@ export function ArgsTable({ args, flow }: { args: DecodedArgDto[]; flow: FlowNod
           <tr key={i}>
             <td>{a.name || `#${i}`}</td>
             <td className="detail__mono detail__muted">{a.ty}</td>
-            <td className="txdetail__wrap"><ArgValue arg={a} flow={flow} /></td>
+            <td className="txdetail__wrap"><ArgValue arg={a} flow={flow} amount={amounts[i]} /></td>
           </tr>
         ))}
       </tbody>

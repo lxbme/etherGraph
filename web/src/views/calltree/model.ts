@@ -49,6 +49,13 @@ const isFailed = (f: CallFrameDto) => f.error !== null;
  */
 export const sendsEth = (f: CallFrameDto) => f.kind !== "delegatecall" && f.kind !== "callcode";
 
+/**
+ * The account a frame acts as, whose token its arguments count: the callee, but a DELEGATECALL or CALLCODE runs the
+ * callee's code as its caller (a token proxy's `transfer` in its implementation moves the proxy's token).
+ */
+export const contextOf = (f: CallFrameDto): string | null =>
+  f.kind === "delegatecall" || f.kind === "callcode" ? f.from : f.to;
+
 /** Frames are in pre-order, so a subtree is a contiguous run of deeper paths. */
 function withoutStaticSubtrees(frames: CallFrameDto[]): CallFrameDto[] {
   const out: CallFrameDto[] = [];
