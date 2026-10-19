@@ -56,6 +56,7 @@ useGraph.subscribe((s, prev) => {
     s.expandedPairs !== prev.expandedPairs ||
     s.ui !== prev.ui ||
     s.limits !== prev.limits ||
+    s.proxyPos !== prev.proxyPos ||
     s.frozen !== prev.frozen
   ) {
     graphVersion++;
@@ -144,7 +145,7 @@ function captureGraph(): WorkspaceStateV2["graph"] {
   let viewport = DEFAULT_VIEWPORT;
   if (cy) {
     cy.nodes().forEach((n) => {
-      if (isMoreId(n.id())) return; // "+N more" proxies are not part of the workspace
+      if (isMoreId(n.id())) return; // "+N more" proxies are not nodes; their dragged positions are saved through `proxies`
       nodes.push(n.id());
       const p = n.position();
       positions[n.id()] = { x: p.x, y: p.y };
@@ -292,6 +293,7 @@ function applyState({ graph: state, tabs, active }: WorkspaceStateV2): void {
     expandedPairs: state.expanded_pairs.map(([a, b]) => pairKey(a, b)),
     ui,
     limits: state.limits,
+    proxyPos: state.proxies,
   });
   // A snapshot view stays one until it is refreshed from the chain.
   if (state.snapshot) useGraph.getState().freeze(state.snapshot);

@@ -397,3 +397,11 @@ describe("useRevealBatch", () => {
     expect(renders).toBe(before);
   });
 });
+
+describe("loadSnapshot proxy positions", () => {
+  test("keeps only those of the loaded centers", () => {
+    const p = { x: 3, y: 4 };
+    g().loadSnapshot({ centers: [A], ui: {}, filter: {}, expandedPairs: [], proxyPos: { [A]: p, [B]: { x: 1, y: 1 } } } as never);
+    expect(g().proxyPos).toEqual({ [A]: p });
+  });
+});

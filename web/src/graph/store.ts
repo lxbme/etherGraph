@@ -110,6 +110,8 @@ export interface GraphState {
     expandedPairs: string[];
     ui: Record<string, NodeUi>;
     limits?: Record<string, number>;
+    /** Dragged "+N more" positions by center; entries of other addresses are dropped. */
+    proxyPos?: Record<string, Pos>;
   }): void;
   /** Internal history stacks. */
   _past: HistoryEntry[];
@@ -511,10 +513,13 @@ export const useGraph = create<GraphState>()((set, get) => {
       const centers = [...new Set(v.centers.map(lc))];
       const limits: Record<string, number> = {};
       for (const [k, n] of Object.entries(v.limits ?? {})) limits[lc(k)] = n;
+      const proxyPos: Record<string, Pos> = {};
+      for (const [k, p] of Object.entries(v.proxyPos ?? {})) if (centers.includes(lc(k))) proxyPos[lc(k)] = p;
       set({
         ...initial(),
         epoch: get().epoch + 1,
         centers,
+        proxyPos,
         limits: withFirstBatch(limits, centers, { fresh: true }),
         filter: v.filter,
         sort: v.sort ?? "count",

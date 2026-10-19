@@ -13,6 +13,8 @@ export interface WorkspaceStateV1 {
   sort?: SortKey;
   /** Neighbour limit per center. Absent in older states; centers without one get a first batch on load. */
   limits?: Record<string, number>;
+  /** Dragged "+N more" node positions by center. Absent when none was dragged and in older states. */
+  proxies?: Record<string, Pos>;
   viewport: { zoom: number; pan: { x: number; y: number } };
 }
 
@@ -47,7 +49,7 @@ export interface SerializeOpts {
 const lc = (s: string) => s.toLowerCase();
 
 export function serialize(
-  state: Pick<GraphState, "centers" | "filter" | "sort" | "expandedPairs" | "ui" | "limits">,
+  state: Pick<GraphState, "centers" | "filter" | "sort" | "expandedPairs" | "ui" | "limits" | "proxyPos">,
   viewport: WorkspaceStateV1["viewport"],
   opts: SerializeOpts = {},
 ): WorkspaceStateV1 {
@@ -60,6 +62,12 @@ export function serialize(
   const addrs = [...new Set([...state.centers, ...(opts.nodes ?? []), ...flagged].map(lc))];
   const positions: Record<string, Pos> = {};
   for (const [k, p] of Object.entries(opts.positions ?? {})) positions[lc(k)] = p;
+  const proxies = Object.fromEntries(
+    state.centers.flatMap((c) => {
+      const p = state.proxyPos[c];
+      return p === undefined ? [] : [[c, { x: p.x, y: p.y }]];
+    }),
+  );
   return {
     nodes: addrs.map((address) => {
       const u = state.ui[address];
@@ -82,6 +90,7 @@ export function serialize(
         return n === undefined ? [] : [[c, n]];
       }),
     ),
+    ...(Object.keys(proxies).length > 0 ? { proxies } : {}),
     viewport: { zoom: viewport.zoom, pan: { ...viewport.pan } },
   };
 }
@@ -161,11 +170,17 @@ function deserializeGraph(v: unknown): Parsed<WorkspaceStateV1 & { snapshot?: Gr
   if (v.limits !== undefined && !(isObj(v.limits) && Object.values(v.limits).every(isLimit))) {
     return bad(t("ws.err.field", { field: "limits" }));
   }
+  if (v.proxies !== undefined && !isPositions(v.proxies)) return bad(t("ws.err.field", { field: "proxies" }));
   if (v.snapshot !== undefined && !isGraphSnapshot(v.snapshot)) return bad(t("ws.err.field", { field: "snapshot" }));
   // Centers saved without a limit (older states) get the first batch of a new center.
   const stored: Record<string, number> = {};
   for (const [k, n] of Object.entries((v.limits ?? {}) as Record<string, number>)) stored[lc(k)] = n;
   // The batch is shared by all of them, over an empty canvas (ruling R12).
   const limits = withFirstBatch(stored, centers.map(lc), { fresh: true });
-  return { ok: true, state: { ...(v as unknown as WorkspaceStateV1), limits } };
+  const next = { ...(v as unknown as WorkspaceStateV1), limits };
+  if (v.proxies !== undefined) {
+    next.proxies = {};
+    for (const [k, p] of Object.entries(v.proxies as Record<string, Pos>)) next.proxies[lc(k)] = p;
+  }
+  return { ok: true, state: next };
 }

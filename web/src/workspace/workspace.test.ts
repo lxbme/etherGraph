@@ -399,3 +399,46 @@ describe("limits", () => {
     expect(useWorkspace.getState().dirty).toBe(true);
   });
 });
+
+describe("proxy positions", () => {
+  const P = { x: 3, y: 4 };
+  const Q = { x: 1, y: 1 };
+  const MIXED = "0x" + "A".repeat(40);
+
+  test("serialize writes the proxies of centers only; none means no field; round-trips", () => {
+    g().setCenters([A]);
+    g().setPositions({ [`more:${A}`]: P, [`more:${B}`]: Q });
+    const s = serialize(g(), VP);
+    expect(s.proxies).toEqual({ [A]: P });
+    expect(deserialize(JSON.parse(JSON.stringify(s)), 1)).toEqual({ ok: true, state: { graph: s, tabs: [], active: "graph" } });
+    g().clearProxyPositions();
+    expect("proxies" in serialize(g(), VP)).toBe(false);
+  });
+
+  test("deserialize rejects malformed proxies, accepts their absence, lowercases keys", () => {
+    const good = serialize((g().setCenters([A]), g()), VP);
+    const r = deserialize({ ...good, proxies: { [A]: { x: "1", y: 2 } } }, 1);
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.reason).toContain("proxies");
+    expect(deserialize(good, 1).ok).toBe(true);
+    const ok = deserialize({ ...good, proxies: { [MIXED]: P } }, 1);
+    expect(ok.ok && ok.state.graph.proxies).toEqual({ [A]: P });
+  });
+
+  test("opening a saved state restores the proxy positions of its centers", async () => {
+    const s = { ...serialize((g().setCenters([A]), g()), VP), proxies: { [MIXED]: P, [B]: Q } };
+    g().reset();
+    m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(s)) }));
+    await expect(loadWorkspace(7)).resolves.toBe(true);
+    expect(g().proxyPos).toEqual({ [A]: P });
+  });
+
+  test("moving a proxy marks the workspace dirty", async () => {
+    g().setCenters([A]);
+    m.createWorkspace.mockResolvedValue(dto());
+    await saveNew("w");
+    expect(useWorkspace.getState().dirty).toBe(false);
+    g().setPositions({ [`more:${A}`]: { x: 9, y: 9 } });
+    expect(useWorkspace.getState().dirty).toBe(true);
+  });
+});
