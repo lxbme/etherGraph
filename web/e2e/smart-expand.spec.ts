@@ -3,7 +3,7 @@ import type { EdgeDto } from "../src/api/generated/EdgeDto";
 import type { GraphRequestDto } from "../src/api/generated/GraphRequestDto";
 import type { GraphResponseDto } from "../src/api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../src/api/generated/NodeSummaryDto";
-import { snapshot, tapNode } from "./cy";
+import { nodeScreenPos, snapshot, tapNode } from "./cy";
 import { A, C, expect, fixtures, test, type MockApi } from "./mockApi";
 
 /** A wallet with 120 stored neighbours (fixtures/counterparties.json). */
@@ -174,5 +174,42 @@ test("contract: Browse interactions…, pick 2 counterparties and expand them", 
   const sync = mock.requests(SYNC).at(-1)!.postDataJSON() as { addresses: string[]; batch: string };
   expect([...sync.addresses].sort()).toEqual([one!.node.address, two!.node.address].sort());
   expect(sync.batch).toBeTruthy();
+  expect(mock.unhandled).toEqual([]);
+});
+
+/** Model position of a node on the address graph. */
+async function modelPos(page: Page, id: string) {
+  return page.evaluate((id) => {
+    const cy = (window as unknown as { __etherGraphCy?: import("cytoscape").Core | null }).__etherGraphCy!;
+    const p = cy.$id(id).position();
+    return { x: Math.round(p.x), y: Math.round(p.y) };
+  }, id);
+}
+
+test("the +N more node can be dragged without revealing, and stays where it was dropped after a reveal", async ({ page, mock }) => {
+  await openBig(page, mock);
+  const proxy = `more:${W}`;
+  // Let the first layout's glide (ANIMATION_MS) finish before grabbing: a running glide would carry the node on.
+  await page.waitForTimeout(900);
+  const last = await modelPos(page, proxy);
+  const requests = mock.count(GRAPH);
+  const realBefore = (await canvas(page)).real.length;
+
+  const from = await nodeScreenPos(page, proxy);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 90, from.y + 70, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await modelPos(page, proxy)).x).not.toBe(last.x);
+  const dropped = await modelPos(page, proxy);
+  // A drag is not a click: nothing was revealed.
+  await page.waitForTimeout(400);
+  expect(mock.count(GRAPH)).toBe(requests);
+  expect((await canvas(page)).real.length).toBe(realBefore);
+
+  await tapNode(page, "main", proxy);
+  await expect.poll(async () => (await canvas(page)).real.length).toBeGreaterThan(realBefore);
+  await page.waitForTimeout(700);
+  expect(await modelPos(page, proxy)).toEqual(dropped);
   expect(mock.unhandled).toEqual([]);
 });

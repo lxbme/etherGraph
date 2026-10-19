@@ -161,12 +161,21 @@ describe("toElements", () => {
     expect(more.data.center).toBe(A);
     expect(classesOf(more)).toEqual(["more"]);
     expect(more.selectable).toBe(false);
-    expect(more.grabbable).toBe(false);
+    expect(more.grabbable).toBe(true);
+    expect(more.position).toBeUndefined();
+    expect(more.data.placed).toBeUndefined();
     const edge = els.find((e) => e.data.id === `more-edge:${A}`)!;
     expect(edge.group).toBe("edges");
     expect(edge.data).toMatchObject({ source: A, target: `more:${A}` });
     expect(els.filter((e) => String(e.data.id).startsWith("more")).length).toBe(2);
     expect(els[0]!.data.text).not.toMatch(/\+12/);
+  });
+
+  test("a +N more proxy the user dragged keeps its position and is marked placed", () => {
+    const els = toElements(nodes, [], { ...state({ centers: [A] }), proxyPos: { [A]: { x: 40, y: -7 } } }, { [A]: 12 });
+    const more = els.find((e) => e.data.id === `more:${A}`)!;
+    expect(more.position).toEqual({ x: 40, y: -7 });
+    expect(more.data.placed).toBe(true);
   });
 
   test("the +N more label says what one click adds: the batch, capped by what is left (limit raised past the shown count)", () => {

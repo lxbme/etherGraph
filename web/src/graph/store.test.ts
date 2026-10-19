@@ -130,6 +130,46 @@ describe("graph store", () => {
     expect(g().ui[A]?.pos).toEqual({ x: 5, y: 5 });
   });
 
+  test("a dragged +N more proxy is kept by center, outside the address ui, and its drag is undoable", () => {
+    g().setPositions({ [`more:${A}`]: { x: 5, y: 5 } });
+    g().commitMove({ [`more:${A}`]: { x: 0, y: 0 } });
+    expect(g().proxyPos[A]).toEqual({ x: 5, y: 5 });
+    expect(Object.keys(g().ui).some((k) => k.startsWith("more:"))).toBe(false);
+    g().undo();
+    expect(g().proxyPos[A]).toEqual({ x: 0, y: 0 });
+    g().redo();
+    expect(g().proxyPos[A]).toEqual({ x: 5, y: 5 });
+  });
+
+  test("undoing a step that cleared a proxy position restores it; redoing clears it again", () => {
+    g().setPositions({ [`more:${A}`]: { x: 5, y: 5 } });
+    g().clearProxyPositions();
+    g().commitMove({ [`more:${A}`]: { x: 5, y: 5 } });
+    expect(g().proxyPos[A]).toBeUndefined();
+    g().undo();
+    expect(g().proxyPos[A]).toEqual({ x: 5, y: 5 });
+    g().redo();
+    expect(g().proxyPos[A]).toBeUndefined();
+  });
+
+  test("pruning drops the positions of proxies no longer shown and leaves the state alone when nothing goes", () => {
+    g().setPositions({ [`more:${A}`]: { x: 1, y: 1 }, [`more:${B}`]: { x: 2, y: 2 } });
+    g().pruneProxyPositions([B]);
+    expect(g().proxyPos).toEqual({ [B]: { x: 2, y: 2 } });
+    const before = g().proxyPos;
+    g().pruneProxyPositions([B, C]);
+    expect(g().proxyPos).toBe(before);
+  });
+
+  test("reset and loadSnapshot forget proxy positions", () => {
+    g().setPositions({ [`more:${A}`]: { x: 1, y: 1 } });
+    g().reset();
+    expect(g().proxyPos).toEqual({});
+    g().setPositions({ [`more:${A}`]: { x: 1, y: 1 } });
+    g().loadSnapshot({ centers: [A], filter: {}, expandedPairs: [], ui: {} });
+    expect(g().proxyPos).toEqual({});
+  });
+
   test("snapshot undo keeps current positions", () => {
     g().setPinned([A], true);
     g().setPositions({ [A]: { x: 9, y: 9 } });

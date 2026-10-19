@@ -64,3 +64,17 @@ test("re-layout also works on a snapshot (frozen) graph without asking to refres
   expect(g().frozen).not.toBeNull();
   expect(g().ui[A]?.pos).toEqual(cy.getElementById(A).position());
 });
+
+test("re-layout re-places a dragged +N more proxy and forgets its position; undo puts it back", () => {
+  const cy = canvas();
+  cy.add([
+    { data: { id: `more:${A}`, placed: true }, classes: "more", position: { x: 900, y: 900 } },
+    { data: { id: `more-edge:${A}`, source: A, target: `more:${A}` } },
+  ]);
+  g().setPositions({ [`more:${A}`]: { x: 900, y: 900 } });
+  relayoutGraph(cy);
+  expect(cy.getElementById(`more:${A}`).position()).not.toEqual({ x: 900, y: 900 });
+  expect(g().proxyPos[A]).toBeUndefined();
+  g().undo();
+  expect(g().proxyPos[A]).toEqual({ x: 900, y: 900 });
+});

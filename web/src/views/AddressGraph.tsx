@@ -59,6 +59,7 @@ export function AddressGraph() {
   const data = fresh ?? (error != null ? lastGood.current : undefined);
   const expandedPairs = useGraph((s) => s.expandedPairs);
   const ui = useGraph((s) => s.ui);
+  const proxyPos = useGraph((s) => s.proxyPos);
   const selection = useGraph((s) => s.selection);
   const highlightTransfer = useGraph((s) => s.highlightTransfer);
   const limits = useGraph((s) => s.limits);
@@ -91,8 +92,8 @@ export function AddressGraph() {
   );
   const shown = useMemo(() => (data ? shownNeighbourCounts(data, centers) : {}), [data, centers]);
   const elements = useMemo(
-    () => (data ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer, limits, reveal: { batch, shown } }, data.omitted) : []),
-    [data, visual, ui, centers, selection, highlightTransfer, limits, batch, shown],
+    () => (data ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer, limits, proxyPos, reveal: { batch, shown } }, data.omitted) : []),
+    [data, visual, ui, centers, selection, highlightTransfer, limits, proxyPos, batch, shown],
   );
   const boxCount = useBoxSelection((s) => s.ids.length);
   const legend = useMemo(() => legendFor(elements, theme, boxCount), [elements, theme, boxCount]);
@@ -192,6 +193,9 @@ export function AddressGraph() {
   useEffect(() => {
     const visible = elements.filter((e) => e.group === "nodes" && !String(e.classes ?? "").split(" ").includes("more")).length;
     useCanvasMetrics.getState().set({ visible });
+    // A proxy that left the canvas (everything revealed, center gone) is placed afresh if it comes back.
+    const proxied = elements.filter((e) => e.group === "nodes" && isMoreId(String(e.data.id))).map((e) => String(e.data.center));
+    useGraph.getState().pruneProxyPositions(proxied);
   }, [elements]);
 
   const onReady = (cy: cytoscape.Core) => {
@@ -233,10 +237,10 @@ export function AddressGraph() {
   };
 
   const onDragEnd = (positions: Record<string, Pos>) => {
-    const { ui: before, setPositions, commitMove } = useGraph.getState();
+    const { ui: before, proxyPos: proxyBefore, setPositions, commitMove } = useGraph.getState();
     const prev: Record<string, Pos> = {};
     for (const id of Object.keys(positions)) {
-      const p = grabbed.current[id] ?? before[lc(id)]?.pos;
+      const p = grabbed.current[id] ?? (id.startsWith(MORE_PREFIX) ? proxyBefore[id.slice(MORE_PREFIX.length)] : before[lc(id)]?.pos);
       if (p) prev[id] = p;
       delete grabbed.current[id];
     }

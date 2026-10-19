@@ -283,6 +283,34 @@ describe("density at the budgeted node count", () => {
   });
 });
 
+describe("user-placed +N more proxies", () => {
+  test("a proxy the user dragged stays put when its center gains new neighbours", () => {
+    const cy = cytoscape({ headless: true });
+    cy.add([
+      { data: { id: "c" }, position: { x: 0, y: 0 } },
+      { data: { id: "l0" }, position: { x: 96, y: 0 } },
+      { data: { id: "cl0", source: "c", target: "l0" } },
+      { data: { id: "more:c", placed: true }, classes: "more", position: { x: -400, y: 300 } },
+      { data: { id: "more-edge:c", source: "c", target: "more:c" } },
+    ]);
+    const els: cytoscape.ElementDefinition[] = [];
+    for (let i = 1; i <= 6; i++) els.push({ data: { id: `l${i}` } }, { data: { id: `cl${i}`, source: "c", target: `l${i}` } });
+    cy.add(els);
+    runIncrementalLayout(cy, ["l1", "l2", "l3", "l4", "l5", "l6"], { viewport: { width: 1200, height: 700 } });
+    expect(cy.getElementById("more:c").position()).toEqual({ x: -400, y: 300 });
+  });
+
+  test("re-layout places even a proxy the user dragged", () => {
+    const cy = star(12);
+    cy.nodes().forEach((n, i) => {
+      n.position({ x: i, y: 0 });
+    });
+    cy.getElementById("more:c").data("placed", true).position({ x: -999, y: -999 });
+    runRelayout(cy, new Set(), { viewport: { width: 1200, height: 700 } });
+    expect(proxyOutside(cy, "c")).toBe(true);
+  });
+});
+
 describe("runRelayout", () => {
   /** A center "c" with `n` neighbours, a chain off the first one, already laid out and then tangled onto one spot. */
   function tangled(n: number) {

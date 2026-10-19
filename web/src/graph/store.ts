@@ -4,6 +4,7 @@ import { useAssetRegistry } from "./assetRegistry";
 import { nodeBudget, nodeCapacity, perCenterBatch } from "./budget";
 import { useCanvasMetrics } from "./canvasMetrics";
 import { runRedoEffect, runUndoEffect, type ExpandEffect } from "./historyEffects";
+import { MORE_PREFIX } from "./moreId";
 import { pairKey } from "./pairKey";
 import { pushCapped } from "./undo";
 import type { GraphSnapshot } from "../workspace/snapshot";
@@ -35,6 +36,11 @@ export interface GraphState {
   sort: SortKey;
   expandedPairs: Set<string>;
   ui: Record<string, NodeUi>;
+  /**
+   * Positions of the "+N more" proxies the user dragged, keyed by center. View state like `ui[].pos`, kept apart
+   * so a proxy is never mistaken for an address (focus, files); never saved.
+   */
+  proxyPos: Record<string, Pos>;
   /** Neighbour limit per center (kept after a center is removed, so re-adding it restores it); only centers' entries are sent. */
   limits: Record<string, number>;
   selection: Selection;
@@ -78,9 +84,14 @@ export interface GraphState {
   setHidden(addrs: string[], v: boolean): void;
   setNote(a: string, note: string): void;
   /** Not history-tracked. */
+  /** Keys are node ids: addresses, or "+N more" proxy ids (`more:<center>`), whose positions go to `proxyPos`. */
   setPositions(p: Record<string, Pos>): void;
-  /** Push a drag step; undo restores `prevPositions`. Call after the drag ended and positions were set. */
+  /** Push a drag step; undo restores `prevPositions` (keyed like `setPositions`). Call after the drag ended and positions were set. */
   commitMove(prevPositions: Record<string, Pos>): void;
+  /** Forgets every dragged proxy position (Re-layout places the proxies again). Not history-tracked. */
+  clearProxyPositions(): void;
+  /** Forgets the positions of proxies whose center is not in `shown` (a proxy that left the canvas is placed afresh). Not history-tracked. */
+  pruneProxyPositions(shown: Iterable<string>): void;
   /** Also clears `highlightTransfer`. */
   select(s: Selection): void;
   setHighlightTransfer(h: GraphState["highlightTransfer"]): void;
@@ -114,10 +125,13 @@ interface Snapshot {
   sort: SortKey;
   limits: Record<string, number>;
 }
-/** A snapshot step, or (when `positions` is set) a position-move step; `effect` runs after it is undone/redone. */
+/**
+ * A snapshot step, or (when `positions` is set) a position-move step; `effect` runs after it is undone/redone.
+ * Proxy keys (`more:<center>`) may be null: the proxy had no dragged position then.
+ */
 interface HistoryEntry {
   snap?: Snapshot;
-  positions?: Record<string, Pos>;
+  positions?: Record<string, Pos | null>;
   effect?: ExpandEffect;
 }
 
@@ -253,6 +267,7 @@ const initial = () => ({
   sort: "count" as SortKey,
   expandedPairs: new Set<string>(),
   ui: {} as Record<string, NodeUi>,
+  proxyPos: {} as Record<string, Pos>,
   limits: {} as Record<string, number>,
   selection: null as Selection,
   highlightTransfer: null as GraphState["highlightTransfer"],
@@ -274,14 +289,22 @@ export const useGraph = create<GraphState>()((set, get) => {
   /** Swap the present with `entry`; returns [state patch, counterpart entry]. */
   const applyEntry = (s: GraphState, entry: HistoryEntry): [Partial<GraphState>, HistoryEntry] => {
     if (entry.positions) {
-      const cur: Record<string, Pos> = {};
+      const cur: Record<string, Pos | null> = {};
       const ui = { ...s.ui };
+      const proxyPos = { ...s.proxyPos };
       for (const [k, p] of Object.entries(entry.positions)) {
+        if (k.startsWith(MORE_PREFIX)) {
+          const c = k.slice(MORE_PREFIX.length);
+          cur[k] = s.proxyPos[c] ?? null;
+          if (p) proxyPos[c] = p;
+          else delete proxyPos[c];
+          continue;
+        }
         const prev = s.ui[k]?.pos;
         if (prev) cur[k] = prev;
-        ui[k] = { ...(ui[k] ?? blankUi()), pos: p };
+        if (p) ui[k] = { ...(ui[k] ?? blankUi()), pos: p };
       }
-      return [{ ui }, { positions: cur }];
+      return [{ ui, proxyPos }, { positions: cur }];
     }
     const snap = entry.snap!;
     return [
@@ -404,17 +427,29 @@ export const useGraph = create<GraphState>()((set, get) => {
     setPositions: (p) =>
       set((s) => {
         const ui = { ...s.ui };
+        const proxyPos = { ...s.proxyPos };
         for (const [k, pos] of Object.entries(p)) {
-          const addr = lc(k);
-          ui[addr] = { ...(ui[addr] ?? blankUi()), pos };
+          const id = lc(k);
+          if (id.startsWith(MORE_PREFIX)) proxyPos[id.slice(MORE_PREFIX.length)] = pos;
+          else ui[id] = { ...(ui[id] ?? blankUi()), pos };
         }
-        return { ui };
+        return { ui, proxyPos };
       }),
     commitMove: (prev) =>
       set((s) => {
         const positions: Record<string, Pos> = {};
         for (const [k, p] of Object.entries(prev)) positions[lc(k)] = p;
         return { _past: pushCapped(s._past, { positions }), _future: [] };
+      }),
+    clearProxyPositions: () => set((s) => (Object.keys(s.proxyPos).length === 0 ? {} : { proxyPos: {} })),
+    pruneProxyPositions: (shown) =>
+      set((s) => {
+        const keep = new Set([...shown].map(lc));
+        const gone = Object.keys(s.proxyPos).filter((c) => !keep.has(c));
+        if (gone.length === 0) return {};
+        const proxyPos = { ...s.proxyPos };
+        for (const c of gone) delete proxyPos[c];
+        return { proxyPos };
       }),
     // A selection change ends any transfer-row highlight.
     select: (selection) => set({ selection, highlightTransfer: null }),

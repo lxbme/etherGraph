@@ -303,14 +303,15 @@ function placeOnRings(
 
 /**
  * Puts the "+N more" proxy of each of `centers` just outside the farthest of the center's other neighbours,
- * on the canvas's long axis, on that neighbour's side (where the rings reach farthest).
+ * on the canvas's long axis, on that neighbour's side (where the rings reach farthest). A proxy the user
+ * dragged (`placed`) stays where it is, unless `replace` (Re-layout).
  */
-function placeProxies(cy: cytoscape.Core, centers: Set<string>, k: Axes): void {
+function placeProxies(cy: cytoscape.Core, centers: Set<string>, k: Axes, replace = false): void {
   const wide = k.kx >= k.ky;
   for (const id of centers) {
     const proxy = cy.getElementById(`${MORE_PREFIX}${id}`);
     const center = cy.getElementById(id);
-    if (proxy.empty() || center.empty()) continue;
+    if (proxy.empty() || center.empty() || (!replace && proxy.data("placed"))) continue;
     const c = center.position();
     let far = 0;
     let side = 1;
@@ -506,7 +507,7 @@ function layoutAll(
     });
     for (const [id, p] of spread) cy.getElementById(id).position(p);
   }
-  placeProxies(cy, proxyCenters(cy, moving), k);
+  placeProxies(cy, proxyCenters(cy, moving), k, opts.relayout);
   fitClamped(cy, FIT_PADDING);
   if (!big && shouldAnimate(cy, total, opts)) glide(cy, moving, from);
 }
