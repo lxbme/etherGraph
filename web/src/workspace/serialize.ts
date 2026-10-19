@@ -1,7 +1,7 @@
 import { t } from "../i18n";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
 import { withFirstBatch, type GraphState, type Pos, type SortKey } from "../graph/store";
-import type { TxDetailTab } from "../shell/tabs";
+import type { TxDetailTab, TxView } from "../shell/tabs";
 import { isGraphSnapshot, isTxSnapshot, type GraphSnapshot, type TxSnapshot } from "./snapshot";
 
 export interface WorkspaceStateV1 {
@@ -20,9 +20,11 @@ export interface WorkspaceStateV1 {
 
 export type Viewport = { zoom: number; pan: { x: number; y: number } };
 
-/** An open transaction tab: its detail section and the layout of its flow graph. */
+/** An open transaction tab: its view, its detail section and the layout of its flow graph. */
 export interface TxTabStateV2 {
   hash: string;
+  /** Written only for the call tree; absent (older states too) means the asset flow. */
+  view?: TxView;
   detail_tab?: TxDetailTab;
   positions?: Record<string, Pos>;
   viewport?: Viewport;
@@ -104,6 +106,7 @@ const isStrArr = (v: unknown): v is string[] => Array.isArray(v) && v.every(isSt
 const isLimit = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 1;
 
 const DETAIL_TABS: readonly string[] = ["overview", "input", "transfers", "internal", "logs", "raw"];
+const TX_VIEWS: readonly string[] = ["flow", "calls"];
 const TX_HASH = /^0x[0-9a-f]{64}$/i;
 const isViewport = (v: unknown): v is Viewport =>
   isObj(v) && isNum(v.zoom) && v.zoom > 0 && isObj(v.pan) && isNum(v.pan.x) && isNum(v.pan.y);
@@ -129,6 +132,7 @@ export function deserialize(v: unknown, schemaVersion: number): Parsed<Workspace
     if (!isObj(tab) || !isStr(tab.hash) || !TX_HASH.test(tab.hash)) return bad(t("ws.err.field", { field: "tabs" }));
     const hash = lc(tab.hash);
     if (tabs.some((x) => x.hash === hash)) return bad(t("ws.err.field", { field: "tabs" }));
+    if (tab.view !== undefined && !(isStr(tab.view) && TX_VIEWS.includes(tab.view))) return bad(t("ws.err.field", { field: "view" }));
     if (tab.detail_tab !== undefined && !(isStr(tab.detail_tab) && DETAIL_TABS.includes(tab.detail_tab))) {
       return bad(t("ws.err.field", { field: "detail_tab" }));
     }

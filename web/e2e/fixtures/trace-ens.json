@@ -1,0 +1,585 @@
+{
+  "status": "ready",
+  "frames": [
+    {
+      "path": [],
+      "kind": "call",
+      "from": "0x82eb45562f991329ed2867f43fc60f0ba52c3dab",
+      "to": "0x253553366da8546fc250f225fe3d25d0c782303b",
+      "value": "22616028901072185",
+      "input": "0x74694a2b000000000000000000000000000000000000000000000000000000000000010000000000000000000000000082eb45562f991329ed2867f43fc60f0ba52c3dab000000000000000000000000000000000000000000000000000000000028de809923eb9400000003257d73bb7129bd701336581955a957e4daa8f14b7f0e29a4000000000000000000000000231b0ee14048e9dccd1d247744d114a4eb5e8e6300000000000000000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000036e737000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000a48b95dd716847c36dc83a6d818fbf341144fecd6fddc634916430fef36ed8693ce9c1321d000000000000000000000000000000000000000000000000000000000000003c0000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000001482eb45562f991329ed2867f43fc60f0ba52c3dab00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "output": "0x",
+      "gas": 223853,
+      "gas_used": 215437,
+      "error": null,
+      "call": {
+        "signature": "register(string,address,uint256,bytes32,address,bytes[],bool,uint16)",
+        "name": "register",
+        "args": [
+          {
+            "name": "name",
+            "ty": "string",
+            "value": "nsp"
+          },
+          {
+            "name": "owner",
+            "ty": "address",
+            "value": "0x82eb45562f991329ed2867f43fc60f0ba52c3dab"
+          },
+          {
+            "name": "duration",
+            "ty": "uint256",
+            "value": "2678400"
+          },
+          {
+            "name": "secret",
+            "ty": "bytes32",
+            "value": "0x9923eb9400000003257d73bb7129bd701336581955a957e4daa8f14b7f0e29a4"
+          },
+          {
+            "name": "resolver",
+            "ty": "address",
+            "value": "0x231b0ee14048e9dccd1d247744d114a4eb5e8e63"
+          },
+          {
+            "name": "data",
+            "ty": "bytes[]",
+            "value": "[0x8b95dd716847c36dc83a6d818fbf341144fecd6fddc634916430fef36ed8693ce9c1321d000000000000000000000000000000000000000000000000000000000000003c0000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000001482eb45562f991329ed2867f43fc60f0ba52c3dab000000000000000000000000]"
+          },
+          {
+            "name": "reverseRecord",
+            "ty": "bool",
+            "value": "false"
+          },
+          {
+            "name": "ownerControlledFuses",
+            "ty": "uint16",
+            "value": "0"
+          }
+        ],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        0
+      ],
+      "kind": "staticcall",
+      "from": "0x253553366da8546fc250f225fe3d25d0c782303b",
+      "to": "0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85",
+      "value": "0",
+      "input": "0xd6e4fa860c15d910ab91d11d42f143873fd4c4754c337088a5187b39ebccc404a10bb90f",
+      "output": "0x0000000000000000000000000000000000000000000000000000000063794ab3",
+      "gas": 216276,
+      "gas_used": 2523,
+      "error": null,
+      "call": {
+        "signature": "nameExpires(uint256)",
+        "name": "nameExpires",
+        "args": [
+          {
+            "name": "id",
+            "ty": "uint256",
+            "value": "5466356099744330407408046096627520179522763224253656880693801540125696178447"
+          }
+        ],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        1
+      ],
+      "kind": "staticcall",
+      "from": "0x253553366da8546fc250f225fe3d25d0c782303b",
+      "to": "0x7542565191d074ce84fbfa92cae13acb84788ca9",
+      "value": "0",
+      "input": "0x50e9a71500000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000063794ab3000000000000000000000000000000000000000000000000000000000028de8000000000000000000000000000000000000000000000000000000000000000036e73700000000000000000000000000000000000000000000000000000000000",
+      "output": "0x000000000000000000000000000000000000000000000000004ec5d774f088930000000000000000000000000000000000000000000000000000000000000000",
+      "gas": 210661,
+      "gas_used": 25556,
+      "error": null,
+      "call": {
+        "signature": "price(string,uint256,uint256)",
+        "name": "price",
+        "args": [
+          {
+            "name": "name",
+            "ty": "string",
+            "value": "nsp"
+          },
+          {
+            "name": "expires",
+            "ty": "uint256",
+            "value": "1668893363"
+          },
+          {
+            "name": "duration",
+            "ty": "uint256",
+            "value": "2678400"
+          }
+        ],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        1,
+        0
+      ],
+      "kind": "staticcall",
+      "from": "0x7542565191d074ce84fbfa92cae13acb84788ca9",
+      "to": "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419",
+      "value": "0",
+      "input": "0x50d25bcd",
+      "output": "0x00000000000000000000000000000000000000000000000000000039141a66b2",
+      "gas": 202867,
+      "gas_used": 14594,
+      "error": null,
+      "call": {
+        "signature": "latestAnswer()",
+        "name": "latestAnswer",
+        "args": [],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        1,
+        0,
+        0
+      ],
+      "kind": "staticcall",
+      "from": "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419",
+      "to": "0x7d4e742018fb52e48b08be73d041c18b21de6fb5",
+      "value": "0",
+      "input": "0x50d25bcd",
+      "output": "0x00000000000000000000000000000000000000000000000000000039141a66b2",
+      "gas": 192465,
+      "gas_used": 7098,
+      "error": null,
+      "call": {
+        "signature": "latestAnswer()",
+        "name": "latestAnswer",
+        "args": [],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        1,
+        1
+      ],
+      "kind": "staticcall",
+      "from": "0x7542565191d074ce84fbfa92cae13acb84788ca9",
+      "to": "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419",
+      "value": "0",
+      "input": "0x50d25bcd",
+      "output": "0x00000000000000000000000000000000000000000000000000000039141a66b2",
+      "gas": 184739,
+      "gas_used": 2094,
+      "error": null,
+      "call": {
+        "signature": "latestAnswer()",
+        "name": "latestAnswer",
+        "args": [],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        1,
+        1,
+        0
+      ],
+      "kind": "staticcall",
+      "from": "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419",
+      "to": "0x7d4e742018fb52e48b08be73d041c18b21de6fb5",
+      "value": "0",
+      "input": "0x50d25bcd",
+      "output": "0x00000000000000000000000000000000000000000000000000000039141a66b2",
+      "gas": 181018,
+      "gas_used": 1098,
+      "error": null,
+      "call": {
+        "signature": "latestAnswer()",
+        "name": "latestAnswer",
+        "args": [],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        2
+      ],
+      "kind": "staticcall",
+      "from": "0x253553366da8546fc250f225fe3d25d0c782303b",
+      "to": "0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85",
+      "value": "0",
+      "input": "0x96e494e80c15d910ab91d11d42f143873fd4c4754c337088a5187b39ebccc404a10bb90f",
+      "output": "0x0000000000000000000000000000000000000000000000000000000000000001",
+      "gas": 179666,
+      "gas_used": 569,
+      "error": null,
+      "call": {
+        "signature": "available(uint256)",
+        "name": "available",
+        "args": [
+          {
+            "name": "id",
+            "ty": "uint256",
+            "value": "5466356099744330407408046096627520179522763224253656880693801540125696178447"
+          }
+        ],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        3
+      ],
+      "kind": "call",
+      "from": "0x253553366da8546fc250f225fe3d25d0c782303b",
+      "to": "0xd4416b13d2b3a9abae7acd5d6c2bbdbe25686401",
+      "value": "0",
+      "input": "0xa401498200000000000000000000000000000000000000000000000000000000000000a000000000000000000000000082eb45562f991329ed2867f43fc60f0ba52c3dab000000000000000000000000000000000000000000000000000000000028de80000000000000000000000000231b0ee14048e9dccd1d247744d114a4eb5e8e63000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000036e73700000000000000000000000000000000000000000000000000000000000",
+      "output": "0x000000000000000000000000000000000000000000000000000000006afa0c33",
+      "gas": 172889,
+      "gas_used": 119258,
+      "error": null,
+      "call": {
+        "signature": "registerAndWrapETH2LD(string,address,uint256,address,uint16)",
+        "name": "registerAndWrapETH2LD",
+        "args": [
+          {
+            "name": "label",
+            "ty": "string",
+            "value": "nsp"
+          },
+          {
+            "name": "wrappedOwner",
+            "ty": "address",
+            "value": "0x82eb45562f991329ed2867f43fc60f0ba52c3dab"
+          },
+          {
+            "name": "duration",
+            "ty": "uint256",
+            "value": "2678400"
+          },
+          {
+            "name": "resolver",
+            "ty": "address",
+            "value": "0x231b0ee14048e9dccd1d247744d114a4eb5e8e63"
+          },
+          {
+            "name": "ownerControlledFuses",
+            "ty": "uint16",
+            "value": "0"
+          }
+        ],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        3,
+        0
+      ],
+      "kind": "call",
+      "from": "0xd4416b13d2b3a9abae7acd5d6c2bbdbe25686401",
+      "to": "0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85",
+      "value": "0",
+      "input": "0xfca247ac0c15d910ab91d11d42f143873fd4c4754c337088a5187b39ebccc404a10bb90f000000000000000000000000d4416b13d2b3a9abae7acd5d6c2bbdbe25686401000000000000000000000000000000000000000000000000000000000028de80",
+      "output": "0x000000000000000000000000000000000000000000000000000000006afa0c33",
+      "gas": 166845,
+      "gas_used": 50893,
+      "error": null,
+      "call": {
+        "signature": "register(uint256,address,uint256)",
+        "name": "register",
+        "args": [
+          {
+            "name": "id",
+            "ty": "uint256",
+            "value": "5466356099744330407408046096627520179522763224253656880693801540125696178447"
+          },
+          {
+            "name": "owner",
+            "ty": "address",
+            "value": "0xd4416b13d2b3a9abae7acd5d6c2bbdbe25686401"
+          },
+          {
+            "name": "duration",
+            "ty": "uint256",
+            "value": "2678400"
+          }
+        ],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        3,
+        0,
+        0
+      ],
+      "kind": "staticcall",
+      "from": "0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85",
+      "to": "0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e",
+      "value": "0",
+      "input": "0x02571be393cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae",
+      "output": "0x00000000000000000000000057f1887a8bf19b14fc0df6fd9b2acc9af147ea85",
+      "gas": 156856,
+      "gas_used": 2951,
+      "error": null,
+      "call": {
+        "signature": "owner(bytes32)",
+        "name": "owner",
+        "args": [
+          {
+            "name": "node",
+            "ty": "bytes32",
+            "value": "0x93cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae"
+          }
+        ],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        3,
+        0,
+        1
+      ],
+      "kind": "call",
+      "from": "0x57f1887a8bf19b14fc0df6fd9b2acc9af147ea85",
+      "to": "0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e",
+      "value": "0",
+      "input": "0x06ab592393cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae0c15d910ab91d11d42f143873fd4c4754c337088a5187b39ebccc404a10bb90f000000000000000000000000d4416b13d2b3a9abae7acd5d6c2bbdbe25686401",
+      "output": "0x6847c36dc83a6d818fbf341144fecd6fddc634916430fef36ed8693ce9c1321d",
+      "gas": 124005,
+      "gas_used": 7969,
+      "error": null,
+      "call": {
+        "signature": "setSubnodeOwner(bytes32,bytes32,address)",
+        "name": "setSubnodeOwner",
+        "args": [
+          {
+            "name": "node",
+            "ty": "bytes32",
+            "value": "0x93cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae"
+          },
+          {
+            "name": "label",
+            "ty": "bytes32",
+            "value": "0x0c15d910ab91d11d42f143873fd4c4754c337088a5187b39ebccc404a10bb90f"
+          },
+          {
+            "name": "owner",
+            "ty": "address",
+            "value": "0xd4416b13d2b3a9abae7acd5d6c2bbdbe25686401"
+          }
+        ],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        3,
+        1
+      ],
+      "kind": "call",
+      "from": "0xd4416b13d2b3a9abae7acd5d6c2bbdbe25686401",
+      "to": "0x82eb45562f991329ed2867f43fc60f0ba52c3dab",
+      "value": "0",
+      "input": "0xf23a6e61000000000000000000000000253553366da8546fc250f225fe3d25d0c782303b00000000000000000000000000000000000000000000000000000000000000006847c36dc83a6d818fbf341144fecd6fddc634916430fef36ed8693ce9c1321d000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000000000",
+      "output": "0xf23a6e6100000000000000000000000000000000000000000000000000000000",
+      "gas": 64686,
+      "gas_used": 794,
+      "error": null,
+      "call": {
+        "signature": "onERC1155Received(address,address,uint256,uint256,bytes)",
+        "name": "onERC1155Received",
+        "args": [
+          {
+            "name": "operator",
+            "ty": "address",
+            "value": "0x253553366da8546fc250f225fe3d25d0c782303b"
+          },
+          {
+            "name": "from",
+            "ty": "address",
+            "value": "0x0000000000000000000000000000000000000000"
+          },
+          {
+            "name": "id",
+            "ty": "uint256",
+            "value": "47167331194517274676894620544216161381240465482129907070280096216416274952733"
+          },
+          {
+            "name": "value",
+            "ty": "uint256",
+            "value": "1"
+          },
+          {
+            "name": "data",
+            "ty": "bytes",
+            "value": "0x"
+          }
+        ],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        3,
+        2
+      ],
+      "kind": "call",
+      "from": "0xd4416b13d2b3a9abae7acd5d6c2bbdbe25686401",
+      "to": "0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e",
+      "value": "0",
+      "input": "0x1896f70a6847c36dc83a6d818fbf341144fecd6fddc634916430fef36ed8693ce9c1321d000000000000000000000000231b0ee14048e9dccd1d247744d114a4eb5e8e63",
+      "output": "0x",
+      "gas": 60074,
+      "gas_used": 7271,
+      "error": null,
+      "call": {
+        "signature": "setResolver(bytes32,address)",
+        "name": "setResolver",
+        "args": [
+          {
+            "name": "node",
+            "ty": "bytes32",
+            "value": "0x6847c36dc83a6d818fbf341144fecd6fddc634916430fef36ed8693ce9c1321d"
+          },
+          {
+            "name": "resolver",
+            "ty": "address",
+            "value": "0x231b0ee14048e9dccd1d247744d114a4eb5e8e63"
+          }
+        ],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        4
+      ],
+      "kind": "call",
+      "from": "0x253553366da8546fc250f225fe3d25d0c782303b",
+      "to": "0x231b0ee14048e9dccd1d247744d114a4eb5e8e63",
+      "value": "0",
+      "input": "0xe32954eb6847c36dc83a6d818fbf341144fecd6fddc634916430fef36ed8693ce9c1321d00000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000a48b95dd716847c36dc83a6d818fbf341144fecd6fddc634916430fef36ed8693ce9c1321d000000000000000000000000000000000000000000000000000000000000003c0000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000001482eb45562f991329ed2867f43fc60f0ba52c3dab00000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "output": "0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000",
+      "gas": 51736,
+      "gas_used": 32181,
+      "error": null,
+      "call": {
+        "signature": "multicallWithNodeCheck(bytes32,bytes[])",
+        "name": "multicallWithNodeCheck",
+        "args": [
+          {
+            "name": "nodehash",
+            "ty": "bytes32",
+            "value": "0x6847c36dc83a6d818fbf341144fecd6fddc634916430fef36ed8693ce9c1321d"
+          },
+          {
+            "name": "data",
+            "ty": "bytes[]",
+            "value": "[0x8b95dd716847c36dc83a6d818fbf341144fecd6fddc634916430fef36ed8693ce9c1321d000000000000000000000000000000000000000000000000000000000000003c0000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000001482eb45562f991329ed2867f43fc60f0ba52c3dab000000000000000000000000]"
+          }
+        ],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        4,
+        0
+      ],
+      "kind": "delegatecall",
+      "from": "0x231b0ee14048e9dccd1d247744d114a4eb5e8e63",
+      "to": "0x231b0ee14048e9dccd1d247744d114a4eb5e8e63",
+      "value": "0",
+      "input": "0x8b95dd716847c36dc83a6d818fbf341144fecd6fddc634916430fef36ed8693ce9c1321d000000000000000000000000000000000000000000000000000000000000003c0000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000001482eb45562f991329ed2867f43fc60f0ba52c3dab000000000000000000000000",
+      "output": "0x",
+      "gas": 49254,
+      "gas_used": 29698,
+      "error": null,
+      "call": {
+        "signature": "setAddr(bytes32,uint256,bytes)",
+        "name": "setAddr",
+        "args": [
+          {
+            "name": "node",
+            "ty": "bytes32",
+            "value": "0x6847c36dc83a6d818fbf341144fecd6fddc634916430fef36ed8693ce9c1321d"
+          },
+          {
+            "name": "coinType",
+            "ty": "uint256",
+            "value": "60"
+          },
+          {
+            "name": "a",
+            "ty": "bytes",
+            "value": "0x82eb45562f991329ed2867f43fc60f0ba52c3dab"
+          }
+        ],
+        "via_delegate": null
+      },
+      "revert": null,
+      "via_delegate": null
+    },
+    {
+      "path": [
+        5
+      ],
+      "kind": "call",
+      "from": "0x253553366da8546fc250f225fe3d25d0c782303b",
+      "to": "0x82eb45562f991329ed2867f43fc60f0ba52c3dab",
+      "value": "443451547079846",
+      "input": "0x",
+      "output": "0x",
+      "gas": 2300,
+      "gas_used": 62,
+      "error": null,
+      "call": null,
+      "revert": null,
+      "via_delegate": null
+    }
+  ],
+  "job_id": null,
+  "undecoded": []
+}

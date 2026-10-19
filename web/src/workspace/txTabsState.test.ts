@@ -169,6 +169,39 @@ describe("tx tabs round-trip", () => {
     expect(captureState().graph).not.toHaveProperty("snapshot");
   });
 
+  test("tx_tab_view_round_trips", async () => {
+    useTabs.setState({ tabs: [{ id: "graph" }, txTab(H1, { view: "calls" }), txTab(H2, { view: "flow" })], active: H1 });
+    // Only the call tree is written: the asset flow is what a tab without a view shows.
+    const saved = json(captureState());
+    expect(saved.tabs).toEqual([{ hash: H1, view: "calls" }, { hash: H2 }]);
+    expect(deserialize(saved, 2)).toEqual({ ok: true, state: saved });
+
+    useTabs.setState({ tabs: [{ id: "graph" }], active: "graph" });
+    m.workspace.mockResolvedValue(dto({ state: saved as never }));
+    await loadWorkspace(7);
+    const open = useTabs.getState().tabs;
+    expect(open[1]).toMatchObject({ hash: H1, view: "calls" });
+    expect(open[2]).not.toHaveProperty("view");
+    expect(useTabs.getState().active).toBe(H1);
+  });
+
+  test("bad_tx_tab_view_is_rejected", () => {
+    for (const view of ["graph", "", 1, null, ["calls"]]) {
+      expect(deserialize({ graph: v1(), tabs: [{ hash: H1, view }], active: H1 }, 2)).toEqual({ ok: false, reason: "Invalid view" });
+    }
+    expect(deserialize({ graph: v1(), tabs: [{ hash: H1, view: "flow" }], active: H1 }, 2).ok).toBe(true);
+  });
+
+  test("old_state_without_view_opens_on_asset_flow", async () => {
+    const state = { graph: v1(), tabs: [{ hash: H1, detail_tab: "logs" }], active: H1 };
+    m.workspace.mockResolvedValue(dto({ state: json(state) as never }));
+    await expect(loadWorkspace(7)).resolves.toBe(true);
+    const tab = useTabs.getState().tabs[1]!;
+    expect(tab).toMatchObject({ hash: H1, detailTab: "logs" });
+    expect(tab).not.toHaveProperty("view");
+    expect(captureState().tabs).toEqual([{ hash: H1, detail_tab: "logs" }]);
+  });
+
   test("malformed snapshots are rejected", () => {
     const state = { graph: { ...v1(), snapshot: { edges: ["e"] } }, tabs: [], active: "graph" };
     expect(deserialize(json(state), 2)).toMatchObject({ ok: false });

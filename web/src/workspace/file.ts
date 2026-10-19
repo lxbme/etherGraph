@@ -1,4 +1,5 @@
 import { api } from "../api/endpoints";
+import type { CallTraceResponseDto } from "../api/generated/CallTraceResponseDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { LabelDto } from "../api/generated/LabelDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
@@ -60,7 +61,11 @@ function withGraphSnapshot(graph: WorkspaceStateV2["graph"], meta: SnapshotMeta)
   return { ...graph, snapshot: { ...meta, data } };
 }
 
-/** The tab with its snapshot: the one it shows, else its loaded flow and the raw data (null when it cannot be had). */
+/**
+ * The tab with its snapshot: the one it shows, else its loaded flow, the raw data (null when it cannot be had) and
+ * the call trace when one is already cached. A trace is never fetched for an export: the user would be billed for
+ * a view they never opened.
+ */
 async function withTxSnapshot(tab: TxTabStateV2, meta: SnapshotMeta): Promise<TxTabStateV2> {
   if (tab.snapshot) return tab;
   const res = queryClient.getQueryData<TxResponseDto>(qk.tx(tab.hash));
@@ -68,7 +73,9 @@ async function withTxSnapshot(tab: TxTabStateV2, meta: SnapshotMeta): Promise<Tx
   const raw = await queryClient
     .fetchQuery({ queryKey: qk.txRaw(tab.hash), queryFn: () => api.txRaw(tab.hash), staleTime: Infinity, retry: false })
     .catch(() => null);
-  return { ...tab, snapshot: { ...meta, flow: res.flow, raw } };
+  const trace = queryClient.getQueryData<CallTraceResponseDto>(qk.txTrace(tab.hash));
+  const frames = trace?.status === "ready" ? trace.frames : null;
+  return { ...tab, snapshot: { ...meta, flow: res.flow, raw, ...(frames ? { trace: frames } : {}) } };
 }
 
 /** The file for the workspace, the address graph, or the tx tab `tabHash`; throws (with a message to show) when a view has no data yet. */
@@ -103,6 +110,7 @@ function withoutPrivateLabels(n: NodeSummaryDto): NodeSummaryDto {
 /**
  * Leaves out what was not ticked: labels off drops the user's labels from every snapshot node (and the display
  * names derived from them), notes off empties every node note. A snapshot's `includes` records what it still has.
+ * Call-trace frames carry neither (only addresses and decoded calls), so they travel as they are.
  */
 export function stripPrivate(state: WorkspaceStateV2, includes: FileIncludes): WorkspaceStateV2 {
   const meta = (s: SnapshotMeta): SnapshotMeta => ({
@@ -151,6 +159,8 @@ const present: Check = (v) => v !== undefined;
 const re = (r: RegExp): Check => (v) => typeof v === "string" && r.test(v);
 const oneOf = (...xs: string[]): Check => (v) => typeof v === "string" && xs.includes(v);
 const opt = (c: Check): Check => (v) => v === null || c(v);
+/** A field older files leave out. */
+const optField = (c: Check): Check => (v) => v === undefined || c(v);
 const arr = (c: Check): Check => (v) => Array.isArray(v) && v.every(c);
 const rec = (c: Check): Check => (v) => isObj(v) && Object.values(v).every(c);
 /** An object with at least these fields (unknown fields are let through). */
@@ -206,11 +216,21 @@ const txFlow = shape({
   events: arr(shape({ address, log_index: int, name: opt(str), args: arr(arg), topics: arr(str), data: str })),
   completeness: oneOf("fund_flow", "full_trace"),
 });
+/** Decimal wei: the call graph sums frame values as bigints. */
+const wei = re(/^[0-9]+$/);
+const hex = re(/^0x[0-9a-fA-F]*$/);
+const decodedCall = shape({ signature: str, name: str, args: arr(arg), via_delegate: opt(address) });
+const callFrame = shape({
+  path: arr((v) => int(v) && (v as number) >= 0),
+  kind: oneOf("call", "staticcall", "delegatecall", "callcode", "create", "create2", "selfdestruct"),
+  from: address, to: opt(address), value: wei, input: hex, output: opt(hex), gas: num, gas_used: opt(num), error: opt(str),
+  call: opt(decodedCall), revert: opt(shape({ name: str, args: arr(arg) })), via_delegate: opt(address),
+});
 const isIncludes = shape({ labels: bool, notes: bool });
 const isFullGraphSnapshot = shape({ exported_at: str, includes: isIncludes, data: graphData }) as (v: unknown) => v is GraphSnapshot;
-const isFullTxSnapshot = shape({ exported_at: str, includes: isIncludes, flow: txFlow, raw: opt(shape({ tx: present, receipt: present })) }) as (
-  v: unknown,
-) => v is TxSnapshot;
+const isFullTxSnapshot = shape({
+  exported_at: str, includes: isIncludes, flow: txFlow, raw: opt(shape({ tx: present, receipt: present })), trace: optField(arr(callFrame)),
+}) as (v: unknown) => v is TxSnapshot;
 
 export type ParseResult = { ok: true; file: EtherGraphFileV1 } | { ok: false; reason: string };
 const bad = (reason: string) => ({ ok: false as const, reason });

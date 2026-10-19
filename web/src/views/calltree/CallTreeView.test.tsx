@@ -285,6 +285,28 @@ test("snapshot_without_trace_says_the_file_has_none", () => {
   expect(trace).not.toHaveBeenCalled();
 });
 
+test("snapshot_with_trace_renders_it_without_requesting", async () => {
+  const trace = vi.spyOn(api, "txTrace");
+  const identify = vi.spyOn(api, "identify");
+  const flow = txReady().flow!;
+  // The file's own name for the controller shows until the receiver knows better.
+  const controller = "0x253553366da8546fc250f225fe3d25d0c782303b";
+  const snapshot = {
+    exported_at: "2026-01-01T00:00:00Z", includes: { labels: false, notes: false }, raw: null, trace: ensFrames,
+    flow: { ...flow, nodes: [...flow.nodes, node(controller, { display_name: "ETHRegistrarController" })] },
+  };
+  useTabs.setState({ tabs: [{ id: "graph" }, { id: HASH, kind: "tx", hash: HASH, snapshot }], active: HASH });
+  renderCalls();
+  await screen.findByRole("tree");
+  expect(rowIds()).toEqual(["root", "3", "3.0", "3.0.1", "3.1", "3.2", "4", "4.0", "5"]);
+  expect(screen.getAllByRole("treeitem")[0]).toHaveTextContent("ETHRegistrarController");
+  expect(edges().length).toBeGreaterThan(0);
+  // A file never asks for anything to be fetched: no trace, no "decode the rest".
+  expect(screen.queryByRole("button", { name: /Decode the remaining/ })).toBeNull();
+  expect(trace).not.toHaveBeenCalled();
+  expect(identify).not.toHaveBeenCalled();
+});
+
 test("renders_at_most_a_window_of_rows_for_2000_frames", async () => {
   const frames = [synth([])];
   for (let i = 0; i < 1999; i++) frames.push(synth([i], { from: B, to: X }));

@@ -130,6 +130,7 @@ function captureTab(tab: TxTab): TxTabStateV2 {
   }
   return {
     hash: tab.hash,
+    ...(tab.view === "calls" ? { view: tab.view } : {}),
     ...(tab.detailTab ? { detail_tab: tab.detailTab } : {}),
     ...(positions ? { positions } : {}),
     ...(viewport ? { viewport } : {}),
@@ -264,9 +265,10 @@ function applyViewportLater(state: WorkspaceStateV1, gen: number): void {
 }
 
 /** A saved tx tab as a tab entry (absent fields stay absent). */
-function txInit({ hash, detail_tab, positions, viewport, snapshot }: TxTabStateV2): TxTabInit {
+function txInit({ hash, view, detail_tab, positions, viewport, snapshot }: TxTabStateV2): TxTabInit {
   return {
     hash,
+    ...(view ? { view } : {}),
     ...(detail_tab ? { detailTab: detail_tab } : {}),
     ...(positions || viewport ? { layout: { ...(positions ? { positions } : {}), ...(viewport ? { viewport } : {}) } } : {}),
     ...(snapshot !== undefined ? { snapshot } : {}),

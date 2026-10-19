@@ -82,6 +82,10 @@ describe("shape checks", () => {
     expect(isTxSnapshot({ ...meta, flow: { ...flow, nodes: "x" }, raw: null })).toBe(false);
     expect(isTxSnapshot({ ...meta, flow: { ...flow, tx: {} }, raw: null })).toBe(false);
     expect(isTxSnapshot({ ...meta, flow, raw: { tx: {} } })).toBe(false);
+    // A call trace is optional (older files have none); when there it is a list of frames.
+    expect(isTxSnapshot({ ...meta, flow, raw: null, trace: [] })).toBe(true);
+    expect(isTxSnapshot({ ...meta, flow, raw: null, trace: {} })).toBe(false);
+    expect(isTxSnapshot({ ...meta, flow, raw: null, trace: null })).toBe(false);
   });
 });
 

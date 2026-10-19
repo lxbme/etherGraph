@@ -1,5 +1,6 @@
 import { test as base, type Page, type Request, type Route } from "@playwright/test";
 import type { AddressProfileDto } from "../src/api/generated/AddressProfileDto";
+import type { CallTraceResponseDto } from "../src/api/generated/CallTraceResponseDto";
 import type { CancelledDto } from "../src/api/generated/CancelledDto";
 import type { CounterpartyPageDto } from "../src/api/generated/CounterpartyPageDto";
 import type { Event } from "../src/api/generated/Event";
@@ -31,6 +32,7 @@ import longTextJson from "./fixtures/long-text.json" with { type: "json" };
 import probeContractJson from "./fixtures/probe-contract.json" with { type: "json" };
 import probeWalletJson from "./fixtures/probe-wallet.json" with { type: "json" };
 import statusJson from "./fixtures/status.json" with { type: "json" };
+import traceJson from "./fixtures/trace-ens.json" with { type: "json" };
 import transfersJson from "./fixtures/transfers.json" with { type: "json" };
 import txJson from "./fixtures/tx.json" with { type: "json" };
 import tx7702Json from "./fixtures/tx-7702.json" with { type: "json" };
@@ -60,6 +62,8 @@ export const fixtures = {
   tx: txJson as TxResponseDto,
   tx7702: tx7702Json as TxResponseDto,
   txRaw: txRawJson as TxRawDto,
+  /** A ready call trace: ENS registration 0x461e68…45a3, decoded (17 frames, 8 of them read-only). */
+  trace: traceJson as CallTraceResponseDto,
   /** The 120 neighbours of the big wallet (count descending; last two: a whale and a contract). */
   counterparties: counterpartiesJson as CounterpartyPageDto,
   /** Three wallets that interacted with a contract. */
@@ -148,6 +152,7 @@ function defaultHandlers(): Map<RouteKey, Handler> {
     ["DELETE /api/jobs", () => ({ json: { cancelled: [] } satisfies CancelledDto })],
     ["GET /api/transfers", () => ({ json: fixtures.transfers })],
     ["GET /api/tx/*/raw", () => ({ json: fixtures.txRaw })],
+    ["GET /api/tx/*/trace", () => ({ json: fixtures.trace })],
     [
       "GET /api/tx/*",
       (_req, url) => {
@@ -228,9 +233,9 @@ function defaultHandlers(): Map<RouteKey, Handler> {
   ]);
 }
 
-/** `/api/address/0xabc` → `GET /api/address/*`; fixed paths map to themselves. */
+/** `/api/address/0xabc` → `GET /api/address/*`, with a raw/trace/counterparties sub-path kept after the `*`; fixed paths map to themselves. */
 function routeKey(method: string, path: string): RouteKey {
-  const m = /^(\/api\/(?:address|tx|jobs|workspaces|labels|batches|token))\/[^/]+(\/raw|\/counterparties)?$/.exec(path);
+  const m = /^(\/api\/(?:address|tx|jobs|workspaces|labels|batches|token))\/[^/]+(\/raw|\/trace|\/counterparties)?$/.exec(path);
   return `${method} ${m ? `${m[1]}/*${m[2] ?? ""}` : path}`;
 }
 

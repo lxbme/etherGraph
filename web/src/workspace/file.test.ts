@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "../api/endpoints";
+import type { CallFrameDto } from "../api/generated/CallFrameDto";
+import type { CallTraceResponseDto } from "../api/generated/CallTraceResponseDto";
 import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { LabelDto } from "../api/generated/LabelDto";
@@ -24,7 +26,7 @@ import type { WorkspaceStateV2 } from "./serialize";
 import type { GraphSnapshot, TxSnapshot } from "./snapshot";
 import { useWorkspace } from "./useWorkspace";
 
-vi.mock("../api/endpoints", () => ({ api: { txRaw: vi.fn(), nodes: vi.fn(async () => []) } }));
+vi.mock("../api/endpoints", () => ({ api: { txRaw: vi.fn(), txTrace: vi.fn(), nodes: vi.fn(async () => []) } }));
 vi.mock("../graph/cyRegistry", () => ({
   getMainCy: vi.fn(() => null),
   setMainCy: vi.fn(),
@@ -87,6 +89,20 @@ const flow = (hash: string): TxFlowDto => ({
   completeness: "fund_flow",
 });
 const RAW = { tx: { nonce: "0x1" }, receipt: { status: "0x1" } };
+const frame = (path: number[], over: Partial<CallFrameDto> = {}): CallFrameDto => ({
+  path, kind: "call", from: A, to: B, value: "0", input: "0xa9059cbb", output: "0x", gas: 100, gas_used: 50, error: null,
+  call: { signature: "transfer(address,uint256)", name: "transfer", args: [{ name: "to", ty: "address", value: C }], via_delegate: null },
+  revert: null, via_delegate: null, ...over,
+});
+/** A decoded trace: the root call, a failed static call under it with its revert reason, a plain ETH transfer. */
+const FRAMES: CallFrameDto[] = [
+  frame([], { value: "5" }),
+  frame([0], { kind: "staticcall", from: B, to: C, error: "Reverted", revert: { name: "Error", args: [{ name: "", ty: "string", value: "no" }] } }),
+  frame([1], { from: B, to: A, input: "0x", call: null, value: "5" }),
+];
+/** The trace of `hash` as the call-tree view caches it. */
+const cacheTrace = (hash: string, res: Partial<CallTraceResponseDto> = {}) =>
+  queryClient.setQueryData<CallTraceResponseDto>(qk.txTrace(hash), { status: "ready", frames: FRAMES, job_id: null, undecoded: [], ...res });
 const ON = { labels: true, notes: true };
 const OFF = { labels: false, notes: false };
 const META = { exported_at: "2026-10-01T12:00:00.000Z", includes: ON };
@@ -265,6 +281,40 @@ describe("buildFile", () => {
     expect(JSON.stringify(stripped)).not.toContain(SECRET_A);
   });
 
+  test("export_includes_a_cached_trace", async () => {
+    liveTx(H1);
+    liveTx(H2);
+    cacheTrace(H1);
+    cacheTrace(H2, { status: "pending", frames: null, job_id: 4 });
+    useTabs.getState().setTxView(H1, "calls");
+    const f = await buildFile("workspace", OFF);
+    const [t1, t2] = f.state.tabs;
+    expect(t1).toMatchObject({ hash: H1, view: "calls" });
+    // The frames hold no labels or notes: they travel as they are whatever is ticked.
+    expect(t1!.snapshot!.trace).toEqual(FRAMES);
+    // A trace still being fetched is not there yet.
+    expect(t2!.snapshot).not.toHaveProperty("trace");
+    expect(api.txTrace).not.toHaveBeenCalled();
+
+    // Through a file: the receiver's tab opens on the call tree with the trace.
+    const file = reparse(f);
+    useTabs.getState().closeAllTx();
+    queryClient.clear();
+    await importNow(file);
+    expect(txTabs()[0]).toMatchObject({ hash: H1, view: "calls", snapshot: { trace: FRAMES } });
+    // Re-exporting the snapshot keeps its trace.
+    const again = await buildFile("tx", { ...OFF, tabHash: H1 });
+    expect(again.state.tabs[0]!.snapshot!.trace).toEqual(FRAMES);
+  });
+
+  test("export_never_fetches_a_trace", async () => {
+    liveTx(H1);
+    const f = await buildFile("tx", { ...ON, tabHash: H1 });
+    expect(api.txTrace).not.toHaveBeenCalled();
+    expect(f.state.tabs[0]!.snapshot).not.toHaveProperty("trace");
+    expect(queryClient.getQueryState(qk.txTrace(H1))).toBeUndefined();
+  });
+
   test("a view whose data has not loaded yet cannot be exported", async () => {
     g().setCenters([A]);
     await expect(buildFile("graph", OFF)).rejects.toThrow("has not loaded yet");
@@ -349,6 +399,22 @@ describe("import", () => {
     expect(g().centers).toEqual([A]);
   });
 
+  test("file_without_trace_still_opens", async () => {
+    liveTx(H1);
+    const file = JSON.parse(JSON.stringify(await buildFile("tx", { ...ON, tabHash: H1 }))) as EtherGraphFileV1;
+    // As an older version wrote it: no view, no trace.
+    expect(file.state.tabs[0]).not.toHaveProperty("view");
+    expect(file.state.tabs[0]!.snapshot).not.toHaveProperty("trace");
+    useTabs.getState().closeAllTx();
+    queryClient.clear();
+    await importNow(file);
+    expect(toasted()).toEqual([]);
+    expect(txTabs()).toHaveLength(1);
+    expect(txTabs()[0]).not.toHaveProperty("view");
+    expect(txTabs()[0]!.snapshot!.flow.tx.hash).toBe(H1);
+    expect(txTabs()[0]!.snapshot).not.toHaveProperty("trace");
+  });
+
   test("labels that arrive in a file become `file` labels with ids ≤ 0; public dataset labels keep their source (Review Focus 2)", async () => {
     liveGraph();
     liveTx(H1);
@@ -369,6 +435,7 @@ describe("malformed or hostile files (Review Focus 4)", () => {
   beforeEach(async () => {
     liveGraph();
     liveTx(H1);
+    cacheTrace(H1);
     good = JSON.parse(JSON.stringify(await buildFile("workspace", ON))) as EtherGraphFileV1;
     queryClient.clear();
     g().reset();
@@ -409,6 +476,14 @@ describe("malformed or hostile files (Review Focus 4)", () => {
     ["tx flow without detail", (f) => (delete f.state.tabs[0].snapshot.flow.detail, f)],
     ["raw data without its receipt", (f) => (delete f.state.tabs[0].snapshot.raw.receipt, f)],
     ["tx flow entry of the wrong type", (f) => ((f.state.tabs[0].snapshot.flow.flows[0].seq = "0"), f)],
+    ["a trace that is not a list", (f) => ((f.state.tabs[0].snapshot.trace = { 0: {} }), f)],
+    ["a trace frame with a caller that is not an address", (f) => ((f.state.tabs[0].snapshot.trace[1].from = "<b>"), f)],
+    ["a trace frame whose value is not a wei amount (it is summed as a bigint)", (f) => ((f.state.tabs[0].snapshot.trace[0].value = "1e18"), f)],
+    ["a trace frame of an unknown kind", (f) => ((f.state.tabs[0].snapshot.trace[0].kind = "jump"), f)],
+    ["a trace frame with a path that is not a list of indexes", (f) => ((f.state.tabs[0].snapshot.trace[1].path = ["0"]), f)],
+    ["a decoded call without its name", (f) => (delete f.state.tabs[0].snapshot.trace[0].call.name, f)],
+    ["a revert reason without its arguments", (f) => (delete f.state.tabs[0].snapshot.trace[1].revert.args, f)],
+    ["a tab view that is neither flow nor calls", (f) => ((f.state.tabs[0].view = "graph"), f)],
     ["tx tab without a snapshot", (f) => (delete f.state.tabs[0].snapshot, f)],
     ["tx tab whose snapshot is another transaction", (f) => ((f.state.tabs[0].snapshot.flow.tx.hash = H2), f)],
     ["tx tab with a bad hash", (f) => ((f.state.tabs[0].hash = "0x12"), f)],
@@ -471,6 +546,7 @@ describe("malformed or hostile files (Review Focus 4)", () => {
   });
 
   test("the unmodified file is accepted", () => {
+    expect(good.state.tabs[0]!.snapshot!.trace).toHaveLength(FRAMES.length);
     expect(parseFile(JSON.stringify(good)).ok).toBe(true);
   });
 });

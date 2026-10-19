@@ -39,14 +39,24 @@ function ancestorsOf(id: string): string[] {
   return path.map((_, n) => frameId(path.slice(0, n)));
 }
 
+/** A file asks for nothing to be fetched, so its tree offers no "decode the rest". */
+const NO_UNDECODED: string[] = [];
+
 /**
- * A transaction's call tree, in place of its asset-flow graph. A tab showing a file never requests the trace;
- * otherwise the trace is requested only once this view is shown (the server starts a fetch job and bills it).
+ * A transaction's call tree, in place of its asset-flow graph. A tab showing a file shows the file's trace (or says
+ * it has none) and never requests one; otherwise the trace is requested only once this view is shown (the server
+ * starts a fetch job and bills it).
  */
 export function CallTreeView({ hash }: { hash: string }) {
   const snapshot = useTxSnapshot(hash);
   const t = useT();
-  if (snapshot) return <div className="placeholder calltree__state">{t("tx.calls.notInFile")}</div>;
+  if (snapshot) {
+    return snapshot.trace ? (
+      <CallTreePanel hash={hash} frames={snapshot.trace} undecoded={NO_UNDECODED} fileNodes={snapshot.flow.nodes} />
+    ) : (
+      <div className="placeholder calltree__state">{t("tx.calls.notInFile")}</div>
+    );
+  }
   return <LiveCallTree hash={hash} />;
 }
 

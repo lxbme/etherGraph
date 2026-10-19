@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/endpoints";
+import type { CallFrameDto } from "../api/generated/CallFrameDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { LabelDto } from "../api/generated/LabelDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
@@ -24,6 +25,8 @@ export interface GraphSnapshot extends SnapshotMeta {
 export interface TxSnapshot extends SnapshotMeta {
   flow: TxFlowDto;
   raw: TxRawDto | null;
+  /** The decoded call trace, when it had been fetched before the export (older files have none). */
+  trace?: CallFrameDto[];
 }
 
 /** `LabelDto.source` of a label that arrived in a file: shown in its snapshot only, never sent to the label API. */
@@ -51,13 +54,14 @@ export function isGraphSnapshot(v: unknown): v is GraphSnapshot {
   return isNodeList(d.nodes) && Array.isArray(d.edges) && isObj(d.omitted) && isObj(d.coverage);
 }
 
-/** Structural check of a saved tx snapshot (`raw` is null or both JSON parts). */
+/** Structural check of a saved tx snapshot (`raw` is null or both JSON parts; `trace`, when there, a list). */
 export function isTxSnapshot(v: unknown): v is TxSnapshot {
   if (!isMeta(v) || !isObj(v.flow)) return false;
   const f = v.flow;
   if (!isObj(f.tx) || typeof f.tx.hash !== "string" || !isNodeList(f.nodes) || !Array.isArray(f.flows) || !Array.isArray(f.events)) {
     return false;
   }
+  if (v.trace !== undefined && !Array.isArray(v.trace)) return false;
   return v.raw === null || (isObj(v.raw) && "tx" in v.raw && "receipt" in v.raw);
 }
 
