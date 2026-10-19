@@ -1,9 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ScanSearch } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { api } from "../../api/endpoints";
 import { messageFor } from "../../api/errors";
 import type { CallFrameDto } from "../../api/generated/CallFrameDto";
+import type { CallTraceResponseDto } from "../../api/generated/CallTraceResponseDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import { qk } from "../../api/queryClient";
 import { identifyAddresses, useIdentifying } from "../../graph/identify";
@@ -48,12 +49,21 @@ export function CallTreeView({ hash }: { hash: string }) {
   return <LiveCallTree hash={hash} />;
 }
 
-/** The trace from the server: progress of its fetch job, its failure with Retry, then the tree. */
+/**
+ * The trace from the server: progress of its fetch job, its failure with Retry, then the tree. Every request while
+ * nothing is cached starts (and bills) a new fetch job, so once the watched job has failed nothing requests again
+ * (no polling, no SSE invalidation) until the user presses Retry.
+ */
 function LiveCallTree({ hash }: { hash: string }) {
   const t = useT();
+  const watched = useQueryClient().getQueryData<CallTraceResponseDto>(qk.txTrace(hash))?.job_id ?? null;
+  const failed = useJobProgress((s) => watched !== null && s.byId[watched]?.status === "failed");
   const q = useQuery({
     queryKey: qk.txTrace(hash),
     queryFn: () => api.txTrace(hash),
+    enabled: !failed,
+    // Fresh until invalidated (TraceReady, MetaUpdated), so re-enabling after a Retry does not request twice.
+    staleTime: Infinity,
     // Safety net behind the TraceReady SSE invalidation.
     refetchInterval: (query) => (query.state.data?.status === "pending" ? 5000 : false),
   });
@@ -68,8 +78,10 @@ function LiveCallTree({ hash }: { hash: string }) {
       type="button"
       className="btn btn--compact"
       onClick={() => {
-        if (job) useJobProgress.getState().remove([job.job_id]);
-        void q.refetch();
+        // The only request after a failure; the failed job is forgotten once its successor is known.
+        void q.refetch().finally(() => {
+          if (job) useJobProgress.getState().remove([job.job_id]);
+        });
       }}
     >
       {t("common.retry")}

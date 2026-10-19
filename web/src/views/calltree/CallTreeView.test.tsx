@@ -194,6 +194,32 @@ test("failed_job_shows_reason_and_retry", async () => {
   expect(trace).toHaveBeenCalledTimes(2);
 });
 
+test("a_failed_job_is_not_requested_again_until_retry", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const trace = vi.spyOn(api, "txTrace").mockResolvedValue(pending(9));
+    renderCalls();
+    await screen.findByText("Fetching call trace…");
+    act(() => useJobProgress.getState().upsert(progress("failed", "trace not available from the source yet")));
+    const reason = "Couldn't fetch the call trace: trace not available from the source yet";
+    expect(await screen.findByRole("alert")).toHaveTextContent(reason);
+    // Each request would start (and bill) a new fetch job: no polling, and an SSE invalidation does not refetch either.
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    await act(() => qc.invalidateQueries({ queryKey: ["txTrace"] }));
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(trace).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert")).toHaveTextContent(reason);
+
+    trace.mockResolvedValue(pending(10));
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Fetching call trace…")).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    expect(trace).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("request_error_shows_message_and_retry", async () => {
   const trace = vi.spyOn(api, "txTrace").mockRejectedValue(new ApiError("user_quota_exhausted", 429, "quota"));
   renderCalls();
