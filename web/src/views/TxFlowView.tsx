@@ -31,6 +31,7 @@ import { GraphTooltip } from "./GraphTooltip";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
 import { SnapshotBanner } from "./SnapshotBanner";
 import { assetOnlyAddresses, assetViewForEdge, assetViewForNode, delegationsOf, txElements } from "./txElements";
+import { ResizableSplit } from "../shell/ResizableSplit";
 import { TxDetailTabs } from "./txdetail/TxDetailTabs";
 import { TxSummaryBar } from "./txdetail/TxSummaryBar";
 
@@ -223,69 +224,77 @@ export function TxFlowView({ hash }: { hash: string }) {
           <SnapshotBanner exportedAt={snapshot.exported_at} onRefresh={() => useTabs.getState().refreshTx(hash.toLowerCase())} />
         )}
         <TxSummaryBar flow={flow} />
-        <div className="txview__views">
-          <div className="seg" role="group" aria-label={t("tx.view.label")}>
-            {VIEWS.map(([v, key]) => (
-              <button key={v} type="button" className="seg__item" aria-pressed={view === v} onClick={() => pickView(v)}>
-                {t(key)}
-              </button>
-            ))}
-          </div>
-        </div>
-        {view === "flow" && flow.completeness === "fund_flow" && <div className="txview__banner">{t("tx.banner")}</div>}
-        <div className="txview__graph" ref={graphRef} hidden={view !== "flow"}>
-          <CytoscapeView
-            elements={elements}
-            stylesheet={stylesheet}
-            layout="dagre-lr"
-            onTapNode={(id) => {
-              box.getState().clear();
-              useInfo.getState().close(hash.toLowerCase());
-              // A token contract that only emitted Transfer logs opens its asset; the node detail stays underneath.
-              const asset = assetViewForNode(flow, id);
-              if (asset) useInfo.getState().open(hash.toLowerCase(), asset);
-              else setSelected(id.toLowerCase());
-            }}
-            onTapBackground={() => setSelected(null)}
-            onTapEdge={(_s, _t, id) => {
-              const view = assetViewForEdge(flow, id);
-              if (view) useInfo.getState().open(hash.toLowerCase(), view);
-              else useInfo.getState().close(hash.toLowerCase());
-            }}
-            onDblTapNode={NOOP}
-            onDblTapEdge={NOOP}
-            onCxtNode={(id, pos) => {
-              const node = flow.nodes.find((n) => n.address.toLowerCase() === id.toLowerCase());
-              if (!node) return;
-              // The menu acts on this node, so it becomes the tab's selection.
-              // Right-clicking a node inside the box selection keeps it; one outside drops it.
-              if (!box.getState().ids.includes(node.address.toLowerCase())) box.getState().clear();
-              setSelected(node.address.toLowerCase());
-              const rect = graphRef.current?.getBoundingClientRect();
-              setMenu({ x: pos.x + (rect?.left ?? 0), y: pos.y + (rect?.top ?? 0), node });
-            }}
-            onSelectionChange={box.getState().set}
-            selectMode={selectMode}
-            onDragEnd={markTxLayoutChanged}
-            initialLayout={savedLayout}
-            onReady={(cy) => {
-              registerTxCy(hash, cy);
-              box.getState().bindCanvas(() => cy.$(":selected").unselect());
-              cy.on("viewport", closeMenu);
-            }}
-            onHover={setHover}
-            fitInsetLeft={legendCover}
-          />
-          {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
-          <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
-          <CanvasTools selectMode={selectMode} onSelectModeChange={box.getState().setSelectMode} exporter={exporter}>
-            <IdentifyAllButton nodes={flow.nodes} />
-          </CanvasTools>
-          <TxBatchBar selection={box} insetLeft={legendCover} nodes={flow.nodes} />
-          {menu && <TxContextMenu x={menu.x} y={menu.y} node={menu.node} onClose={closeMenu} />}
-        </div>
-        {view === "calls" && <CallTreeView hash={hash} />}
-        <TxDetailTabs flow={flow} />
+        <ResizableSplit
+          className="txview__split"
+          storageKey="ethergraph.txDetailHeight"
+          top={
+            <div className="txview__stage">
+                <div className="txview__views">
+                  <div className="seg" role="group" aria-label={t("tx.view.label")}>
+                    {VIEWS.map(([v, key]) => (
+                      <button key={v} type="button" className="seg__item" aria-pressed={view === v} onClick={() => pickView(v)}>
+                        {t(key)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {view === "flow" && flow.completeness === "fund_flow" && <div className="txview__banner">{t("tx.banner")}</div>}
+                <div className="txview__graph" ref={graphRef} hidden={view !== "flow"}>
+                  <CytoscapeView
+                    elements={elements}
+                    stylesheet={stylesheet}
+                    layout="dagre-lr"
+                    onTapNode={(id) => {
+                      box.getState().clear();
+                      useInfo.getState().close(hash.toLowerCase());
+                      // A token contract that only emitted Transfer logs opens its asset; the node detail stays underneath.
+                      const asset = assetViewForNode(flow, id);
+                      if (asset) useInfo.getState().open(hash.toLowerCase(), asset);
+                      else setSelected(id.toLowerCase());
+                    }}
+                    onTapBackground={() => setSelected(null)}
+                    onTapEdge={(_s, _t, id) => {
+                      const view = assetViewForEdge(flow, id);
+                      if (view) useInfo.getState().open(hash.toLowerCase(), view);
+                      else useInfo.getState().close(hash.toLowerCase());
+                    }}
+                    onDblTapNode={NOOP}
+                    onDblTapEdge={NOOP}
+                    onCxtNode={(id, pos) => {
+                      const node = flow.nodes.find((n) => n.address.toLowerCase() === id.toLowerCase());
+                      if (!node) return;
+                      // The menu acts on this node, so it becomes the tab's selection.
+                      // Right-clicking a node inside the box selection keeps it; one outside drops it.
+                      if (!box.getState().ids.includes(node.address.toLowerCase())) box.getState().clear();
+                      setSelected(node.address.toLowerCase());
+                      const rect = graphRef.current?.getBoundingClientRect();
+                      setMenu({ x: pos.x + (rect?.left ?? 0), y: pos.y + (rect?.top ?? 0), node });
+                    }}
+                    onSelectionChange={box.getState().set}
+                    selectMode={selectMode}
+                    onDragEnd={markTxLayoutChanged}
+                    initialLayout={savedLayout}
+                    onReady={(cy) => {
+                      registerTxCy(hash, cy);
+                      box.getState().bindCanvas(() => cy.$(":selected").unselect());
+                      cy.on("viewport", closeMenu);
+                    }}
+                    onHover={setHover}
+                    fitInsetLeft={legendCover}
+                  />
+                  {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
+                  <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
+                  <CanvasTools selectMode={selectMode} onSelectModeChange={box.getState().setSelectMode} exporter={exporter}>
+                    <IdentifyAllButton nodes={flow.nodes} />
+                  </CanvasTools>
+                  <TxBatchBar selection={box} insetLeft={legendCover} nodes={flow.nodes} />
+                  {menu && <TxContextMenu x={menu.x} y={menu.y} node={menu.node} onClose={closeMenu} />}
+                </div>
+                {view === "calls" && <CallTreeView hash={hash} />}
+            </div>
+          }
+          bottom={<TxDetailTabs flow={flow} />}
+        />
       </div>
     </div>
   );

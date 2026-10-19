@@ -673,3 +673,13 @@ describe("a snapshot tab (frozen)", () => {
     expect(raw).not.toHaveBeenCalled();
   });
 });
+
+test("the_detail_panel_sits_in_a_resizable_split", async () => {
+  vi.spyOn(api, "tx").mockResolvedValue(ready());
+  renderView();
+  const sep = await screen.findByRole("separator", { name: "Resize the details table" });
+  expect(sep.getAttribute("aria-orientation")).toBe("horizontal");
+  const split = sep.closest(".split") as HTMLElement;
+  expect(split.querySelector(".split__top")).toContainElement(screen.getByTestId("cy"));
+  expect(split.querySelector(".split__bottom")).toContainElement(screen.getByTestId("tx-detail"));
+});

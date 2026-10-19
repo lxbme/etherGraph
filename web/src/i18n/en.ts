@@ -63,6 +63,7 @@ export const en = {
   "jobs.batchAddrs": { one: "Batch {id} · {count} address", other: "Batch {id} · {count} addresses" },
   "jobs.groupJobs": { one: "{count} job", other: "{count} jobs" },
   "split.resize": "Resize the details table",
+  "split.resizeColumn": "Resize column",
   "panel.resize": "Resize the details panel",
   "status.idle": "No active jobs",
   "status.live": "Live",

@@ -2,43 +2,70 @@ import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, typ
 
 import { useT } from "../i18n";
 
-const MIN_BOTTOM = 120;
-const KEY = "ethergraph.splitHeight";
+const STEP = 24;
 
-function load(): number | null {
+function load(key: string, min: number): number | null {
   try {
-    const v = Number(localStorage.getItem(KEY));
-    return Number.isFinite(v) && v >= MIN_BOTTOM ? v : null;
+    const raw = localStorage.getItem(key);
+    if (raw == null) return null;
+    const v = Number(raw);
+    return Number.isFinite(v) && v >= min ? v : null;
   } catch {
     return null;
   }
 }
-function save(h: number) {
+function save(key: string, h: number) {
   try {
-    localStorage.setItem(KEY, String(Math.round(h)));
+    localStorage.setItem(key, String(Math.round(h)));
   } catch {
     /* ignore */
   }
 }
 
-export function ResizableSplit({ top, bottom }: { top: ReactNode; bottom: ReactNode }) {
+/** A top pane over a height-resizable bottom pane; the bottom height is remembered under `storageKey`. */
+export function ResizableSplit({
+  top,
+  bottom,
+  storageKey = "ethergraph.splitHeight",
+  minBottom = 120,
+  minTop = 120,
+  defaultShare = 0.32,
+  className,
+}: {
+  top: ReactNode;
+  bottom: ReactNode;
+  storageKey?: string;
+  minBottom?: number;
+  minTop?: number;
+  defaultShare?: number;
+  className?: string;
+}) {
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
-  const [height, setHeight] = useState<number | null>(load);
+  const [height, setHeight] = useState<number | null>(() => load(storageKey, minBottom));
   const dragging = useRef(false);
   const latest = useRef<number | null>(height);
 
   const clamp = useCallback((h: number) => {
     const total = ref.current?.getBoundingClientRect().height ?? 0;
-    const max = total > 0 ? Math.max(MIN_BOTTOM, total - MIN_BOTTOM) : Infinity;
-    return Math.min(Math.max(h, MIN_BOTTOM), max);
-  }, []);
+    const max = total > 0 ? Math.max(minBottom, total - minTop) : Infinity;
+    return Math.min(Math.max(h, minBottom), max);
+  }, [minBottom, minTop]);
 
+  // A height remembered on a bigger window is pulled back now and whenever the container changes size.
   useLayoutEffect(() => {
-    if (latest.current == null) return;
-    const c = clamp(latest.current);
-    latest.current = c;
-    setHeight(c);
+    const apply = () => {
+      if (latest.current == null) return;
+      const c = clamp(latest.current);
+      if (c === latest.current) return;
+      latest.current = c;
+      setHeight(c);
+    };
+    apply();
+    if (typeof ResizeObserver === "undefined" || !ref.current) return;
+    const ro = new ResizeObserver(apply);
+    ro.observe(ref.current);
+    return () => ro.disconnect();
   }, [clamp]);
 
   const onPointerDown = (e: PointerEvent) => {
@@ -55,20 +82,20 @@ export function ResizableSplit({ top, bottom }: { top: ReactNode; bottom: ReactN
   const onPointerUp = () => {
     if (!dragging.current) return;
     dragging.current = false;
-    if (latest.current != null) save(latest.current);
+    if (latest.current != null) save(storageKey, latest.current);
   };
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
     e.preventDefault();
-    const cur = latest.current ?? (ref.current ? ref.current.getBoundingClientRect().height * 0.32 : 200);
-    const next = clamp(cur + (e.key === "ArrowUp" ? 24 : -24));
+    const cur = latest.current ?? (ref.current ? ref.current.getBoundingClientRect().height * defaultShare : 200);
+    const next = clamp(cur + (e.key === "ArrowUp" ? STEP : -STEP));
     latest.current = next;
     setHeight(next);
-    save(next);
+    save(storageKey, next);
   };
 
   return (
-    <div className="split" ref={ref}>
+    <div className={className ? `split ${className}` : "split"} ref={ref}>
       <div className="split__top">{top}</div>
       <div
         className="split__handle"
@@ -81,7 +108,7 @@ export function ResizableSplit({ top, bottom }: { top: ReactNode; bottom: ReactN
         onPointerUp={onPointerUp}
         onKeyDown={onKeyDown}
       />
-      <div className="split__bottom" style={{ height: height != null ? `${height}px` : "32%" }}>{bottom}</div>
+      <div className="split__bottom" style={{ height: height != null ? `${height}px` : `${defaultShare * 100}%` }}>{bottom}</div>
     </div>
   );
 }

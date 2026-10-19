@@ -12,6 +12,7 @@ import { identifyAddresses, useIdentifying } from "../../graph/identify";
 import { useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
 import { formatTime } from "../../lib/format";
+import { ResizableSide } from "../../shell/ResizableSide";
 import { useJobProgress, useQuota, type JobProgressEvent } from "../../shell/statusStore";
 import { useTxSnapshot } from "../../shell/tabs";
 import { overlayIdentity, useLiveIdentities } from "../../workspace/snapshot";
@@ -265,25 +266,30 @@ export function CallTreePanel({
           </button>
         )}
       </div>
-      <div className="calltree__body">
-        <CallGraph hash={hash} nodes={graphNodes} edges={graph.edges} highlightedEdge={highlightedEdge} onTapEdge={onTapEdge} />
-        <div className="calltree__side">
-          <CallTreeList
-            rows={rows}
-            collapsed={collapsed}
-            selected={selected}
-            reveal={reveal}
-            nameOf={nameOf}
-            onSelect={select}
-            onToggle={toggle}
-          />
-          {frame ? (
-            <CallFrameDetail key={selected} frame={frame} flow={flowNodes} />
-          ) : (
-            <div className="calltree__hint">{t("tx.calls.selectRow")}</div>
-          )}
-        </div>
-      </div>
+      <ResizableSide
+        className="calltree__body"
+        storageKey="ethergraph.callTreeWidth"
+        defaultWidth="clamp(320px, 42%, 640px)"
+        main={<CallGraph hash={hash} nodes={graphNodes} edges={graph.edges} highlightedEdge={highlightedEdge} onTapEdge={onTapEdge} />}
+        side={
+          <div className="calltree__side">
+            <CallTreeList
+              rows={rows}
+              collapsed={collapsed}
+              selected={selected}
+              reveal={reveal}
+              nameOf={nameOf}
+              onSelect={select}
+              onToggle={toggle}
+            />
+            {frame ? (
+              <CallFrameDetail key={selected} frame={frame} flow={flowNodes} />
+            ) : (
+              <div className="calltree__hint">{t("tx.calls.selectRow")}</div>
+            )}
+          </div>
+        }
+      />
     </div>
   );
 }

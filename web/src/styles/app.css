@@ -572,6 +572,25 @@ a.btn { text-decoration: none; }
 .split__handle:hover, .split__handle:focus-visible { background: var(--accent); outline: none; }
 .split__bottom { flex: none; min-height: var(--h-pane-min); max-height: calc(100% - var(--h-pane-min)); overflow: auto; background: var(--bg); }
 
+/* Main pane beside a width-resizable side column (shell/ResizableSide). */
+.rside { flex: 1; min-height: 0; display: flex; }
+.rside__main { flex: 1; min-width: 0; display: flex; }
+.rside__main > * { flex: 1; }
+.rside__handle {
+  flex: none;
+  width: var(--sp-2);
+  cursor: col-resize;
+  background: var(--line);
+  touch-action: none;
+}
+.rside__handle:hover, .rside__handle:focus-visible { background: var(--accent); outline: none; }
+.rside__side { flex: none; display: flex; flex-direction: column; min-height: 0; }
+@media (max-width: 720px) {
+  .rside { flex-direction: column; }
+  .rside__handle { display: none; }
+  .rside__side { width: auto !important; min-width: 0 !important; max-width: none !important; height: var(--mh-tables); }
+}
+
 .placeholder { padding: var(--sp-3); color: var(--fg-muted); }
 
 /* ---------- Status bar, jobs and toasts ---------- */
@@ -996,6 +1015,8 @@ a.btn { text-decoration: none; }
 .txview__add { margin-top: var(--sp-3); }
 .txview__tag { padding: 0 var(--sp-2); font-size: var(--fs-11); color: var(--fg-muted); border: 1px solid var(--line); border-radius: var(--radius); }
 .txview__banner { padding: var(--sp-2) var(--sp-3); font-size: var(--fs-12); color: var(--fg-muted); background: var(--bg); border-bottom: 1px solid var(--line); }
+.txview__split { min-height: 0; }
+.txview__stage { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .txview__graph { flex: 1; min-height: var(--h-graph-min); position: relative; }
 /* The asset flow | call tree switch above the graph; the flow canvas stays mounted (hidden) under the call tree. */
 .txview__views { flex: none; display: flex; padding: var(--sp-2) var(--sp-3); background: var(--bg); border-bottom: 1px solid var(--line); }
@@ -1020,13 +1041,12 @@ a.btn { text-decoration: none; }
 .calltree__filters { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
 .calltree__filters .chip { height: var(--h-compact); padding: 0 var(--sp-2); }
 .calltree__bar > .btn { margin-left: auto; }
-.calltree__body { flex: 1; min-height: 0; display: flex; }
+.calltree__body { flex: 1; min-height: 0; }
 .calltree__graph { min-width: 0; }
 .calltree__side {
-  flex: none;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  width: clamp(320px, 42%, 640px);
   min-height: 0;
   background: var(--bg);
   border-left: 1px solid var(--line);
@@ -1077,8 +1097,7 @@ a.btn { text-decoration: none; }
 .calltree__detail { flex: none; max-height: var(--mh-tables); overflow: auto; padding-top: var(--sp-2); border-top: 1px solid var(--line); }
 .calltree__hint { flex: none; padding: var(--sp-2) var(--sp-3); color: var(--fg-muted); border-top: 1px solid var(--line); }
 @media (max-width: 720px) {
-  .calltree__body { flex-direction: column; }
-  .calltree__side { width: auto; height: var(--mh-tables); border-top: 1px solid var(--line); border-left: 0; }
+  .calltree__side { border-top: 1px solid var(--line); border-left: 0; }
 }
 /* A snapshot (frozen) view's bar above its canvas (views/SnapshotBanner): informational, not a warning. */
 .snapshot-banner {
@@ -1116,14 +1135,14 @@ a.btn { text-decoration: none; }
 .txbar__item .num { color: var(--fg); }
 
 /*
- * Detail tabs under the flow graph (views/txdetail/TxDetailTabs): a fixed share of the height, so switching
+ * Detail tabs under the flow graph (views/txdetail/TxDetailTabs): a height the user sets (ResizableSplit), so switching
  * sections never resizes the graph; the tab strip stays put and the body scrolls.
  */
 .txdetail {
   flex: none;
   display: flex;
   flex-direction: column;
-  height: var(--mh-tables);
+  height: 100%;
   background: var(--bg);
   border-top: 1px solid var(--line);
   font-size: var(--fs-12);
