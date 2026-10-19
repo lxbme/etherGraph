@@ -42,11 +42,11 @@ function TransferLine({ flow, f, second }: { flow: TxFlowDto; f: FlowDto; second
       {/* One line only. When room is short the CSS drops the recipient's buttons, the recipient, then the label; the amount truncates last (full value in its title). */}
       {full !== null && <span className="num txbar__amt" title={`${full} ${label}`}>{full}</span>}
       {f.asset ? (
-        <AssetButton tab={flow.tx.hash.toLowerCase()} asset={f.asset.toLowerCase()} tokenId={f.token_id} kind={f.kind} title={f.asset}>
+        <AssetButton tab={flow.tx.hash.toLowerCase()} asset={f.asset.toLowerCase()} tokenId={f.token_id} kind={f.kind} title={`${label} · ${f.asset}`}>
           {label}
         </AssetButton>
       ) : (
-        <span>{symbol}</span>
+        <span className="txbar__sym" title={label}>{symbol}</span>
       )}
       <TrustBadge trust={f.trust} />
       <span className="txbar__to">
@@ -54,6 +54,17 @@ function TransferLine({ flow, f, second }: { flow: TxFlowDto; f: FlowDto; second
         <AddressCell address={f.to} node={nodeOf(flow, f.to)} />
       </span>
     </div>
+  );
+}
+
+/** "+N more", or just "+N" where the transfers area is too tight for the words (the CSS picks; the button's aria-label is the full text). */
+function MoreText({ count }: { count: number }) {
+  const t = useT();
+  return (
+    <>
+      <span className="txbar__more-full">{t("tx.summary.more", { count })}</span>
+      <span className="txbar__more-short" aria-hidden="true">+{count}</span>
+    </>
   );
 }
 
@@ -93,19 +104,19 @@ export function TxSummaryBar({ flow }: { flow: TxFlowDto }) {
       </span>
       <span className="txbar__item num" title={formatLocalTime(tx.ts)}>{formatTime(tx.ts)}</span>
       {transfers.length > 0 && (
-        <div className="txbar__transfers">
+        <div className={transfers.length > 1 ? "txbar__transfers txbar__transfers--more" : "txbar__transfers"}>
           {transfers.slice(0, SHOWN).map((f, i) => (
             <TransferLine key={`${f.seq}-${i}`} flow={flow} f={f} second={i > 0} />
           ))}
           {/* Where the transfers area is too narrow for two lines the CSS hides the second and swaps in the count that includes it; only one button is ever displayed. */}
           {transfers.length > SHOWN && (
-            <button type="button" className="btn btn--ghost btn--compact txbar__more txbar__more--wide" onClick={openTransfers}>
-              {t("tx.summary.more", { count: transfers.length - SHOWN })}
+            <button type="button" className="btn btn--ghost btn--compact txbar__more txbar__more--wide" aria-label={t("tx.summary.more", { count: transfers.length - SHOWN })} onClick={openTransfers}>
+              <MoreText count={transfers.length - SHOWN} />
             </button>
           )}
           {transfers.length > 1 && (
-            <button type="button" className="btn btn--ghost btn--compact txbar__more txbar__more--narrow" onClick={openTransfers}>
-              {t("tx.summary.more", { count: transfers.length - 1 })}
+            <button type="button" className="btn btn--ghost btn--compact txbar__more txbar__more--narrow" aria-label={t("tx.summary.more", { count: transfers.length - 1 })} onClick={openTransfers}>
+              <MoreText count={transfers.length - 1} />
             </button>
           )}
         </div>

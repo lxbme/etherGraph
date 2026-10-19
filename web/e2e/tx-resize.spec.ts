@@ -131,45 +131,77 @@ for (const [width, height] of [
   });
 }
 
+const RECIPIENT = "0xa11ce00000000000000000000000000000000001";
+const erc20 = (n: number, amount: string, decimals: number, symbol: string) => ({
+  seq: 10 + n, from: "0xb0b0000000000000000000000000000000000002", to: RECIPIENT,
+  asset: `0x${String(n).repeat(40)}`, amount, token_id: null, kind: "erc20" as const, trace_path: null, log_index: n,
+  decimals, symbol, trust: { level: "listed" as const, impersonates: null, reason: null },
+});
+const HUGE = (2n ** 256n - 1n).toString();
+/** Extra token flows (they sort before the fixture's own USDT transfer). */
+const DATASETS: Record<string, ReturnType<typeof erc20>[]> = {
+  "four long amounts": [1, 2, 3, 4].map((n) => erc20(n, HUGE, 18, `LONGSYMBOL${n}`)),
+  "a swap": [erc20(1, "4699465952", 6, "USDC"), erc20(2, "1500000000000000000", 18, "WETH")],
+  "an unknown token with a very long symbol": [erc20(1, "4699465952", 6, "AVERYLONGUNKNOWNTOKENSYMBOLTHATGOESON")],
+};
+
 for (const [width, height] of [
   [1000, 560],
   [360, 740],
   [1920, 1080],
 ] as const) {
-  test(`at ${width}×${height} many transfers with long amounts leave the graph area above 100 px`, async ({ page, mock }) => {
-    const huge = (2n ** 256n - 1n).toString();
-    const token = (n: number) => ({
-      seq: 10 + n, from: "0xb0b0000000000000000000000000000000000002", to: "0xa11ce00000000000000000000000000000000001",
-      asset: `0x${String(n).repeat(40)}`, amount: huge, token_id: null, kind: "erc20" as const, trace_path: null, log_index: 20 + n,
-      decimals: 18, symbol: `LONGSYMBOL${n}`, trust: { level: "listed" as const, impersonates: null, reason: null },
+  for (const [name, extra] of Object.entries(DATASETS)) {
+    test(`at ${width}×${height} ${name} leave the graph area above 100 px and the first transfer readable`, async ({ page, mock }) => {
+      const tx = { ...fixtures.tx, flow: { ...fixtures.tx.flow!, flows: [...fixtures.tx.flow!.flows, ...extra] } };
+      mock.on("GET /api/tx/*", () => ({ json: tx }));
+      mock.on("GET /api/tx/*/trace", () => ({ json: fixtures.trace }));
+      await page.setViewportSize({ width, height });
+      await page.goto("/?e2e=1");
+      await page.getByRole("searchbox", { name: "Search" }).fill(TX);
+      await page.getByRole("searchbox", { name: "Search" }).press("Enter");
+      const bar = page.getByTestId("tx-summary-bar");
+      await expect(bar.getByTestId("tx-summary-transfer").first()).toBeVisible();
+      // The transfers add at most one line, and nothing in the bar spills sideways.
+      expect(await bar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+      await expect.poll(async () => (await page.getByTestId("tx-view").locator(".txview__graph").boundingBox())!.height).toBeGreaterThan(100);
+      await expectFirstTransferReadable(page);
+      expect(mock.unhandled).toEqual([]);
     });
-    const tx = { ...fixtures.tx, flow: { ...fixtures.tx.flow!, flows: [...fixtures.tx.flow!.flows, token(1), token(2), token(3), token(4)] } };
-    mock.on("GET /api/tx/*", () => ({ json: tx }));
-    mock.on("GET /api/tx/*/trace", () => ({ json: fixtures.trace }));
-    await page.setViewportSize({ width, height });
-    await page.goto("/?e2e=1");
-    await page.getByRole("searchbox", { name: "Search" }).fill(TX);
-    await page.getByRole("searchbox", { name: "Search" }).press("Enter");
-    const bar = page.getByTestId("tx-summary-bar");
-    await expect(bar.getByTestId("tx-summary-transfer").first()).toBeVisible();
-    // The transfers add at most one line, and nothing in the bar spills sideways.
-    expect(await bar.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-    const graph = (await page.getByTestId("tx-view").locator(".txview__graph").boundingBox())!;
-    expect(graph.height).toBeGreaterThan(100);
-    await expectFirstTransferReadable(page);
-    expect(mock.unhandled).toEqual([]);
-  });
+  }
 }
 
-/** The first transfer line keeps its amount and symbol on screen, inside the transfers area, whatever else gave way. */
+/**
+ * The first transfer line keeps its amount and symbol on screen once the layout has settled: inside the row that clips
+ * them, the symbol whole (or ending in an ellipsis at its cap), and the amount untruncated whenever the recipient shows.
+ */
 async function expectFirstTransferReadable(page: Page) {
-  const area = (await page.locator(".txbar__transfers").boundingBox())!;
   const line = page.getByTestId("tx-summary-transfer").first();
-  for (const part of [line.locator(".txbar__amt"), line.locator(".asset-link")]) {
-    const box = (await part.boundingBox())!;
-    expect(box.width, "amount and symbol have width").toBeGreaterThan(0);
-    expect(box.x + box.width, "amount and symbol end inside the transfers area").toBeLessThanOrEqual(area.x + area.width + 0.5);
-  }
+  await expect
+    .poll(async () => {
+      const m = await line.evaluate((row) => {
+        const area = row.closest(".txbar__transfers")!.getBoundingClientRect();
+        const rr = row.getBoundingClientRect();
+        const limit = Math.min(area.right, rr.right);
+        const box = (sel: string) => {
+          const el = row.querySelector<HTMLElement>(sel)!;
+          const r = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          return { el, width: r.width, right: r.right, scroll: el.scrollWidth, client: el.clientWidth, cap: cs.maxWidth, ellipsis: cs.textOverflow === "ellipsis" };
+        };
+        const amt = box(".txbar__amt");
+        const sym = box(".asset-link");
+        const to = row.querySelector<HTMLElement>(".txbar__to")!.getBoundingClientRect().width;
+        return {
+          amtInside: amt.width > 0 && amt.right <= limit + 0.5,
+          symInside: sym.width > 0 && sym.right <= limit + 0.5,
+          // Whole, or deliberately ellipsised (its own scroll width exceeds its box) - never cut by an ancestor.
+          symWhole: sym.scroll <= sym.client + 1 || sym.ellipsis,
+          amtWhole: to === 0 || amt.scroll <= amt.client + 1,
+        };
+      });
+      return JSON.stringify(m);
+    }, { message: "first transfer's amount and symbol are readable", timeout: 5000 })
+    .toBe(JSON.stringify({ amtInside: true, symInside: true, symWhole: true, amtWhole: true }));
 }
 
 test("at 1000×560 a single transfer still shows its amount and symbol", async ({ page, mock }) => {
