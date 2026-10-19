@@ -21,6 +21,7 @@ pub enum JobKind {
     ResolveNames,
     TokenMeta,
     FetchBlock,
+    FetchTrace,
 }
 
 impl JobKind {
@@ -32,6 +33,7 @@ impl JobKind {
             JobKind::ResolveNames => "resolve_names",
             JobKind::TokenMeta => "token_meta",
             JobKind::FetchBlock => "fetch_block",
+            JobKind::FetchTrace => "fetch_trace",
         }
     }
 
@@ -43,6 +45,7 @@ impl JobKind {
             "resolve_names" => JobKind::ResolveNames,
             "token_meta" => JobKind::TokenMeta,
             "fetch_block" => JobKind::FetchBlock,
+            "fetch_trace" => JobKind::FetchTrace,
             _ => return Err(StoreError::Invalid(format!("unknown job kind {s}"))),
         })
     }

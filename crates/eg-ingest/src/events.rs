@@ -37,6 +37,10 @@ pub enum Event {
         #[ts(type = "string")]
         hash: TxHash,
     },
+    // The transaction's call trace is cached (`hash`: 0x-prefixed lowercase).
+    TraceReady {
+        hash: String,
+    },
     NamesResolved {
         items: Vec<NameItem>,
     },
@@ -243,6 +247,9 @@ mod tests {
             Event::TxReady {
                 hash: B256::repeat_byte(0xcd),
             },
+            Event::TraceReady {
+                hash: format!("{:#x}", B256::repeat_byte(0xcd)),
+            },
             Event::NamesResolved {
                 items: vec![NameItem {
                     address: Address::repeat_byte(1),
@@ -267,6 +274,7 @@ mod tests {
                 Event::JobProgress { .. }
                 | Event::AddressDataChanged { .. }
                 | Event::TxReady { .. }
+                | Event::TraceReady { .. }
                 | Event::NamesResolved { .. }
                 | Event::MetaUpdated { .. }
                 | Event::QuotaStatus { .. }
@@ -310,6 +318,7 @@ mod tests {
         assert!(ts_member(&decl, "JobProgress").contains("cursor_block: number | null"));
         assert!(ts_member(&decl, "JobProgress").contains("error: string | null"));
         assert!(ts_member(&decl, "TxReady").contains("hash: string"));
+        assert!(ts_member(&decl, "TraceReady").contains("hash: string"));
         assert!(ts_member(&decl, "QuotaStatus").contains("reset_at: string"));
         assert!(ts_member(&decl, "MetaUpdated").contains("addresses: Array<string>"));
         let item = NameItem::decl(&cfg);
@@ -317,7 +326,7 @@ mod tests {
         assert!(item.contains("name: string | null"), "{item}");
         assert_eq!(
             JobKind::inline(&cfg),
-            r#""sync_address" | "fetch_tx" | "contract_meta" | "resolve_names" | "token_meta" | "fetch_block""#
+            r#""sync_address" | "fetch_tx" | "contract_meta" | "resolve_names" | "token_meta" | "fetch_block" | "fetch_trace""#
         );
         assert_eq!(
             JobStatus::inline(&cfg),

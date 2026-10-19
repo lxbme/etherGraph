@@ -2,6 +2,7 @@
 
 pub mod contract_meta;
 pub mod fetch_block;
+pub mod fetch_trace;
 pub mod fetch_tx;
 pub mod names;
 pub mod sync_address;
@@ -16,6 +17,7 @@ use crate::runner::JobHandler;
 
 pub use contract_meta::ContractMetaHandler;
 pub use fetch_block::FetchBlockHandler;
+pub use fetch_trace::FetchTraceHandler;
 pub use fetch_tx::FetchTxHandler;
 pub use names::ResolveNamesHandler;
 pub use sync_address::{SyncAddressHandler, SyncParams, SyncProgress};
@@ -30,6 +32,10 @@ pub fn default_handlers() -> HashMap<JobKind, Arc<dyn JobHandler>> {
         (
             JobKind::FetchTx,
             Arc::new(FetchTxHandler) as Arc<dyn JobHandler>,
+        ),
+        (
+            JobKind::FetchTrace,
+            Arc::new(FetchTraceHandler) as Arc<dyn JobHandler>,
         ),
         (
             JobKind::FetchBlock,

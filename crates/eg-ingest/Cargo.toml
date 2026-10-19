@@ -26,6 +26,7 @@ ts-rs = { workspace = true }
 
 [dev-dependencies]
 alloy-sol-types = { workspace = true }
+eg-blockscout = { path = "../eg-blockscout" }
 k256 = { workspace = true }
 eg-core = { path = "../eg-core", features = ["testing"] }
 sqlx = { workspace = true }

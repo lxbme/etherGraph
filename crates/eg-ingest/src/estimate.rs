@@ -10,6 +10,7 @@ use eg_store::{JobKind, JobRow, SyncRow};
 
 use crate::config::IngestConfig;
 use crate::enqueue::SyncDirection;
+use crate::handlers::fetch_trace::MAX_DELEGATE_LOOKUPS;
 use crate::handlers::{SyncParams, SyncProgress};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -92,6 +93,8 @@ pub fn remaining_calls(job: &JobRow, cfg: &IngestConfig) -> u32 {
             head.saturating_add(kinds.saturating_mul(pages))
         }
         JobKind::FetchTx => 4,
+        // The trace, then at most this many callees' code.
+        JobKind::FetchTrace => 1 + MAX_DELEGATE_LOOKUPS as u32,
         JobKind::FetchBlock | JobKind::ResolveNames | JobKind::TokenMeta => 1,
         JobKind::ContractMeta => {
             let n = job.params["addresses"].as_array().map_or(0, Vec::len);
@@ -221,6 +224,7 @@ mod tests {
         let addrs = serde_json::json!({"addresses": ["0x01", "0x02", "0x03"]});
         for (kind, params, want) in [
             (JobKind::FetchTx, serde_json::json!({}), 4),
+            (JobKind::FetchTrace, serde_json::json!({}), 6),
             (JobKind::FetchBlock, serde_json::json!({}), 1),
             (JobKind::ContractMeta, addrs.clone(), 6),
             (JobKind::ResolveNames, addrs.clone(), 1),

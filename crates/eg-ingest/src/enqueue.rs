@@ -132,6 +132,25 @@ pub async fn enqueue_fetch_tx(
     .await
 }
 
+/// The user's job fetching the call trace of a stored transaction.
+pub async fn enqueue_fetch_trace(
+    ctx: &JobCtx,
+    user: Option<i64>,
+    hash: TxHash,
+) -> Result<i64, StoreError> {
+    enqueue_one(
+        ctx,
+        NewJob {
+            key: format!("trace:{hash:#x}"),
+            kind: JobKind::FetchTrace,
+            params: json!({"hash": format!("{hash:#x}")}),
+            priority: Priority::Interactive,
+            user_id: user,
+        },
+    )
+    .await
+}
+
 pub async fn enqueue_fetch_block(
     ctx: &JobCtx,
     user: Option<i64>,

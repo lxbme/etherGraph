@@ -11,6 +11,7 @@ const KINDS: Record<JobDto["kind"], MsgKey> = {
   resolve_names: "job.kind.resolve_names",
   token_meta: "job.kind.token_meta",
   fetch_block: "job.kind.fetch_block",
+  fetch_trace: "job.kind.fetch_trace",
 };
 const STATUSES: Record<JobDto["status"], MsgKey> = {
   pending: "job.status.pending",
@@ -41,7 +42,7 @@ export function targetText(job: Pick<JobDto, "kind" | "params">): string {
     if (typeof obj?.address !== "string") return "—";
     return shortAddr(obj.address) + (obj.direction === "older" ? t("job.older") : "");
   }
-  if (job.kind === "fetch_tx") return typeof obj?.hash === "string" ? shortAddr(obj.hash) : "—";
+  if (job.kind === "fetch_tx" || job.kind === "fetch_trace") return typeof obj?.hash === "string" ? shortAddr(obj.hash) : "—";
   const list = Array.isArray(p) ? p : obj ? Object.values(obj).find(Array.isArray) : undefined;
   return list ? t("job.targetList", { count: list.length }) : "—";
 }
