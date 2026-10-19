@@ -63,6 +63,7 @@ pub async fn edges(
         }
         limits.insert(a, v.clamp(1, MAX_LIMIT));
     }
+    let dry_run = req.dry_run.unwrap_or(false);
     let prefer_raw = req.prefer.unwrap_or_default();
     if prefer_raw.len() > MAX_PREFER {
         return Err(invalid(format!(
@@ -122,7 +123,9 @@ pub async fn edges(
         user.id,
     )
     .await?;
-    enqueue_missing_meta(&s, user.id, &centers, &nodes, &assets).await;
+    if !dry_run {
+        enqueue_missing_meta(&s, user.id, &centers, &nodes, &assets).await;
+    }
 
     let coverage = nodes
         .iter()

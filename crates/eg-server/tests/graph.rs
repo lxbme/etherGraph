@@ -391,6 +391,37 @@ async fn graph_edges_carry_each_assets_trust(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
+async fn graph_dry_run_enqueues_nothing_and_matches_the_real_response(pool: PgPool) {
+    let (app, state, _) = test_app(pool).await;
+    seed(
+        &state,
+        vec![
+            tr(1, C, A, None, U256::from(5), 0),
+            tr(2, C, A, None, U256::from(7), 10),
+            tr(3, B, C, Some(USDT), U256::from(9), 20),
+        ],
+    )
+    .await;
+    let before = state.store.active_jobs().await.unwrap().len();
+    let body = json!({"addresses": [hex(C)], "limit_per_address": 1});
+    let mut dry = body.clone();
+    dry["dry_run"] = json!(true);
+    let (s, d) = post_json(&app, "/api/graph/edges", &dry).await;
+    assert_eq!(s, StatusCode::OK, "{d}");
+    assert_eq!(state.store.active_jobs().await.unwrap().len(), before);
+
+    let (s, r) = post_json(&app, "/api/graph/edges", &body).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert!(
+        state.store.active_jobs().await.unwrap().len() > before,
+        "the real call must enqueue"
+    );
+    for f in ["nodes", "edges", "omitted"] {
+        assert_eq!(d[f], r[f], "{f}");
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_edges_returns_nodes_and_enqueues_meta(pool: PgPool) {
     let (app, state, _) = test_app(pool).await;
     seed(

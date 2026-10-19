@@ -467,6 +467,8 @@ pub struct GraphRequestDto {
     /// other neighbours when a limit applies.
     #[ts(optional = nullable, type = "Array<string> | null")]
     pub prefer: Option<Vec<String>>,
+    /// Estimate only: same response, but no metadata, ENS or token jobs are queued.
+    pub dry_run: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

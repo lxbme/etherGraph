@@ -23,4 +23,8 @@ limits?: Record<string, number> | null,
  * Up to 2000 addresses (e.g. nodes already on canvas) ranked ahead of
  * other neighbours when a limit applies.
  */
-prefer?: Array<string> | null, };
+prefer?: Array<string> | null, 
+/**
+ * Estimate only: same response, but no metadata, ENS or token jobs are queued.
+ */
+dry_run?: boolean | null, };
