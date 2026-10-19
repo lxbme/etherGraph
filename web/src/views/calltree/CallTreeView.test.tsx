@@ -15,7 +15,7 @@ import { TxFlowView } from "../TxFlowView";
 import { getCallCy, getTxCy } from "../../graph/cyRegistry";
 import { exportImage } from "../../graph/exportImage";
 import { download } from "../../lib/download";
-import { CallTreeView } from "./CallTreeView";
+import { CallTreeView, useTraceFailures } from "./CallTreeView";
 import { A, B, ensFrames, SENDER, synth, X } from "./fixtures.testutil";
 
 vi.mock("../../graph/exportImage", async (orig) => ({ ...(await orig<typeof import("../../graph/exportImage")>()), exportImage: vi.fn() }));
@@ -75,6 +75,7 @@ beforeEach(() => {
   qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   h.props = null;
   useJobProgress.setState({ byId: {} });
+  useTraceFailures.setState({ byHash: {} });
   useTabs.setState({ tabs: [{ id: "graph" }, { id: HASH, kind: "tx", hash: HASH }], active: HASH });
   useUi.setState({ txSelection: {} });
   vi.spyOn(api, "nodes").mockResolvedValue([]);
@@ -215,6 +216,39 @@ test("a_failed_job_is_not_requested_again_until_retry", async () => {
     expect(await screen.findByText("Fetching call trace…")).toBeInTheDocument();
     await act(() => vi.advanceTimersByTimeAsync(1_000));
     expect(trace).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("a_failed_job_stays_failed_when_a_reconnect_prunes_the_job_store", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const trace = vi.spyOn(api, "txTrace").mockResolvedValue(pending(9));
+    renderCalls();
+    await screen.findByText("Fetching call trace…");
+    act(() => useJobProgress.getState().upsert(progress("failed", "incomplete trace")));
+    const reason = "Couldn't fetch the call trace: incomplete trace";
+    expect(await screen.findByRole("alert")).toHaveTextContent(reason);
+    // An SSE reconnect (Lagged): the status refresh drops finished jobs and every query is invalidated.
+    act(() => useJobProgress.getState().remove([9]));
+    await act(() => qc.invalidateQueries());
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(trace).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("alert")).toHaveTextContent(reason);
+
+    // A Retry that errors shows its error and still never polls the failed job.
+    trace.mockRejectedValue(new ApiError("network", 0, "offline"));
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(trace).toHaveBeenCalledTimes(2));
+    await act(() => vi.advanceTimersByTimeAsync(30_000));
+    expect(trace).toHaveBeenCalledTimes(2);
+
+    trace.mockResolvedValue(pending(10));
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Fetching call trace…")).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    expect(trace).toHaveBeenCalledTimes(3);
   } finally {
     vi.useRealTimers();
   }
