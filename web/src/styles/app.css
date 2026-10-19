@@ -930,6 +930,17 @@ a.btn { text-decoration: none; }
 .expand__footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); color: var(--fg-muted); font-size: var(--fs-12); }
 .expand__warnings { display: flex; flex-direction: column; gap: var(--sp-1); }
 .expand__warnings:empty { display: none; }
+/* Single-layer expansion confirm (spec §4): headline estimate, batch stepper, per-target facts, calls and canvas lines. */
+.dialog.expand-self { width: min(560px, 92vw); }
+.expand-self__headline { font-size: var(--fs-20); font-weight: 600; font-variant-numeric: tabular-nums; }
+.expand-self__batch { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-12); color: var(--fg-muted); }
+.expand-self__k { width: 7em; }
+.expand-self__estimate { display: flex; flex-direction: column; min-height: 0; }
+.expand-self__estimate[aria-busy="true"] { opacity: 0.6; }
+.expand-self__facts { display: flex; flex-direction: column; gap: var(--sp-1); margin: 0; padding-left: var(--sp-4); font-size: var(--fs-12); }
+.expand-self__table { min-height: 0; overflow-y: auto; }
+.expand-self__lines { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); color: var(--fg-muted); font-size: var(--fs-12); }
+.expand-self__canvas { flex-basis: 100%; }
 
 /* Right panel: kind caption, address, tags, key/value grid, actions (spec §3.2), 16px inset. */
 .detail { height: 100%; padding: var(--sp-4); overflow: auto; font-size: var(--fs-13); }

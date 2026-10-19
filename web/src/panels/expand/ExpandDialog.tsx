@@ -22,13 +22,14 @@ import {
 import { useCanvasMetrics } from "../../graph/canvasMetrics";
 import { useGraph } from "../../graph/store";
 import { graphQueryKey } from "../../graph/useGraphData";
-import { t as tr, useT } from "../../i18n";
+import { useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
 import { newBatchId } from "../../lib/batchId";
 import { formatCount } from "../../lib/format";
 import { useQuota } from "../../shell/statusStore";
-import { dismissToast, toast } from "../../shell/Toasts";
+import { toast } from "../../shell/Toasts";
 import { CandidateList, type CandidateRow } from "./CandidateList";
+import { offerUndo, SYNC_MAX } from "./expansion";
 import { useProbe } from "./useProbe";
 import { useSyncOnOpen } from "./useSyncOnOpen";
 
@@ -36,9 +37,6 @@ import { useSyncOnOpen } from "./useSyncOnOpen";
 const FALLBACK_RATE = 2.8;
 /** The candidate list: the node's stored counterparties, fewest transfers first. */
 const CANDIDATE_QUERY = { sort: "count_asc", limit: 1000, kind: "all" } as const;
-/** Most addresses one POST /api/sync accepts. */
-const SYNC_MAX = 50;
-
 const lc = (s: string) => s.toLowerCase();
 
 export interface ExpandDialogProps {
@@ -110,31 +108,6 @@ function toRow(
 }
 
 const byWeight = (x: CandidateRow, y: CandidateRow) => byLightness(x.cand, y.cand);
-
-/**
- * Shows the expansion as one undoable step: "Expanded N · Undo" with no timer, until another history step
- * replaces it or the user closes it.
- */
-function offerUndo(count: number): void {
-  const past = useGraph.getState()._past;
-  const entry = past[past.length - 1];
-  if (!entry) return;
-  const isTop = (p: typeof past) => p[p.length - 1] === entry;
-  let id = 0;
-  const unsubscribe = useGraph.subscribe((s) => {
-    if (!isTop(s._past)) dismissToast(id);
-  });
-  id = toast(tr("expand.done", { count }), "info", {
-    ttlMs: null,
-    onDismiss: unsubscribe,
-    action: {
-      label: tr("common.undo"),
-      onClick: () => {
-        if (isTop(useGraph.getState()._past)) useGraph.getState().undo();
-      },
-    },
-  });
-}
 
 function BudgetBar({ label, used, budget }: { label: string; used: number; budget: number }) {
   const scale = Math.max(used, budget, 1);
