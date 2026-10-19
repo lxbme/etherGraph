@@ -29,4 +29,4 @@ pub use trace::{
     DecodedFrame, FrameDelegate, MAX_AUTO_META, auto_meta_targets, decode_frames, decode_trace,
     trace_delegates, tx_delegations, validate_trace,
 };
-pub use txflow::{Completeness, Flow, TxFlow, build_tx_flow, load_tx_flow};
+pub use txflow::{Completeness, Flow, TxFlow, build_tx_flow, implementation_of, load_tx_flow};

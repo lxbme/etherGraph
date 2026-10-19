@@ -66,19 +66,61 @@ pub struct TxFlow {
     pub completeness: Completeness,
 }
 
-/// The ABI to decode `addr`'s calls and events with: a proxy's implementation
-/// ABI when known, else the address's own.
-pub(crate) fn abi_for<'a>(
+/// The implementation `addr` delegates to as a proxy, from its account row;
+/// `None` when `addr` is itself the recorded implementation of another proxy
+/// in `accounts`. Etherscan flags some implementations as proxies too (USDC's
+/// FiatTokenV2_2 "implements" SignatureChecker, a library it calls); followed,
+/// that second hop would decode calls to the implementation with the
+/// library's ABI. Only `accounts` is consulted, so the guard holds when the
+/// outer proxy's row is loaded with the implementation's.
+pub fn implementation_of(
+    addr: Address,
+    accounts: &HashMap<Address, AccountRow>,
+) -> Option<Address> {
+    let implementation = accounts
+        .get(&addr)
+        .filter(|a| a.is_proxy)
+        .and_then(|a| a.implementation)?;
+    let implements_another = accounts
+        .values()
+        .any(|a| a.address != addr && a.is_proxy && a.implementation == Some(addr));
+    (!implements_another).then_some(implementation)
+}
+
+/// The ABIs to decode `addr`'s calls and events with, in the order tried:
+/// its implementation's ([`implementation_of`]), then its own.
+pub(crate) fn abis_for<'a>(
     addr: Address,
     abis: &'a HashMap<Address, JsonAbi>,
     accounts: &HashMap<Address, AccountRow>,
-) -> Option<&'a JsonAbi> {
-    accounts
-        .get(&addr)
-        .filter(|a| a.is_proxy)
-        .and_then(|a| a.implementation)
+) -> impl Iterator<Item = &'a JsonAbi> {
+    implementation_of(addr, accounts)
         .and_then(|i| abis.get(&i))
-        .or_else(|| abis.get(&addr))
+        .into_iter()
+        .chain(abis.get(&addr))
+}
+
+/// `input` decoded with the first of [`abis_for`] `addr` that decodes it.
+fn decode_call_for(
+    addr: Address,
+    input: &[u8],
+    abis: &HashMap<Address, JsonAbi>,
+    accounts: &HashMap<Address, AccountRow>,
+) -> Option<DecodedCall> {
+    abis_for(addr, abis, accounts).find_map(|abi| decode_call(abi, input))
+}
+
+/// The first of [`abis_for`] the log's emitter that declares its event.
+fn event_abi<'a>(
+    log: &RawLog,
+    abis: &'a HashMap<Address, JsonAbi>,
+    accounts: &HashMap<Address, AccountRow>,
+) -> Option<&'a JsonAbi> {
+    let topic0 = log.topics.first()?;
+    abis_for(log.address, abis, accounts).find(|abi| {
+        abi.events()
+            .any(|e| !e.anonymous && e.selector() == *topic0)
+    })
 }
 
 /// Numeric segments of a `trace_id` like `0_10_2`.
@@ -135,9 +177,9 @@ fn participants<'a>(
     .collect()
 }
 
-/// The top-level call decoded with `to`'s ABI or, failing that, with the ABI
-/// of `to`'s effective delegate in this tx (`to_delegate`); the delegate is
-/// returned in the second case.
+/// The top-level call decoded with `to`'s ABIs ([`abis_for`]) or, failing
+/// that, with those of `to`'s effective delegate in this tx (`to_delegate`);
+/// the delegate is returned in the second case.
 fn top_call(
     tx: &TxRow,
     to_delegate: Option<Address>,
@@ -146,11 +188,11 @@ fn top_call(
 ) -> Option<(DecodedCall, Option<Address>)> {
     let to = tx.to?;
     let input = input_of(tx)?;
-    if let Some(call) = abi_for(to, abis, accounts).and_then(|abi| decode_call(abi, &input)) {
+    if let Some(call) = decode_call_for(to, &input, abis, accounts) {
         return Some((call, None));
     }
     let delegate = to_delegate?;
-    let call = decode_call(abi_for(delegate, abis, accounts)?, &input)?;
+    let call = decode_call_for(delegate, &input, abis, accounts)?;
     Some((call, Some(delegate)))
 }
 
@@ -222,7 +264,7 @@ fn build(
     let logs: &[RawLog] = receipt.as_ref().map_or(&[], |r| &r.logs);
     let events = logs
         .iter()
-        .map(|l| decode_event(abi_for(l.address, abis, accounts), l))
+        .map(|l| decode_event(event_abi(l, abis, accounts), l))
         .collect();
 
     TxFlow {
@@ -673,5 +715,75 @@ mod tests {
                 .call
                 .is_none()
         );
+    }
+
+    fn proxy_row(address: Address, implementation: Address) -> AccountRow {
+        AccountRow {
+            address,
+            kind: AccountKind::Contract,
+            contract_name: None,
+            is_proxy: true,
+            implementation: Some(implementation),
+            creator: None,
+            creation_tx: None,
+            meta_fetched_at: ts(),
+        }
+    }
+
+    #[test]
+    fn implementation_abi_failing_falls_back_to_own_abi() {
+        // The proxy's own `admin()` and `Upgraded` are not in its
+        // implementation's ABI.
+        let own = JsonAbi::parse([
+            "function admin() returns (address)",
+            "event Upgraded(address implementation)",
+        ])
+        .unwrap();
+        let imp = JsonAbi::parse(["function foo(uint256 x)", "event Foo(uint256 x)"]).unwrap();
+        let input = format!(
+            "0x{}",
+            hex::encode(own.functions().next().unwrap().selector())
+        );
+        let upgraded = own.events().next().unwrap().selector();
+        let receipt = json!({"status": "0x1", "gasUsed": "0x5208", "logs": [{
+            "address": format!("{B:#x}"),
+            "topics": [format!("{upgraded:#x}")],
+            "data": format!("{:#x}", C.into_word()), "logIndex": "0x0"
+        }]});
+        let accounts = HashMap::from([(B, proxy_row(B, C))]);
+        let abis = HashMap::from([(B, own), (C, imp)]);
+        let f = build_tx_flow(&tx(Some(B), &input, receipt), &[], &abis, &accounts);
+        assert_eq!(f.call.unwrap().name, "admin");
+        assert_eq!(f.call_via_delegate, None);
+        assert_eq!(f.events[0].name.as_deref(), Some("Upgraded"));
+        assert_eq!(f.events[0].args[0].value, format!("{C:#x}"));
+    }
+
+    #[test]
+    fn a_real_proxy_chain_still_uses_the_implementation_abi() {
+        // B is a proxy of C, itself a proxy of D. B is no one's
+        // implementation, so its own row is followed to C; C, B's recorded
+        // implementation, is not followed to D.
+        const D: Address = Address::repeat_byte(0xe);
+        let accounts = HashMap::from([(B, proxy_row(B, C)), (C, proxy_row(C, D))]);
+        assert_eq!(implementation_of(B, &accounts), Some(C));
+        assert_eq!(implementation_of(C, &accounts), None);
+        // A self-referencing row (Etherscan flags some contracts as their
+        // own proxy) is not a chain.
+        let own = HashMap::from([(A, proxy_row(A, A))]);
+        assert_eq!(implementation_of(A, &own), Some(A));
+        assert_eq!(implementation_of(D, &accounts), None);
+
+        // C's ABI wins over B's own, which decodes the same call under other
+        // argument names.
+        let b_abi = JsonAbi::parse(["function foo(uint256 own)"]).unwrap();
+        let c_abi = JsonAbi::parse(["function foo(uint256 x)"]).unwrap();
+        let sel = c_abi.functions().next().unwrap().selector();
+        let input = format!("0x{}{:064x}", hex::encode(sel), 42);
+        let abis = HashMap::from([(B, b_abi), (C, c_abi)]);
+        let t = tx(Some(B), &input, json!({}));
+        let call = build_tx_flow(&t, &[], &abis, &accounts).call.unwrap();
+        assert_eq!(call.name, "foo");
+        assert_eq!(call.args[0].name, "x");
     }
 }

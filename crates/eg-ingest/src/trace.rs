@@ -11,7 +11,7 @@ use eg_decode::{DecodedCall, DecodedError, decode_call, decode_error};
 use eg_store::{AccountRow, CallTraceRow, Store, StoreError, TxRow};
 
 use crate::authorization::{applied_delegations, authorizations, tx_nonce};
-use crate::txflow::abi_for;
+use crate::txflow::abis_for;
 
 /// Contracts identified automatically per viewed trace; the rest only on
 /// request.
@@ -175,13 +175,21 @@ pub struct DecodedFrame {
     pub via_delegate: Option<FrameDelegate>,
 }
 
+/// `input` decoded with the first of `candidates` that decodes it, and that
+/// ABI.
+fn first_call<'a>(candidates: &[&'a JsonAbi], input: &[u8]) -> Option<(DecodedCall, &'a JsonAbi)> {
+    candidates
+        .iter()
+        .find_map(|&abi| Some((decode_call(abi, input)?, abi)))
+}
+
 /// Decodes each frame as the transaction's top-level call is: with the
-/// callee's own ABI ([`abi_for`]: a proxy's implementation ABI) first, then
-/// with the ABI of the callee's EIP-7702 delegate in `delegates` (see
-/// [`trace_delegates`]) only when that decodes it. A DELEGATECALL's callee is
-/// the code that runs, so its ABI applies. Revert data of frames with an
-/// `error` is decoded with the ABI that decoded the call; with no call
-/// decoded, own ABI first, then the delegate's.
+/// callee's ABIs ([`abis_for`]: a proxy's implementation ABI, then its own)
+/// first, then with those of the callee's EIP-7702 delegate in `delegates`
+/// (see [`trace_delegates`]) only when they decode it. A DELEGATECALL's
+/// callee is the code that runs, so its ABIs apply. Revert data of frames
+/// with an `error` is decoded with the ABI that decoded the call; with no
+/// call decoded, the callee's ABIs first, then the delegate's.
 pub fn decode_frames(
     row: &CallTraceRow,
     delegates: &HashMap<Address, FrameDelegate>,
@@ -196,40 +204,39 @@ pub fn decode_frames(
                 CallKind::Create | CallKind::Create2 | CallKind::SelfDestruct
             );
             let callee = f.to.filter(|_| !creates);
-            let own = callee.and_then(|a| abi_for(a, abis, accounts));
+            let own: Vec<&JsonAbi> =
+                callee.map_or_else(Vec::new, |a| abis_for(a, abis, accounts).collect());
             let delegate = callee.and_then(|a| delegates.get(&a)).copied();
-            let delegate_abi = delegate.and_then(|d| abi_for(d.address, abis, accounts));
+            let delegate_abis: Vec<&JsonAbi> =
+                delegate.map_or_else(Vec::new, |d| abis_for(d.address, abis, accounts).collect());
             let mut via_delegate = None;
-            let call = if callee.is_some() && !f.input.is_empty() {
-                match own.and_then(|abi| decode_call(abi, &f.input)) {
-                    Some(call) => Some(call),
-                    None => {
-                        let call = delegate_abi.and_then(|abi| decode_call(abi, &f.input));
-                        via_delegate = delegate.filter(|_| call.is_some());
-                        call
-                    }
-                }
+            let decoded = if callee.is_some() && !f.input.is_empty() {
+                first_call(&own, &f.input).or_else(|| {
+                    let decoded = first_call(&delegate_abis, &f.input)?;
+                    via_delegate = delegate;
+                    Some(decoded)
+                })
             } else {
                 None
             };
             let revert = f.error.as_ref().and(f.output.as_ref()).and_then(|out| {
-                if call.is_some() {
-                    let abi = if via_delegate.is_some() {
-                        delegate_abi
-                    } else {
-                        own
-                    };
-                    return decode_error(abi, out);
+                if let Some((_, abi)) = decoded {
+                    return decode_error(Some(abi), out);
                 }
-                decode_error(own, out).or_else(|| {
-                    let e = decode_error(Some(delegate_abi?), out)?;
-                    via_delegate = delegate;
-                    Some(e)
-                })
+                own.iter()
+                    .find_map(|&abi| decode_error(Some(abi), out))
+                    .or_else(|| decode_error(None, out))
+                    .or_else(|| {
+                        let e = delegate_abis
+                            .iter()
+                            .find_map(|&abi| decode_error(Some(abi), out))?;
+                        via_delegate = delegate;
+                        Some(e)
+                    })
             });
             DecodedFrame {
                 frame: f.clone(),
-                call,
+                call: decoded.map(|(call, _)| call),
                 revert,
                 via_delegate,
             }
@@ -315,6 +322,7 @@ pub async fn decode_trace(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::txflow::implementation_of;
     use chrono::DateTime;
     use eg_core::types::{Address, B256, Bytes, U256};
     use serde_json::json;
@@ -563,5 +571,97 @@ mod tests {
         assert!(d[1].call.is_none());
         assert_eq!(d[1].revert.as_ref().map(|e| e.name.as_str()), Some("Panic"));
         assert_eq!(d[1].via_delegate, None);
+    }
+
+    fn proxy(address: Address, implementation: Address) -> AccountRow {
+        AccountRow {
+            address,
+            kind: eg_core::types::AccountKind::Contract,
+            contract_name: None,
+            is_proxy: true,
+            implementation: Some(implementation),
+            creator: None,
+            creation_tx: None,
+            meta_fetched_at: DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+        }
+    }
+
+    /// `transfer(to, 1_000_000)` calldata for `abi`'s `transfer`.
+    fn transfer_input(abi: &JsonAbi, to: Address) -> Bytes {
+        let f = abi.functions().find(|f| f.name == "transfer").unwrap();
+        let mut input = f.selector().to_vec();
+        input.extend_from_slice(&[0; 12]);
+        input.extend_from_slice(to.as_slice());
+        input.extend_from_slice(&U256::from(1_000_000u64).to_be_bytes::<32>());
+        Bytes::from(input)
+    }
+
+    #[test]
+    fn delegatecall_into_a_misflagged_implementation_decodes_with_its_own_abi() {
+        // USDC: the proxy P delegates to its implementation I, which Etherscan
+        // also flags as a proxy of S (a library it calls). S's ABI here even
+        // decodes `transfer`, under other argument names: only I's own ABI
+        // may be used for I.
+        let (p, i, s) = (
+            Address::repeat_byte(0xa0),
+            Address::repeat_byte(0x43),
+            Address::repeat_byte(0x80),
+        );
+        let imp = JsonAbi::parse(["function transfer(address to, uint256 value) returns (bool)"])
+            .unwrap();
+        let lib = JsonAbi::parse([
+            "function transfer(address dst, uint256 wad) returns (bool)",
+            "function isValidSignatureNow(address signer, bytes32 digest, bytes signature) view returns (bool)",
+        ])
+        .unwrap();
+        let input = transfer_input(&imp, Address::repeat_byte(0x77));
+        let mut root = frame(&[], CallKind::Call, Some(p), 1);
+        root.input = input.clone();
+        let mut inner = frame(&[0], CallKind::DelegateCall, Some(i), 0);
+        inner.from = p;
+        inner.input = input;
+        let accounts = HashMap::from([(p, proxy(p, i)), (i, proxy(i, s))]);
+        let abis = HashMap::from([(i, imp), (s, lib)]);
+
+        assert_eq!(implementation_of(p, &accounts), Some(i));
+        assert_eq!(implementation_of(i, &accounts), None);
+        let d = decode_frames(
+            &row(vec![root, inner], &[]),
+            &HashMap::new(),
+            &abis,
+            &accounts,
+        );
+        for f in &d {
+            let call = f.call.as_ref().expect("transfer decoded");
+            assert_eq!(call.name, "transfer");
+            assert_eq!(call.args[0].name, "to");
+            assert_eq!(f.via_delegate, None);
+        }
+    }
+
+    #[test]
+    fn frames_fall_back_to_the_callees_own_abi() {
+        // The implementation's ABI lacks `admin`; the proxy's own ABI has it,
+        // and its custom error decodes the frame's revert.
+        let (p, q) = (Address::repeat_byte(0x50), Address::repeat_byte(0x51));
+        let own =
+            JsonAbi::parse(["function admin() returns (address)", "error NotAdmin()"]).unwrap();
+        let imp = JsonAbi::parse(["function foo(uint256 x)"]).unwrap();
+        let admin = own.functions().next().unwrap().selector().to_vec();
+        let not_admin = own.errors().next().unwrap().selector().to_vec();
+        let mut root = frame(&[], CallKind::Call, Some(p), 0);
+        root.input = Bytes::from(admin);
+        root.error = Some("Reverted".into());
+        root.output = Some(Bytes::from(not_admin));
+        let accounts = HashMap::from([(p, proxy(p, q))]);
+        let abis = HashMap::from([(p, own), (q, imp)]);
+
+        let d = decode_frames(&row(vec![root], &[]), &HashMap::new(), &abis, &accounts);
+        assert_eq!(d[0].call.as_ref().map(|c| c.name.as_str()), Some("admin"));
+        assert_eq!(
+            d[0].revert.as_ref().map(|e| e.name.as_str()),
+            Some("NotAdmin")
+        );
+        assert_eq!(d[0].via_delegate, None);
     }
 }

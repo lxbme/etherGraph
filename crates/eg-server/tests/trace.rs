@@ -13,12 +13,13 @@ use chrono::{TimeZone, Utc};
 use common::{default_user_id, gated_app_traced, get, get_as, second_user, send, test_app_traced};
 use eg_blockscout::parse_raw_trace;
 use eg_core::source::{CallFrame, CallKind, Priority};
+use eg_core::types::AccountKind;
 use eg_ingest::JobHandler;
 use eg_ingest::billing::billed;
 use eg_ingest::handlers::FetchTraceHandler;
 use eg_server::config::Config;
 use eg_server::state::AppState;
-use eg_store::{CallTraceRow, TxRow};
+use eg_store::{AccountRow, CallTraceRow, TxRow};
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
@@ -360,4 +361,73 @@ async fn revert_reason_is_decoded(pool: PgPool) {
     assert_eq!(f["revert"]["args"][0]["value"], "nope");
     assert!(f["output"].as_str().unwrap().starts_with("0x08c379a0"));
     assert!(frame_at(&v, &[])["revert"].is_null());
+}
+
+/// USDC's proxy, its implementation (FiatTokenV2_2) and the library Etherscan
+/// records as that implementation's own "implementation" (SignatureChecker).
+const USDC: Address = address!("a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
+const FIAT_TOKEN: Address = address!("43506849d7c04f9138d1a2050bbf3a0c054402dd");
+const SIGNATURE_CHECKER: Address = address!("800c32eaa2a6c93cf4cb51794450ed77fbfbb172");
+
+const FIAT_TOKEN_PROXY_ABI: &str = r#"[{"type":"function","name":"admin","stateMutability":"view",
+  "inputs":[],"outputs":[{"name":"","type":"address"}]}]"#;
+const FIAT_TOKEN_ABI: &str = r#"[{"type":"function","name":"transfer","stateMutability":"nonpayable",
+  "inputs":[{"name":"to","type":"address"},{"name":"value","type":"uint256"}],
+  "outputs":[{"name":"","type":"bool"}]}]"#;
+const SIGNATURE_CHECKER_ABI: &str = r#"[{"type":"function","name":"isValidSignatureNow","stateMutability":"view",
+  "inputs":[{"name":"signer","type":"address"},{"name":"digest","type":"bytes32"},
+            {"name":"signature","type":"bytes"}],
+  "outputs":[{"name":"","type":"bool"}]}]"#;
+
+fn proxy_account(address: Address, implementation: Address) -> AccountRow {
+    AccountRow {
+        address,
+        kind: AccountKind::Contract,
+        contract_name: None,
+        is_proxy: true,
+        implementation: Some(implementation),
+        creator: None,
+        creation_tx: None,
+        meta_fetched_at: Utc::now(),
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn delegatecall_into_usdcs_implementation_decodes_as_transfer(pool: PgPool) {
+    let (app, state, _, _) = test_app_traced(pool).await;
+    // transfer(0x77…77, 1_000_000)
+    let mut input = vec![0xa9, 0x05, 0x9c, 0xbb];
+    input.extend_from_slice(&[0; 12]);
+    input.extend_from_slice(Address::repeat_byte(0x77).as_slice());
+    input.extend_from_slice(&U256::from(1_000_000u64).to_be_bytes::<32>());
+    let mut root = frame(&[], CallKind::Call, USDC, 1);
+    root.input = Bytes::from(input.clone());
+    let mut inner = frame(&[0], CallKind::DelegateCall, FIAT_TOKEN, 0);
+    inner.from = USDC;
+    inner.input = Bytes::from(input);
+    cache(&state, SYNTH, vec![root, inner], &[]).await;
+    state
+        .store
+        .upsert_accounts(&[
+            proxy_account(USDC, FIAT_TOKEN),
+            proxy_account(FIAT_TOKEN, SIGNATURE_CHECKER),
+        ])
+        .await
+        .unwrap();
+    for (addr, abi) in [
+        (USDC, FIAT_TOKEN_PROXY_ABI),
+        (FIAT_TOKEN, FIAT_TOKEN_ABI),
+        (SIGNATURE_CHECKER, SIGNATURE_CHECKER_ABI),
+    ] {
+        state.store.upsert_abi(addr, Some(abi)).await.unwrap();
+    }
+
+    let (st, v) = get(&app, &format!("/api/tx/{SYNTH:#x}/trace")).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    for path in [&[][..], &[0]] {
+        let f = frame_at(&v, path);
+        assert_eq!(f["call"]["name"], "transfer", "{f}");
+        assert_eq!(f["call"]["args"][1]["value"], "1000000", "{f}");
+        assert!(f["via_delegate"].is_null(), "{f}");
+    }
 }
