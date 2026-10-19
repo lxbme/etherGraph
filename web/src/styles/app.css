@@ -570,11 +570,11 @@ a.btn { text-decoration: none; }
   touch-action: none;
 }
 .split__handle:hover, .split__handle:focus-visible { background: var(--accent); outline: none; }
-.split__bottom { flex: none; min-height: var(--h-pane-min); max-height: calc(100% - var(--h-pane-min)); overflow: auto; background: var(--bg); }
+.split__bottom { flex: none; min-height: var(--h-pane-min); max-height: calc(100% - var(--h-pane-min) - var(--sp-2)); overflow: auto; background: var(--bg); }
 
 /* Main pane beside a width-resizable side column (shell/ResizableSide). */
 .rside { flex: 1; min-height: 0; display: flex; }
-.rside__main { flex: 1; min-width: 0; display: flex; }
+.rside__main { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .rside__main > * { flex: 1; }
 .rside__handle {
   flex: none;
@@ -1016,6 +1016,14 @@ a.btn { text-decoration: none; }
 .txview__tag { padding: 0 var(--sp-2); font-size: var(--fs-11); color: var(--fg-muted); border: 1px solid var(--line); border-radius: var(--radius); }
 .txview__banner { padding: var(--sp-2) var(--sp-3); font-size: var(--fs-12); color: var(--fg-muted); background: var(--bg); border-bottom: 1px solid var(--line); }
 .txview__split { min-height: 0; }
+/*
+ * The view above the detail panel gives way to the separator: the graphs shrink (on a tiny window down to
+ * nothing) and the pane clips, so neither ever spills over the separator or the detail tabs.
+ */
+.txview__split > .split__top { overflow: hidden; }
+.txview__split .txview__graph,
+.txview__split .calltree,
+.txview__split .calltree__state { min-height: 0; }
 .txview__stage { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .txview__graph { flex: 1; min-height: var(--h-graph-min); position: relative; }
 /* The asset flow | call tree switch above the graph; the flow canvas stays mounted (hidden) under the call tree. */

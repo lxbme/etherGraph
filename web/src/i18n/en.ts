@@ -64,6 +64,7 @@ export const en = {
   "jobs.groupJobs": { one: "{count} job", other: "{count} jobs" },
   "split.resize": "Resize the details table",
   "split.resizeColumn": "Resize column",
+  "split.resizeTxDetail": "Resize the details panel height",
   "panel.resize": "Resize the details panel",
   "status.idle": "No active jobs",
   "status.live": "Live",

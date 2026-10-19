@@ -231,9 +231,9 @@ describe("call-graph positions", () => {
 
   test("call_positions_round_trip", async () => {
     useTabs.setState({ tabs: [{ id: "graph" }, txTab(H1, { view: "calls" }), txTab(H2)], active: H1 });
-    // The live call canvas wins over what the tab last stored.
-    useTabs.getState().setCallLayout(H1, { [A]: { x: 0, y: 0 } });
-    vi.mocked(getCallCy).mockImplementation((h) => (h === H1 ? canvas(CALLS, VP) : null));
+    // What a drag stored on the tab is saved (drag end stores every node's position).
+    useTabs.getState().setCallLayout(H1, CALLS);
+    vi.mocked(getCallCy).mockImplementation((h) => (h === H1 ? canvas({ [A]: { x: 0, y: 0 } }, VP) : null));
     const saved = json(captureState());
     expect(saved.tabs).toEqual([{ hash: H1, view: "calls", call_positions: CALLS }, { hash: H2 }]);
     expect(deserialize(saved, 2)).toEqual({ ok: true, state: saved });
@@ -267,6 +267,16 @@ describe("call-graph positions", () => {
     expect(tab).toMatchObject({ hash: H1, view: "calls", layout: { positions: CALLS } });
     expect(tab).not.toHaveProperty("callLayout");
     expect(captureState().tabs).toEqual([{ hash: H1, view: "calls", positions: CALLS }]);
+  });
+
+  test("a_call_graph_nobody_dragged_saves_no_call_positions", () => {
+    useTabs.setState({ tabs: [{ id: "graph" }, txTab(H1, { view: "calls" })], active: H1 });
+    // The call canvas is drawn (dagre placed every node) but no node was dragged: nothing is pinned.
+    vi.mocked(getCallCy).mockReturnValue(canvas(CALLS, VP));
+    expect(captureState().tabs).toEqual([{ hash: H1, view: "calls" }]);
+    // After a drag the tab holds the positions and they are saved.
+    useTabs.getState().setCallLayout(H1, CALLS);
+    expect(captureState().tabs).toEqual([{ hash: H1, view: "calls", call_positions: CALLS }]);
   });
 
   test("captured_from_tab_state_when_the_call_view_is_not_mounted", () => {

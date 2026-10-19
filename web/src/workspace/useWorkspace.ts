@@ -6,7 +6,7 @@ import { ApiError, messageFor } from "../api/errors";
 import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
 import type { JsonValue } from "../api/generated/serde_json/JsonValue";
 import { t } from "../i18n";
-import { getCallCy, getMainCy, getTxCy } from "../graph/cyRegistry";
+import { getMainCy, getTxCy } from "../graph/cyRegistry";
 import { isMoreId } from "../graph/elements";
 import { restoreViewport } from "../graph/refit";
 import { pairKey, useGraph, type NodeUi, type Pos } from "../graph/store";
@@ -127,7 +127,7 @@ export function livePositions(cy: cytoscape.Core | null): Record<string, Pos> | 
 /**
  * A tx tab with its canvas's node positions and viewport; a canvas not showing the flow yet keeps the
  * layout the tab was restored with, and one without a size (laid out while hidden) its saved viewport.
- * The call graph's positions come from its canvas while it is drawn, else from the tab (stored on each drag).
+ * The call graph's positions are the ones its last drag stored on the tab (none until a node is dragged).
  */
 function captureTab(tab: TxTab): TxTabStateV2 {
   let { positions, viewport } = tab.layout ?? {};
@@ -137,7 +137,8 @@ function captureTab(tab: TxTab): TxTabStateV2 {
     positions = live;
     if (cy.width() > 0 && cy.height() > 0) viewport = { zoom: cy.zoom(), pan: { ...cy.pan() } };
   }
-  const calls = livePositions(getCallCy(tab.hash)) ?? tab.callLayout?.positions;
+  // Only what a drag stored: live dagre positions would pin nodes nobody placed once the workspace is reopened.
+  const calls = tab.callLayout?.positions;
   return {
     hash: tab.hash,
     ...(tab.view === "calls" ? { view: tab.view } : {}),

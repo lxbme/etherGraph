@@ -66,6 +66,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "jobs.groupJobs": { one: "{count} 个任务", other: "{count} 个任务" },
   "split.resize": "调整明细表高度",
   "split.resizeColumn": "调整栏宽",
+  "split.resizeTxDetail": "调整详情面板高度",
   "panel.resize": "调整详情栏宽度",
   "status.idle": "无进行中的任务",
   "status.live": "实时",

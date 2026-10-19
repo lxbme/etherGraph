@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 
 import { useT } from "../i18n";
 
@@ -22,7 +22,11 @@ function save(key: string, w: number) {
   }
 }
 
-/** A main pane beside a width-resizable side column; the side width is remembered under `storageKey`. */
+/**
+ * A main pane beside a width-resizable side column; the side width is remembered under `storageKey`.
+ * The chosen width is kept as is and only shown clamped to the container, so a window shrunk and grown
+ * back returns to it.
+ */
 export function ResizableSide({
   main,
   side,
@@ -44,47 +48,47 @@ export function ResizableSide({
   const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const handleRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState<number | null>(() => load(storageKey, minSide));
+  const sideRef = useRef<HTMLDivElement>(null);
+  const [preferred, setPreferred] = useState<number | null>(() => load(storageKey, minSide));
+  // The container's width less the separator's (0 until measured: nothing is clamped yet).
+  const [room, setRoom] = useState(0);
   const dragging = useRef(false);
-  const latest = useRef<number | null>(width);
+  const latest = useRef<number | null>(preferred);
 
-  const clamp = useCallback(
-    (w: number) => {
-      const total = ref.current?.getBoundingClientRect().width ?? 0;
-      const grip = handleRef.current?.offsetWidth ?? 0;
-      const max = total > 0 ? Math.max(minSide, total - minMain - grip) : Infinity;
-      return Math.min(Math.max(w, minSide), max);
-    },
-    [minSide, minMain],
-  );
+  const clampTo = (w: number, space: number) => {
+    const max = space > 0 ? Math.max(minSide, space - minMain) : Infinity;
+    return Math.min(Math.max(w, minSide), max);
+  };
+  const measure = () => {
+    const total = ref.current?.getBoundingClientRect().width ?? 0;
+    return total > 0 ? total - (handleRef.current?.offsetWidth ?? 0) : 0;
+  };
+  const shown = preferred != null ? clampTo(preferred, room) : null;
 
-  // A width remembered on a bigger window is pulled back now and whenever the container changes size.
+  // Measured now and whenever the container changes size; only the shown width follows, the chosen one stays.
   useLayoutEffect(() => {
-    const apply = () => {
-      if (latest.current == null) return;
-      const c = clamp(latest.current);
-      if (c === latest.current) return;
-      latest.current = c;
-      setWidth(c);
-    };
+    const apply = () => setRoom(measure());
     apply();
     if (typeof ResizeObserver === "undefined" || !ref.current) return;
     const ro = new ResizeObserver(apply);
     ro.observe(ref.current);
     return () => ro.disconnect();
-  }, [clamp]);
+  }, []);
 
+  const choose = (w: number) => {
+    latest.current = w;
+    setPreferred(w);
+  };
   const onPointerDown = (e: PointerEvent) => {
     dragging.current = true;
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const onPointerMove = (e: PointerEvent) => {
     if (!dragging.current || !ref.current) return;
-    const w = clamp(ref.current.getBoundingClientRect().right - e.clientX);
-    latest.current = w;
-    setWidth(w);
+    choose(clampTo(ref.current.getBoundingClientRect().right - e.clientX, measure()));
   };
-  const onPointerUp = () => {
+  // Released, cancelled (touch scroll, system gesture) or capture lost: the drag ends where it is.
+  const endDrag = () => {
     if (!dragging.current) return;
     dragging.current = false;
     if (latest.current != null) save(storageKey, latest.current);
@@ -92,10 +96,9 @@ export function ResizableSide({
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
     e.preventDefault();
-    const cur = latest.current ?? e.currentTarget.nextElementSibling?.getBoundingClientRect().width ?? minSide;
-    const next = clamp(cur + (e.key === "ArrowLeft" ? STEP : -STEP));
-    latest.current = next;
-    setWidth(next);
+    const cur = shown ?? sideRef.current?.getBoundingClientRect().width ?? minSide;
+    const next = clampTo(cur + (e.key === "ArrowLeft" ? STEP : -STEP), measure());
+    choose(next);
     save(storageKey, next);
   };
 
@@ -111,12 +114,15 @@ export function ResizableSide({
         tabIndex={0}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onLostPointerCapture={endDrag}
         onKeyDown={onKeyDown}
       />
       <div
         className="rside__side"
-        style={{ width: width != null ? `${width}px` : typeof defaultWidth === "number" ? `${defaultWidth}px` : defaultWidth, minWidth: minSide, maxWidth: `calc(100% - ${minMain}px)` }}
+        ref={sideRef}
+        style={{ width: shown != null ? `${shown}px` : typeof defaultWidth === "number" ? `${defaultWidth}px` : defaultWidth, minWidth: minSide, maxWidth: `calc(100% - ${minMain}px)` }}
       >
         {side}
       </div>
