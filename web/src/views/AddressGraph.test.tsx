@@ -559,6 +559,70 @@ describe("+N more proxy", () => {
     await waitFor(() => expect(ids()).not.toContain(`more:${A}`));
   });
 
+  describe("a restored (dragged) proxy position", () => {
+    const P = { x: 321, y: -45 };
+    const proxyAt = () => props().elements.find((e) => e.data.id === `more:${A}`)?.position;
+    /** The graph request stays pending until `release` is called with its result. */
+    const pending = () => {
+      let release!: (d: GraphResponseDto) => void;
+      vi.mocked(api.graphEdges).mockImplementation(() => new Promise((r) => { release = r; }));
+      return (d: GraphResponseDto) => act(() => release(d));
+    };
+
+    test("survives while the query has no result, and stays when the result shows its proxy", async () => {
+      const release = pending();
+      useGraph.getState().addCenter(A);
+      useGraph.setState({ proxyPos: { [A]: P } });
+      mount();
+      await waitFor(() => expect(api.graphEdges).toHaveBeenCalled());
+      expect(props().elements).toEqual([]);
+      expect(useGraph.getState().proxyPos).toEqual({ [A]: P });
+      await release(withOmitted(12));
+      await waitFor(() => expect(proxyAt()).toEqual(P));
+      expect(useGraph.getState().proxyPos).toEqual({ [A]: P });
+    });
+
+    test("is dropped once the result for the current key has no proxy for its center", async () => {
+      const release = pending();
+      useGraph.getState().addCenter(A);
+      useGraph.setState({ proxyPos: { [A]: P } });
+      mount();
+      await waitFor(() => expect(api.graphEdges).toHaveBeenCalled());
+      await release(data);
+      await waitFor(() => expect(ids()).toContain(A));
+      expect(useGraph.getState().proxyPos).toEqual({});
+    });
+
+    test("survives the previous key's result shown while the opened workspace's graph loads", async () => {
+      await mountWithData();
+      expect(ids()).not.toContain(`more:${A}`);
+      const release = pending();
+      act(() =>
+        useGraph.getState().loadSnapshot({
+          centers: [A], filter: {}, sort: "recent", expandedPairs: [], ui: {}, proxyPos: { [A]: P },
+        }),
+      );
+      await waitFor(() => expect(vi.mocked(api.graphEdges).mock.calls.length).toBe(2));
+      // The previous result (no proxy) is still on the canvas.
+      expect(ids()).toContain(A);
+      expect(ids()).not.toContain(`more:${A}`);
+      expect(useGraph.getState().proxyPos).toEqual({ [A]: P });
+      await release(withOmitted(12));
+      await waitFor(() => expect(proxyAt()).toEqual(P));
+      expect(useGraph.getState().proxyPos).toEqual({ [A]: P });
+    });
+
+    test("is dropped when every center is removed", async () => {
+      vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
+      await mountWithData();
+      act(() => useGraph.setState({ proxyPos: { [A]: P } }));
+      await waitFor(() => expect(proxyAt()).toEqual(P));
+      act(() => useGraph.getState().setCenters([]));
+      expect(props().elements).toEqual([]);
+      expect(useGraph.getState().proxyPos).toEqual({});
+    });
+  });
+
   test("taps on the proxy edge neither select nor expand a pair", async () => {
     vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
     await mountWithData();

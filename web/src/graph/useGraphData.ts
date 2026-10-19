@@ -44,8 +44,9 @@ const NO_ADDRS: string[] = [];
 /**
  * Edges around the current centers. No request while there are no centers; keeps the previous result while a new key loads.
  * A snapshot (frozen) graph is the file's data with no graph request, its nodes carrying the receiver's live identities.
+ * `isPlaceholderData`: `data` is the previous key's result standing in while the current key loads.
  */
-export function useGraphData(): { data?: GraphResponseDto; isFetching: boolean; error: unknown } {
+export function useGraphData(): { data?: GraphResponseDto; isFetching: boolean; error: unknown; isPlaceholderData: boolean } {
   const centers = useGraph((s) => s.centers);
   const filter = useGraph((s) => s.filter);
   const sort = useGraph((s) => s.sort);
@@ -77,6 +78,6 @@ export function useGraphData(): { data?: GraphResponseDto; isFetching: boolean; 
     if (frozen) merge(frozen.data.edges);
     else if (q.data) merge(q.data.edges);
   }, [frozen, q.data, merge]);
-  if (frozenData) return { data: frozenData, isFetching: false, error: null };
-  return { data: enabled ? q.data : undefined, isFetching: q.isFetching, error: q.error };
+  if (frozenData) return { data: frozenData, isFetching: false, error: null, isPlaceholderData: false };
+  return { data: enabled ? q.data : undefined, isFetching: q.isFetching, error: q.error, isPlaceholderData: enabled && q.isPlaceholderData };
 }

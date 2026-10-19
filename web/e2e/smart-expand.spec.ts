@@ -213,3 +213,38 @@ test("the +N more node can be dragged without revealing, and stays where it was 
   expect(await modelPos(page, proxy)).toEqual(dropped);
   expect(mock.unhandled).toEqual([]);
 });
+
+test("a dragged +N more node is saved with the workspace and returns to where it was dropped on open", async ({ page, mock }) => {
+  await openBig(page, mock);
+  const proxy = `more:${W}`;
+  // Let the first layout's glide (ANIMATION_MS) finish before grabbing: a running glide would carry the node on.
+  await page.waitForTimeout(900);
+  const last = await modelPos(page, proxy);
+  const from = await nodeScreenPos(page, proxy);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 90, from.y + 70, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await modelPos(page, proxy)).x).not.toBe(last.x);
+  const dropped = await modelPos(page, proxy);
+
+  await page.getByRole("button", { name: "Workspace menu" }).click();
+  await page.getByRole("menuitem", { name: "Save", exact: true }).click();
+  await page.getByRole("textbox", { name: "Workspace name" }).fill("big wallet");
+  await page.getByRole("button", { name: "OK", exact: true }).click();
+  await expect(page.getByText("Workspace: Saved")).toBeVisible();
+  const body = mock.requests("POST /api/workspaces")[0]!.postDataJSON() as {
+    state: { graph: { proxies?: Record<string, { x: number; y: number }> } };
+  };
+  const saved = body.state.graph.proxies?.[W];
+  expect(saved && { x: Math.round(saved.x), y: Math.round(saved.y) }).toEqual(dropped);
+
+  // A fresh page: the graph query has no result yet when the workspace is opened.
+  await page.goto("/?e2e=1");
+  await page.getByRole("button", { name: "Workspace menu" }).click();
+  await page.getByRole("menuitem", { name: "Open…" }).click();
+  await page.getByRole("dialog", { name: "Open workspace" }).getByRole("button", { name: "big wallet", exact: true }).click();
+  // The proxy appears once the graph result arrives (`modelPos` needs it on the canvas).
+  await expect.poll(async () => ((await canvas(page)).more.length > 0 ? modelPos(page, proxy) : null)).toEqual(dropped);
+  expect(mock.unhandled).toEqual([]);
+});

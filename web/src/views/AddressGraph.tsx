@@ -50,13 +50,18 @@ const lc = (s: string) => s.toLowerCase();
 
 /** The address relationship canvas: store + graph data → Cytoscape, and interactions back into the store/API. */
 export function AddressGraph() {
-  const { data: fresh, isFetching, error } = useGraphData();
+  const { data: fresh, isFetching, error, isPlaceholderData } = useGraphData();
   const centers = useGraph((s) => s.centers);
   // A failed query (e.g. after a filter change) keeps showing the last good result; the error is shown inline.
   const lastGood = useRef<GraphResponseDto | undefined>(undefined);
   if (fresh) lastGood.current = fresh;
   else if (centers.length === 0) lastGood.current = undefined;
   const data = fresh ?? (error != null ? lastGood.current : undefined);
+  /**
+   * The canvas shows the current result (or, with no centers, nothing at all): not a pending query, the previous
+   * key's result while the current one loads, or the last good one after an error.
+   */
+  const current = centers.length === 0 || (fresh !== undefined && !isPlaceholderData);
   const expandedPairs = useGraph((s) => s.expandedPairs);
   const ui = useGraph((s) => s.ui);
   const proxyPos = useGraph((s) => s.proxyPos);
@@ -194,9 +199,11 @@ export function AddressGraph() {
     const visible = elements.filter((e) => e.group === "nodes" && !String(e.classes ?? "").split(" ").includes("more")).length;
     useCanvasMetrics.getState().set({ visible });
     // A proxy that left the canvas (everything revealed, center gone) is placed afresh if it comes back.
+    // Only the current result decides: positions restored with a workspace wait for it.
+    if (!current) return;
     const proxied = elements.filter((e) => e.group === "nodes" && isMoreId(String(e.data.id))).map((e) => String(e.data.center));
     useGraph.getState().pruneProxyPositions(proxied);
-  }, [elements]);
+  }, [elements, current]);
 
   const onReady = (cy: cytoscape.Core) => {
     cyRef.current = cy;

@@ -57,12 +57,16 @@ test("keeps the previous data while a new key loads, and drops it when centers e
   const { result } = renderHook(() => useGraphData(), { wrapper });
   act(() => useGraph.getState().addCenter(A));
   await waitFor(() => expect(result.current.data).toEqual(resp(A)));
+  expect(result.current.isPlaceholderData).toBe(false);
 
   act(() => useGraph.getState().addCenter(B));
   await waitFor(() => expect(result.current.isFetching).toBe(true));
   expect(result.current.data).toEqual(resp(A));
+  // The previous key's result stands in until the new one arrives.
+  expect(result.current.isPlaceholderData).toBe(true);
   act(() => release());
   await waitFor(() => expect(result.current.data).toEqual(resp(B)));
+  expect(result.current.isPlaceholderData).toBe(false);
 
   act(() => useGraph.getState().setCenters([]));
   expect(result.current.data).toBeUndefined();
@@ -164,6 +168,7 @@ describe("a frozen (snapshot) graph", () => {
     expect(nodes).toHaveBeenCalledWith([A, B]);
     expect(edges).not.toHaveBeenCalled();
     expect(result.current.isFetching).toBe(false);
+    expect(result.current.isPlaceholderData).toBe(false);
   });
 
   test("refresh (unfreeze) runs the normal graph query", async () => {
