@@ -106,6 +106,7 @@ describe("formatFull", () => {
     expect(formatFull("1500000", 6)).toBe("1.5");
     expect(formatFull("5000000", 6)).toBe("5");
     expect(formatFull("1", 18)).toBe("0.000000000000000001");
+    expect(formatFull(MAX, 18)).toBe("115,792,089,237,316,195,423,570,985,008,687,907,853,269,984,665,640,564,039,457.584007913129639935");
   });
   test("unknown or zero decimals show the raw integer", () => {
     expect(formatFull("1234567", null)).toBe("1,234,567");

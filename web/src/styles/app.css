@@ -1130,7 +1130,7 @@ a.btn { text-decoration: none; }
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--sp-2) var(--sp-4);
+  gap: var(--sp-1) var(--sp-4);
   padding: var(--sp-2) var(--sp-3);
   background: var(--bg);
   border-bottom: 1px solid var(--line);
@@ -1141,10 +1141,24 @@ a.btn { text-decoration: none; }
 .txbar__arrow { flex: none; color: var(--fg-muted); }
 .txbar__item { color: var(--fg-muted); }
 .txbar__item .num { color: var(--fg); }
-/* Token transfer lines flow in the bar's own wrapping row (no extra height when they fit); a line wraps instead of overflowing, scam ones recede. */
-.txbar__transfers { display: contents; }
-.txbar__transfer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+/*
+ * Token transfers take at most one line: they share the bar's last row when there is room (the basis is small and the
+ * row shrinks to what is left), otherwise they wrap to a row of their own. Nothing in it wraps; long values truncate
+ * (full value in the title), and short or narrow viewports show only the first transfer.
+ */
+.txbar__transfers { display: flex; flex: 1 1 9rem; align-items: center; gap: var(--sp-2); min-width: 0; overflow: hidden; white-space: nowrap; }
+.txbar__transfer { display: flex; flex: 0 1 auto; align-items: center; gap: var(--sp-2); min-width: 0; overflow: hidden; }
+.txbar__transfer > * { flex: none; }
+.txbar__transfer > .txbar__amt { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .txbar__transfer--muted { opacity: 0.7; }
+.txbar__more { flex: none; }
+/* Compact controls keep the line as tall as the bar's text, so the transfers never add height to a row they share. */
+.txbar__transfers .btn, .txbar__transfers .tag { height: auto; min-height: 0; padding-block: 0; }
+.txbar__more--narrow { display: none; }
+@media (max-width: 900px), (max-height: 640px) {
+  .txbar__transfer--second, .txbar__more--wide { display: none; }
+  .txbar__more--narrow { display: inline-flex; }
+}
 
 /*
  * Detail tabs under the flow graph (views/txdetail/TxDetailTabs): a height the user sets (ResizableSplit), so switching

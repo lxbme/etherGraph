@@ -26,7 +26,7 @@ function headlineTransfers(flows: readonly FlowDto[]): FlowDto[] {
     .sort((a, b) => key(a) - key(b));
 }
 
-function TransferLine({ flow, f }: { flow: TxFlowDto; f: FlowDto }) {
+function TransferLine({ flow, f, second }: { flow: TxFlowDto; f: FlowDto; second: boolean }) {
   const t = useT();
   const symbol = f.symbol ?? (f.asset ? shortAddr(f.asset) : "");
   const nft = f.token_id !== null && (f.kind === "erc721" || f.kind === "erc1155");
@@ -34,17 +34,22 @@ function TransferLine({ flow, f }: { flow: TxFlowDto; f: FlowDto }) {
   // Exact amount, never the table's fixed-decimals rounding; an ERC-1155 quantity above one leads its token id.
   const quantity = nft && f.kind === "erc1155" && f.amount !== "1" ? `${formatFixed(f.amount, 0, "nft").text} × ` : "";
   const muted = trustFlag(f.trust) !== null;
+  const cls = ["txbar__transfer", muted && "txbar__transfer--muted", second && "txbar__transfer--second"].filter(Boolean).join(" ");
+  const label = nft ? `${quantity}${symbol} #${f.token_id}` : symbol;
   return (
-    <div className={muted ? "txbar__transfer txbar__transfer--muted" : "txbar__transfer"} data-testid="tx-summary-transfer">
+    <div className={cls} data-testid="tx-summary-transfer">
       <span className="txbar__method">{t("tx.summary.transfer")}</span>
-      {full !== null && <span className="num" title={full}>{full}</span>}
-      {f.asset ? (
-        <AssetButton tab={flow.tx.hash.toLowerCase()} asset={f.asset.toLowerCase()} tokenId={f.token_id} kind={f.kind} title={f.asset}>
-          {nft ? `${quantity}${symbol} #${f.token_id}` : symbol}
-        </AssetButton>
-      ) : (
-        <span>{symbol}</span>
-      )}
+      {/* One line only: a long amount or symbol truncates here, its full value in the title. */}
+      <span className="txbar__amt" title={full !== null ? `${full} ${label}` : label}>
+        {full !== null && <span className="num" title={full}>{full}</span>}
+        {f.asset ? (
+          <AssetButton tab={flow.tx.hash.toLowerCase()} asset={f.asset.toLowerCase()} tokenId={f.token_id} kind={f.kind} title={f.asset}>
+            {label}
+          </AssetButton>
+        ) : (
+          <span>{symbol}</span>
+        )}
+      </span>
       <TrustBadge trust={f.trust} />
       <ArrowRight size={14} className="txbar__arrow" />
       <AddressCell address={f.to} node={nodeOf(flow, f.to)} />
@@ -61,6 +66,7 @@ export function TxSummaryBar({ flow }: { flow: TxFlowDto }) {
   const name = call?.name ?? tx.method;
   // A creation points at the contract it deployed, when known (a reverted one deployed nothing).
   const transfers = headlineTransfers(flow.flows);
+  const openTransfers = () => useTabs.getState().setDetailTab(tx.hash.toLowerCase(), "transfers");
   const to = tx.to ?? (tx.success ? flow.detail.contract_created : null);
   return (
     <div className="txbar" data-testid="tx-summary-bar">
@@ -89,11 +95,17 @@ export function TxSummaryBar({ flow }: { flow: TxFlowDto }) {
       {transfers.length > 0 && (
         <div className="txbar__transfers">
           {transfers.slice(0, SHOWN).map((f, i) => (
-            <TransferLine key={`${f.seq}-${i}`} flow={flow} f={f} />
+            <TransferLine key={`${f.seq}-${i}`} flow={flow} f={f} second={i > 0} />
           ))}
+          {/* Narrow or short viewports show one line (the CSS hides the second), so the count differs there. */}
           {transfers.length > SHOWN && (
-            <button type="button" className="btn btn--ghost btn--compact" onClick={() => useTabs.getState().setDetailTab(tx.hash.toLowerCase(), "transfers")}>
+            <button type="button" className="btn btn--ghost btn--compact txbar__more txbar__more--wide" onClick={openTransfers}>
               {t("tx.summary.more", { count: transfers.length - SHOWN })}
+            </button>
+          )}
+          {transfers.length > 1 && (
+            <button type="button" className="btn btn--ghost btn--compact txbar__more txbar__more--narrow" onClick={openTransfers}>
+              {t("tx.summary.more", { count: transfers.length - 1 })}
             </button>
           )}
         </div>
