@@ -240,7 +240,7 @@ describe("WorkspaceMenu", () => {
     m.deleteWorkspace.mockResolvedValue(undefined);
     render(<WorkspaceMenu />);
     await pick("Open…");
-    const updated = await screen.findByText("2026-01-01 00:00:00");
+    const updated = await screen.findByText("2026-01-01 00:00:00 UTC");
     expect(updated).toHaveAttribute("title", formatLocalTime("2026-01-01T00:00:00Z"));
     await userEvent.click(await screen.findByRole("button", { name: "Delete old" }));
     expect(m.deleteWorkspace).not.toHaveBeenCalled();

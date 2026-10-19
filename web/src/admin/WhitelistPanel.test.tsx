@@ -52,7 +52,7 @@ test("lists the whitelist", async () => {
   stubAdminApi();
   renderPanel();
   const row = (await screen.findByText(USER)).closest("tr")!;
-  expect(within(row).getByText("2026-10-02 07:00:00")).toBeInTheDocument();
+  expect(within(row).getByText("2026-10-02 07:00:00 UTC")).toBeInTheDocument();
 });
 
 test("adding an address signs WhitelistAdd for it", async () => {

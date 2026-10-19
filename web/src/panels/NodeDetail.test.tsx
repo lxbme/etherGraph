@@ -78,7 +78,7 @@ test("follows the spec hierarchy: kind, address with copy, tags, key/value grid,
   expect(kv).toHaveClass("kv");
   const keys = [...kv.querySelectorAll("dt")].map((d) => d.textContent);
   expect(keys.slice(0, 5)).toEqual(["Transactions", "First seen", "Last active", "Neighbours", "Coverage"]);
-  const last = within(kv).getByText("2026-10-16 04:11:07");
+  const last = within(kv).getByText("2026-10-16 04:11:07 UTC");
   expect(last).toHaveAttribute("title", formatLocalTime("2026-10-16T04:11:07Z"));
   expect(within(kv).getByText("1 / 5")).toBeInTheDocument();
   // No balance row until the node has been probed.

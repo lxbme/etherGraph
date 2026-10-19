@@ -248,9 +248,9 @@ test("times render in UTC with the local time as title", async () => {
   vi.spyOn(api, "transfers").mockResolvedValue({ items: [tr({ ts: "2026-10-16T04:11:07Z" })], next_cursor: null });
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderTable();
-  const cell = await screen.findByText("2026-10-16 04:11:07");
+  const cell = await screen.findByText("2026-10-16 04:11:07 UTC");
   expect(cell).toHaveAttribute("title", formatLocalTime("2026-10-16T04:11:07Z"));
-  expect(screen.getByRole("columnheader", { name: "Time (UTC)" })).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "Time" })).toBeInTheDocument();
 });
 
 test("the type column uses the same labels as the kind filter", async () => {

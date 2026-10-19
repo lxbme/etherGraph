@@ -98,7 +98,7 @@ export function nodeTooltip(
       at
         ? {
             label: t("tooltip.sync"),
-            value: t("tooltip.synced", { time: `${formatTime(at)} UTC` }),
+            value: t("tooltip.synced", { time: formatTime(at) }),
             sub: t("tooltip.localTime", { time: formatLocalTime(at) }),
           }
         : { label: t("tooltip.sync"), value: t("tooltip.synced.noTime") },

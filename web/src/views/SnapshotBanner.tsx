@@ -1,13 +1,13 @@
 import { useGraph } from "../graph/store";
 import { useT } from "../i18n";
-import { formatLocalTime } from "../lib/format";
+import { formatLocalTime, formatTime } from "../lib/format";
 
 /** The bar above a snapshot (frozen) view's canvas: when the file was exported, and the way back to live data. */
 export function SnapshotBanner({ exportedAt, onRefresh }: { exportedAt: string; onRefresh: () => void }) {
   const t = useT();
   return (
     <div className="snapshot-banner" data-testid="snapshot-banner">
-      <span className="snapshot-banner__text">{t("snapshot.banner", { time: formatLocalTime(exportedAt) })}</span>
+      <span className="snapshot-banner__text" title={formatLocalTime(exportedAt)}>{t("snapshot.banner", { time: formatTime(exportedAt) })}</span>
       <button type="button" className="btn btn--compact" onClick={onRefresh}>
         {t("snapshot.refresh")}
       </button>

@@ -33,7 +33,7 @@ describe("nodeTooltip", () => {
     });
     expect(text(ls)).toContain("Synced to 2026-02-03 04:05:06");
     expect(text(ls)).toContain("Category CEX");
-    expect(ls.find((l) => l.value.startsWith("Synced"))?.sub).toMatch(/^local \d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/);
+    expect(ls.find((l) => l.value.startsWith("Synced"))?.sub).toMatch(/^local \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC([+-]\d+(:\d\d)?)?$/);
     expect(text(nodeTooltip(node({ synced: true }), {}))).toMatch(/Sync Synced$/);
     const two = nodeTooltip(node({ labels: [{ id: 1, text: "a", category: "cex", source: "user" }, { id: 2, text: "b", category: "defi", source: "user" }] }), {});
     expect(text(two)).toContain("Category CEX, DeFi");

@@ -1,3 +1,4 @@
+import { formatLocalTime } from "../lib/format";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { api } from "../api/endpoints";
@@ -114,7 +115,7 @@ test("pending shows loading and ready renders the summary bar, overview and bann
   expect(bar().getByText("swap")).toHaveAttribute("title", "swap(uint256,address)");
   expect(bar().getByText("Router")).toBeInTheDocument();
   expect(bar().getByText("0.001500 ETH")).toBeInTheDocument();
-  expect(bar().getByText("2026-01-01 00:00:00")).toBeInTheDocument();
+  expect(bar().getByText("2026-01-01 00:00:00 UTC")).toBeInTheDocument();
   // The detail tabs open on the overview.
   expect(detail().getByText("19000000")).toBeInTheDocument();
   expect(
@@ -628,10 +629,8 @@ describe("a snapshot tab (frozen)", () => {
     withSnapshot(null);
     renderView();
     await screen.findByTestId("tx-summary-bar");
-    const local = new Date("2026-10-01T12:00:00Z");
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const when = `${local.getFullYear()}-${pad(local.getMonth() + 1)}-${pad(local.getDate())} ${pad(local.getHours())}:${pad(local.getMinutes())}:${pad(local.getSeconds())}`;
-    expect(screen.getByText(`Snapshot from a file · exported ${when}`)).toBeInTheDocument();
+    const banner = screen.getByText("Snapshot from a file · exported 2026-10-01 12:00:00 UTC");
+    expect(banner).toHaveAttribute("title", formatLocalTime("2026-10-01T12:00:00Z"));
     // B's name comes from the receiver's own data.
     expect(await bar().findByText("Router")).toBeInTheDocument();
     expect(nodes).toHaveBeenCalledWith([A, B]);
