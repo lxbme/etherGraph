@@ -233,7 +233,7 @@ test("search_and_asset_filter_narrow_rows_without_unchecking", async () => {
   expect(box(100)).toBeChecked();
 });
 
-test("the asset filter lists genuine tokens first and flagged look-alikes last, each with its contract", async () => {
+test("the asset filter puts tokens on a token list first and every other token after, each with its contract", async () => {
   const REAL_USDT: Tok = { address: "0xdac17f958d2ee523a2206206994597c13d831ec7", symbol: "USDT", trust: { level: "listed", impersonates: null, reason: null } };
   const FAKE_USDC: Tok = {
     address: "0x" + "e".repeat(40),
@@ -241,17 +241,25 @@ test("the asset filter lists genuine tokens first and flagged look-alikes last, 
     trust: { level: "suspicious", impersonates: { address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", symbol: "USDC", name: "USD Coin" }, reason: null },
   };
   const ODD: Tok = { address: "0x" + "f".repeat(40), symbol: "ABC", trust: { level: "unknown", impersonates: null, reason: null } };
-  world = { 1: [{ n: 100, token: true }, { n: 101, token: FAKE_USDC }, { n: 102, token: ODD }, { n: 103, token: REAL_USDT }, { n: 104 }] };
+  const SAME_NAME: Tok = { address: "0x" + "a".repeat(40), symbol: "USDT", trust: { level: "unknown", impersonates: null, reason: null } };
+  world = { 1: [{ n: 100, token: true }, { n: 101, token: FAKE_USDC }, { n: 102, token: ODD }, { n: 103, token: REAL_USDT }, { n: 104 }, { n: 105, token: SAME_NAME }] };
   newCenter(1);
   mount([1]);
   await waitFor(() => expect(box(104)).toBeInTheDocument());
   const select = screen.getByRole("combobox", { name: "Assets" });
   const text = (o: HTMLOptionElement) => o.textContent;
-  // The native coin and listed tokens, then unknown ones; the flagged ones in their own group at the end.
+  // Tokens on a token list (the native coin first), then every other token: unknown ones, then the flagged ones.
   const options = within(select).getAllByRole("option") as HTMLOptionElement[];
-  expect(options.map(text)).toEqual(["All assets", "ETH", "USDT · 0xdac1…1ec7", "ABC · 0xffff…ffff", "⚠ USDC · 0xeeee…eeee · Possible impersonation", "⚠ USDT · 0xdddd…dddd · Known scam"]);
-  const group = within(select).getByRole("group", { name: "Possible impersonations (2)" });
-  expect(within(group).getAllByRole("option").map((o) => (o as HTMLOptionElement).value)).toEqual([FAKE_USDC.address, TOKEN]);
+  expect(options.map(text)).toEqual([
+    "All assets", "ETH", "USDT · 0xdac1…1ec7",
+    "ABC · 0xffff…ffff", "USDT · 0xaaaa…aaaa",
+    "⚠ USDC · 0xeeee…eeee · Possible impersonation", "⚠ USDT · 0xdddd…dddd · Known scam",
+  ]);
+  const values = (name: string) =>
+    within(within(select).getByRole("group", { name })).getAllByRole("option").map((o) => (o as HTMLOptionElement).value);
+  expect(values("On token lists (2)")).toEqual(["native", REAL_USDT.address]);
+  expect(values("Other tokens (4)")).toEqual([ODD.address, SAME_NAME.address, FAKE_USDC.address, TOKEN]);
+  expect(within(select).queryByRole("group", { name: /Possible impersonations/ })).toBeNull();
   // Each picks only its own contract: the real USDT is not the fake one.
   fireEvent.change(select, { target: { value: REAL_USDT.address } });
   expect(screen.getAllByRole("checkbox")).toHaveLength(1);
@@ -259,6 +267,20 @@ test("the asset filter lists genuine tokens first and flagged look-alikes last, 
   fireEvent.change(select, { target: { value: TOKEN } });
   expect(screen.getAllByRole("checkbox")).toHaveLength(1);
   expect(box(100)).toBeInTheDocument();
+  fireEvent.change(select, { target: { value: SAME_NAME.address } });
+  expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+  expect(box(105)).toBeInTheDocument();
+});
+
+test("with no listed token among the neighbours the picker shows no empty listed group", async () => {
+  world = { 1: [{ n: 100, token: true }, { n: 101, token: true }] };
+  newCenter(1);
+  mount([1]);
+  await waitFor(() => expect(box(100)).toBeInTheDocument());
+  const select = screen.getByRole("combobox", { name: "Assets" });
+  expect(within(select).queryByRole("group", { name: /On token lists/ })).toBeNull();
+  const group = within(select).getByRole("group", { name: "Other tokens (1)" });
+  expect(within(group).getAllByRole("option").map((o) => (o as HTMLOptionElement).value)).toEqual([TOKEN]);
 });
 
 test("sort by recent reorders the rows; the graph's sort is the default", async () => {

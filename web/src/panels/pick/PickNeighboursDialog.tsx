@@ -11,7 +11,7 @@ import { useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
 import { newBatchId } from "../../lib/batchId";
 import { formatTime } from "../../lib/format";
-import { TRUST_MARK, TRUST_TIER, trustFlag, trustText } from "../../lib/trust";
+import { TRUST_MARK, TRUST_TIER, isListed, trustFlag, trustText } from "../../lib/trust";
 import { useJobProgress, useQuota } from "../../shell/statusStore";
 import { toast } from "../../shell/Toasts";
 import { offerUndo } from "../expand/expansion";
@@ -235,14 +235,16 @@ export function PickNeighboursDialog({
         }
       }
     }
-    // Like the graph's filter: genuine tokens first, flagged ones last; the native coin, then by symbol and contract.
-    return [...out.values()].sort(
-      (x, y) =>
-        TRUST_TIER[x.trust.level] - TRUST_TIER[y.trust.level] ||
-        (x.key === NATIVE ? -1 : y.key === NATIVE ? 1 : x.label.localeCompare(y.label) || x.key.localeCompare(y.key)),
-    );
+    return [...out.values()];
   }, [groups]);
-  const flaggedAssets = assets.filter((o) => trustFlag(o.trust));
+  // Tokens on a token list come first, the native coin leading; every other token after, unknown ones before flagged.
+  const bySymbol = (x: AssetOption, y: AssetOption) => x.label.localeCompare(y.label) || x.key.localeCompare(y.key);
+  const listedAssets = assets
+    .filter((o) => isListed(o.trust))
+    .sort((x, y) => (x.key === NATIVE ? -1 : y.key === NATIVE ? 1 : bySymbol(x, y)));
+  const otherAssets = assets
+    .filter((o) => !isListed(o.trust))
+    .sort((x, y) => TRUST_TIER[x.trust.level] - TRUST_TIER[y.trust.level] || bySymbol(x, y));
   /** A token's symbol with its contract, so look-alikes differ; flagged ones also say why. */
   const assetText = (o: AssetOption) => {
     const name = o.key === NATIVE || o.label === shortAddr(o.key) ? o.label : `${o.label} · ${shortAddr(o.key)}`;
@@ -470,8 +472,8 @@ export function PickNeighboursDialog({
         />
         <select className="input input--compact" aria-label={t("filter.assets")} value={asset} onChange={(e) => setAsset(e.target.value)}>
           <option value={ALL}>{t("pick.assetAll")}</option>
-          {assets.filter((o) => !trustFlag(o.trust)).map(assetOption)}
-          {flaggedAssets.length > 0 && <optgroup label={t("filter.impersonations", { count: flaggedAssets.length })}>{flaggedAssets.map(assetOption)}</optgroup>}
+          {listedAssets.length > 0 && <optgroup label={t("filter.listedTokens", { count: listedAssets.length })}>{listedAssets.map(assetOption)}</optgroup>}
+          {otherAssets.length > 0 && <optgroup label={t("filter.otherTokens", { count: otherAssets.length })}>{otherAssets.map(assetOption)}</optgroup>}
         </select>
         <select className="input input--compact" aria-label={t("filter.sort")} value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
           <option value="count">{t("filter.sort.count")}</option>

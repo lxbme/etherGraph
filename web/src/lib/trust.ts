@@ -11,6 +11,9 @@ export const TRUST_TIER: Record<TrustDto["level"], number> = { listed: 0, unknow
 /** The prefix of a flagged edge's label on both canvases. */
 export const TRUST_MARK = "⚠";
 
+/** Whether the token is on a token list; the only level that is vouched for. */
+export const isListed = (trust: TrustDto): boolean => trust.level === "listed";
+
 export function trustFlag(trust: TrustDto): TrustFlag | null {
   return trust.level === "suspicious" || trust.level === "scam" ? trust.level : null;
 }
