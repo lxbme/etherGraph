@@ -921,6 +921,80 @@ async fn graph_limits_and_prefer(pool: PgPool) {
     assert_eq!(b["edges"].as_array().unwrap().len(), 2);
 }
 
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn graph_edges_picks_show_only_the_chosen_neighbours(pool: PgPool) {
+    let (app, state, _) = test_app(pool).await;
+    seed(
+        &state,
+        vec![
+            tr(1, C, A, None, U256::from(1), 0),
+            tr(2, C, A, None, U256::from(1), 10),
+            tr(3, C, B, None, U256::from(1), 20),
+        ],
+    )
+    .await;
+    // Upper-case hex is accepted; B is shown though A ranks first.
+    let body = json!({
+        "addresses": [hex(C)],
+        "picks": {hex(C).to_uppercase().replace("0X", "0x"): [hex(B).to_uppercase().replace("0X", "0x")]},
+    });
+    let (s, b) = post_json(&app, "/api/graph/edges", &body).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let edges = b["edges"].as_array().unwrap();
+    assert_eq!(edges.len(), 1, "{b}");
+    assert_eq!(edges[0]["to"], hex(B));
+    assert_eq!(b["omitted"][hex(C)], 1);
+
+    // An empty list shows no neighbour at all.
+    let body = json!({"addresses": [hex(C)], "picks": {hex(C): []}});
+    let (s, b) = post_json(&app, "/api/graph/edges", &body).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["edges"], json!([]));
+    assert_eq!(b["omitted"][hex(C)], 2);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn graph_edges_rejects_picks_for_unknown_center(pool: PgPool) {
+    let (app, _, _) = test_app(pool).await;
+    let body = json!({"addresses": [hex(C)], "picks": {hex(A): [hex(B)]}});
+    let (s, b) = post_json(&app, "/api/graph/edges", &body).await;
+    assert_invalid(s, &b);
+    assert_eq!(
+        b["error"]["message"],
+        format!("picks key {} is not in addresses", hex(A))
+    );
+    for body in [
+        json!({"addresses": [hex(C)], "picks": {"0x12": []}}),
+        json!({"addresses": [hex(C)], "picks": {hex(C): ["0x12"]}}),
+        json!({"addresses": [hex(C)], "picks": {hex(C): "nope"}}),
+    ] {
+        let (s, b) = post_json(&app, "/api/graph/edges", &body).await;
+        assert_invalid(s, &b);
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn graph_edges_rejects_too_many_picks(pool: PgPool) {
+    let (app, _, _) = test_app(pool).await;
+    // The limit counts listed addresses across all centers.
+    let body = json!({
+        "addresses": [hex(C), hex(A)],
+        "picks": {hex(C): vec![hex(B); 3000], hex(A): vec![hex(B); 2001]},
+    });
+    let (s, b) = post_json(&app, "/api/graph/edges", &body).await;
+    assert_invalid(s, &b);
+    assert_eq!(
+        b["error"]["message"],
+        "at most 5000 picked addresses, got 5001"
+    );
+    let body = json!({
+        "addresses": [hex(C), hex(A)],
+        "picks": {hex(C): vec![hex(B); 3000], hex(A): vec![hex(B); 2000]},
+    });
+    let (s, b) = post_json(&app, "/api/graph/edges", &body).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+}
+
 // ---------------------------------------------------------------- sync
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
@@ -1256,7 +1330,7 @@ async fn address_profile_failed_kind_does_not_resync(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
-async fn address_profile_stale_enqueues_background(pool: PgPool) {
+async fn profile_of_a_stale_synced_address_queues_nothing(pool: PgPool) {
     let (app, state, _) = test_app(pool.clone()).await;
     mark_synced(&pool, A, 0, false).await;
     let (s, b) = get(&app, &format!("/api/address/{}", hex(A))).await;
@@ -1265,13 +1339,14 @@ async fn address_profile_stale_enqueues_background(pool: PgPool) {
     assert_eq!(b["coverage"].as_array().unwrap().len(), 5);
     assert!(jobs_of(&state, JobKind::SyncAddress).await.is_empty());
 
+    // Coverage older than `stale_after`: refreshing is the user's click.
     mark_synced(&pool, B, 3600, false).await;
-    let (s, _) = get(&app, &format!("/api/address/{}", hex(B))).await;
-    assert_eq!(s, StatusCode::OK);
-    let jobs = jobs_of(&state, JobKind::SyncAddress).await;
-    assert_eq!(jobs.len(), 1);
-    assert_eq!(jobs[0].priority, Priority::Background);
-    assert_eq!(jobs[0].params["address"], hex(B));
+    for q in ["", "?sync=none", "?sync=auto"] {
+        let (s, b) = get(&app, &format!("/api/address/{}{q}", hex(B))).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        assert_eq!(b["node"]["synced"], true);
+    }
+    assert!(jobs_of(&state, JobKind::SyncAddress).await.is_empty());
 }
 
 #[test]

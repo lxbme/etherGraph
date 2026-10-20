@@ -2,20 +2,17 @@
 //! A cross-site request (see [`MayStartWork`]) starts no sync or metadata
 //! job.
 //!
-//! `none` (default) never starts a first sync: syncing a new address costs
-//! upstream calls the user has to confirm. Existing coverage that is stale is
-//! refreshed in the background (Latest, Background priority). `auto`, used
-//! when the user opened the address from search, additionally starts an
+//! `none` (default) never starts a sync: syncing costs upstream calls the
+//! user has to confirm, and stale coverage is refreshed only when the user
+//! asks. `auto`, used when the user opened the address from search, starts an
 //! Interactive Latest sync when not every kind is covered yet.
 
 use std::collections::HashMap;
 
 use axum::Json;
 use axum::extract::State;
-use chrono::Utc;
 use eg_core::source::Priority;
 use eg_ingest::{SyncDirection, enqueue_sync};
-use eg_store::SyncRow;
 use serde::Deserialize;
 
 use crate::auth::extract::{CurrentUser, MayStartWork};
@@ -62,23 +59,14 @@ pub async fn profile(
     let rows = loaded.sync.remove(&addr).unwrap_or_default();
     let account = loaded.accounts.remove(&addr);
 
-    let refresh = if !may_start {
-        None
-    } else if auto && !node.synced {
-        Some(Priority::Interactive)
-    } else if is_stale(&s, &rows) {
-        Some(Priority::Background)
-    } else {
-        None
-    };
-    if let Some(p) = refresh {
+    if may_start && auto && !node.synced {
         // Serve what is stored now; the sync result arrives over SSE.
         if let Err(e) = enqueue_sync(
             &s.ctx,
             Some(user.id),
             addr,
             SyncDirection::Latest,
-            p,
+            Priority::Interactive,
             Some(s.ctx.cfg.page_size),
             None,
         )
@@ -107,16 +95,4 @@ pub async fn profile(
         first_seen: activity.map(|(first, _)| rfc3339(first)),
         last_seen: activity.map(|(_, last)| rfc3339(last)),
     }))
-}
-
-/// Some covered kind (`to_block` set) was synced longer ago than
-/// `stale_after`. Kinds without coverage (never synced, or failed for good)
-/// do not count, so they cannot trigger a refresh on every view.
-fn is_stale(s: &AppState, rows: &[SyncRow]) -> bool {
-    let stale = chrono::Duration::from_std(s.ctx.cfg.stale_after).unwrap_or(chrono::Duration::MAX);
-    let now = Utc::now();
-    rows.iter().filter(|r| r.to_block.is_some()).any(|r| {
-        r.last_synced_at
-            .is_none_or(|t| now.signed_duration_since(t) > stale)
-    })
 }

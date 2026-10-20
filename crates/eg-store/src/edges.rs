@@ -138,8 +138,10 @@ impl Store {
     /// Aggregates transfers touching `q.centers` into `(from, to, asset)` edges,
     /// keeping per center only the top `limit_per_center` (or `limits[center]`)
     /// neighbours by `q.sort` (ties by neighbour address ascending). Neighbours in
-    /// `q.prefer` rank first and are kept even past the cap. `omitted[center]`
-    /// counts the dropped neighbours and is present only when positive.
+    /// `q.prefer` rank first and are kept even past the cap. A center in
+    /// `q.picks` instead keeps exactly its listed neighbours, the preferred ones
+    /// and the other centers, whatever their rank. `omitted[center]` counts the
+    /// dropped neighbours and is present only when positive.
     pub async fn query_edges(&self, q: &EdgeQuery) -> Result<EdgeQueryResult> {
         if q.centers.is_empty() {
             return Ok(EdgeQueryResult::default());
@@ -152,6 +154,16 @@ impl Store {
             .map(|(a, l)| (addr_to_bytes(*a), i32::try_from(*l).unwrap_or(i32::MAX)))
             .unzip();
         let prefer: Vec<Vec<u8>> = q.prefer.iter().copied().map(addr_to_bytes).collect();
+        let picked: Vec<Vec<u8>> = q.picks.keys().copied().map(addr_to_bytes).collect();
+        // `center || nb`: one key per picked pair (see the join below).
+        let pick_keys: Vec<Vec<u8>> = q
+            .picks
+            .iter()
+            .flat_map(|(c, nbs)| {
+                nbs.iter()
+                    .map(move |nb| [c.as_slice(), nb.as_slice()].concat())
+            })
+            .collect();
         let (out, inb) = match q.filter.direction {
             Direction::Out => (true, false),
             Direction::In => (false, true),
@@ -202,7 +214,7 @@ impl Store {
                 "SELECT to_addr AS center, from_addr AS nb, cnt, total, last_ts FROM g \
                  WHERE to_addr = ANY(",
             )
-            .push_bind(centers)
+            .push_bind(centers.clone())
             .push(")");
             if out {
                 // A self-transfer already appears in the out-branch; count it once.
@@ -230,18 +242,35 @@ impl Store {
              LEFT JOIN (SELECT DISTINCT unnest("
         ));
         qb.push_bind(prefer);
+        // A picked center shows exactly its listed neighbours (plus preferred
+        // ones and the other centers, so no edge between visible nodes drops);
+        // other centers keep their cap: the override when present, else the
+        // default. The picked pairs join hashed like `prefer`, on the single
+        // key `center || nb`: joining on the two columns let the planner pick a
+        // merge join on `center` alone, filtering 50M rows (3.4 s for 3000
+        // picks of a center with 25k neighbours). The centers are at most 50,
+        // so `= ANY` over them stays cheap.
         qb.push(
             "::bytea[]) AS p) pf ON pf.p = s.nb), \
-             rl AS (SELECT r.center, r.nb, r.n, (r.rk <= COALESCE(l.lim, ",
+             rl AS (SELECT r.center, r.nb, r.n, CASE WHEN pc.center IS NOT NULL \
+             THEN (r.pref OR r.nb = ANY(",
         );
-        // Per-center cap: the override when present, else the default.
-        qb.push_bind(limit)
-            .push(") OR r.pref) AS shown FROM r LEFT JOIN unnest(")
+        qb.push_bind(centers)
+            .push(") OR pk.k IS NOT NULL) ELSE (r.rk <= COALESCE(l.lim, ")
+            .push_bind(limit)
+            .push(") OR r.pref) END AS shown FROM r LEFT JOIN unnest(")
             .push_bind(lim_centers)
             .push("::bytea[], ")
             .push_bind(lims)
+            .push("::int[]) AS l(center, lim) ON l.center = r.center LEFT JOIN unnest(")
+            .push_bind(picked)
+            .push(
+                "::bytea[]) AS pc(center) ON pc.center = r.center \
+                 LEFT JOIN (SELECT DISTINCT unnest(",
+            )
+            .push_bind(pick_keys)
             .push(format!(
-                "::int[]) AS l(center, lim) ON l.center = r.center) \
+                "::bytea[]) AS k) pk ON pk.k = r.center || r.nb) \
                  SELECT g.from_addr, g.to_addr, g.asset, g.cnt, LEAST(g.total, {U256_MAX_DEC}) AS total, \
                  g.first_ts, g.last_ts, g.asset_kind, \
                  NULL::bytea AS center, NULL::bigint AS omitted FROM g WHERE "
@@ -458,6 +487,7 @@ mod tests {
             limit_per_center: limit,
             limits: Default::default(),
             prefer: Vec::new(),
+            picks: Default::default(),
             sort,
         }
     }
@@ -695,6 +725,104 @@ mod tests {
         let r = store.query_edges(&q).await.unwrap();
         assert_eq!(neighbours(&r.edges), HashSet::from([e(4), e(5), A]));
         assert_eq!(r.omitted[&C], 5);
+    }
+
+    fn n(i: u8) -> Address {
+        Address::repeat_byte(0x70 + i)
+    }
+
+    /// C→N1..N5 with 5, 4, 3, 2, 1 transfers (so N1 ranks first by count).
+    async fn seed_picks(pool: &PgPool) -> Store {
+        let mut v = Vec::new();
+        let mut tx = 100u8;
+        for i in 1..=5u8 {
+            for _ in 0..(6 - i) {
+                tx += 1;
+                v.push(tr(tx, C, n(i), None, 1, i64::from(tx)));
+            }
+        }
+        assign_sub_ids(&mut v);
+        let store = Store::from_pool(pool.clone());
+        store.upsert_transfers(&v).await.unwrap();
+        store
+    }
+
+    fn pairs(edges: &[Edge]) -> HashSet<(Address, Address)> {
+        edges.iter().map(|e| (e.from, e.to)).collect()
+    }
+
+    #[sqlx::test]
+    async fn picked_center_shows_only_its_picks(pool: PgPool) {
+        let store = seed_picks(&pool).await;
+        // A cap of 2 would show N1 and N2; the pick ignores rank and cap.
+        let mut q = query(EdgeFilter::default(), 2, SortBy::Count);
+        q.picks.insert(C, vec![n(4), n(4)]);
+        let r = store.query_edges(&q).await.unwrap();
+        assert_eq!(pairs(&r.edges), HashSet::from([(C, n(4))]));
+        assert_eq!(r.omitted[&C], 4);
+    }
+
+    #[sqlx::test]
+    async fn empty_picks_show_no_neighbours(pool: PgPool) {
+        let store = seed_picks(&pool).await;
+        let mut q = query(EdgeFilter::default(), 100, SortBy::Count);
+        q.picks.insert(C, Vec::new());
+        let r = store.query_edges(&q).await.unwrap();
+        assert!(r.edges.is_empty(), "{:?}", r.edges);
+        assert_eq!(r.omitted[&C], 5);
+    }
+
+    #[sqlx::test]
+    async fn picked_center_keeps_preferred_and_other_centers(pool: PgPool) {
+        let store = seed_picks(&pool).await;
+        // D is C's neighbour and also N2's; D is a center showing everything.
+        let mut v = vec![tr(201, D, C, None, 1, 900), tr(202, D, n(2), None, 1, 901)];
+        assign_sub_ids(&mut v);
+        store.upsert_transfers(&v).await.unwrap();
+
+        let mut q = query(EdgeFilter::default(), 100, SortBy::Count);
+        q.centers = vec![C, D];
+        q.picks.insert(C, vec![n(4)]);
+        q.prefer = vec![n(1)];
+        let r = store.query_edges(&q).await.unwrap();
+        // N2 is D's neighbour, so D–N2 shows, but C–N2 was not picked.
+        assert_eq!(
+            pairs(&r.edges),
+            HashSet::from([(C, n(1)), (C, n(4)), (D, C), (D, n(2))])
+        );
+        // C has N1..N5 and D; N1, N4 and D are shown.
+        assert_eq!(r.omitted[&C], 3);
+        assert!(!r.omitted.contains_key(&D));
+    }
+
+    #[sqlx::test]
+    async fn unpicked_centers_rank_as_before(pool: PgPool) {
+        let store = seed_picks(&pool).await;
+        // E → G1..G3 with 3, 2, 1 transfers.
+        let e = Address::repeat_byte(0xee);
+        let g = |i: u8| Address::repeat_byte(0x60 + i);
+        let mut v = Vec::new();
+        let mut tx = 210u8;
+        for i in 1..=3u8 {
+            for _ in 0..(4 - i) {
+                tx += 1;
+                v.push(tr(tx, e, g(i), None, 1, i64::from(tx)));
+            }
+        }
+        assign_sub_ids(&mut v);
+        store.upsert_transfers(&v).await.unwrap();
+
+        let mut q = query(EdgeFilter::default(), 100, SortBy::Count);
+        q.centers = vec![C, e];
+        q.picks.insert(C, vec![n(4)]);
+        q.limits.insert(e, 2);
+        let r = store.query_edges(&q).await.unwrap();
+        assert_eq!(
+            pairs(&r.edges),
+            HashSet::from([(C, n(4)), (e, g(1)), (e, g(2))])
+        );
+        assert_eq!(r.omitted[&C], 4);
+        assert_eq!(r.omitted[&e], 1);
     }
 
     fn tq(scope: TransferScope, asset: Option<Option<Address>>, limit: u32) -> TransferQuery {

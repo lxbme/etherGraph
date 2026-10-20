@@ -24,6 +24,7 @@ use crate::state::AppState;
 const DEFAULT_LIMIT: u32 = 200;
 const MAX_LIMIT: u32 = 1000;
 const MAX_PREFER: usize = 2000;
+const MAX_PICKS: usize = 5000;
 const ETH_DECIMALS: u8 = 18;
 
 pub async fn edges(
@@ -75,6 +76,26 @@ pub async fn edges(
         .iter()
         .map(|a| parse_address(a))
         .collect::<Result<Vec<_>, _>>()?;
+    let picks_raw = req.picks.unwrap_or_default();
+    let picked: usize = picks_raw.values().map(Vec::len).sum();
+    if picked > MAX_PICKS {
+        return Err(invalid(format!(
+            "at most {MAX_PICKS} picked addresses, got {picked}"
+        )));
+    }
+    let mut picks: HashMap<Address, Vec<Address>> = HashMap::new();
+    for (k, v) in picks_raw {
+        let a = parse_address(&k)?;
+        if !centers.contains(&a) {
+            return Err(invalid(format!("picks key {k} is not in addresses")));
+        }
+        let nbs = v
+            .iter()
+            .map(|n| parse_address(n))
+            .collect::<Result<Vec<_>, _>>()?;
+        // Keys differing only in case name the same center: merge their lists.
+        picks.entry(a).or_default().extend(nbs);
+    }
     let res = s
         .store
         .query_edges(&EdgeQuery {
@@ -83,6 +104,7 @@ pub async fn edges(
             limit_per_center: limit,
             limits,
             prefer,
+            picks,
             sort,
         })
         .await?;

@@ -724,9 +724,9 @@ async fn every_enqueuing_route_attributes_jobs_to_the_viewer(pool: PgPool) {
     .fetch_all(state.store.pool())
     .await
     .unwrap();
-    // The auto sync (Interactive) and the stale refresh and explicit sync
-    // (Background).
-    assert_eq!(syncs, [0, 1, 1]);
+    // The auto sync (Interactive) and the explicit sync (Background); viewing
+    // the stale address queues no refresh.
+    assert_eq!(syncs, [0, 1]);
     let (_, mine) = get(&app, "/api/jobs").await;
     assert_eq!(mine, json!([]));
 }

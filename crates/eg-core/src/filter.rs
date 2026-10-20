@@ -78,6 +78,11 @@ pub struct EdgeQuery {
     pub limits: HashMap<Address, u32>,
     /// Neighbours ranked ahead of all others (e.g. nodes already on canvas).
     pub prefer: Vec<Address>,
+    /// Centers whose neighbours the user picked by hand. A picked center (even
+    /// with an empty list) shows exactly its listed neighbours, plus preferred
+    /// ones and the other centers; its rank and limit are ignored. Centers not
+    /// in the map keep the top-k behaviour.
+    pub picks: HashMap<Address, Vec<Address>>,
     pub sort: SortBy,
 }
 
