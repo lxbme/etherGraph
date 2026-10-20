@@ -1,5 +1,6 @@
 import { request } from "./client";
 import type { CallTraceResponseDto } from "./generated/CallTraceResponseDto";
+import type { AddressAssetDto } from "./generated/AddressAssetDto";
 import type { AddressProfileDto } from "./generated/AddressProfileDto";
 import type { AdminAction } from "./generated/AdminAction";
 import type { AdminActionNonceDto } from "./generated/AdminActionNonceDto";
@@ -153,6 +154,12 @@ export const api = {
     request<CounterpartyPageDto>("GET", `/api/address/${encodeURIComponent(addr)}/counterparties`, {
       query: { sort: p.sort, limit: num(p.limit), offset: num(p.offset), kind: p.kind, from: p.from, to: p.to },
     }),
+  /**
+   * The assets `addr` moved over all its stored transfers, by count (at most 200), ignoring any graph filter; with
+   * `withAddr`, one row per direction and asset of the transfers between the two.
+   */
+  addressAssets: (addr: string, withAddr?: string) =>
+    request<AddressAssetDto[]>("GET", `/api/address/${encodeURIComponent(addr)}/assets`, { query: { with: withAddr } }),
   /** The receiver's own summaries of 1 to 2000 addresses, in request order; no side effects. */
   nodes: (addresses: string[]) =>
     request<NodeSummaryDto[]>("POST", "/api/nodes", { body: { addresses } satisfies NodesRequestDto }),

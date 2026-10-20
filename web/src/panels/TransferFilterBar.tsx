@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { EdgeDto } from "../api/generated/EdgeDto";
+import type { AddressAssetDto } from "../api/generated/AddressAssetDto";
 import { useAssetRegistry } from "../graph/assetRegistry";
 import { useT } from "../i18n";
 import { shortAddr } from "../lib/address";
@@ -15,14 +15,14 @@ const ETH_OPTION: AssetOption = { key: ETH, label: "ETH", trust: { level: "liste
 const assetValue = (a: TransferTableFilter["asset"]) => (a === undefined ? ALL : a === null ? ETH : a);
 const assetOf = (v: string): TransferTableFilter["asset"] => (v === ALL ? undefined : v === ETH ? null : v.toLowerCase());
 
-/** ETH, the assets of `edges`, and the chosen asset even when no edge carries it (it survives selection changes). */
-function useAssetOptions(edges: EdgeDto[], chosen: TransferTableFilter["asset"]): AssetOption[] {
+/** ETH, the selection's assets, and the chosen asset even when the selection has none of it (it survives selection changes). */
+function useAssetOptions(assets: AddressAssetDto[], chosen: TransferTableFilter["asset"]): AssetOption[] {
   const known = useAssetRegistry((r) => r.assets);
   const out = new Map<string, AssetOption>([[ETH, ETH_OPTION]]);
-  for (const e of edges) {
-    if (e.asset === null) continue;
-    const key = e.asset.toLowerCase();
-    if (!out.has(key)) out.set(key, { key, label: e.symbol ?? shortAddr(key), trust: e.trust });
+  for (const a of assets) {
+    if (a.asset === null) continue;
+    const key = a.asset.toLowerCase();
+    if (!out.has(key)) out.set(key, { key, label: a.symbol ?? shortAddr(key), trust: a.trust });
   }
   if (typeof chosen === "string" && !out.has(chosen)) {
     const k = known[chosen];
@@ -91,13 +91,15 @@ function TimeRange() {
 
 /**
  * The transfer table's own filter (time, asset, direction, type), independent of the graph filter: controls only.
- * `edges` are the graph edges touching the selection, for the asset list; `pair` hides the direction, which each
- * of a pair's groups already has.
+ * `assets` are the selection's own assets over all its stored transfers (`GET /api/address/{a}/assets`), not the
+ * graph's filtered edges; `pair` hides the direction, which each of a pair's groups already has.
  */
-export function TransferFilterBar({ edges, pair = false }: { edges: EdgeDto[]; pair?: boolean }) {
+export function TransferFilterBar({ assets, pair = false }: { assets: AddressAssetDto[]; pair?: boolean }) {
   const t = useT();
   const filter = useTransferFilter();
-  const options = useAssetOptions(edges, filter.asset);
+  const options = useAssetOptions(assets, filter.asset);
+  // Reset follows the controls shown: the hidden direction does not count in pair scope.
+  const narrowed = !isDefault(pair ? { ...filter, direction: "all" } : filter);
   return (
     <div className="transfers__bar" role="toolbar">
       <TimeRange />
@@ -135,7 +137,7 @@ export function TransferFilterBar({ edges, pair = false }: { edges: EdgeDto[]; p
           </option>
         ))}
       </select>
-      {!isDefault(filter) && (
+      {narrowed && (
         <button type="button" className="transfers__reset" onClick={filter.reset}>
           {t("transfers.f.reset")}
         </button>

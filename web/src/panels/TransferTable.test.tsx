@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { api } from "../api/endpoints";
+import type { AddressAssetDto } from "../api/generated/AddressAssetDto";
 import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { TransferDto } from "../api/generated/TransferDto";
@@ -32,6 +33,15 @@ const tr = (o: Partial<TransferDto>): TransferDto => ({
   trust: { level: "listed", impersonates: null, reason: null }, ...o,
 });
 
+/** The assets endpoint's row for an edge's asset; a pair's rows also name the direction. */
+const assetRow = (e: EdgeDto, pair: boolean): AddressAssetDto => ({
+  from: pair ? e.from : null, to: pair ? e.to : null, asset: e.asset, asset_kind: e.asset_kind, count: e.count,
+  sum: e.sum, decimals: e.decimals, symbol: e.symbol, trust: e.trust,
+});
+/** Serves `GET /api/address/{a}/assets[?with=]` with the assets of `edges`. */
+const serveAssets = (edges: EdgeDto[], pair = false) =>
+  vi.spyOn(api, "addressAssets").mockResolvedValue(edges.map((e) => assetRow(e, pair)));
+
 let qc: QueryClient;
 function renderTable() {
   return render(
@@ -50,6 +60,7 @@ beforeEach(() => {
   qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   useGraph.getState().reset();
   useTransferFilter.getState().reset();
+  vi.spyOn(api, "addressAssets").mockResolvedValue([]);
   useTabs.setState({ tabs: [{ id: "graph" }], active: "graph" });
 });
 afterEach(() => vi.restoreAllMocks());
@@ -126,10 +137,12 @@ test("the bar's asset and time reach the query", async () => {
     useGraph.getState().setCenters([A]);
     useGraph.getState().select({ kind: "node", address: A });
   });
-  seedGraph([edge({}), edge({ from: B, to: A, asset: USDC, asset_kind: "erc20", decimals: 6, symbol: "USDC" })]);
+  const assets = serveAssets([edge({}), edge({ from: B, to: A, asset: USDC, asset_kind: "erc20", decimals: 6, symbol: "USDC" })]);
   renderTable();
   await screen.findByText("No matching transfers");
+  expect(assets).toHaveBeenCalledWith(A, undefined);
   const asset = screen.getByRole("combobox", { name: "Asset" });
+  await within(asset).findByText("USDC · 0xa0b8…eb48");
   // All assets, then the listed group: ETH first, then the edge's token.
   expect(within(asset).getAllByRole("option").map((o) => o.textContent)).toEqual(["All assets", "ETH", "USDC · 0xa0b8…eb48"]);
   expect(asset.querySelector("optgroup")).toHaveAttribute("label", "On token lists (2)");
@@ -172,7 +185,7 @@ test("the filter survives selecting another node", async () => {
     useGraph.getState().setCenters([A]);
     useGraph.getState().select({ kind: "node", address: A });
   });
-  seedGraph([edge({})]);
+  serveAssets([edge({})]);
   renderTable();
   await screen.findByText("No matching transfers");
   fireEvent.change(screen.getByRole("combobox", { name: "Asset" }), { target: { value: "eth" } });
@@ -188,18 +201,27 @@ test("pair scope hides groups of other assets and passes time to rows", async ()
     useGraph.getState().addCenter(A);
     useGraph.getState().select({ kind: "pair", a: A, b: B });
   });
-  seedGraph([
-    edge({ count: 9 }),
-    edge({ from: B, to: A, asset: USDC, asset_kind: "erc20", count: 7, sum: "5000000", decimals: 6, symbol: "USDC" }),
-  ]);
+  // Groups come from the pair's stored transfers (any address case), not from the graph's filtered edges.
+  const USDC_MIXED = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+  seedGraph([edge({ count: 9 })]);
+  const assets = serveAssets(
+    [
+      edge({ count: 9 }),
+      edge({ from: B, to: A, asset: USDC_MIXED, asset_kind: "erc20", count: 7, sum: "5000000", decimals: 6, symbol: "USDC" }),
+    ],
+    true,
+  );
   renderTable();
   expect(await screen.findAllByTestId("transfer-group")).toHaveLength(2);
+  expect(assets).toHaveBeenCalledWith(A, B);
   // No direction in pair scope: each group already has one.
   expect(screen.queryByRole("combobox", { name: "Direction" })).toBeNull();
   act(() => useTransferFilter.getState().set({ asset: USDC, from: "2024-01-01", kind: "erc20" }));
   const groups = screen.getAllByTestId("transfer-group");
   expect(groups).toHaveLength(1);
-  expect(groups[0]).toHaveTextContent("USDC");
+  // With a time or type set, the header drops the unfiltered count and Σ.
+  expect(within(groups[0]!).getByRole("button", { name: "USDC · 0xbbbb…bbbb→0xaaaa…aaaa" })).toBeInTheDocument();
+  expect(groups[0]).not.toHaveTextContent(/transfers|Σ/);
   await waitFor(() =>
     expect(spy).toHaveBeenLastCalledWith(
       expect.objectContaining({ from: B, to: A, asset: USDC, timeFrom: "2024-01-01T00:00:00Z", kinds: ["erc20"] }),
@@ -208,6 +230,37 @@ test("pair scope hides groups of other assets and passes time to rows", async ()
   const arg = spy.mock.lastCall![0];
   expect(arg.direction).toBeUndefined();
   expect(arg.minAmount).toBeUndefined();
+});
+
+test("the node's asset options come from its stored transfers, not the filtered graph", async () => {
+  vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null });
+  act(() => {
+    useGraph.getState().setCenters([A]);
+    useGraph.getState().setFilter({ assets: [{ asset: null }] });
+    useGraph.getState().select({ kind: "node", address: A });
+  });
+  // The graph (global filter: ETH only) has no token edge; the address's own assets do.
+  seedGraph([edge({})]);
+  serveAssets([edge({ count: 4 }), edge({ asset: USDC, asset_kind: "erc20", decimals: 6, symbol: "USDC" })]);
+  renderTable();
+  const asset = screen.getByRole("combobox", { name: "Asset" });
+  expect(await within(asset).findByText("USDC · 0xa0b8…eb48")).toBeInTheDocument();
+});
+
+test("pair scope: Reset follows the shown controls, ignoring the hidden direction", async () => {
+  vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null });
+  serveAssets([edge({})], true);
+  act(() => {
+    useTransferFilter.getState().set({ direction: "out" });
+    useGraph.getState().select({ kind: "pair", a: A, b: B });
+  });
+  renderTable();
+  await screen.findAllByTestId("transfer-group");
+  expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+  // The header keeps its totals: only time and type change what the rows count.
+  expect(screen.getByRole("button", { name: /ETH · 0xaaaa…aaaa→0xbbbb…bbbb · 1 transfer · Σ 1/ })).toBeInTheDocument();
+  act(() => useGraph.getState().select({ kind: "node", address: A }));
+  expect(await screen.findByRole("button", { name: "Reset" })).toBeInTheDocument();
 });
 
 test("the bar shows no caption text", async () => {
@@ -219,7 +272,7 @@ test("the bar shows no caption text", async () => {
       useGraph.getState().setFilter({ assets: [{ asset: null }] });
       useGraph.getState().select({ kind: "node", address: A });
     });
-    seedGraph([edge({})]);
+    serveAssets([edge({})]);
     renderTable();
     const bar = screen.getByRole("toolbar");
     act(() => useTransferFilter.getState().set({ from: "2024-01-01", kind: "native" }));
@@ -240,10 +293,13 @@ test("pair selection renders collapsible groups with header totals", async () =>
     useGraph.getState().addCenter(A);
     useGraph.getState().select({ kind: "pair", a: A, b: B });
   });
-  seedGraph([
-    edge({ count: 3, sum: "2500000000000000000" }),
-    edge({ from: B, to: A, asset: USDC, asset_kind: "erc20", count: 7, sum: "5000000", decimals: 6, symbol: "USDC" }),
-  ]);
+  serveAssets(
+    [
+      edge({ count: 3, sum: "2500000000000000000" }),
+      edge({ from: B, to: A, asset: USDC, asset_kind: "erc20", count: 7, sum: "5000000", decimals: 6, symbol: "USDC" }),
+    ],
+    true,
+  );
   renderTable();
   const usdcHead = await screen.findByRole("button", { name: /USDC · 0xbbbb…bbbb→0xaaaa…aaaa · 7 transfers · Σ 5/ });
   const ethHead = screen.getByRole("button", { name: /ETH · 0xaaaa…aaaa→0xbbbb…bbbb · 3 transfers · Σ 2.5/ });
@@ -384,7 +440,7 @@ test("a flagged token's badge sits next to its symbol in rows and pair group hea
     useGraph.getState().addCenter(A);
     useGraph.getState().select({ kind: "pair", a: A, b: B });
   });
-  seedGraph([edge({ asset: FAKE, asset_kind: "erc20", count: 3, decimals: 6, symbol: "USDC", trust: suspicious })]);
+  serveAssets([edge({ asset: FAKE, asset_kind: "erc20", count: 3, decimals: 6, symbol: "USDC", trust: suspicious })], true);
   renderTable();
   const head = await screen.findByRole("button", { name: /USDC · 0xaaaa…aaaa→0xbbbb…bbbb/ });
   expect(within(head).getByText("Possible impersonation")).toHaveClass("tag--warn");
@@ -416,6 +472,7 @@ describe("a frozen (snapshot) graph", () => {
       },
     ]);
     vi.spyOn(api, "graphEdges").mockResolvedValue({ nodes: [], edges: [edge({})], omitted: {}, coverage: {} });
+    const assets = serveAssets([edge({})], sel.kind === "pair");
     act(() => {
       useGraph.getState().setCenters([A]);
       freeze();
@@ -424,6 +481,7 @@ describe("a frozen (snapshot) graph", () => {
     renderTable();
     expect(screen.getByText(HINT)).toBeInTheDocument();
     expect(spy).not.toHaveBeenCalled();
+    expect(assets).not.toHaveBeenCalled();
     // The receiver's summaries of the centers are in: the refresh is known to sync nothing.
     await waitFor(() => expect(qc.getQueryData(qk.nodes([A]))).toBeDefined());
     fireEvent.click(screen.getByRole("button", { name: "Refresh from chain" }));

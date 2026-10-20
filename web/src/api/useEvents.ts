@@ -99,6 +99,10 @@ export function useEvents(): void {
       void qc.invalidateQueries({
         predicate: (q) => q.queryKey[0] === "transfers" && transfersTouch(q.queryKey[1], addrs),
       });
+      // The transfer table's asset lists of these addresses (or of pairs with them).
+      void qc.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === "addressAssets" && q.queryKey.slice(1).some((a) => typeof a === "string" && addrs.has(a)),
+      });
       // A contract's interactions list refetches once its sync lands.
       void qc.invalidateQueries({
         predicate: (q) => q.queryKey[0] === "counterparties" && addrs.has(String(q.queryKey[1])),

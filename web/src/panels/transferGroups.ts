@@ -1,3 +1,4 @@
+import type { AddressAssetDto } from "../api/generated/AddressAssetDto";
 import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { TrustDto } from "../api/generated/TrustDto";
 
@@ -36,5 +37,29 @@ export function groupsForPair(edges: EdgeDto[], a: string, b: string): TransferG
       symbol: e.symbol,
       trust: e.trust,
     }))
+    .sort((p, q) => q.count - p.count);
+}
+
+/** A pair's (direction, asset) rows from `GET /api/address/{a}/assets?with={b}` as groups, by count descending. */
+export function groupsFromAssets(rows: AddressAssetDto[]): TransferGroup[] {
+  return rows
+    .filter((r) => r.from !== null && r.to !== null)
+    .map((r) => {
+      const from = r.from!.toLowerCase();
+      const to = r.to!.toLowerCase();
+      const asset = r.asset === null ? null : r.asset.toLowerCase();
+      return {
+        key: `${from}>${to}|${asset ?? "eth"}`,
+        from,
+        to,
+        asset,
+        kind: r.asset_kind,
+        count: r.count,
+        sum: r.sum,
+        decimals: r.decimals,
+        symbol: r.symbol,
+        trust: r.trust,
+      };
+    })
     .sort((p, q) => q.count - p.count);
 }

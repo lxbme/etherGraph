@@ -120,6 +120,19 @@ test("AddressDataChanged invalidates that contract's counterparties lists only",
   expect(qc.getQueryState(["counterparties", C, { sort: "count_desc" }])?.isInvalidated).toBe(false);
 });
 
+test("AddressDataChanged invalidates the transfer table's asset lists of that address and its pairs", () => {
+  useGraph.getState().addCenter(A);
+  mount();
+  qc.setQueryData(qk.addressAssets(A), []);
+  qc.setQueryData(qk.addressAssets(B, A), []);
+  qc.setQueryData(qk.addressAssets(B, C), []);
+  send({ type: "AddressDataChanged", address: A });
+  advance(500);
+  expect(qc.getQueryState(qk.addressAssets(A))?.isInvalidated).toBe(true);
+  expect(qc.getQueryState(qk.addressAssets(B, A))?.isInvalidated).toBe(true);
+  expect(qc.getQueryState(qk.addressAssets(B, C))?.isInvalidated).toBe(false);
+});
+
 test("an off-canvas address with a cached counterparties list invalidates only that list", () => {
   useGraph.getState().addCenter(A);
   qc.setQueryData(graphQueryKey(useGraph.getState()), { nodes: [node(A)], edges: [], omitted: {}, coverage: {} });

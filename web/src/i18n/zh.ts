@@ -489,6 +489,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "transfers.dir.out": "流出",
   "transfers.loadMore": "加载更多",
   "transfers.group": { one: "{symbol} · {from}→{to} · {count} 笔 · Σ {sum}", other: "{symbol} · {from}→{to} · {count} 笔 · Σ {sum}" },
+  "transfers.groupBare": "{symbol} · {from}→{to}",
   "transfers.f.timeAll": "全部时间",
   "transfers.f.from": "起始日期（UTC）",
   "transfers.f.to": "结束日期（UTC）",

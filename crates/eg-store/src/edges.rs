@@ -49,7 +49,7 @@ impl TransferCursor {
 
 /// `U256::MAX` in decimal; edge sums saturate here so one spam token cannot
 /// make the aggregate unreadable (ranking still uses the uncapped sum).
-const U256_MAX_DEC: &str =
+pub(crate) const U256_MAX_DEC: &str =
     "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
 const TRANSFER_COLS: &str = "tx_hash, sub_id, kind, block_number, ts, from_addr, to_addr, asset, \

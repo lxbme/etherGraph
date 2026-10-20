@@ -14,8 +14,8 @@ use tracing::Level;
 use crate::auth::extract::{require_origin, require_user};
 use crate::error::ApiError;
 use crate::routes::{
-    address, admin, auth, batches, counterparties, events, graph, identify, jobs, labels, nodes,
-    probe, search, status, sync, token, transfers, tx, workspaces,
+    address, admin, assets, auth, batches, counterparties, events, graph, identify, jobs, labels,
+    nodes, probe, search, status, sync, token, transfers, tx, workspaces,
 };
 use crate::state::AppState;
 
@@ -34,6 +34,7 @@ pub fn router(state: AppState) -> Router {
         .route("/search", get(search::search))
         .route("/address/{addr}", get(address::profile))
         .route("/address/{addr}/counterparties", get(counterparties::list))
+        .route("/address/{addr}/assets", get(assets::list))
         .route("/token/{addr}", get(token::detail))
         .route("/sync", post(sync::sync))
         .route("/identify", post(identify::identify))

@@ -1,9 +1,9 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { api, type TransfersParams } from "../api/endpoints";
 import { messageFor } from "../api/errors";
-import type { EdgeDto } from "../api/generated/EdgeDto";
+import type { AddressAssetDto } from "../api/generated/AddressAssetDto";
 import type { TransferDto } from "../api/generated/TransferDto";
 import { qk } from "../api/queryClient";
 import { useT } from "../i18n";
@@ -21,7 +21,7 @@ import { TransferFilterBar } from "./TransferFilterBar";
 import { transferParams, useTransferFilter } from "./transferFilter";
 import { TruncationBanner } from "./TruncationBanner";
 import { UnknownDecimals } from "./UnknownDecimals";
-import { groupsForPair, type TransferGroup } from "./transferGroups";
+import { groupsFromAssets, type TransferGroup } from "./transferGroups";
 import { useRefreshFromChain } from "../workspace/snapshot";
 
 const PAGE_SIZE = 50;
@@ -162,6 +162,7 @@ function GroupSection({
   open,
   onToggle,
   params,
+  totals,
   selected,
 }: {
   group: TransferGroup;
@@ -169,23 +170,20 @@ function GroupSection({
   onToggle: () => void;
   /** The bar's time and type, for every group. */
   params: TransfersParams;
+  /** Whether the header shows the group's count and Σ: they are unfiltered totals, so only without time or type. */
+  totals: boolean;
   selected: string;
 }) {
   const t = useT();
   const sum = formatFixed(group.sum, group.decimals, assetClass(group.asset, group.kind));
-  const title = t("transfers.group", {
-    symbol: symbolOf(group.asset, group.symbol),
-    from: shortAddr(group.from),
-    to: shortAddr(group.to),
-    count: group.count,
-    sum: sum.text,
-  });
+  const names = { symbol: symbolOf(group.asset, group.symbol), from: shortAddr(group.from), to: shortAddr(group.to) };
+  const title = totals ? t("transfers.group", { ...names, count: group.count, sum: sum.text }) : t("transfers.groupBare", names);
   return (
     <section className="transfers__group" data-testid="transfer-group">
       <button type="button" className="transfers__group-head" aria-expanded={open} onClick={onToggle}>
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <span title={sum.full}>{title}</span>
-        {sum.unknownDecimals && <UnknownDecimals />}
+        <span title={totals ? sum.full : undefined}>{title}</span>
+        {totals && sum.unknownDecimals && <UnknownDecimals />}
         <TrustBadge trust={group.trust} />
       </button>
       {open && (
@@ -198,14 +196,26 @@ function GroupSection({
   );
 }
 
-/** The pair's (direction, asset) groups; the bar's asset hides the others, its time and type narrow the rows. */
-function PairGroups({ a, b, edges }: { a: string; b: string; edges: EdgeDto[] }) {
+/** The pair's (direction, asset) groups over all stored transfers; the bar's asset hides the others, its time and type narrow the rows. */
+function PairGroups({ a, q }: { a: string; q: UseQueryResult<AddressAssetDto[]> }) {
   const filter = useTransferFilter();
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const t = useT();
-  const groups = groupsForPair(edges, a, b).filter((g) => filter.asset === undefined || g.asset === filter.asset);
+  if (q.error) {
+    return (
+      <div className="transfers__msg transfers__msg--error" role="alert">
+        {messageFor(q.error)}{" "}
+        <button type="button" className="btn btn--compact" onClick={() => void q.refetch()}>
+          {t("common.retry")}
+        </button>
+      </div>
+    );
+  }
+  if (q.isPending) return <div className="transfers__msg">{t("common.loading")}</div>;
+  const groups = groupsFromAssets(q.data).filter((g) => filter.asset === undefined || g.asset?.toLowerCase() === filter.asset);
   // Each group has its own direction and asset.
   const params = transferParams({ ...filter, asset: undefined, direction: "all" });
+  const totals = filter.from === null && filter.to === null && filter.kind === "all";
   if (groups.length === 0) return <div className="transfers__msg">{t("transfers.empty")}</div>;
   return (
     <>
@@ -216,26 +226,12 @@ function PairGroups({ a, b, edges }: { a: string; b: string; edges: EdgeDto[] })
           open={open[g.key] ?? i === 0}
           onToggle={() => setOpen((o) => ({ ...o, [g.key]: !(o[g.key] ?? i === 0) }))}
           params={params}
+          totals={totals}
           selected={a}
         />
       ))}
     </>
   );
-}
-
-/** The graph edges touching a node, or running between a pair in either direction. */
-function edgesTouching(edges: EdgeDto[], sel: { kind: "node"; address: string } | { kind: "pair"; a: string; b: string }): EdgeDto[] {
-  if (sel.kind === "node") {
-    const a = sel.address.toLowerCase();
-    return edges.filter((e) => e.from.toLowerCase() === a || e.to.toLowerCase() === a);
-  }
-  const x = sel.a.toLowerCase();
-  const y = sel.b.toLowerCase();
-  return edges.filter((e) => {
-    const f = e.from.toLowerCase();
-    const t = e.to.toLowerCase();
-    return (f === x && t === y) || (f === y && t === x);
-  });
 }
 
 export function TransferTable() {
@@ -245,6 +241,13 @@ export function TransferTable() {
   const { data } = useGraphData();
   const refreshFromChain = useRefreshFromChain();
   const t = useT();
+  // The selection's assets over all its stored transfers: the global filter does not reach the table.
+  const [addr, other] = selection?.kind === "node" ? [selection.address] : selection?.kind === "pair" ? [selection.a, selection.b] : [""];
+  const assets = useQuery({
+    queryKey: qk.addressAssets(addr, other),
+    queryFn: () => api.addressAssets(addr, other),
+    enabled: !!selection && !frozen,
+  });
 
   if (!selection) {
     return <div className="transfers"><div className="transfers__msg">{t("transfers.select")}</div></div>;
@@ -262,7 +265,6 @@ export function TransferTable() {
       </div>
     );
   }
-  const edges = data?.edges ?? [];
   let banner = null;
   let body;
   if (selection.kind === "node") {
@@ -272,11 +274,11 @@ export function TransferTable() {
     const params: TransfersParams = { address: selection.address, ...transferParams(filter) };
     body = <TransferRows key={JSON.stringify(params)} params={params} selected={selection.address} />;
   } else {
-    body = <PairGroups key={`${selection.a}|${selection.b}`} a={selection.a} b={selection.b} edges={edges} />;
+    body = <PairGroups key={`${selection.a}|${selection.b}`} a={selection.a} q={assets} />;
   }
   return (
     <div className="transfers">
-      <TransferFilterBar edges={edgesTouching(edges, selection)} pair={selection.kind === "pair"} />
+      <TransferFilterBar assets={assets.data ?? []} pair={selection.kind === "pair"} />
       {banner}
       {body}
     </div>

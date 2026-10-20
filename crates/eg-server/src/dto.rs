@@ -780,6 +780,29 @@ pub struct AssetRefDto {
     pub trust: TrustDto,
 }
 
+/// One asset an address moved over all its stored transfers, unfiltered
+/// (`GET /api/address/{addr}/assets`); with `?with=`, one direction of a pair.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct AddressAssetDto {
+    /// Sender and receiver; null unless the request names `with`.
+    pub from: Option<String>,
+    pub to: Option<String>,
+    /// Token address; null for ETH.
+    pub asset: Option<String>,
+    /// `native` for ETH (internal transfers included), else the token standard.
+    #[ts(type = r#""native" | "erc20" | "erc721" | "erc1155""#)]
+    pub asset_kind: String,
+    #[ts(type = "number")]
+    pub count: u64,
+    /// Raw amount sum, decimal string (saturates at `U256::MAX`).
+    pub sum: String,
+    /// 18 for ETH; null when the token's decimals are unknown.
+    pub decimals: Option<u8>,
+    pub symbol: Option<String>,
+    pub trust: TrustDto,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct CounterpartyDto {

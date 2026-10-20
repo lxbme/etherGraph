@@ -1683,3 +1683,56 @@ async fn counterparties_enqueue_only_bounded_name_jobs(pool: PgPool) {
         .sum();
     assert!((1..=100).contains(&named), "named {named}");
 }
+
+// ------------------------------------------------------- address assets
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn address_assets_list_every_asset_and_split_a_pair_by_direction(pool: PgPool) {
+    let (app, state, _) = test_app(pool).await;
+    token(&state, USDT, "USDT", Some(6)).await;
+    seed(
+        &state,
+        vec![
+            tr(1, C, A, None, U256::from(1), 10),
+            tr(2, A, C, Some(USDT), U256::from(2), 20),
+            tr(3, A, C, Some(USDT), U256::from(3), 30),
+            tr(4, C, B, Some(USDT), U256::from(4), 40),
+        ],
+    )
+    .await;
+    let listed = json!({"level": "listed", "impersonates": null, "reason": null});
+    let unknown = json!({"level": "unknown", "impersonates": null, "reason": null});
+
+    let (s, b) = get(&app, &format!("/api/address/{}/assets", hex(C))).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(
+        b,
+        json!([
+            {"from": null, "to": null, "asset": hex(USDT), "asset_kind": "erc20", "count": 3, "sum": "9",
+             "decimals": 6, "symbol": "USDT", "trust": unknown},
+            {"from": null, "to": null, "asset": null, "asset_kind": "native", "count": 1, "sum": "1",
+             "decimals": 18, "symbol": "ETH", "trust": listed},
+        ])
+    );
+
+    let (s, b) = get(
+        &app,
+        &format!("/api/address/{}/assets?with={}", hex(C), hex(A)),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(
+        b,
+        json!([
+            {"from": hex(A), "to": hex(C), "asset": hex(USDT), "asset_kind": "erc20", "count": 2, "sum": "5",
+             "decimals": 6, "symbol": "USDT", "trust": unknown},
+            {"from": hex(C), "to": hex(A), "asset": null, "asset_kind": "native", "count": 1, "sum": "1",
+             "decimals": 18, "symbol": "ETH", "trust": listed},
+        ])
+    );
+
+    let (s, b) = get(&app, &format!("/api/address/{}/assets?with=0x12", hex(C))).await;
+    assert_invalid(s, &b);
+    let (s, b) = get(&app, "/api/address/0x12/assets").await;
+    assert_invalid(s, &b);
+}

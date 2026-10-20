@@ -1,4 +1,5 @@
 import { test as base, expect, type Page, type Request, type Route } from "@playwright/test";
+import type { AddressAssetDto } from "../src/api/generated/AddressAssetDto";
 import type { AddressProfileDto } from "../src/api/generated/AddressProfileDto";
 import type { CallTraceResponseDto } from "../src/api/generated/CallTraceResponseDto";
 import type { CancelledDto } from "../src/api/generated/CancelledDto";
@@ -77,6 +78,34 @@ export const fixtures = {
   longText: longTextJson as { ens: string; contractName: string; invalidInput: string; job: JobDto },
 };
 
+/**
+ * `GET /api/address/{addr}/assets[?with=]` over `edges`: one row per asset of the edges touching `addr`, or with
+ * `withAddr` one row per direction and asset between the two; by count descending.
+ */
+export function assetRows(edges: EdgeDto[], addr: string, withAddr?: string): AddressAssetDto[] {
+  const a = addr.toLowerCase();
+  const b = withAddr?.toLowerCase();
+  const rows = new Map<string, AddressAssetDto>();
+  for (const e of edges) {
+    const f = e.from.toLowerCase();
+    const t = e.to.toLowerCase();
+    const hit = b === undefined ? f === a || t === a : (f === a && t === b) || (f === b && t === a);
+    if (!hit) continue;
+    const key = `${b === undefined ? "" : `${f}>${t}`}|${e.asset ?? "eth"}`;
+    const cur = rows.get(key);
+    if (cur) {
+      cur.count += e.count;
+      cur.sum = (BigInt(cur.sum) + BigInt(e.sum)).toString();
+    } else {
+      rows.set(key, {
+        from: b === undefined ? null : f, to: b === undefined ? null : t, asset: e.asset, asset_kind: e.asset_kind,
+        count: e.count, sum: e.sum, decimals: e.decimals, symbol: e.symbol, trust: e.trust,
+      });
+    }
+  }
+  return [...rows.values()].sort((x, y) => y.count - x.count);
+}
+
 export interface Reply {
   status?: number;
   json?: unknown;
@@ -153,6 +182,14 @@ function defaultHandlers(): Map<RouteKey, Handler> {
     ],
     ["DELETE /api/batches/*", () => ({ json: { cancelled: [] } satisfies CancelledDto })],
     ["DELETE /api/jobs", () => ({ json: { cancelled: [] } satisfies CancelledDto })],
+    [
+      // The transfer table's asset lists, from the fixture graph's edges.
+      "GET /api/address/*/assets",
+      (_req, url) => {
+        const addr = decodeURIComponent(url.pathname.split("/")[3] ?? "");
+        return { json: assetRows(fixtures.graph.edges, addr, url.searchParams.get("with") ?? undefined) };
+      },
+    ],
     ["GET /api/transfers", () => ({ json: fixtures.transfers })],
     ["GET /api/tx/*/raw", () => ({ json: fixtures.txRaw })],
     ["GET /api/tx/*/trace", () => ({ json: fixtures.trace })],
@@ -236,9 +273,9 @@ function defaultHandlers(): Map<RouteKey, Handler> {
   ]);
 }
 
-/** `/api/address/0xabc` → `GET /api/address/*`, with a raw/trace/counterparties sub-path kept after the `*`; fixed paths map to themselves. */
+/** `/api/address/0xabc` → `GET /api/address/*`, with a raw/trace/counterparties/assets sub-path kept after the `*`; fixed paths map to themselves. */
 function routeKey(method: string, path: string): RouteKey {
-  const m = /^(\/api\/(?:address|tx|jobs|workspaces|labels|batches|token))\/[^/]+(\/raw|\/trace|\/counterparties)?$/.exec(path);
+  const m = /^(\/api\/(?:address|tx|jobs|workspaces|labels|batches|token))\/[^/]+(\/raw|\/trace|\/counterparties|\/assets)?$/.exec(path);
   return `${method} ${m ? `${m[1]}/*${m[2] ?? ""}` : path}`;
 }
 

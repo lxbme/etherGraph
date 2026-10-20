@@ -28,6 +28,8 @@ export const qk = {
   txRaw: (h: string) => ["txRaw", h],
   txTrace: (h: string) => ["txTrace", h],
   transfers: (p: unknown) => ["transfers", p],
+  /** An address's assets, or a pair's per direction (`b`). */
+  addressAssets: (a: string, b?: string) => ["addressAssets", a.toLowerCase(), b?.toLowerCase() ?? null],
   labels: (a: string) => ["labels", a],
   status: () => ["status"],
   jobs: () => ["jobs"],

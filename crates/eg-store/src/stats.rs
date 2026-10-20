@@ -4,11 +4,11 @@ use std::collections::HashMap;
 use alloy_primitives::U256;
 use chrono::{DateTime, Utc};
 use eg_core::filter::{Direction, EdgeFilter};
-use eg_core::types::Address;
+use eg_core::types::{Address, TransferKind};
 use sqlx::{Postgres, QueryBuilder, Row};
 
 use crate::convert::{addr_to_bytes, bd_to_u256, bytes_to_addr, u256_to_bd};
-use crate::edges::{push_filter, to_u64};
+use crate::edges::{U256_MAX_DEC, push_filter, to_u64};
 use crate::jobs::cancel_ids;
 use crate::{JobKind, JobStatus, Result, Store, StoreError};
 
@@ -16,6 +16,8 @@ use crate::{JobKind, JobStatus, Result, Store, StoreError};
 const COUNT_CAP: i64 = 100_000;
 /// Most assets reported per counterparty.
 const MAX_ASSETS: usize = 5;
+/// Most rows of [`Store::address_assets`].
+const MAX_ADDRESS_ASSETS: i64 = 200;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StatsRow {
@@ -48,7 +50,99 @@ pub struct CounterpartyRow {
     pub assets: Vec<Option<Address>>,
 }
 
+/// One asset an address moved, over all its stored transfers (no filter).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AddressAssetRow {
+    /// Sender and receiver: set only for the pair form of [`Store::address_assets`].
+    pub from: Option<Address>,
+    pub to: Option<Address>,
+    /// `None` for ETH.
+    pub asset: Option<Address>,
+    /// `Native` for ETH (internal transfers included), else the token standard.
+    pub asset_kind: TransferKind,
+    pub count: u64,
+    /// Raw amount sum, saturating at `U256::MAX` like edge sums.
+    pub sum: U256,
+}
+
 impl Store {
+    /// The assets `addr` sent or received, one row per asset, by count descending (at most 200 rows).
+    /// With `with = Some(b)`: one row per (from, to, asset) of the transfers between `addr` and `b`, either way.
+    /// Reads every stored transfer, ignoring any graph filter.
+    pub async fn address_assets(
+        &self,
+        addr: Address,
+        with: Option<Address>,
+    ) -> Result<Vec<AddressAssetRow>> {
+        let a = addr_to_bytes(addr);
+        let mut qb: QueryBuilder<Postgres> = QueryBuilder::new("WITH p AS (");
+        match with {
+            None => {
+                // One branch per side so each uses its own index; a self-transfer counts once.
+                qb.push(
+                    "SELECT NULL::bytea AS from_addr, NULL::bytea AS to_addr, asset, kind, amount \
+                     FROM transfers WHERE from_addr = ",
+                )
+                .push_bind(a.clone())
+                .push(
+                    " UNION ALL SELECT NULL::bytea, NULL::bytea, asset, kind, amount \
+                     FROM transfers WHERE to_addr = ",
+                )
+                .push_bind(a.clone())
+                .push(" AND from_addr <> ")
+                .push_bind(a);
+            }
+            Some(b) => {
+                let b = addr_to_bytes(b);
+                qb.push(
+                    "SELECT from_addr, to_addr, asset, kind, amount FROM transfers WHERE from_addr = ",
+                )
+                .push_bind(a.clone())
+                .push(" AND to_addr = ")
+                .push_bind(b.clone());
+                if a != b {
+                    qb.push(
+                        " UNION ALL SELECT from_addr, to_addr, asset, kind, amount FROM transfers \
+                         WHERE from_addr = ",
+                    )
+                    .push_bind(b)
+                    .push(" AND to_addr = ")
+                    .push_bind(a);
+                }
+            }
+        }
+        // Internal transfers move ETH, so they count as native for `asset_kind`.
+        qb.push(format!(
+            ") SELECT from_addr, to_addr, asset, count(*) AS cnt, \
+             LEAST(sum(amount), {U256_MAX_DEC}) AS total, \
+             max(CASE WHEN kind = {internal} THEN {native}::smallint ELSE kind END) AS asset_kind \
+             FROM p GROUP BY 1, 2, 3 \
+             ORDER BY cnt DESC, from_addr NULLS FIRST, to_addr NULLS FIRST, asset NULLS FIRST LIMIT ",
+            internal = TransferKind::Internal.as_i16(),
+            native = TransferKind::Native.as_i16(),
+        ))
+        .push_bind(MAX_ADDRESS_ASSETS);
+        let rows = qb.build().fetch_all(&self.pool).await?;
+        rows.iter()
+            .map(|r| {
+                let addr_of = |col: &str| -> Result<Option<Address>> {
+                    Ok(r.try_get::<Option<Vec<u8>>, _>(col)?
+                        .map(|b| bytes_to_addr(&b)))
+                };
+                let k: i16 = r.try_get("asset_kind")?;
+                Ok(AddressAssetRow {
+                    from: addr_of("from_addr")?,
+                    to: addr_of("to_addr")?,
+                    asset: addr_of("asset")?,
+                    asset_kind: TransferKind::from_i16(k)
+                        .ok_or_else(|| StoreError::Invalid(format!("unknown kind {k}")))?,
+                    count: to_u64(r.try_get("cnt")?, "count")?,
+                    sum: bd_to_u256(&r.try_get("total")?)?,
+                })
+            })
+            .collect()
+    }
+
     pub async fn account_stats(&self, addrs: &[Address]) -> Result<Vec<StatsRow>> {
         if addrs.is_empty() {
             return Ok(Vec::new());
@@ -594,6 +688,67 @@ mod tests {
         assert_eq!(
             s.job(paused).await.unwrap().unwrap().status,
             JobStatus::Cancelled
+        );
+    }
+
+    #[sqlx::test]
+    async fn address_assets_cover_every_stored_transfer(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let (me, b, c) = (a(1), a(2), a(3));
+        let (usdt, nft) = (a(0x55), a(0x77));
+        let mut v = vec![
+            tr(1, me, b, None, 1),
+            tr(2, b, me, None, 2),
+            tr(3, me, me, None, 3),
+            tr(4, b, me, Some(usdt), 4),
+            tr(5, c, me, Some(usdt), 5),
+            tr(6, me, c, Some(usdt), 6),
+            tr(7, me, b, Some(nft), 7),
+            tr(8, c, b, Some(usdt), 8),
+            tr(9, me, c, None, 9),
+        ];
+        v[2].amount = U256::MAX;
+        v[3].amount = U256::MAX;
+        v[6].kind = TransferKind::Erc721;
+        v[8].kind = TransferKind::Internal;
+        eg_core::types::assign_sub_ids(&mut v);
+        s.upsert_transfers(&v).await.unwrap();
+
+        let rows = s.address_assets(me, None).await.unwrap();
+        let got: Vec<_> = rows
+            .iter()
+            .map(|r| (r.from, r.to, r.asset, r.asset_kind, r.count))
+            .collect();
+        // ETH: out, in, the self-transfer once, and the internal one; c→b is not me's.
+        assert_eq!(
+            got,
+            vec![
+                (None, None, None, TransferKind::Native, 4),
+                (None, None, Some(usdt), TransferKind::Erc20, 3),
+                (None, None, Some(nft), TransferKind::Erc721, 1),
+            ]
+        );
+        // The sum saturates like edge sums.
+        assert_eq!(rows[0].sum, U256::MAX);
+        assert_eq!(rows[1].sum, U256::MAX);
+
+        // Between me and b, either way, per direction and asset; c's transfers are left out.
+        let pair = s.address_assets(me, Some(b)).await.unwrap();
+        let got: Vec<_> = pair
+            .iter()
+            .map(|r| (r.from, r.to, r.asset, r.count, r.sum))
+            .collect();
+        assert_eq!(got.len(), 4);
+        assert!(got.contains(&(Some(me), Some(b), None, 1, U256::from(1))));
+        assert!(got.contains(&(Some(b), Some(me), None, 1, U256::from(1))));
+        assert!(got.contains(&(Some(b), Some(me), Some(usdt), 1, U256::MAX)));
+        assert!(got.contains(&(Some(me), Some(b), Some(nft), 1, U256::from(1))));
+        // An address paired with itself: its self-transfers, once.
+        let own = s.address_assets(me, Some(me)).await.unwrap();
+        assert_eq!(own.len(), 1);
+        assert_eq!(
+            (own[0].from, own[0].to, own[0].count),
+            (Some(me), Some(me), 1)
         );
     }
 

@@ -1,4 +1,6 @@
 import type { EdgeDto } from "../src/api/generated/EdgeDto";
+import type { GraphRequestDto } from "../src/api/generated/GraphRequestDto";
+import type { GraphResponseDto } from "../src/api/generated/GraphResponseDto";
 import type { TransferDto } from "../src/api/generated/TransferDto";
 import { expectLaidOut, tapNode } from "./cy";
 import { A, B, expect, fixtures, test, searchAndPick, liveGraphRequests } from "./mockApi";
@@ -85,16 +87,24 @@ test("the transfer table filters on its own", async ({ page, mock }) => {
   mock.on("GET /api/transfers", (_req, url) =>
     url.searchParams.get("asset") === USDT ? { json: { items: [usdt], next_cursor: null } } : { json: fixtures.transfers },
   );
+  // The graph honours its filter: with assets set, only their edges come back.
+  mock.on(GRAPH, (req) => {
+    const assets = (req.postDataJSON() as GraphRequestDto).filter?.assets;
+    const edges = assets ? fixtures.graph.edges.filter((e) => assets.some((a) => (a.asset ?? null) === e.asset)) : fixtures.graph.edges;
+    return { json: { ...fixtures.graph, edges } };
+  });
   await searchAndPick(page, A);
   await expectLaidOut(page, "main", 4);
 
-  // The graph filter: ETH only.
+  // The graph filter: ETH only. The B→A USDT edge leaves the canvas.
   await page.getByRole("button", { name: /Filter/ }).click();
   const dialog = page.getByRole("dialog", { name: "Filter" });
   await dialog.getByLabel("ETH", { exact: true }).check();
   const before = liveGraphRequests(mock).length;
   await dialog.getByRole("button", { name: "Apply" }).click();
   await expect.poll(() => liveGraphRequests(mock).length).toBe(before + 1);
+  const last = (await liveGraphRequests(mock).at(-1)!.response())!;
+  expect(((await last.json()) as GraphResponseDto).edges.every((e) => e.asset === null)).toBe(true);
 
   // The node's table ignores it: no asset in its request.
   await tapNode(page, "main", B);
@@ -104,9 +114,15 @@ test("the transfer table filters on its own", async ({ page, mock }) => {
   expect(asked().at(-1)!.get("address")).toBe(B);
   expect(asked().at(-1)!.has("asset")).toBe(false);
 
+  // The table still offers the token: its assets come from B's stored transfers, not the filtered graph.
+  await expect.poll(() => mock.requests("GET /api/address/*/assets").map((r) => new URL(r.url()).pathname)).toContain(
+    `/api/address/${B}/assets`,
+  );
+  const asset = page.getByRole("toolbar").getByRole("combobox", { name: "Asset" });
+  await expect(asset.getByRole("option", { name: /USDT/ })).toHaveCount(1);
   // The bar's token reaches the rows; the canvas does not refetch and the graph filter is unchanged.
   const graphs = liveGraphRequests(mock).length;
-  await page.getByRole("toolbar").getByRole("combobox", { name: "Asset" }).selectOption(USDT);
+  await asset.selectOption(USDT);
   await expect(rows).toHaveCount(1);
   await expect(rows.first()).toContainText("USDT");
   await expect(rows.first()).toContainText("250.00");
