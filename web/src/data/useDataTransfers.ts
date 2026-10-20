@@ -87,6 +87,8 @@ export function useDataTransfers(): {
     getNextPageParam: (last, _all, param): PageParam | undefined =>
       last.next_cursor ? { chunk: param.chunk, cursor: last.next_cursor } : param.chunk + 1 < chunks.length ? { chunk: param.chunk + 1 } : undefined,
     enabled,
+    // Loaded pages are not refetched on a return to the tab: a sync touching the pairs resets the query (useEvents).
+    staleTime: Infinity,
   });
   const rows = useMemo(() => (enabled ? (q.data?.pages.flatMap((p) => p.items) ?? NO_ROWS) : NO_ROWS), [enabled, q.data]);
 

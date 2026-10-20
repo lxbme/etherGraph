@@ -22,6 +22,8 @@ export interface TopBarProps {
   onToggleDetail?: () => void;
   /** Whether the detail panel is open (drives the toggle's pressed state). */
   detailOpen?: boolean;
+  /** The active tab has no detail panel (the data tab): the toggle is disabled and shows as not pressed. */
+  detailDisabled?: boolean;
 }
 
 function Account() {
@@ -54,7 +56,7 @@ function SignedIn({ me }: { me: MeDto }) {
   );
 }
 
-export function TopBar({ search, filter, workspaceMenu, onToggleDetail, detailOpen }: TopBarProps) {
+export function TopBar({ search, filter, workspaceMenu, onToggleDetail, detailOpen, detailDisabled }: TopBarProps) {
   const t = useT();
   const quota = useQuota((s) => s.quota);
   const helpOpen = useUi((s) => s.helpOpen);
@@ -110,8 +112,10 @@ export function TopBar({ search, filter, workspaceMenu, onToggleDetail, detailOp
       <button
         className="btn btn--icon"
         aria-label={t("topbar.details")}
-        aria-pressed={detailOpen}
+        // Disabled, it shows as not pressed, so it gets the plain disabled look.
+        aria-pressed={detailOpen && !detailDisabled}
         title={t("topbar.details")}
+        disabled={detailDisabled}
         onClick={onToggleDetail}
       >
         <PanelRight size={16} />

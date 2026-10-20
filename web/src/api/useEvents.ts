@@ -78,6 +78,14 @@ function transfersTouch(params: unknown, addrs: Set<string>): boolean {
   });
 }
 
+/** Whether a `qk.transfersBatch(pairs, filter)` key has a pair at one of `addrs`. */
+function pairsTouch(pairs: unknown, addrs: Set<string>): boolean {
+  if (!Array.isArray(pairs)) return false;
+  return pairs.some((p: { from?: unknown; to?: unknown }) =>
+    [p?.from, p?.to].some((a) => typeof a === "string" && addrs.has(a.toLowerCase())),
+  );
+}
+
 /** Subscribes to the backend event stream for the app's lifetime; call once at the top of App. */
 export function useEvents(): void {
   const qc = useQueryClient();
@@ -98,6 +106,10 @@ export function useEvents(): void {
       invalidateAddresses(addrs);
       void qc.invalidateQueries({
         predicate: (q) => q.queryKey[0] === "transfers" && transfersTouch(q.queryKey[1], addrs),
+      });
+      // The Data tab's transfers of pairs at these addresses start over: page 1 again, then paging up to the cap.
+      void qc.resetQueries({
+        predicate: (q) => q.queryKey[0] === "transfersBatch" && pairsTouch(q.queryKey[1], addrs),
       });
       // The transfer table's asset lists of these addresses (or of pairs with them).
       void qc.invalidateQueries({

@@ -120,6 +120,24 @@ test("chunks the pairs into requests of at most 5000", async () => {
   expect(result.current.rows).toHaveLength(2);
 });
 
+test("returning to the tab does not refetch the loaded pages", async () => {
+  const batch = vi.spyOn(api, "transfersBatch").mockImplementation(async (req) =>
+    req.cursor ? { items: items(1000, 5), next_cursor: null } : { items: items(0, 1000), next_cursor: "c1" },
+  );
+  const first = renderHook(() => useDataTransfers(), { wrapper });
+  graphOf([edge(A, B)]);
+  await waitFor(() => expect(first.result.current.done).toBe(true));
+  expect(batch).toHaveBeenCalledTimes(2);
+  first.unmount();
+
+  // Mounted again (the tab shown again): the cached rows, no request.
+  const again = renderHook(() => useDataTransfers(), { wrapper });
+  await waitFor(() => expect(again.result.current.done).toBe(true));
+  await new Promise((r) => setTimeout(r, 20));
+  expect(again.result.current.rows).toHaveLength(1005);
+  expect(batch).toHaveBeenCalledTimes(2);
+});
+
 test("is idle while frozen", async () => {
   const batch = vi.spyOn(api, "transfersBatch");
   vi.spyOn(api, "nodes").mockResolvedValue([]);

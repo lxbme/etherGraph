@@ -67,7 +67,12 @@ function Shell() {
   return (
     <>
       <div className="app" hidden={admin}>
-        <TopBar workspaceMenu={<WorkspaceMenu />} onToggleDetail={toggleDetail} detailOpen={detailOpen} />
+        <TopBar
+          workspaceMenu={<WorkspaceMenu />}
+          onToggleDetail={toggleDetail}
+          detailOpen={detailOpen}
+          detailDisabled={active === "data"}
+        />
         <TabBar />
         <Banners />
         <div className="main">

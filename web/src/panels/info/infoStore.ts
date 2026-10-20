@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { useGraph } from "../../graph/store";
+import { useTabs } from "../../shell/tabs";
 import { useUi } from "../uiStore";
 import type { DocId } from "./docs";
 
@@ -47,6 +48,19 @@ export const useInfo = create<InfoState>((set, get) => ({
       return { stacks };
     }),
 }));
+
+/**
+ * Opens documentation page `id` over `tab`'s detail panel. The data tab has no right panel: from there the page
+ * opens on the graph tab, which is shown first. Every doc link goes through here.
+ */
+export function openDoc(tab: string, id: DocId): void {
+  let target = tab;
+  if (tab === "data") {
+    useTabs.getState().activate("graph");
+    target = "graph";
+  }
+  useInfo.getState().open(target, { kind: "doc", id });
+}
 
 // Whatever changes the graph tab's selection (canvas tap, transfer row, search pick, hash route) must show
 // its result in the panel, so the views stacked over the detail are dropped.

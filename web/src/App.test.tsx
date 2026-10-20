@@ -1,10 +1,12 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useLocale } from './i18n'
 import { App } from './App'
 import { clearExport, requestExport } from './workspace/fileRequest'
 import { useAuth } from './auth/useMe'
 import { useTabs } from './shell/tabs'
 import { useUi } from './panels/uiStore'
+import { useInfo } from './panels/info/infoStore'
 
 // Cytoscape cannot render in jsdom and the SSE stream is covered by api/useEvents.test.tsx.
 vi.mock('./graph/CytoscapeView', () => ({ CytoscapeView: () => <div data-testid="cy" /> }))
@@ -79,5 +81,33 @@ describe('App tabs', () => {
     act(() => useTabs.getState().activate('graph'))
     expect(container.querySelector('.main__right')).not.toBeNull()
     expect(container.querySelector('.main__data')).toBeNull()
+  })
+
+  it('the details toggle is disabled on the data tab', () => {
+    useUi.setState({ detailOpen: true })
+    render(<App />)
+    const toggle = screen.getByRole('button', { name: 'Toggle details' })
+    expect(toggle).toBeEnabled()
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    act(() => useTabs.getState().activate('data'))
+    expect(toggle).toBeDisabled()
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    act(() => useTabs.getState().activate('graph'))
+    expect(toggle).toBeEnabled()
+  })
+
+  it('on the data tab, a doc opened from the help drawer switches to Graph and shows the doc', async () => {
+    const user = userEvent.setup()
+    useInfo.setState({ stacks: {} })
+    useUi.setState({ detailOpen: false, helpOpen: true })
+    act(() => useTabs.getState().activate('data'))
+    const { container } = render(<App />)
+    const standards = screen.getByRole('region', { name: 'Standards' })
+    await user.click(within(standards).getByRole('button', { name: /EIP-1559/ }))
+    expect(useTabs.getState().active).toBe('graph')
+    expect(useInfo.getState().stacks['data']).toBeUndefined()
+    const panel = container.querySelector('.main__right') as HTMLElement
+    expect(within(panel).getByRole('heading', { name: 'EIP-1559' })).toBeInTheDocument()
+    act(() => useUi.setState({ helpOpen: false }))
   })
 })

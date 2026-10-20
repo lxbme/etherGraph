@@ -109,6 +109,23 @@ test("AddressDataChanged invalidates related transfers queries only", () => {
   expect(qc.getQueryState(qk.transfers({ address: B }))?.isInvalidated).toBe(false);
 });
 
+test("AddressDataChanged resets the Data tab's transfers of pairs at that address only", () => {
+  useGraph.getState().addCenter(A);
+  mount();
+  const page = { pageParams: [{ chunk: 0 }], pages: [{ items: [], next_cursor: null }] };
+  const touched = qk.transfersBatch([{ from: C, to: A, asset: null }], {});
+  const other = qk.transfersBatch([{ from: B, to: C, asset: null }], {});
+  qc.setQueryData(touched, page);
+  qc.setQueryData(other, page);
+  const spy = vi.spyOn(qc, "resetQueries");
+  send({ type: "AddressDataChanged", address: A.toUpperCase().replace("0X", "0x") });
+  advance(500);
+  expect(spy).toHaveBeenCalledTimes(1);
+  // Reset, not just invalidated: the loaded pages are dropped, so it starts again from page 1.
+  expect(qc.getQueryData(touched)).toBeUndefined();
+  expect(qc.getQueryData(other)).toEqual(page);
+});
+
 test("AddressDataChanged invalidates that contract's counterparties lists only", () => {
   useGraph.getState().addCenter(A);
   mount();
