@@ -1,6 +1,7 @@
 import { render } from "@testing-library/react";
 import type cytoscape from "cytoscape";
 import { CytoscapeView, type CytoscapeViewProps } from "./CytoscapeView";
+import { runIncrementalLayout } from "./layout";
 
 const h = vi.hoisted(() => ({ cb: null as (() => void) | null }));
 // jsdom has no canvas: the real Core runs headless (the container option is dropped).
@@ -141,4 +142,46 @@ test("a new left fit inset refits until the user pans or zooms; the same inset d
   view.container.querySelector(".cy-view")!.dispatchEvent(new Event("wheel"));
   view.rerender(<CytoscapeView {...props(two, "incremental")} fitInsetLeft={0} />);
   expect(viewport).toHaveBeenCalledTimes(1);
+});
+
+describe("the first neighbours on a bare canvas", () => {
+  const node = (id: string, classes?: string): cytoscape.ElementDefinition => ({ group: "nodes", data: { id }, ...(classes && { classes }) });
+  const edge = (a: string, b: string, classes?: string): cytoscape.ElementDefinition => ({
+    group: "edges", data: { id: `${a}-${b}`, source: a, target: b }, ...(classes && { classes }),
+  });
+  /** A searched center alone with its "+N more" placeholder (the canvas before any pick). */
+  const bare = [node("a"), node("more:a", "more"), edge("a", "more:a", "more")];
+
+  beforeEach(() => vi.mocked(runIncrementalLayout).mockClear());
+
+  test("are placed without a glide and fitted, like a first load", () => {
+    size = { w: 800, h: 600 };
+    let cy!: cytoscape.Core;
+    const view = render(<CytoscapeView {...props(bare, "incremental")} onReady={(c) => { cy = c; }} />);
+    const fit = vi.spyOn(cy, "fit");
+    view.rerender(<CytoscapeView {...props([...bare, node("b"), node("c"), edge("a", "b"), edge("c", "a")], "incremental")} />);
+    expect(runIncrementalLayout).toHaveBeenLastCalledWith(cy, ["b", "c"], { animate: false });
+    expect(fit).toHaveBeenCalledTimes(1);
+  });
+
+  test("are not fitted once the user moved the viewport", () => {
+    size = { w: 800, h: 600 };
+    let cy!: cytoscape.Core;
+    const view = render(<CytoscapeView {...props(bare, "incremental")} onReady={(c) => { cy = c; }} />);
+    const fit = vi.spyOn(cy, "fit");
+    view.container.querySelector(".cy-view")!.dispatchEvent(new Event("wheel"));
+    view.rerender(<CytoscapeView {...props([...bare, node("b"), edge("a", "b")], "incremental")} />);
+    expect(fit).not.toHaveBeenCalled();
+  });
+
+  test("nodes added to a canvas that already shows a transfer keep the viewport and glide", () => {
+    size = { w: 800, h: 600 };
+    let cy!: cytoscape.Core;
+    const shown = [node("a"), node("b"), edge("a", "b")];
+    const view = render(<CytoscapeView {...props(shown, "incremental")} onReady={(c) => { cy = c; }} />);
+    const fit = vi.spyOn(cy, "fit");
+    view.rerender(<CytoscapeView {...props([...shown, node("c"), edge("a", "c")], "incremental")} />);
+    expect(runIncrementalLayout).toHaveBeenLastCalledWith(cy, ["c"], {});
+    expect(fit).not.toHaveBeenCalled();
+  });
 });

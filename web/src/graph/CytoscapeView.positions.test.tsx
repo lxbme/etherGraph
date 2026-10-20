@@ -48,7 +48,7 @@ test("after a workspace reset/open (new epoch) old positions are not resurrected
   t.rerender(A, 1);
   t.rerender(AC, 1);
   expect(t.cy().getElementById("c").position()).not.toEqual({ x: 120, y: -40 });
-  expect(runIncrementalLayout).toHaveBeenLastCalledWith(expect.anything(), ["c"]);
+  expect(runIncrementalLayout).toHaveBeenLastCalledWith(expect.anything(), ["c"], expect.anything());
 });
 
 test("removed in the same render as the epoch change: not resurrected either", () => {

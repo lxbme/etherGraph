@@ -346,6 +346,8 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
     const cy = cyRef.current;
     if (!cy) return;
     const wasEmpty = cy.nodes().empty();
+    // Centers alone (at most with "+N more"), no transfer edge: the canvas a search leaves before any pick (spec §5.1).
+    const bare = !wasEmpty && cy.edges().not(".more").empty();
     const epoch = props.positionsEpoch ?? 0;
     if (epoch !== epochRef.current) {
       epochRef.current = epoch;
@@ -387,7 +389,11 @@ export function CytoscapeView(props: CytoscapeViewProps): JSX.Element {
       }
     } else {
       if (r.newNodeIds.length > 0) {
-        runIncrementalLayout(cy, r.newNodeIds);
+        // The first neighbours on a bare canvas are its first real graph: placed at once and fitted like a first load
+        // (the viewport was fitted to the lone centers, so many would land outside it), unless the user moved it.
+        const first = bare && r.newNodeIds.some((id) => !isMoreId(id));
+        runIncrementalLayout(cy, r.newNodeIds, first ? { animate: false } : {});
+        if (first) refitRef.current?.refitUnlessUserMoved();
         refitRef.current?.noteLayout();
       }
       // A full layout fits by itself; a canvas restored from stored positions needs an explicit fit.
