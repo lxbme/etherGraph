@@ -470,8 +470,8 @@ pub struct GraphRequestDto {
     /// Centers whose neighbours were picked by hand: a picked center (even
     /// with an empty list) shows exactly the listed neighbours, plus `prefer`
     /// and the other `addresses`, ignoring rank and limit. Every key must be
-    /// one of `addresses`; at most 5000 listed addresses in total. Centers not
-    /// listed keep the top-k behaviour.
+    /// one of `addresses`; at most 50000 listed addresses in total (50 centers
+    /// × 1000). Centers not listed keep the top-k behaviour.
     #[ts(optional = nullable, type = "Record<string, Array<string>> | null")]
     pub picks: Option<HashMap<String, Vec<String>>>,
     /// Estimate only: same response, but no metadata, ENS or token jobs are queued.

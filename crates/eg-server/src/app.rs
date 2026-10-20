@@ -38,7 +38,7 @@ pub fn router(state: AppState) -> Router {
         .route("/sync", post(sync::sync))
         .route("/identify", post(identify::identify))
         .route("/probe", post(probe::probe))
-        .route("/graph/edges", post(graph::edges))
+        .route("/graph/edges", post(graph::edges.layer(graph_body())))
         .route("/nodes", post(nodes::nodes))
         .route("/transfers", get(transfers::list))
         .route("/tx/{hash}", get(tx::tx))
@@ -120,6 +120,15 @@ const WORKSPACE_BODY_LIMIT: usize = 64 * 1024 * 1024;
 
 fn big_body() -> DefaultBodyLimit {
     DefaultBodyLimit::max(WORKSPACE_BODY_LIMIT)
+}
+
+/// Largest graph request: room for `MAX_PICKS` picked addresses (about 45 bytes
+/// each as JSON), plus `prefer` and the rest, above the 2 MiB default.
+const GRAPH_BODY_LIMIT: usize = 8 * 1024 * 1024;
+const _: () = assert!(GRAPH_BODY_LIMIT > 2 * 48 * graph::MAX_PICKS);
+
+fn graph_body() -> DefaultBodyLimit {
+    DefaultBodyLimit::max(GRAPH_BODY_LIMIT)
 }
 
 async fn method_not_allowed() -> ApiError {

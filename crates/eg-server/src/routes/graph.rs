@@ -18,13 +18,15 @@ use crate::nodes::{enqueue_missing_meta, load_nodes, token_map};
 use crate::parse::{
     parse_address, parse_amount, parse_asset, parse_direction, parse_kind, parse_time,
 };
-use crate::routes::{ApiJson, parse_addresses};
+use crate::routes::{ApiJson, MAX_ADDRESSES, parse_addresses};
 use crate::state::AppState;
 
 const DEFAULT_LIMIT: u32 = 200;
 const MAX_LIMIT: u32 = 1000;
 const MAX_PREFER: usize = 2000;
-const MAX_PICKS: usize = 5000;
+/// Every center picked with its whole 1000-neighbour list: no list the web can
+/// build is rejected.
+pub(crate) const MAX_PICKS: usize = MAX_ADDRESSES * MAX_LIMIT as usize;
 const ETH_DECIMALS: u8 = 18;
 
 pub async fn edges(

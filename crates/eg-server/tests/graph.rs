@@ -976,20 +976,20 @@ async fn graph_edges_rejects_picks_for_unknown_center(pool: PgPool) {
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn graph_edges_rejects_too_many_picks(pool: PgPool) {
     let (app, _, _) = test_app(pool).await;
-    // The limit counts listed addresses across all centers.
+    // The limit counts listed addresses across all centers: 50 centers × 1000 neighbours each.
     let body = json!({
         "addresses": [hex(C), hex(A)],
-        "picks": {hex(C): vec![hex(B); 3000], hex(A): vec![hex(B); 2001]},
+        "picks": {hex(C): vec![hex(B); 30000], hex(A): vec![hex(B); 20001]},
     });
     let (s, b) = post_json(&app, "/api/graph/edges", &body).await;
     assert_invalid(s, &b);
     assert_eq!(
         b["error"]["message"],
-        "at most 5000 picked addresses, got 5001"
+        "at most 50000 picked addresses, got 50001"
     );
     let body = json!({
         "addresses": [hex(C), hex(A)],
-        "picks": {hex(C): vec![hex(B); 3000], hex(A): vec![hex(B); 2000]},
+        "picks": {hex(C): vec![hex(B); 30000], hex(A): vec![hex(B); 20000]},
     });
     let (s, b) = post_json(&app, "/api/graph/edges", &body).await;
     assert_eq!(s, StatusCode::OK, "{b}");

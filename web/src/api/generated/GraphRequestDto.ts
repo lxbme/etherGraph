@@ -28,8 +28,8 @@ prefer?: Array<string> | null,
  * Centers whose neighbours were picked by hand: a picked center (even
  * with an empty list) shows exactly the listed neighbours, plus `prefer`
  * and the other `addresses`, ignoring rank and limit. Every key must be
- * one of `addresses`; at most 5000 listed addresses in total. Centers not
- * listed keep the top-k behaviour.
+ * one of `addresses`; at most 50000 listed addresses in total (50 centers
+ * × 1000). Centers not listed keep the top-k behaviour.
  */
 picks?: Record<string, Array<string>> | null, 
 /**
