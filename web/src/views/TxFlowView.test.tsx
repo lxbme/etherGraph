@@ -653,7 +653,7 @@ describe("a snapshot tab (frozen)", () => {
     expect(await parties().findByText("LiveRouter")).toBeInTheDocument();
     expect(screen.queryByText(/Snapshot from a file/)).toBeNull();
     const tab = useTabs.getState().tabs.find((t) => t.id === HASH);
-    expect(tab && "kind" in tab ? tab.snapshot : "missing").toBeUndefined();
+    expect(tab?.kind === "tx" ? tab.snapshot : "missing").toBeUndefined();
   });
 
   test("Raw shows the file's raw data with no request; a snapshot without it says so", async () => {

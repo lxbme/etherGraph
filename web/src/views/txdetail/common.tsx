@@ -24,7 +24,7 @@ export function useFlowLink(hash: string) {
   const id = hash.toLowerCase();
   const highlighted = useTabs((s) => {
     const entry = s.tabs.find((x) => x.id === id);
-    return entry && "kind" in entry ? (entry.highlightedSeq ?? null) : null;
+    return entry?.kind === "tx" ? (entry.highlightedSeq ?? null) : null;
   });
   const select = (address: string) => useUi.getState().selectTx(id, address);
   const rowProps = (seq: number) => ({

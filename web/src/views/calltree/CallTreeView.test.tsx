@@ -478,7 +478,7 @@ test("tapping_a_node_selects_it_for_the_right_panel", async () => {
 const nodeEls = () => h.props!.elements.filter((e) => e.data.source === undefined);
 const callLayout = () => {
   const tab = useTabs.getState().tabs.find((t) => t.id === HASH);
-  return tab && "kind" in tab ? tab.callLayout : undefined;
+  return tab?.kind === "tx" ? tab.callLayout : undefined;
 };
 
 test("drag_end_stores_all_positions_and_marks_dirty", async () => {

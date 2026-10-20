@@ -108,16 +108,16 @@ export function TxFlowView({ hash }: { hash: string }) {
   const setSelected = useCallback((a: string | null) => selectTx(hash, a), [selectTx, hash]);
   const highlightedSeq = useTabs((s) => {
     const entry = s.tabs.find((x) => x.id === hash.toLowerCase());
-    return entry && "kind" in entry ? (entry.highlightedSeq ?? null) : null;
+    return entry?.kind === "tx" ? (entry.highlightedSeq ?? null) : null;
   });
   /** The layout this tab was restored with (a workspace); the canvas uses it once. */
   const savedLayout = useTabs((s) => {
     const entry = s.tabs.find((x) => x.id === hash.toLowerCase());
-    return entry && "kind" in entry ? entry.layout : undefined;
+    return entry?.kind === "tx" ? entry.layout : undefined;
   });
   const storedView = useTabs((s) => {
     const entry = s.tabs.find((x) => x.id === hash.toLowerCase());
-    return entry && "kind" in entry ? entry.view : undefined;
+    return entry?.kind === "tx" ? entry.view : undefined;
   });
   // Used only when the view is shown without a tab entry (nothing to store the choice on).
   const [localView, setLocalView] = useState<TxView>("flow");

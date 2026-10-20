@@ -43,7 +43,7 @@ export interface TxTabStateV2 {
 export interface WorkspaceStateV2 {
   graph: WorkspaceStateV1 & { snapshot?: GraphSnapshot };
   tabs: TxTabStateV2[];
-  /** "graph" or the hash of one of `tabs`. */
+  /** "graph", "data" or the hash of one of `tabs`. */
   active: string;
 }
 
@@ -180,7 +180,7 @@ export function deserialize(v: unknown, schemaVersion: number): Parsed<Workspace
     tabs.push({ ...(tab as unknown as TxTabStateV2), hash });
   }
   const active = isStr(v.active) ? lc(v.active) : null;
-  if (active === null || (active !== "graph" && !tabs.some((x) => x.hash === active))) {
+  if (active === null || (active !== "graph" && active !== "data" && !tabs.some((x) => x.hash === active))) {
     return bad(t("ws.err.field", { field: "active" }));
   }
   return { ok: true, state: { graph: graph.state, tabs, active } };

@@ -53,6 +53,8 @@ const dto = (over: Partial<WorkspaceDto> = {}): WorkspaceDto => ({
   updated_at: "2026-01-01T00:00:00.000001Z",
   ...over,
 });
+/** The tabs that are always open. */
+const FIXED = [{ id: "graph" as const }, { id: "data" as const, kind: "data" as const }];
 const txTab = (hash: string, extra: object = {}) => ({ id: hash, kind: "tx" as const, hash, ...extra });
 /** A headless canvas with these node positions and viewport. */
 function canvas(positions: Record<string, { x: number; y: number }>, vp: { zoom: number; pan: { x: number; y: number } }) {
@@ -72,7 +74,7 @@ beforeEach(() => {
   vi.mocked(getCallCy).mockReturnValue(null);
   useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 0 });
   g().reset();
-  useTabs.setState({ tabs: [{ id: "graph" }], active: "graph" });
+  useTabs.setState({ tabs: FIXED, active: "graph" });
   useWorkspace.getState().clear();
 });
 
@@ -85,7 +87,7 @@ describe("schema versions", () => {
     g().reset();
     m.workspace.mockResolvedValue(dto({ schema_version: 1, state: graph as never }));
     await expect(loadWorkspace(7)).resolves.toBe(true);
-    expect(useTabs.getState()).toEqual(expect.objectContaining({ tabs: [{ id: "graph" }], active: "graph" }));
+    expect(useTabs.getState()).toEqual(expect.objectContaining({ tabs: FIXED, active: "graph" }));
     expect(g().centers).toEqual([A]);
   });
 
@@ -145,10 +147,10 @@ describe("tx tabs round-trip", () => {
     await expect(loadWorkspace(7)).resolves.toBe(true);
     const { tabs: open, active } = useTabs.getState();
     expect(active).toBe(H2);
-    expect(open.map((t) => t.id)).toEqual(["graph", H1, H2]);
-    expect(open[1]).toMatchObject({ kind: "tx", hash: H1, detailTab: "logs", layout: { positions: tabs[0]!.positions, viewport: tabs[0]!.viewport } });
-    expect(open[2]).toMatchObject({ kind: "tx", hash: H2, layout: { positions: tabs[1]!.positions, viewport: tabs[1]!.viewport } });
-    expect(open[2]).not.toHaveProperty("detailTab");
+    expect(open.map((t) => t.id)).toEqual(["graph", "data", H1, H2]);
+    expect(open[2]).toMatchObject({ kind: "tx", hash: H1, detailTab: "logs", layout: { positions: tabs[0]!.positions, viewport: tabs[0]!.viewport } });
+    expect(open[3]).toMatchObject({ kind: "tx", hash: H2, layout: { positions: tabs[1]!.positions, viewport: tabs[1]!.viewport } });
+    expect(open[3]).not.toHaveProperty("detailTab");
     expect(g().centers).toEqual([A]);
     expect(g().picks).toEqual({ [A]: [B] });
     expect(useWorkspace.getState()).toMatchObject({ id: 7, updatedAt: "T5", dirty: false });
@@ -175,6 +177,20 @@ describe("tx tabs round-trip", () => {
     expect(captureState().graph).not.toHaveProperty("snapshot");
   });
 
+  test('active "data" round-trips', async () => {
+    useTabs.setState({ tabs: [{ id: "graph" }, { id: "data", kind: "data" }, txTab(H1)], active: "data" });
+    const saved = json(captureState());
+    expect(saved.active).toBe("data");
+    expect(saved.tabs).toEqual([{ hash: H1 }]);
+    expect(deserialize(saved, 2)).toEqual({ ok: true, state: saved });
+
+    useTabs.getState().closeAllTx();
+    m.workspace.mockResolvedValue(dto({ state: saved as never }));
+    await expect(loadWorkspace(7)).resolves.toBe(true);
+    expect(useTabs.getState().tabs.map((t) => t.id)).toEqual(["graph", "data", H1]);
+    expect(useTabs.getState().active).toBe("data");
+  });
+
   test("tx_tab_view_round_trips", async () => {
     useTabs.setState({ tabs: [{ id: "graph" }, txTab(H1, { view: "calls" }), txTab(H2, { view: "flow" })], active: H1 });
     // Only the call tree is written: the asset flow is what a tab without a view shows.
@@ -186,8 +202,8 @@ describe("tx tabs round-trip", () => {
     m.workspace.mockResolvedValue(dto({ state: saved as never }));
     await loadWorkspace(7);
     const open = useTabs.getState().tabs;
-    expect(open[1]).toMatchObject({ hash: H1, view: "calls" });
-    expect(open[2]).not.toHaveProperty("view");
+    expect(open[2]).toMatchObject({ hash: H1, view: "calls" });
+    expect(open[3]).not.toHaveProperty("view");
     expect(useTabs.getState().active).toBe(H1);
   });
 
@@ -202,7 +218,7 @@ describe("tx tabs round-trip", () => {
     const state = { graph: v1(), tabs: [{ hash: H1, detail_tab: "logs" }], active: H1 };
     m.workspace.mockResolvedValue(dto({ state: json(state) as never }));
     await expect(loadWorkspace(7)).resolves.toBe(true);
-    const tab = useTabs.getState().tabs[1]!;
+    const tab = useTabs.getState().tabs[2]!;
     expect(tab).toMatchObject({ hash: H1, detailTab: "logs" });
     expect(tab).not.toHaveProperty("view");
     expect(captureState().tabs).toEqual([{ hash: H1, detail_tab: "logs" }]);
@@ -247,8 +263,8 @@ describe("call-graph positions", () => {
     m.workspace.mockResolvedValue(dto({ state: saved as never }));
     await loadWorkspace(7);
     const open = useTabs.getState().tabs;
-    expect(open[1]).toMatchObject({ hash: H1, view: "calls", callLayout: { positions: CALLS } });
-    expect(open[2]).not.toHaveProperty("callLayout");
+    expect(open[2]).toMatchObject({ hash: H1, view: "calls", callLayout: { positions: CALLS } });
+    expect(open[3]).not.toHaveProperty("callLayout");
     // Saved again before the call view is shown: the restored positions are kept.
     expect(captureState().tabs[0]).toEqual({ hash: H1, view: "calls", call_positions: CALLS });
   });
@@ -267,7 +283,7 @@ describe("call-graph positions", () => {
     const state = { graph: v1(), tabs: [{ hash: H1, view: "calls", positions: CALLS }], active: H1 };
     m.workspace.mockResolvedValue(dto({ state: json(state) as never }));
     await expect(loadWorkspace(7)).resolves.toBe(true);
-    const tab = useTabs.getState().tabs[1]!;
+    const tab = useTabs.getState().tabs[2]!;
     expect(tab).toMatchObject({ hash: H1, view: "calls", layout: { positions: CALLS } });
     expect(tab).not.toHaveProperty("callLayout");
     expect(captureState().tabs).toEqual([{ hash: H1, view: "calls", positions: CALLS }]);
@@ -354,8 +370,8 @@ describe("dirty (R3)", () => {
     saved();
     useTabs.getState().refreshTx(H1);
     expect(dirty()).toBe(true);
-    const tab = useTabs.getState().tabs[1];
-    expect(tab && "kind" in tab ? tab.snapshot : "missing").toBeUndefined();
+    const tab = useTabs.getState().tabs[2];
+    expect(tab?.kind === "tx" ? tab.snapshot : "missing").toBeUndefined();
   });
 
   test("a tx tab opened while a save is in flight keeps the workspace dirty", async () => {
@@ -373,7 +389,7 @@ describe("new workspace", () => {
   test("closes every tx tab", () => {
     useTabs.setState({ tabs: [{ id: "graph" }, txTab(H1), txTab(H2)], active: H1 });
     newWorkspace();
-    expect(useTabs.getState()).toEqual(expect.objectContaining({ tabs: [{ id: "graph" }], active: "graph" }));
+    expect(useTabs.getState()).toEqual(expect.objectContaining({ tabs: FIXED, active: "graph" }));
     expect(useWorkspace.getState().dirty).toBe(false);
   });
 });

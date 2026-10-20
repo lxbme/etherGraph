@@ -18,7 +18,8 @@ import { TxFlowView, TxNodeDetail } from "./views/TxFlowView";
 import { InfoPanel } from "./panels/info/InfoPanel";
 import { useInfo } from "./panels/info/infoStore";
 import { useUi } from "./panels/uiStore";
-import { useTabs, type Tab } from "./shell/tabs";
+import { useTabs, type TxTab } from "./shell/tabs";
+import { DataTab } from "./data/DataTab";
 import { WorkspaceMenu } from "./shell/WorkspaceMenu";
 import { useLocale } from "./i18n";
 import { saveStatusLabel, useUnsavedChangesPrompt, useWorkspace } from "./workspace/useWorkspace";
@@ -59,7 +60,7 @@ function Shell() {
   const wsDirty = useWorkspace((s) => s.dirty);
   const wsStatus = saveStatusLabel({ id: wsId, dirty: wsDirty });
   const hasInfo = useInfo((s) => (s.stacks[active]?.length ?? 0) > 0);
-  const tx = tabs.find((t): t is Extract<Tab, { kind: "tx" }> => t.id === active && "kind" in t);
+  const tx = tabs.find((t): t is TxTab => t.id === active && t.kind === "tx");
   // The admin page covers the app, which stays mounted underneath (canvas, tabs and live updates kept).
   const admin = useAdminRoute((s) => s.open);
 
@@ -71,13 +72,19 @@ function Shell() {
         <Banners />
         <div className="main">
           <div className="main__left">
-            <div className="main__graph" hidden={!!tx}>
+            <div className="main__graph" hidden={active !== "graph"}>
               <GraphSnapshotBanner />
               <ResizableSplit top={<AddressGraph />} bottom={<TransferTable />} />
             </div>
+            {/* Mounted only while shown: its rows are windowed, and its data stays in the query cache. */}
+            {active === "data" && (
+              <div className="main__data">
+                <DataTab />
+              </div>
+            )}
             {tabs.map(
               (t) =>
-                "kind" in t && (
+                t.kind === "tx" && (
                   // A tab restored from a workspace gets a fresh view, which applies its saved layout.
                   <div key={`${t.hash}:${t.restored ?? 0}`} className="main__tx" hidden={t.id !== active}>
                     <TxFlowView hash={t.hash} />
@@ -85,8 +92,8 @@ function Shell() {
                 ),
             )}
           </div>
-          {/* One panel for the active tab: the graph's selection, or the active tx tab's own selection. */}
-          {detailOpen && (
+          {/* One panel for the active tab: the graph's selection, or the active tx tab's own selection; the data tab takes the full width. */}
+          {detailOpen && active !== "data" && (
             <RightPanel>
               {hasInfo ? <InfoPanel tab={active} /> : tx ? <TxNodeDetail key={tx.hash} hash={tx.hash} /> : <DetailPanel />}
             </RightPanel>

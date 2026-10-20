@@ -198,7 +198,7 @@ export function CallTreePanel({
   const identifying = useIdentifying((s) => s.running);
   const callPositions = useTabs((s) => {
     const entry = s.tabs.find((x) => x.id === hash.toLowerCase());
-    return entry && "kind" in entry ? entry.callLayout?.positions : undefined;
+    return entry?.kind === "tx" ? entry.callLayout?.positions : undefined;
   });
 
   const rows = useMemo(() => treeRows(frames, filter, collapsed), [frames, filter, collapsed]);

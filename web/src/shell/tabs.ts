@@ -33,7 +33,11 @@ export type TxTab = {
   /** Set on tabs restored from a workspace: a new value gives the tab a fresh view (so its layout applies). */
   restored?: number;
 };
-export type Tab = { id: "graph" } | TxTab;
+/**
+ * The graph tab, the Data tab (every transfer behind the graph's edges) and the tx tabs; `kind` tells them apart
+ * (absent on the graph tab). The graph and data tabs are always open, first and in that order.
+ */
+export type Tab = { id: "graph"; kind?: undefined } | { id: "data"; kind: "data" } | TxTab;
 
 /** A tx tab to restore (from a saved workspace). */
 export type TxTabInit = Pick<TxTab, "hash" | "detailTab" | "view" | "layout" | "callLayout" | "snapshot">;
@@ -54,7 +58,7 @@ interface TabsState {
   setCallLayout(id: string, positions: Record<string, Pos>): void;
   /** Opens a tx tab with this state (an imported snapshot) and activates it; false (nothing opened) when one for the hash is open. */
   addTx(tab: TxTabInit): boolean;
-  /** Replaces every tx tab with these and activates `active` (the graph tab when it is not one of them). */
+  /** Replaces every tx tab with these and activates `active` (the graph tab when it is neither the data tab nor one of them). */
   restoreTx(tabs: TxTabInit[], active: string): void;
   /** "Refresh from chain": drops a tx tab's snapshot, so it loads the tx like any tab; no-op for unknown ids. */
   refreshTx(id: string): void;
@@ -64,8 +68,11 @@ interface TabsState {
 
 let restoreSeq = 0;
 
+/** The tabs that are always open; only tx tabs come and go. */
+const fixedTabs = (): Tab[] => [{ id: "graph" }, { id: "data", kind: "data" }];
+
 export const useTabs = create<TabsState>((set, get) => ({
-  tabs: [{ id: "graph" }],
+  tabs: fixedTabs(),
   active: "graph",
   openTx: (hash) => {
     const h = hash.toLowerCase();
@@ -75,10 +82,9 @@ export const useTabs = create<TabsState>((set, get) => ({
     set({ active: h });
   },
   close: (id) => {
-    if (id === "graph") return;
     const { tabs, active } = get();
     const idx = tabs.findIndex((t) => t.id === id);
-    if (idx < 0) return;
+    if (idx < 0 || tabs[idx]!.kind !== "tx") return;
     const next = tabs.filter((t) => t.id !== id);
     set({ tabs: next, active: active === id ? (next[idx - 1] ?? next[0])!.id : active });
   },
@@ -86,16 +92,16 @@ export const useTabs = create<TabsState>((set, get) => ({
     if (get().tabs.some((t) => t.id === id)) set({ active: id });
   },
   setDetailTab: (id, detailTab) => {
-    set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && "kind" in t ? { ...t, detailTab } : t)) }));
+    set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && t.kind === "tx" ? { ...t, detailTab } : t)) }));
   },
   setTxView: (id, view) => {
-    set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && "kind" in t ? { ...t, view } : t)) }));
+    set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && t.kind === "tx" ? { ...t, view } : t)) }));
   },
   setHighlightedSeq: (id, highlightedSeq) => {
-    set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && "kind" in t ? { ...t, highlightedSeq } : t)) }));
+    set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && t.kind === "tx" ? { ...t, highlightedSeq } : t)) }));
   },
   setCallLayout: (id, positions) => {
-    set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && "kind" in t ? { ...t, callLayout: { positions } } : t)) }));
+    set((s) => ({ tabs: s.tabs.map((t) => (t.id === id && t.kind === "tx" ? { ...t, callLayout: { positions } } : t)) }));
   },
   addTx: (init) => {
     const hash = init.hash.toLowerCase();
@@ -109,22 +115,23 @@ export const useTabs = create<TabsState>((set, get) => ({
       const hash = t.hash.toLowerCase();
       return { ...t, id: hash, kind: "tx", hash, restored };
     });
-    set({ tabs: [{ id: "graph" }, ...tx], active: tx.some((t) => t.id === active) ? active : "graph" });
+    const keep = active === "data" || tx.some((t) => t.id === active);
+    set({ tabs: [...fixedTabs(), ...tx], active: keep ? active : "graph" });
   },
   refreshTx: (id) => {
     set((s) => ({
       tabs: s.tabs.map((t) => {
-        if (t.id !== id || !("kind" in t) || t.snapshot === undefined) return t;
+        if (t.id !== id || t.kind !== "tx" || t.snapshot === undefined) return t;
         const { snapshot: _dropped, ...rest } = t;
         return rest;
       }),
     }));
   },
-  closeAllTx: () => set({ tabs: [{ id: "graph" }], active: "graph" }),
+  closeAllTx: () => set({ tabs: fixedTabs(), active: "graph" }),
 }));
 
 /** The snapshot a tx tab shows instead of live data (undefined when live or not an open tab). */
 export function useTxSnapshot(hash: string): TxSnapshot | undefined {
   const id = hash.toLowerCase();
-  return useTabs((s) => s.tabs.find((x): x is TxTab => x.id === id && "kind" in x)?.snapshot);
+  return useTabs((s) => s.tabs.find((x): x is TxTab => x.id === id && x.kind === "tx")?.snapshot);
 }

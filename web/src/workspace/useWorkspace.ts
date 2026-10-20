@@ -68,7 +68,7 @@ useGraph.subscribe((s, prev) => {
   }
 });
 
-const isTx = (t: Tab): t is TxTab => "kind" in t;
+const isTx = (t: Tab): t is TxTab => t.kind === "tx";
 const txIds = (tabs: Tab[]) => tabs.flatMap((t) => (isTx(t) ? [t.id] : [])).join(",");
 /** The tx tabs showing a snapshot. */
 const frozenTxIds = (tabs: Tab[]) => tabs.flatMap((t) => (isTx(t) && t.snapshot !== undefined ? [t.id] : [])).join(",");

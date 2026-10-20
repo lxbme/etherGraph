@@ -109,7 +109,7 @@ const OFF = { labels: false, notes: false };
 const META = { exported_at: "2026-10-01T12:00:00.000Z", includes: ON };
 
 const g = () => useGraph.getState();
-const txTabs = () => useTabs.getState().tabs.filter((t): t is TxTab => "kind" in t);
+const txTabs = () => useTabs.getState().tabs.filter((t): t is TxTab => t.kind === "tx");
 const toasted = () => vi.mocked(toast).mock.calls;
 
 /** A live graph with A as center (its note set) and the graph query answered. */

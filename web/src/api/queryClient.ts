@@ -28,6 +28,8 @@ export const qk = {
   txRaw: (h: string) => ["txRaw", h],
   txTrace: (h: string) => ["txTrace", h],
   transfers: (p: unknown) => ["transfers", p],
+  /** The Data tab's transfers: the canvas edges' pairs under the graph filter. */
+  transfersBatch: (pairs: unknown, filter: unknown) => ["transfersBatch", pairs, filter],
   /** An address's assets, or a pair's per direction (`b`). */
   addressAssets: (a: string, b?: string) => ["addressAssets", a.toLowerCase(), b?.toLowerCase() ?? null],
   labels: (a: string) => ["labels", a],

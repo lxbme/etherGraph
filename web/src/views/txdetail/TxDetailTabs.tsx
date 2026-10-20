@@ -27,7 +27,7 @@ export function TxDetailTabs({ flow }: { flow: TxFlowDto }) {
   const id = flow.tx.hash.toLowerCase();
   const stored = useTabs((s) => {
     const entry = s.tabs.find((x) => x.id === id);
-    return entry && "kind" in entry ? entry.detailTab : undefined;
+    return entry?.kind === "tx" ? entry.detailTab : undefined;
   });
   // Used only when the view is shown without a tab entry (nothing to store the choice on).
   const [local, setLocal] = useState<TxDetailTab>("overview");

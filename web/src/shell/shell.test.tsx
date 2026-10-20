@@ -44,6 +44,27 @@ describe('tabs', () => {
     expect(screen.queryByRole('button', { name: 'Close Graph' })).toBeNull()
   })
 
+  it('the data tab is always second and survives closeAllTx and restoreTx', () => {
+    const ids = () => useTabs.getState().tabs.map((t) => t.id)
+    expect(useTabs.getInitialState().tabs).toEqual([{ id: 'graph' }, { id: 'data', kind: 'data' }])
+    useTabs.getState().closeAllTx()
+    expect(ids()).toEqual(['graph', 'data'])
+    useTabs.getState().openTx(H1)
+    expect(ids()).toEqual(['graph', 'data', H1])
+    // Never closed.
+    useTabs.getState().close('data')
+    expect(ids()).toEqual(['graph', 'data', H1])
+    const H2 = '0x' + 'cd'.repeat(32)
+    useTabs.getState().restoreTx([{ hash: H2 }], 'data')
+    expect(ids()).toEqual(['graph', 'data', H2])
+    expect(useTabs.getState().active).toBe('data')
+    useTabs.getState().closeAllTx()
+    expect(useTabs.getState()).toEqual(expect.objectContaining({ tabs: [{ id: 'graph' }, { id: 'data', kind: 'data' }], active: 'graph' }))
+    render(<App />)
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Graph', 'Data'])
+    expect(screen.queryByRole('button', { name: 'Close Data' })).toBeNull()
+  })
+
   it('openTx adds and activates a tab; reopening the same hash just activates', () => {
     const s = useTabs.getState()
     s.openTx(H1)

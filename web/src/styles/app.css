@@ -1371,6 +1371,45 @@ a.btn { text-decoration: none; }
 .main__tx { flex: 1; min-height: 0; display: flex; }
 .main__tx[hidden] { display: none; }
 
+/*
+ * The Data tab: a count line over a windowed table that scrolls both ways under a sticky header. Header and rows
+ * share one grid of columns; rows are absolutely placed at --h-data-row (DATA_ROW_HEIGHT).
+ */
+.main__data { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.data { flex: 1; min-height: 0; display: flex; flex-direction: column; font-size: var(--fs-12); }
+.data__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--line); }
+.data__muted { color: var(--fg-muted); }
+.data__scroll { flex: 1; min-height: 0; overflow: auto; }
+.data__table {
+  --data-cols: 36px minmax(180px, 1fr) minmax(120px, 1.2fr) minmax(120px, 1.2fr) minmax(140px, 1fr) minmax(80px, 0.8fr) minmax(80px, 0.6fr) minmax(110px, 0.8fr);
+  min-width: 920px;
+}
+.data__head,
+.data__row { display: grid; grid-template-columns: var(--data-cols); align-items: center; }
+.data__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: var(--h-compact);
+  color: var(--fg-muted);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--line);
+  font-size: var(--fs-11);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.data__body { position: relative; }
+.data__row { position: absolute; left: 0; right: 0; height: var(--h-data-row); border-bottom: 1px solid var(--line); }
+.data__row:hover { background: var(--bg-subtle); }
+.data__cell { min-width: 0; padding: 0 var(--sp-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.data__cell:first-child { padding: 0 var(--sp-2); }
+.data__cell input { display: block; margin: 0; }
+.data__num { text-align: right; }
+/* Hidden: muted, the amount struck through (as .transfers__row--hidden in the transfer table). */
+.data__row--hidden { color: var(--fg-muted); }
+.data__row--hidden .data__num { text-decoration: line-through; }
+
 /* An address with its inline copy / add-to-graph buttons (shell/AddressCell). */
 .addr-cell { display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--sp-1); max-width: 100%; }
 .addr-cell__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }

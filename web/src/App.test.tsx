@@ -3,6 +3,8 @@ import { useLocale } from './i18n'
 import { App } from './App'
 import { clearExport, requestExport } from './workspace/fileRequest'
 import { useAuth } from './auth/useMe'
+import { useTabs } from './shell/tabs'
+import { useUi } from './panels/uiStore'
 
 // Cytoscape cannot render in jsdom and the SSE stream is covered by api/useEvents.test.tsx.
 vi.mock('./graph/CytoscapeView', () => ({ CytoscapeView: () => <div data-testid="cy" /> }))
@@ -60,5 +62,22 @@ describe('App files', () => {
     act(() => requestExport('workspace'))
     expect(screen.getByRole('dialog', { name: 'Export file' })).toBeInTheDocument()
     act(() => clearExport())
+  })
+})
+
+describe('App tabs', () => {
+  afterEach(() => act(() => useTabs.getState().closeAllTx()))
+
+  it('the right panel is absent on the data tab', () => {
+    useUi.setState({ detailOpen: true })
+    const { container } = render(<App />)
+    expect(container.querySelector('.main__right')).not.toBeNull()
+    act(() => useTabs.getState().activate('data'))
+    expect(container.querySelector('.main__right')).toBeNull()
+    expect(container.querySelector('.main__graph')).toHaveAttribute('hidden')
+    expect(container.querySelector('.main__data')).not.toBeNull()
+    act(() => useTabs.getState().activate('graph'))
+    expect(container.querySelector('.main__right')).not.toBeNull()
+    expect(container.querySelector('.main__data')).toBeNull()
   })
 })

@@ -32,6 +32,7 @@ import type { StatusDto } from "./generated/StatusDto";
 import type { SyncRequestDto } from "./generated/SyncRequestDto";
 import type { SyncResponseDto } from "./generated/SyncResponseDto";
 import type { TokenDetailDto } from "./generated/TokenDetailDto";
+import type { TransferBatchRequestDto } from "./generated/TransferBatchRequestDto";
 import type { TransferPageDto } from "./generated/TransferPageDto";
 import type { TxRawDto } from "./generated/TxRawDto";
 import type { TxResponseDto } from "./generated/TxResponseDto";
@@ -124,6 +125,9 @@ export const api = {
         limit: p.limit === undefined ? undefined : String(p.limit),
       },
     }),
+  /** The transfers behind a set of graph edges (1 to 5000 pairs) under the graph's filter, newest first; at most 1000 a page. */
+  transfersBatch: (req: TransferBatchRequestDto, opts?: { signal?: AbortSignal }) =>
+    request<TransferPageDto>("POST", "/api/transfers/batch", { body: req, signal: opts?.signal }),
   address: (addr: string, opts?: { sync?: "auto" | "none" }) =>
     request<AddressProfileDto>("GET", `/api/address/${encodeURIComponent(addr)}`, {
       query: { sync: opts?.sync },

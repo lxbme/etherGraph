@@ -38,7 +38,8 @@ export function applyRoute(r: Route): void {
 
 function currentHash(): string {
   const { active } = useTabs.getState();
-  if (active !== "graph") return `#/tx/${active}`;
+  // The data tab has no route of its own: it keeps the graph's.
+  if (active !== "graph" && active !== "data") return `#/tx/${active}`;
   const sel = graphSelection(useGraph.getState().selection);
   return sel?.kind === "node" ? `#/address/${sel.address.toLowerCase()}` : "#/";
 }

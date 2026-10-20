@@ -8,13 +8,19 @@ export function TabBar() {
   return (
     <div className="tabbar" role="tablist">
       {tabs.map((tab) => {
-        const label = "kind" in tab ? t("tab.tx", { hash: `${tab.hash.slice(0, 6)}…${tab.hash.slice(-4)}` }) : t("tab.graph");
+        const label =
+          tab.kind === "tx"
+            ? t("tab.tx", { hash: `${tab.hash.slice(0, 6)}…${tab.hash.slice(-4)}` })
+            : tab.kind === "data"
+              ? t("tab.data")
+              : t("tab.graph");
         return (
           <div key={tab.id} className={`tab${tab.id === active ? " tab--active" : ""}`}>
             <button role="tab" aria-selected={tab.id === active} className="tab__label" onClick={() => activate(tab.id)}>
               {label}
             </button>
-            {"kind" in tab && (
+            {/* Only tx tabs close: the graph and data tabs are always there. */}
+            {tab.kind === "tx" && (
               <button className="tab__close" aria-label={t("tab.close", { label })} onClick={() => close(tab.id)}>
                 <X size={14} />
               </button>

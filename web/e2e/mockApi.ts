@@ -21,6 +21,8 @@ import type { SearchResultDto } from "../src/api/generated/SearchResultDto";
 import type { StatusDto } from "../src/api/generated/StatusDto";
 import type { SyncResponseDto } from "../src/api/generated/SyncResponseDto";
 import type { TokenDetailDto } from "../src/api/generated/TokenDetailDto";
+import type { TransferBatchRequestDto } from "../src/api/generated/TransferBatchRequestDto";
+import type { TransferDto } from "../src/api/generated/TransferDto";
 import type { TransferPageDto } from "../src/api/generated/TransferPageDto";
 import type { TxRawDto } from "../src/api/generated/TxRawDto";
 import type { TxResponseDto } from "../src/api/generated/TxResponseDto";
@@ -104,6 +106,22 @@ export function assetRows(edges: EdgeDto[], addr: string, withAddr?: string): Ad
     }
   }
   return [...rows.values()].sort((x, y) => y.count - x.count);
+}
+
+/**
+ * `POST /api/transfers/batch` over `transfers`: those on one of the request's pairs (a null or `"eth"` asset is ETH),
+ * newest first, paged by position (the cursor is the next row's index). The filter is not applied.
+ */
+export function batchPage(transfers: TransferDto[], req: TransferBatchRequestDto): TransferPageDto {
+  const key = (from: string, to: string, asset: string | null) =>
+    `${from.toLowerCase()}>${to.toLowerCase()}|${asset === null || asset.toLowerCase() === "eth" ? "eth" : asset.toLowerCase()}`;
+  const pairs = new Set(req.pairs.map((p) => key(p.from, p.to, p.asset)));
+  const hits = transfers
+    .filter((t) => pairs.has(key(t.from, t.to, t.asset)))
+    .sort((x, y) => (x.ts < y.ts ? 1 : x.ts > y.ts ? -1 : 0));
+  const start = Number(req.cursor ?? 0);
+  const end = start + (req.limit ?? 500);
+  return { items: hits.slice(start, end), next_cursor: end < hits.length ? String(end) : null };
 }
 
 export interface Reply {
@@ -191,6 +209,8 @@ function defaultHandlers(): Map<RouteKey, Handler> {
       },
     ],
     ["GET /api/transfers", () => ({ json: fixtures.transfers })],
+    // The Data tab's transfers, from the fixture transfers.
+    ["POST /api/transfers/batch", (req) => ({ json: batchPage(fixtures.transfers.items, req.postDataJSON() as TransferBatchRequestDto) })],
     ["GET /api/tx/*/raw", () => ({ json: fixtures.txRaw })],
     ["GET /api/tx/*/trace", () => ({ json: fixtures.trace })],
     [
@@ -403,6 +423,8 @@ export interface World {
   edges: EdgeDto[];
   /** Counterparties of a center that the graph's filter hides (added to its counterparties total). */
   filtered: Record<string, number>;
+  /** The single transfers behind `edges`, for the Data tab (absent: none). */
+  transfers?: TransferDto[];
 }
 
 /** A node summary for `address` (an unknown EOA unless `over` says otherwise). */
@@ -436,7 +458,8 @@ export function rankedNeighbours(edges: EdgeDto[], center: string): string[] {
 }
 
 /**
- * Answers `POST /api/graph/edges`, `POST /api/nodes`, the address profile and the counterparties total from `world`.
+ * Answers `POST /api/graph/edges`, `POST /api/nodes`, `POST /api/transfers/batch`, the address profile and the
+ * counterparties total from `world`.
  * The graph follows the server's rules: a picked center (`picks`, even empty) shows exactly its picked neighbours
  * plus `prefer` and the other centers; any other center its top `limits[c]` (default `limit_per_address`, else 200)
  * with `prefer` ranked first; `omitted` counts the rest. Only edges at a center are returned.
@@ -472,6 +495,9 @@ export function installWorld(mock: MockApi, world: World): void {
     const body = req.postDataJSON() as NodesRequestDto;
     return { json: body.addresses.flatMap((a) => world.nodes.get(lc(a)) ?? []) };
   });
+  mock.on("POST /api/transfers/batch", (req) => ({
+    json: batchPage(world.transfers ?? [], req.postDataJSON() as TransferBatchRequestDto),
+  }));
   mock.on("GET /api/address/*", (_req, url) => {
     const a = lc(decodeURIComponent(url.pathname.split("/").pop() ?? ""));
     const n = world.nodes.get(a);
