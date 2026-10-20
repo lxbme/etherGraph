@@ -4,20 +4,23 @@
 
 use axum::Json;
 use axum::extract::State;
-use eg_core::filter::{EdgeFilter, TimeRange};
+use eg_core::filter::{Direction, EdgeFilter, TimeRange};
 use eg_store::{TransferCursor, TransferQuery, TransferScope};
 use serde::Deserialize;
 
-use crate::dto::{TransferDto, TransferPageDto};
+use crate::dto::{TransferBatchRequestDto, TransferDto, TransferPageDto};
 use crate::error::{ApiError, invalid};
 use crate::nodes::token_map;
 use crate::parse::{parse_address, parse_asset, parse_direction, parse_kind, parse_time};
-use crate::routes::ApiQuery;
-use crate::routes::graph::asset_filters;
+use crate::routes::graph::{asset_filters, edge_filter};
+use crate::routes::{ApiJson, ApiQuery};
 use crate::state::AppState;
 
 const DEFAULT_LIMIT: u32 = 50;
 const MAX_LIMIT: u32 = 200;
+const BATCH_DEFAULT_LIMIT: u32 = 500;
+const BATCH_MAX_LIMIT: u32 = 1000;
+const BATCH_MAX_PAIRS: usize = 5000;
 
 /// All fields are strings so malformed values get the JSON error body.
 #[derive(Deserialize)]
@@ -111,6 +114,57 @@ pub async fn list(
             cursor,
             limit,
         })
+        .await?;
+    let mut assets: Vec<_> = items.iter().filter_map(|t| t.asset).collect();
+    assets.sort();
+    assets.dedup();
+    let tokens = token_map(&s.store, &assets).await?;
+    let trust = s.trust.get(&s.store).await;
+    Ok(Json(TransferPageDto {
+        items: items
+            .iter()
+            .map(|t| TransferDto::new(t, &tokens, &trust))
+            .collect(),
+        next_cursor: next.map(|c| c.encode()),
+    }))
+}
+
+/// `POST /api/transfers/batch`: the transfers behind a set of graph edges
+/// (`pairs`), under the graph's filter, newest first and keyset-paginated.
+pub async fn batch(
+    State(s): State<AppState>,
+    ApiJson(req): ApiJson<TransferBatchRequestDto>,
+) -> Result<Json<TransferPageDto>, ApiError> {
+    if req.pairs.is_empty() || req.pairs.len() > BATCH_MAX_PAIRS {
+        return Err(invalid(format!(
+            "pairs must hold 1 to {BATCH_MAX_PAIRS} entries, got {}",
+            req.pairs.len()
+        )));
+    }
+    let pairs = req
+        .pairs
+        .iter()
+        .map(|p| {
+            let asset = p.asset.as_deref().map(parse_asset).transpose()?.flatten();
+            Ok((parse_address(&p.from)?, parse_address(&p.to)?, asset))
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+    let mut filter = edge_filter(&s, req.filter).await?;
+    // The pairs are already the chosen edges, whichever side they were found from.
+    filter.direction = Direction::Both;
+    let cursor = req
+        .cursor
+        .as_deref()
+        .map(|c| TransferCursor::decode(c).ok_or_else(|| invalid("invalid cursor")))
+        .transpose()?;
+    let limit = req
+        .limit
+        .unwrap_or(BATCH_DEFAULT_LIMIT)
+        .clamp(1, BATCH_MAX_LIMIT);
+
+    let (items, next) = s
+        .store
+        .list_transfers_for_pairs(&pairs, &filter, cursor.as_ref(), limit)
         .await?;
     let mut assets: Vec<_> = items.iter().filter_map(|t| t.asset).collect();
     assets.sort();

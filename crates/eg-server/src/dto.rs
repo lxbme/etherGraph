@@ -764,6 +764,29 @@ pub struct TransferDto {
     pub trust: TrustDto,
 }
 
+/// One graph edge's identity: ordered address pair plus asset.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct PairDto {
+    pub from: String,
+    pub to: String,
+    /// Token address; null (or `"eth"`) for ETH.
+    pub asset: Option<String>,
+}
+
+/// The transfers behind a set of graph edges, under the graph's filter.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export, optional_fields = nullable)]
+pub struct TransferBatchRequestDto {
+    /// 1 to 5000 edges; duplicates are ignored.
+    pub pairs: Vec<PairDto>,
+    /// As for graph edges; `direction` is ignored.
+    pub filter: EdgeFilterDto,
+    pub cursor: Option<String>,
+    /// Default 500; clamped to 1..=1000.
+    pub limit: Option<u32>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct TransferPageDto {

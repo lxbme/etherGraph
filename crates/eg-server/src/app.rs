@@ -42,6 +42,10 @@ pub fn router(state: AppState) -> Router {
         .route("/graph/edges", post(graph::edges.layer(graph_body())))
         .route("/nodes", post(nodes::nodes))
         .route("/transfers", get(transfers::list))
+        .route(
+            "/transfers/batch",
+            post(transfers::batch.layer(graph_body())),
+        )
         .route("/tx/{hash}", get(tx::tx))
         .route("/tx/{hash}/raw", get(tx::raw))
         .route("/tx/{hash}/trace", get(tx::trace))

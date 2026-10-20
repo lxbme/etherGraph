@@ -175,7 +175,7 @@ pub async fn edges(
 }
 
 /// Converts the request filter; `min_amount`s are scaled as in [`asset_filters`].
-async fn edge_filter(s: &AppState, f: EdgeFilterDto) -> Result<EdgeFilter, ApiError> {
+pub(crate) async fn edge_filter(s: &AppState, f: EdgeFilterDto) -> Result<EdgeFilter, ApiError> {
     let time = f.time.unwrap_or_default();
     let time = TimeRange {
         from: time

@@ -408,6 +408,76 @@ impl Store {
     }
 }
 
+impl Store {
+    /// One page of the transfers behind a set of `(from, to, asset)` edges
+    /// (`None` asset is ETH), under `filter` and in the order and keyset of
+    /// [`Store::list_transfers`]. `filter.direction` is ignored: the pairs are
+    /// already the chosen edges. Duplicate pairs do not duplicate rows.
+    pub async fn list_transfers_for_pairs(
+        &self,
+        pairs: &[(Address, Address, Option<Address>)],
+        filter: &EdgeFilter,
+        cursor: Option<&TransferCursor>,
+        limit: u32,
+    ) -> Result<(Vec<Transfer>, Option<TransferCursor>)> {
+        let mut uniq: Vec<_> = pairs.to_vec();
+        uniq.sort();
+        uniq.dedup();
+        let from: Vec<Vec<u8>> = uniq.iter().map(|p| addr_to_bytes(p.0)).collect();
+        let to: Vec<Vec<u8>> = uniq.iter().map(|p| addr_to_bytes(p.1)).collect();
+        let asset: Vec<Option<Vec<u8>>> = uniq.iter().map(|p| p.2.map(addr_to_bytes)).collect();
+
+        // A join on `unnest`, not an OR chain, so thousands of pairs stay one
+        // hash join instead of a planner-hostile predicate.
+        let cols = TRANSFER_COLS
+            .split(", ")
+            .map(|c| format!("t.{c}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut qb: QueryBuilder<Postgres> =
+            QueryBuilder::new(format!("SELECT {cols} FROM transfers t JOIN unnest("));
+        qb.push_bind(from)
+            .push("::bytea[], ")
+            .push_bind(to)
+            .push("::bytea[], ")
+            .push_bind(asset)
+            .push(
+                "::bytea[]) AS p(f, t, a) ON t.from_addr = p.f AND t.to_addr = p.t \
+                   AND t.asset IS NOT DISTINCT FROM p.a WHERE TRUE",
+            );
+        push_filter(&mut qb, filter);
+        if let Some(c) = cursor {
+            qb.push(" AND (t.ts, t.tx_hash, t.sub_id) < (")
+                .push_bind(c.ts)
+                .push(", ")
+                .push_bind(c.tx_hash.as_slice().to_vec())
+                .push(", ")
+                .push_bind(c.sub_id.clone())
+                .push(")");
+        }
+        qb.push(" ORDER BY t.ts DESC, t.tx_hash DESC, t.sub_id DESC LIMIT ")
+            .push_bind(i64::from(limit) + 1);
+
+        let rows = qb.build().fetch_all(&self.pool).await?;
+        let mut page = rows
+            .iter()
+            .map(transfer_from_row)
+            .collect::<Result<Vec<_>>>()?;
+        let limit = limit as usize;
+        let next = if page.len() > limit {
+            page.truncate(limit);
+            page.last().map(|t| TransferCursor {
+                ts: t.ts,
+                tx_hash: t.tx_hash,
+                sub_id: t.sub_id.clone(),
+            })
+        } else {
+            None
+        };
+        Ok((page, next))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
