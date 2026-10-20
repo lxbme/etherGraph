@@ -6,6 +6,8 @@ import { messageFor } from "../api/errors";
 import { useLocale, useT, type MsgKey } from "../i18n";
 import { qk } from "../api/queryClient";
 import { createBoxSelection } from "../graph/boxSelection";
+import { AnnotationLayer } from "../annotate/AnnotationLayer";
+import { txFlowView } from "../annotate/model";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { getTxCy, registerTxCy } from "../graph/cyRegistry";
 import { txLegendFor } from "../graph/legend";
@@ -161,6 +163,7 @@ export function TxFlowView({ hash }: { hash: string }) {
   const closeMenu = useCallback(() => setMenu(null), []);
   /** Canvas width the expanded legend covers from the left; fits keep it clear. */
   const [legendCover, setLegendCover] = useState(0);
+  const [noteCy, setNoteCy] = useState<cytoscape.Core | null>(null);
   const [hover, setHover] = useState<{ kind: "node" | "edge"; id: string; pos: { x: number; y: number } } | null>(null);
   const tooltipLines = useMemo((): TooltipLine[] | null => {
     if (!hover || !flow) return null;
@@ -280,12 +283,14 @@ export function TxFlowView({ hash }: { hash: string }) {
                   initialLayout={savedLayout}
                   onReady={(cy) => {
                     registerTxCy(hash, cy);
+                    setNoteCy(cy);
                     box.getState().bindCanvas(() => cy.$(":selected").unselect());
                     cy.on("viewport", closeMenu);
                   }}
                   onHover={setHover}
                   fitInsetLeft={legendCover}
                 />
+                <AnnotationLayer view={txFlowView(hash)} cy={noteCy} />
                 {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
                 <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
                 <CanvasTools selectMode={selectMode} onSelectModeChange={box.getState().setSelectMode} exporter={exporter}>

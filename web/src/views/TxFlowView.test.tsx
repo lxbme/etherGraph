@@ -21,6 +21,8 @@ import { download } from "../lib/download";
 import { clearExport, useFileRequest } from "../workspace/fileRequest";
 import { TxFlowView, TxNodeDetail } from "./TxFlowView";
 
+// These tests hand the view a partial cy; the overlay has its own tests.
+vi.mock("../annotate/AnnotationLayer", () => ({ AnnotationLayer: () => null }));
 vi.mock("../graph/exportImage", async (orig) => ({ ...(await orig<typeof import("../graph/exportImage")>()), exportImage: vi.fn() }));
 vi.mock("../lib/download", async (orig) => ({ ...(await orig<typeof import("../lib/download")>()), download: vi.fn() }));
 

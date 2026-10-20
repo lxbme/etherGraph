@@ -27,6 +27,8 @@ import { registerSnapshotEffects } from "../workspace/snapshot";
 import { AddressGraph } from "./AddressGraph";
 import { GraphSnapshotBanner, LiveConfirm } from "./SnapshotBanner";
 
+// These tests hand the view a partial cy; the overlay has its own tests.
+vi.mock("../annotate/AnnotationLayer", () => ({ AnnotationLayer: () => null }));
 vi.mock("../graph/exportImage", async (orig) => ({ ...(await orig<typeof import("../graph/exportImage")>()), exportImage: vi.fn() }));
 vi.mock("../graph/relayout", () => ({ relayoutGraph: vi.fn() }));
 vi.mock("../lib/download", async (orig) => ({ ...(await orig<typeof import("../lib/download")>()), download: vi.fn() }));

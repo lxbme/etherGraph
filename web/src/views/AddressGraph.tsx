@@ -6,6 +6,7 @@ import { t, useLocale, useT } from "../i18n";
 import { messageFor } from "../api/errors";
 import { getMainCy, setMainCy } from "../graph/cyRegistry";
 import { useBoxSelection } from "../graph/boxSelection";
+import { AnnotationLayer } from "../annotate/AnnotationLayer";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { isMoreId, MORE_PREFIX, toElements } from "../graph/elements";
 import { useCanvasMetrics } from "../graph/canvasMetrics";
@@ -113,6 +114,7 @@ export function AddressGraph() {
   const legend = useMemo(() => legendFor(elements, theme, boxCount), [elements, theme, boxCount]);
   /** Canvas width the expanded legend covers from the left; fits keep it clear. */
   const [legendCover, setLegendCover] = useState(0);
+  const [noteCy, setNoteCy] = useState<cytoscape.Core | null>(null);
 
   const [hover, setHover] = useState<{ kind: "node" | "edge"; id: string; pos: Pos } | null>(null);
   /** The "+N more" under the pointer (or under its × button): its center and rendered box. */
@@ -208,6 +210,7 @@ export function AddressGraph() {
   const onReady = (cy: cytoscape.Core) => {
     cyRef.current = cy;
     setMainCy(cy);
+    setNoteCy(cy);
     // The box selection is the canvas's native selection: clearing it drops the ring too.
     useBoxSelection.getState().bindCanvas(() => cy.$(":selected").unselect());
     cy.on("viewport", () => setMenu(null));
@@ -280,6 +283,7 @@ export function AddressGraph() {
         onHover={setHover}
         fitInsetLeft={legendCover}
       />
+      <AnnotationLayer view="graph" cy={noteCy} />
       {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
       {moreHover && (
         <button

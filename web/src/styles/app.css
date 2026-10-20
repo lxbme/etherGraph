@@ -713,6 +713,15 @@ a.btn { text-decoration: none; }
 }
 .address-graph__status--error { color: var(--neg); }
 /* Top-right canvas tools, left of the refreshing dot (right: --sp-3, width --sp-2) with a --sp-2 gap. */
+.annotation-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 4; /* above the canvas, below the tools (5), tooltip (6) and menus */
+  pointer-events: none;
+  overflow: hidden;
+}
 .canvas-tools {
   position: absolute;
   top: var(--sp-2);

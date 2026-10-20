@@ -28,6 +28,12 @@
   --cat-fund: #a16207;
   --cat-nft: #c026d3;
   --cat-staking: #2f855a;
+
+  /* Annotation marks on the canvas. */
+  --note-red: #d93025;
+  --note-amber: #b45309;
+  --note-blue: #2563c9;
+  --note-ink: #111827;
   --cat-none: #6b7280;
 
   /* edge asset classes */
@@ -123,6 +129,11 @@
   --cat-fund: #e0b04a;
   --cat-nft: #e07ae8;
   --cat-staking: #5cc28a;
+
+  --note-red: #f0645a;
+  --note-amber: #f0b64a;
+  --note-blue: #6ea3f0;
+  --note-ink: #e6e9ed;
   --cat-none: #98a3b0;
 
   --asset-eth: #9a9aff;

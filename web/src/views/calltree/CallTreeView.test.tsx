@@ -21,6 +21,8 @@ import { useWorkspace } from "../../workspace/useWorkspace";
 import { CallTreeView, useTraceFailures } from "./CallTreeView";
 import { A, B, ensFrames, SENDER, synth, X } from "./fixtures.testutil";
 
+// These tests hand the view a partial cy; the overlay has its own tests.
+vi.mock("../../annotate/AnnotationLayer", () => ({ AnnotationLayer: () => null }));
 vi.mock("../../graph/exportImage", async (orig) => ({ ...(await orig<typeof import("../../graph/exportImage")>()), exportImage: vi.fn() }));
 vi.mock("../../lib/download", async (orig) => ({ ...(await orig<typeof import("../../lib/download")>()), download: vi.fn() }));
 

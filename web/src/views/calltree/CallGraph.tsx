@@ -1,6 +1,8 @@
 import type cytoscape from "cytoscape";
 import { useEffect, useMemo, useState } from "react";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
+import { AnnotationLayer } from "../../annotate/AnnotationLayer";
+import { txCallsView } from "../../annotate/model";
 import { CytoscapeView } from "../../graph/CytoscapeView";
 import { getCallCy, registerCallCy } from "../../graph/cyRegistry";
 import { nodeElement } from "../../graph/elements";
@@ -109,6 +111,7 @@ export function CallGraph({
     () => callElements(nodes, edges, selected, highlightedEdge, initialPositions),
     [nodes, edges, selected, highlightedEdge, initialPositions, locale], // labels are translated when built
   );
+  const [noteCy, setNoteCy] = useState<cytoscape.Core | null>(null);
   const [hover, setHover] = useState<{ kind: "node" | "edge"; id: string; pos: { x: number; y: number } } | null>(null);
   const tooltipLines = useMemo((): TooltipLine[] | null => {
     if (!hover) return null;
@@ -150,9 +153,13 @@ export function CallGraph({
           markTxLayoutChanged();
         }}
         initialLayout={initialLayout}
-        onReady={(cy) => registerCallCy(hash, cy)}
+        onReady={(cy) => {
+          registerCallCy(hash, cy);
+          setNoteCy(cy);
+        }}
         onHover={setHover}
       />
+      <AnnotationLayer view={txCallsView(hash)} cy={noteCy} />
       {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
       <CanvasTools exporter={exporter} />
     </div>
