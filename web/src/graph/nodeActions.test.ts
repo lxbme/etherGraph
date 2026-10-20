@@ -70,6 +70,33 @@ describe("introduce", () => {
     expect(usePick.getState().targets).toEqual([A]);
   });
 
+  test("an address that is not a shown center comes alone even with a stale limit or old picks; shown centers keep theirs", () => {
+    // A was a top-k center (an older workspace) and C a picked one; both were removed, their entries left behind.
+    g().loadSnapshot({
+      centers: [A, B, C],
+      filter: {},
+      expandedPairs: [],
+      ui: {},
+      limits: { [A]: 7, [B]: 9 },
+      picks: { [C]: [TX.slice(0, 42)] },
+    });
+    g().removeCenter(A);
+    g().removeCenter(C);
+    const steps = g()._past.length;
+    act(() => introduce([A, B, C], { activateGraph: false }));
+    expect(g().centers).toEqual([B, A, C]);
+    expect(g().picks[A]).toEqual([]);
+    expect(g().picks[C]).toEqual([]);
+    // B is a shown (top-k) center: untouched.
+    expect(g().picks[B]).toBeUndefined();
+    expect(g().limits[B]).toBe(9);
+    expect(g()._past.length).toBe(steps + 1);
+    act(() => g().undo());
+    expect(g().centers).toEqual([B]);
+    expect(g().picks[A]).toBeUndefined();
+    expect(g().picks[C]).toEqual([TX.slice(0, 42)]);
+  });
+
   test("on a snapshot it waits for the refresh, then reveals and opens the picker", () => {
     g().freeze({ data: { nodes: [], edges: [], omitted: {}, coverage: {} } } as never);
     act(() => introduce([A], { activateGraph: false }));

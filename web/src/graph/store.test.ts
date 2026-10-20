@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { useCanvasMetrics } from "./canvasMetrics";
 import { setHistoryEffectHandler, type ExpandEffect } from "./historyEffects";
-import { firstBatch, firstBatchFor, MAX_NEIGHBOUR_LIMIT, ownNeighbours, pairKey, useGraph } from "./store";
+import { firstBatch, firstBatchFor, ownNeighbours, pairKey, useGraph } from "./store";
 
 const A = "0x" + "a".repeat(40);
 const B = "0x" + "b".repeat(40);
@@ -265,9 +265,8 @@ describe("per-center limits", () => {
     expect(g().limits[A]).toBe(59);
   });
 
-  test("a removed top-k center re-added with addCenter keeps its raised limit", () => {
-    g().loadSnapshot({ centers: ["x"], ui: {}, filter: {}, expandedPairs: [], limits: { x: 59 } });
-    g().raiseLimit("x", 5);
+  test("a removed top-k center re-added with addCenter keeps its limit", () => {
+    g().loadSnapshot({ centers: ["x"], ui: {}, filter: {}, expandedPairs: [], limits: { x: 64 } });
     g().removeCenter("x");
     g().addCenter("x");
     expect(g().limits.x).toBe(64);
@@ -347,29 +346,6 @@ describe("per-center limits", () => {
     g().redo();
     expect(onUndo).not.toHaveBeenCalled();
     expect(onRedo).not.toHaveBeenCalled();
-  });
-
-  test("raiseLimit is one history step without effect", () => {
-    const onUndo = vi.fn();
-    setHistoryEffectHandler({ onUndo, onRedo: vi.fn() });
-    g().loadSnapshot({ centers: ["a", "b"], ui: {}, filter: {}, expandedPairs: [], limits: { a: 7, b: 7 } });
-    g().raiseLimit("a", 5);
-    expect(g().limits.a).toBe(12);
-    g().undo();
-    expect(g().limits.a).toBe(7);
-    expect(onUndo).not.toHaveBeenCalled();
-    g().redo();
-    expect(g().limits.a).toBe(12);
-  });
-
-  test("raiseLimit stops at the server's per-center maximum", () => {
-    g().loadSnapshot({ centers: ["a"], ui: {}, filter: {}, expandedPairs: [], limits: { a: 990 } });
-    g().raiseLimit("a", 50);
-    expect(g().limits.a).toBe(MAX_NEIGHBOUR_LIMIT);
-    const steps = g()._past.length;
-    g().raiseLimit("a", 50);
-    expect(g().limits.a).toBe(MAX_NEIGHBOUR_LIMIT);
-    expect(g()._past.length).toBe(steps); // nothing to raise: no history step
   });
 
   test("loadSnapshot keeps given limits and gives centers without one a first batch", () => {

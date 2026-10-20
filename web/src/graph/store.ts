@@ -79,8 +79,11 @@ export interface GraphState {
   addCenter(a: string): void;
   /** Makes `a` a shown center (adds it and/or unhides it) in one history step; no-op if it already is. */
   revealCenter(a: string): void;
-  /** `revealCenter` for several addresses, as one history step. */
-  revealCenters(a: string[]): void;
+  /**
+   * `revealCenter` for several addresses, as one history step. `alone`: each address that was not a shown center comes
+   * with no neighbour, picked with none (`picks[a] = []`), even with a limit or picks left from before (spec §5.1).
+   */
+  revealCenters(a: string[], opts?: { alone?: boolean }): void;
   removeCenter(a: string): void;
   setCenters(a: string[]): void;
   /**
@@ -88,8 +91,6 @@ export interface GraphState {
    * with none; a re-added center from an older workspace (a limit, no picks) gets limit `k`; existing centers keep theirs.
    */
   expand(addresses: string[], batch: string, k: number): void;
-  /** Raises a center's limit by `by` (> 0) in one history step (top-k centers only; a picked center ignores limits). */
-  raiseLimit(center: string, by: number): void;
   /**
    * Sets the picks of each key of `next` in one history step: each key becomes a shown center, every listed address is
    * unhidden, and an address that left a key's list and is then kept by no center and not a center is hidden.
@@ -428,16 +429,19 @@ export const useGraph = create<GraphState>()((set, get) => {
         tracked((s) => ({ centers: [...s.centers, addr], picks: withNoPicks(s.limits, s.picks, [addr]) }));
       }),
     revealCenter: (a) => get().revealCenters([a]),
-    revealCenters: (list) => live(() => {
+    revealCenters: (list, opts) => live(() => {
       const s = get();
       const addrs = [...new Set(list.map(lc))];
       const added = addrs.filter((a) => !s.centers.includes(a));
       const hidden = addrs.filter((a) => !!s.ui[a]?.hidden);
       if (added.length === 0 && hidden.length === 0) return;
+      const alone = opts?.alone ? [...new Set([...added, ...hidden])] : [];
       tracked((cur) => ({
         centers: added.length > 0 ? [...cur.centers, ...added] : cur.centers,
         ui: hidden.length > 0 ? applyUiPatch(cur.ui, hidden, { hidden: false }) : cur.ui,
-        picks: withNoPicks(cur.limits, cur.picks, addrs),
+        picks: alone.length > 0
+          ? { ...withNoPicks(cur.limits, cur.picks, addrs), ...Object.fromEntries(alone.map((a) => [a, [] as string[]])) }
+          : withNoPicks(cur.limits, cur.picks, addrs),
       }));
     }),
     removeCenter: (a) =>
@@ -473,13 +477,6 @@ export const useGraph = create<GraphState>()((set, get) => {
         },
         { kind: "expand", batch, addresses: addrs },
       );
-    }),
-    raiseLimit: (center, by) => live(() => {
-      if (!(Number.isFinite(by) && by > 0)) return;
-      const a = lc(center);
-      const cur = get().limits[a] ?? firstBatch();
-      if (cur >= MAX_NEIGHBOUR_LIMIT) return;
-      tracked((s) => ({ limits: { ...s.limits, [a]: Math.min(MAX_NEIGHBOUR_LIMIT, (s.limits[a] ?? cur) + by) } }));
     }),
     applyPicks: (next, previous) => live(() => {
       const entries = Object.entries(next).map(([k, l]) => [lc(k), cleanList(l)] as const);

@@ -36,7 +36,6 @@ const gated: [string, () => void][] = [
   ["removeCenter", () => g().removeCenter(A)],
   ["setCenters", () => g().setCenters([C])],
   ["expand", () => g().expand([C], "batch-1", 5)],
-  ["raiseLimit", () => g().raiseLimit(A, 10)],
   ["setFilter", () => g().setFilter({ kinds: ["erc20"] })],
   ["setSort", () => g().setSort("recent")],
   ["applyFilter", () => g().applyFilter({ kinds: ["erc20"] }, "amount")],

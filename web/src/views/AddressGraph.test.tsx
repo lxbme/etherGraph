@@ -540,13 +540,11 @@ describe("+N more proxy", () => {
       useGraph.getState().select({ kind: "node", address: B });
       useBoxSelection.getState().set([A]);
     });
-    const raise = vi.spyOn(useGraph.getState(), "raiseLimit");
     const steps = useGraph.getState()._past.length;
     const calls = vi.mocked(api.graphEdges).mock.calls.length;
     act(() => props().onTapNode(`more:${A}`, { shift: false }));
     expect(usePick.getState().targets).toEqual([A]);
-    // A picked center shows exactly its picks: the click raises no limit and changes nothing.
-    expect(raise).not.toHaveBeenCalled();
+    // A picked center shows exactly its picks: the click sets no limit and changes nothing.
     expect(useGraph.getState().limits).toEqual({});
     expect(useGraph.getState()._past.length).toBe(steps);
     expect(useGraph.getState().selection).toEqual({ kind: "node", address: B });

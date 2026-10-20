@@ -351,8 +351,7 @@ describe("workspace copy", () => {
 
 describe("limits", () => {
   test("serialize writes the limits of centers only and they load back", async () => {
-    topK([A, B]);
-    g().raiseLimit(A, 5);
+    g().loadSnapshot({ centers: [A, B], filter: {}, expandedPairs: [], ui: {}, limits: { [A]: 34, [B]: 29 } });
     g().removeCenter(B);
     const s = serialize(g(), VP);
     expect(s.limits).toEqual({ [A]: 34 });
@@ -402,7 +401,7 @@ describe("limits", () => {
   test("a limit change marks the workspace dirty", () => {
     g().setCenters([A]);
     useWorkspace.getState().setCurrent(dto());
-    g().raiseLimit(A, 3);
+    useGraph.setState({ limits: { [A]: 3 } });
     expect(useWorkspace.getState().dirty).toBe(true);
   });
 });

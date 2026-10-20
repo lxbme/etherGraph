@@ -23,8 +23,9 @@ export function syncNode(addr: string, direction?: "older"): void {
 }
 
 /**
- * Puts addresses on the address graph alone (spec §5.1, §5.5): those that are not shown centers become ones (one
- * history step; a new center starts picked with none, so no neighbour comes along), and the picker opens for the ones
+ * Puts addresses on the address graph alone (spec §5.1, §5.5): those that are not shown centers become ones picked with
+ * none (one history step; no neighbour comes along, not even through a limit or picks left from an earlier time as a
+ * center), and the picker opens for the ones
  * that were not centers before (the picker asks before syncing one that is not synced). An address that already was a
  * center opens nothing (a reload of `#/address/…` on it, say). `activateGraph`: switch to the graph and select the
  * first address. Nothing is synced or refreshed here.
@@ -37,7 +38,7 @@ export function introduce(addrs: string[], opts: { activateGraph: boolean }): vo
   // A snapshot graph is refreshed from the chain first (after a confirm); the steps below then run live.
   useGraph.getState().guardLive(() => {
     const before = new Set(useGraph.getState().centers);
-    useGraph.getState().revealCenters(list);
+    useGraph.getState().revealCenters(list, { alone: true });
     if (opts.activateGraph) useGraph.getState().select({ kind: "node", address: first });
     const fresh = list.filter((a) => !before.has(a));
     if (fresh.length > 0) usePick.getState().open(fresh);

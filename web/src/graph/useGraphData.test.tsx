@@ -107,7 +107,7 @@ test("sends center limits and prefers the visible non-center nodes of the shown 
   const { result } = renderHook(() => useGraphData(), { wrapper });
   act(() => {
     useGraph.getState().loadSnapshot({ centers: [A], filter: {}, expandedPairs: [], ui: {}, limits: { [A]: 59 } });
-    useGraph.getState().raiseLimit(C, 3); // a limit of a non-center is never sent
+    useGraph.setState((s) => ({ limits: { ...s.limits, [C]: 3 } })); // a limit of a non-center is never sent
   });
   await waitFor(() => expect(result.current.data?.nodes).toHaveLength(4));
   expect(spy.mock.calls[0]?.[0]).toMatchObject({ limits: { [A]: 59 }, picks: {}, prefer: [] });
@@ -120,7 +120,7 @@ test("sends center limits and prefers the visible non-center nodes of the shown 
   expect(spy.mock.calls[1]?.[0]).toMatchObject({ addresses: [A, B], limits: { [A]: 59 }, picks: { [B]: [] }, prefer: [C] });
 });
 
-test("raising a limit refetches; a new prefer set alone does not", async () => {
+test("a changed limit refetches; a new prefer set alone does not", async () => {
   const spy = vi.spyOn(api, "graphEdges").mockImplementation(async () => ({
     nodes: [node(A), node(B)], edges: [], omitted: {}, coverage: {},
   }));
@@ -128,7 +128,7 @@ test("raising a limit refetches; a new prefer set alone does not", async () => {
   act(() => useGraph.getState().loadSnapshot({ centers: [A], filter: {}, expandedPairs: [], ui: {}, limits: { [A]: 59 } }));
   await waitFor(() => expect(result.current.data).toBeDefined());
   expect(spy).toHaveBeenCalledTimes(1);
-  act(() => useGraph.getState().raiseLimit(A, 10));
+  act(() => useGraph.setState({ limits: { [A]: 69 } }));
   await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
   expect(spy.mock.calls[1]?.[0]).toMatchObject({ limits: { [A]: 69 }, prefer: [B] });
   await waitFor(() => expect(result.current.isFetching).toBe(false));
