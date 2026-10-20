@@ -1400,7 +1400,8 @@ a.btn { text-decoration: none; }
 .data__reset { align-self: flex-start; }
 .data__main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .data__status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
-.data__bulk { display: flex; gap: var(--sp-2); margin-left: auto; }
+.data__bulk { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
+.data__include { display: inline-flex; align-items: center; gap: var(--sp-1); }
 .data__scroll { flex: 1; min-height: 0; overflow: auto; }
 .data__table {
   --data-cols: 36px minmax(180px, 1fr) minmax(120px, 1.2fr) minmax(120px, 1.2fr) minmax(140px, 1fr) minmax(80px, 0.8fr) minmax(80px, 0.6fr) minmax(110px, 0.8fr);

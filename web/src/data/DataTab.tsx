@@ -1,11 +1,14 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { TransferDto } from "../api/generated/TransferDto";
 import { messageFor } from "../api/errors";
 import { hiddenFromTransfer, transferKey } from "../graph/hiddenTransfers";
 import { useGraph } from "../graph/store";
 import { useGraphData } from "../graph/useGraphData";
 import { useT } from "../i18n";
+import { download, safeFileName } from "../lib/download";
 import { useRefreshFromChain } from "../workspace/snapshot";
+import { useWorkspace } from "../workspace/useWorkspace";
+import { transfersCsv } from "./csv";
 import { DataFilters } from "./DataFilters";
 import { DataTable } from "./DataTable";
 import { filterRows, useDataFilter } from "./dataFilter";
@@ -45,6 +48,18 @@ export function DataTab() {
     for (const r of shown) (transferKey(r) in hiddenTransfers ? unhide : hide).push(r);
     return [hide, unhide];
   }, [shown, hiddenTransfers]);
+  // Not persisted: each visit starts with the hidden rows left out of the export.
+  const [includeHidden, setIncludeHidden] = useState(false);
+  const exportRows = useMemo(
+    () => (includeHidden ? shown : shown.filter((r) => !(transferKey(r) in hiddenTransfers))),
+    [shown, includeHidden, hiddenTransfers],
+  );
+  const exportCsv = () => {
+    const csv = transfersCsv(exportRows, hiddenTransfers, names);
+    const day = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const base = safeFileName(useWorkspace.getState().name);
+    download(new Blob([csv], { type: "text/csv;charset=utf-8" }), `${base}-transfers-${day}.csv`);
+  };
   const hasEdges = useMemo(() => !!data && dataPairs(data.edges, ui).length > 0, [data, ui]);
 
   if (frozen) {
@@ -86,6 +101,13 @@ export function DataTab() {
             )}
           </span>
           <span className="data__bulk">
+            <label className="data__include">
+              <input type="checkbox" checked={includeHidden} onChange={(e) => setIncludeHidden(e.target.checked)} />
+              {t("data.includeHidden")}
+            </label>
+            <button type="button" className="btn btn--compact" disabled={exportRows.length === 0} onClick={exportCsv}>
+              {t("data.exportCsv", { count: exportRows.length })}
+            </button>
             <button
               type="button"
               className="btn btn--compact"

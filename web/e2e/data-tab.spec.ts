@@ -85,3 +85,27 @@ test("hiding a transfer on the Data tab thins its edge on the graph", async ({ p
   expect(req.limit).toBe(1000);
   expect(mock.unhandled).toEqual([]);
 });
+
+test("exporting CSV downloads the filtered transfers", async ({ page, mock }) => {
+  installWorld(mock, makeWorld());
+  await searchAndPick(page, A);
+  await expect.poll(() => abEdges(page)).toBe(1);
+  await page.getByRole("tab", { name: "Data" }).click();
+  await expect(page.getByTestId("data-row")).toHaveCount(3);
+
+  // Narrow to the two A → B transfers by address, then export what is listed.
+  await page.getByRole("textbox", { name: "Address or name" }).fill(B);
+  await expect(page.getByTestId("data-row")).toHaveCount(2);
+  const [file] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export CSV (2)" }).click()]);
+  expect(file.suggestedFilename()).toMatch(/-transfers-\d{8}\.csv$/);
+  const stream = (await file.createReadStream())!;
+  const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+  let text = "";
+  for await (const c of stream) text += decoder.decode(c as Uint8Array, { stream: true });
+  expect(text.charCodeAt(0)).toBe(0xfeff);
+  const lines = text.slice(1).split("\r\n").filter(Boolean);
+  expect(lines[0]).toBe("time_utc,block,tx_hash,sub_id,type,from,from_name,to,to_name,symbol,token,amount,amount_raw,hidden");
+  expect(lines).toHaveLength(3);
+  expect(lines[1]).toContain(T1);
+  expect(lines[2]).toContain(T2);
+});

@@ -502,6 +502,8 @@ export const en = {
   "data.f.showHidden": "Show hidden",
   "data.hideShown": "Hide shown ({count})",
   "data.unhideShown": "Unhide shown ({count})",
+  "data.exportCsv": "Export CSV ({count})",
+  "data.includeHidden": "Include hidden",
   "transfers.group": { one: "{symbol} · {from}→{to} · {count} transfer · Σ {sum}", other: "{symbol} · {from}→{to} · {count} transfers · Σ {sum}" },
   "transfers.groupBare": "{symbol} · {from}→{to}",
   "transfers.f.timeAll": "All time",

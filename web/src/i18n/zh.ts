@@ -504,6 +504,8 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "data.f.showHidden": "显示已隐藏",
   "data.hideShown": "隐藏筛选结果（{count}）",
   "data.unhideShown": "取消隐藏筛选结果（{count}）",
+  "data.exportCsv": "导出 CSV（{count}）",
+  "data.includeHidden": "包含已隐藏",
   "transfers.group": { one: "{symbol} · {from}→{to} · {count} 笔 · Σ {sum}", other: "{symbol} · {from}→{to} · {count} 笔 · Σ {sum}" },
   "transfers.groupBare": "{symbol} · {from}→{to}",
   "transfers.f.timeAll": "全部时间",

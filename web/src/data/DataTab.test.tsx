@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render as rtlRender, screen, within } from "@testing-library/react";
+import { act, fireEvent, render as rtlRender, screen, within } from "@testing-library/react";
 import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import type { TransferDto } from "../api/generated/TransferDto";
-import { transferKey } from "../graph/hiddenTransfers";
+import { hiddenFromTransfer, transferKey } from "../graph/hiddenTransfers";
 import { useGraph } from "../graph/store";
 import { DataTab } from "./DataTab";
 import { useDataFilter } from "./dataFilter";
@@ -35,6 +35,7 @@ const GRAPH = {
   edges: [edge(A, B), edge(A, C, USDC)],
 };
 
+vi.mock("../lib/download", async (orig) => ({ ...(await orig<typeof import("../lib/download")>()), download: vi.fn() }));
 vi.mock("../graph/useGraphData", () => ({ useGraphData: () => ({ data: GRAPH }) }));
 vi.mock("./useDataTransfers", async (orig) => ({
   ...(await orig<typeof import("./useDataTransfers")>()),
@@ -119,4 +120,23 @@ test("the sidebar has no caption text", () => {
     if (n.textContent!.trim() && !n.parentElement!.closest("button, label, option, optgroup, select")) loose.push(n.textContent!);
   }
   expect(loose).toEqual([]);
+});
+
+test("export excludes hidden rows unless include hidden is ticked", async () => {
+  const dl = vi.mocked((await import("../lib/download")).download);
+  dl.mockClear();
+  render(<DataTab />);
+  act(() => useGraph.getState().setTransfersHidden([hiddenFromTransfer(ROWS[0]!)], true));
+  const bodyRows = async () => {
+    const text = await (dl.mock.calls.at(-1)![0] as Blob).text();
+    return text.slice(1).split("\r\n").filter(Boolean).length - 1;
+  };
+  // The hidden row is listed (muted), yet the button counts only what it exports.
+  expect(screen.getAllByTestId("data-row")).toHaveLength(3);
+  fireEvent.click(screen.getByRole("button", { name: "Export CSV (2)" }));
+  expect(await bodyRows()).toBe(2);
+  expect(dl.mock.calls.at(-1)![1]).toMatch(/-transfers-\d{8}\.csv$/);
+  fireEvent.click(screen.getByRole("checkbox", { name: "Include hidden" }));
+  fireEvent.click(screen.getByRole("button", { name: "Export CSV (3)" }));
+  expect(await bodyRows()).toBe(3);
 });
