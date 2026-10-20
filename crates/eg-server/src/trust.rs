@@ -20,7 +20,8 @@ pub const TRUST_TTL: Duration = Duration::from_secs(60);
 /// Shortest normalized name that is matched (shorter names collide too often).
 const MIN_NAME_LEN: usize = 4;
 
-/// Latin look-alike of a Cyrillic or Greek letter; other characters unchanged.
+/// Latin look-alike of a Cyrillic, Greek, Lisu, Cherokee, Armenian or Coptic
+/// letter; other characters unchanged.
 fn confusable(c: char) -> char {
     match c {
         // Cyrillic lowercase.
@@ -70,12 +71,88 @@ fn confusable(c: char) -> char {
         'ο' => 'o',
         'ν' => 'v',
         'ρ' => 'p',
+        // Lisu (Fraser alphabet), drawn from Latin capitals.
+        'ꓐ' => 'B',
+        'ꓑ' => 'P',
+        'ꓓ' => 'D',
+        'ꓔ' => 'T',
+        'ꓖ' => 'G',
+        'ꓗ' => 'K',
+        'ꓙ' => 'J',
+        'ꓚ' => 'C',
+        'ꓜ' => 'Z',
+        'ꓝ' => 'F',
+        'ꓠ' => 'N',
+        'ꓡ' => 'L',
+        'ꓢ' => 'S',
+        'ꓣ' => 'R',
+        'ꓦ' => 'V',
+        'ꓧ' => 'H',
+        'ꓪ' => 'W',
+        'ꓫ' => 'X',
+        'ꓬ' => 'Y',
+        'ꓮ' => 'A',
+        'ꓰ' => 'E',
+        'ꓲ' => 'I',
+        'ꓳ' => 'O',
+        'ꓴ' => 'U',
+        // Cherokee capitals.
+        'Ꭰ' => 'D',
+        'Ꭱ' => 'R',
+        'Ꭲ' => 'T',
+        'Ꭹ' => 'Y',
+        'Ꭺ' => 'A',
+        'Ꭻ' => 'J',
+        'Ꭼ' => 'E',
+        'Ꮤ' => 'W',
+        'Ꮃ' => 'W',
+        'Ꮇ' => 'M',
+        'Ꮋ' => 'H',
+        'Ꮐ' => 'G',
+        'Ꮓ' => 'Z',
+        'Ꮢ' => 'R',
+        'Ꮪ' => 'S',
+        'Ꮥ' => 'S',
+        'Ꮩ' => 'V',
+        'Ꮮ' => 'L',
+        'Ꮯ' => 'C',
+        'Ꮲ' => 'P',
+        'Ꮶ' => 'K',
+        'Ᏼ' => 'B',
+        'Ᏻ' => 'G',
+        // Armenian.
+        'Տ' => 'S',
+        'Ս' => 'U',
+        'Օ' => 'O',
+        'օ' => 'o',
+        'ս' => 'u',
+        'հ' => 'h',
+        'ո' => 'n',
+        // Coptic capitals.
+        'Ⲃ' => 'B',
+        'Ⲏ' => 'H',
+        'Ⲓ' => 'I',
+        'Ⲕ' => 'K',
+        'Ⲙ' => 'M',
+        'Ⲛ' => 'N',
+        'Ⲟ' => 'O',
+        'Ⲣ' => 'P',
+        'Ⲥ' => 'C',
+        'Ⲧ' => 'T',
+        'Ⲭ' => 'X',
+        // Other look-alikes seen in spam symbols.
+        'ᗞ' => 'D',
+        '₮' => 'T',
+        'Ү' => 'Y',
+        'Ӏ' => 'I',
+        'ሀ' => 'U',
+        'Ꮳ' => 'C',
         _ => c,
     }
 }
 
 /// NFKD with combining marks dropped (accents fold to the base letter),
-/// Cyrillic/Greek look-alikes mapped to Latin, lowercased, and only
+/// look-alikes from other scripts mapped to Latin, lowercased, and only
 /// `[a-z0-9]` kept: `"USDТ"` (Cyrillic Т), `"USDŤ"` and `"U S D T."` all give
 /// `"usdt"`.
 pub fn normalize_symbol(s: &str) -> String {
@@ -361,13 +438,39 @@ mod tests {
             "cpe",
             "Cyrillic lowercase"
         );
+        // Seen on chain: Lisu U, invisible Khmer vowels, Armenian S, Cherokee D, Coptic T.
+        assert_eq!(
+            normalize_symbol("\u{a4f4}\u{17b5}\u{054f}\u{13a0}\u{17b5}\u{2ca6}"),
+            "usdt",
+            "Lisu, Armenian, Cherokee and Coptic"
+        );
+        assert_eq!(
+            normalize_symbol("\u{a4f4}\u{a4e2}\u{a4d3}\u{a4d4}"),
+            "usdt",
+            "all Lisu"
+        );
+        assert_eq!(normalize_symbol("USD\u{20ae}"), "usdt", "tugrik sign");
+        assert_eq!(
+            normalize_symbol("\u{1200}\u{200d}\u{200b}\u{054f}\u{200c}D\u{200d}T"),
+            "usdt",
+            "Ethiopic HA as U"
+        );
+        assert_eq!(
+            normalize_symbol("\u{a4f4}\u{17b5}\u{054f}\u{13a0}\u{17b5}\u{13e3}"),
+            "usdc",
+            "Cherokee TSA as C"
+        );
     }
 
     #[test]
     fn normalize_symbol_folds_accented_latin_to_its_base_letter() {
         assert_eq!(normalize_symbol("\u{00dc}SDT"), "usdt", "precomposed Ü");
         assert_eq!(normalize_symbol("USD\u{0164}"), "usdt", "precomposed Ť");
-        assert_eq!(normalize_symbol("U\u{0308}SDT"), "usdt", "U + combining diaeresis");
+        assert_eq!(
+            normalize_symbol("U\u{0308}SDT"),
+            "usdt",
+            "U + combining diaeresis"
+        );
         assert_eq!(normalize_symbol("\u{00e9}th"), "eth", "é");
         // An accented Cyrillic look-alike folds too.
         assert_eq!(normalize_symbol("USD\u{0422}\u{0301}"), "usdt");
@@ -379,6 +482,21 @@ mod tests {
             Some(FAKE),
             TransferKind::Erc20,
             Some(&erc20(FAKE, "USD\u{0164}", "x")),
+        );
+        assert_eq!(level(&t), "suspicious");
+        assert_eq!(t.impersonates.unwrap().symbol.as_deref(), Some("USDT"));
+    }
+
+    #[test]
+    fn a_lisu_copy_of_a_listed_symbol_is_suspicious() {
+        let t = index().classify(
+            Some(FAKE),
+            TransferKind::Erc20,
+            Some(&erc20(
+                FAKE,
+                "\u{a4f4}\u{17b5}\u{054f}\u{13a0}\u{17b5}\u{2ca6}",
+                "x",
+            )),
         );
         assert_eq!(level(&t), "suspicious");
         assert_eq!(t.impersonates.unwrap().symbol.as_deref(), Some("USDT"));
