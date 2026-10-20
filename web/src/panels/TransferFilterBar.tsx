@@ -1,93 +1,9 @@
-import { useEffect, useRef, useState } from "react";
 import type { AddressAssetDto } from "../api/generated/AddressAssetDto";
-import { useAssetRegistry } from "../graph/assetRegistry";
 import { useT } from "../i18n";
-import { shortAddr } from "../lib/address";
 import { TRANSFER_KINDS, transferKindName } from "../lib/transferKinds";
-import { AssetOptGroups, type AssetOption } from "./AssetOptGroups";
+import { AssetSelect } from "./AssetSelect";
+import { TimeRange } from "./TimeRange";
 import { isDefault, useTransferFilter, type TransferTableFilter } from "./transferFilter";
-
-/** The asset select's "all assets" value; the native coin's is "eth". */
-const ALL = "";
-const ETH = "eth";
-const ETH_OPTION: AssetOption = { key: ETH, label: "ETH", trust: { level: "listed", impersonates: null, reason: null } };
-
-const assetValue = (a: TransferTableFilter["asset"]) => (a === undefined ? ALL : a === null ? ETH : a);
-const assetOf = (v: string): TransferTableFilter["asset"] => (v === ALL ? undefined : v === ETH ? null : v.toLowerCase());
-
-/** ETH, the selection's assets, and the chosen asset even when the selection has none of it (it survives selection changes). */
-function useAssetOptions(assets: AddressAssetDto[], chosen: TransferTableFilter["asset"]): AssetOption[] {
-  const known = useAssetRegistry((r) => r.assets);
-  const out = new Map<string, AssetOption>([[ETH, ETH_OPTION]]);
-  for (const a of assets) {
-    if (a.asset === null) continue;
-    const key = a.asset.toLowerCase();
-    if (!out.has(key)) out.set(key, { key, label: a.symbol ?? shortAddr(key), trust: a.trust });
-  }
-  if (typeof chosen === "string" && !out.has(chosen)) {
-    const k = known[chosen];
-    out.set(chosen, { key: chosen, label: k?.symbol ?? shortAddr(chosen), trust: k?.trust ?? { level: "unknown", impersonates: null, reason: null } });
-  }
-  return [...out.values()];
-}
-
-/** The time button with its popover of two UTC days. */
-function TimeRange() {
-  const t = useT();
-  const from = useTransferFilter((s) => s.from);
-  const to = useTransferFilter((s) => s.to);
-  const set = useTransferFilter((s) => s.set);
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const label = from === null && to === null ? t("transfers.f.timeAll") : `${from ?? "…"} – ${to ?? "…"}`;
-  return (
-    <div className="dropdown" ref={rootRef}>
-      <button type="button" className="btn btn--compact" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        {label}
-      </button>
-      {open && (
-        <div className="popover dropdown__panel transfers__time" role="dialog" aria-label={t("transfers.col.time")}>
-          <input
-            className="input input--compact"
-            type="date"
-            aria-label={t("transfers.f.from")}
-            value={from ?? ""}
-            max={to ?? undefined}
-            onChange={(e) => set({ from: e.target.value || null })}
-          />
-          <input
-            className="input input--compact"
-            type="date"
-            aria-label={t("transfers.f.to")}
-            value={to ?? ""}
-            min={from ?? undefined}
-            onChange={(e) => set({ to: e.target.value || null })}
-          />
-          <button type="button" className="btn btn--compact" onClick={() => set({ from: null, to: null })}>
-            {t("transfers.f.clear")}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 /**
  * The transfer table's own filter (time, asset, direction, type), independent of the graph filter: controls only.
@@ -97,21 +13,12 @@ function TimeRange() {
 export function TransferFilterBar({ assets, pair = false }: { assets: AddressAssetDto[]; pair?: boolean }) {
   const t = useT();
   const filter = useTransferFilter();
-  const options = useAssetOptions(assets, filter.asset);
   // Reset follows the controls shown: the hidden direction does not count in pair scope.
   const narrowed = !isDefault(pair ? { ...filter, direction: "all" } : filter);
   return (
     <div className="transfers__bar" role="toolbar">
-      <TimeRange />
-      <select
-        className="input input--compact"
-        aria-label={t("transfers.col.asset")}
-        value={assetValue(filter.asset)}
-        onChange={(e) => filter.set({ asset: assetOf(e.target.value) })}
-      >
-        <option value={ALL}>{t("transfers.f.assetAll")}</option>
-        <AssetOptGroups options={options} native={ETH} />
-      </select>
+      <TimeRange from={filter.from} to={filter.to} onChange={filter.set} />
+      <AssetSelect sources={assets} value={filter.asset} onChange={(asset) => filter.set({ asset })} />
       {!pair && (
         <select
           className="input input--compact"

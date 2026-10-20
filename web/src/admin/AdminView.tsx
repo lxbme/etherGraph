@@ -193,7 +193,7 @@ function Overview() {
       {data && (
         <div className="admin__stats">
           <div className="admin__stat">
-            <label className="admin__switch">
+            <label className="switch">
               <input
                 type="checkbox"
                 role="switch"
