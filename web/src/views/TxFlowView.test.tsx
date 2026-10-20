@@ -431,6 +431,20 @@ describe("box selection", () => {
     expect(screen.queryByRole("toolbar", { name: "Batch actions" })).toBeNull();
   });
 
+  test("in annotate mode Escape belongs to the annotate keys, not the box selection", async () => {
+    const { useAnnotations } = await import("../annotate/store");
+    const { txFlowView } = await import("../annotate/model");
+    const f = await selectBoth();
+    act(() => useAnnotations.setState({ active: txFlowView(HASH) }));
+    try {
+      act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+      expect(screen.getByRole("toolbar", { name: "Batch actions" })).toBeInTheDocument();
+      expect(f.unselect).not.toHaveBeenCalled();
+    } finally {
+      act(() => useAnnotations.getState().reset());
+    }
+  });
+
   test("Escape with a popover open (focus on its trigger) closes only the popover; a second Escape clears the selection", async () => {
     const f = await selectBoth();
     const pop = openFakePopover();

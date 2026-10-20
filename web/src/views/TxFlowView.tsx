@@ -6,8 +6,10 @@ import { messageFor } from "../api/errors";
 import { useLocale, useT, type MsgKey } from "../i18n";
 import { qk } from "../api/queryClient";
 import { createBoxSelection } from "../graph/boxSelection";
+import { AnnotateToolbar } from "../annotate/AnnotateToolbar";
 import { AnnotationLayer } from "../annotate/AnnotationLayer";
 import { txFlowView } from "../annotate/model";
+import { useAnnotations } from "../annotate/store";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { getTxCy, registerTxCy } from "../graph/cyRegistry";
 import { txLegendFor } from "../graph/legend";
@@ -139,11 +141,12 @@ export function TxFlowView({ hash }: { hash: string }) {
   const boxCount = box((s) => s.ids.length);
   const legend = useMemo(() => txLegendFor(elements, theme, boxCount), [elements, theme, boxCount]);
   const selectMode = box((s) => s.selectMode);
-  // Escape clears it while this tab is shown (the global shortcuts act on the address graph only).
+  // Escape clears it while this tab is shown (the global shortcuts act on the address graph only), but not in annotate
+  // mode: the annotate keys own Escape then.
   useEffect(
     () =>
       listenShortcutKeys((e) => {
-        if (useTabs.getState().active !== hash.toLowerCase()) return;
+        if (useTabs.getState().active !== hash.toLowerCase() || useAnnotations.getState().active !== null) return;
         if (!isShortcut(e, "clearSelection") || box.getState().ids.length === 0) return;
         box.getState().clear();
         e.preventDefault();
@@ -291,9 +294,15 @@ export function TxFlowView({ hash }: { hash: string }) {
                   fitInsetLeft={legendCover}
                 />
                 <AnnotationLayer view={txFlowView(hash)} cy={noteCy} />
+                <AnnotateToolbar view={txFlowView(hash)} />
                 {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
                 <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
-                <CanvasTools selectMode={selectMode} onSelectModeChange={box.getState().setSelectMode} exporter={exporter}>
+                <CanvasTools
+                  selectMode={selectMode}
+                  onSelectModeChange={box.getState().setSelectMode}
+                  exporter={exporter}
+                  annotateView={txFlowView(hash)}
+                >
                   <IdentifyAllButton nodes={flow.nodes} />
                 </CanvasTools>
                 <TxBatchBar selection={box} insetLeft={legendCover} nodes={flow.nodes} />

@@ -6,6 +6,7 @@ import { t, useLocale, useT } from "../i18n";
 import { messageFor } from "../api/errors";
 import { getMainCy, setMainCy } from "../graph/cyRegistry";
 import { useBoxSelection } from "../graph/boxSelection";
+import { AnnotateToolbar } from "../annotate/AnnotateToolbar";
 import { AnnotationLayer } from "../annotate/AnnotationLayer";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { isMoreId, MORE_PREFIX, toElements } from "../graph/elements";
@@ -284,6 +285,7 @@ export function AddressGraph() {
         fitInsetLeft={legendCover}
       />
       <AnnotationLayer view="graph" cy={noteCy} />
+      <AnnotateToolbar view="graph" />
       {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
       {moreHover && (
         <button
@@ -310,7 +312,12 @@ export function AddressGraph() {
       )}
       <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
       <BatchBar insetLeft={legendCover} nodes={data?.nodes ?? NO_NODES} onMakeCenters={pickFor} />
-      <CanvasTools selectMode={selectMode} onSelectModeChange={useBoxSelection.getState().setSelectMode} exporter={EXPORTER}>
+      <CanvasTools
+        selectMode={selectMode}
+        onSelectModeChange={useBoxSelection.getState().setSelectMode}
+        exporter={EXPORTER}
+        annotateView="graph"
+      >
         <IdentifyAllButton nodes={shownNodes} />
         <button
           type="button"

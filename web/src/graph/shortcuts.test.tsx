@@ -159,6 +159,25 @@ describe("useShortcuts stays out of the way", () => {
     expect(redo).toHaveBeenCalledTimes(1);
   });
 
+  test("in annotate mode undo, redo and Escape are left to the annotate keys, on the Data tab too", async () => {
+    const { useGraph, useBoxSelection } = await setup();
+    const { useTabs } = await import("../shell/tabs");
+    const { useAnnotations } = await import("../annotate/store");
+    const undo = vi.spyOn(useGraph.getState(), "undo");
+    const redo = vi.spyOn(useGraph.getState(), "redo");
+    act(() => useBoxSelection.getState().set([A]));
+    for (const active of ["graph", "data"]) {
+      act(() => useTabs.setState({ tabs: [{ id: "graph" }, { id: "data", kind: "data" }], active }));
+      act(() => useAnnotations.setState({ active: "graph" }));
+      fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+      fireEvent.keyDown(document.body, { key: "z", ctrlKey: true, shiftKey: true });
+      fireEvent.keyDown(document.body, { key: "Escape" });
+    }
+    expect(undo).not.toHaveBeenCalled();
+    expect(redo).not.toHaveBeenCalled();
+    expect(useBoxSelection.getState().ids).toEqual([A]);
+  });
+
   test("while the admin page covers the graph (Save included)", async () => {
     const { actions } = await setup();
     const { useAdminRoute } = await import("../shell/hashRoute");

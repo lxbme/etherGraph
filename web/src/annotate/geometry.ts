@@ -1,4 +1,4 @@
-import { type Annotation } from "./model";
+import { bounds, type Annotation } from "./model";
 
 /** Arrow head: length along the shaft and half-width across it, in model units. */
 const HEAD_LENGTH = 10;
@@ -33,4 +33,36 @@ export function rectOf(a: Annotation): { x: number; y: number; w: number; h: num
 /** The lines of a text annotation (always at least one). */
 export function textLines(a: Annotation): string[] {
   return (a.text ?? "").split("\n");
+}
+
+/** The distance from `p` to the segment a→b. */
+export function distToSegment(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+/**
+ * The topmost annotation at the model point `p` (null when none): an arrow within `tol` of its shaft, a rectangle or
+ * ellipse inside its box or within `tol` of it, a text inside its (measured or estimated) bounds.
+ */
+export function hitTest(
+  list: Annotation[],
+  p: { x: number; y: number },
+  tol: number,
+  measure?: (a: Annotation) => { w: number; h: number },
+): string | null {
+  for (let i = list.length - 1; i >= 0; i--) {
+    const a = list[i]!;
+    if (a.kind === "arrow") {
+      if (distToSegment(p, { x: a.x1, y: a.y1 }, { x: a.x2, y: a.y2 }) <= tol) return a.id;
+      continue;
+    }
+    const b = bounds([a], measure)!;
+    const pad = a.kind === "text" ? 0 : tol;
+    if (p.x >= b.x1 - pad && p.x <= b.x2 + pad && p.y >= b.y1 - pad && p.y <= b.y2 + pad) return a.id;
+  }
+  return null;
 }

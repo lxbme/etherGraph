@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { txCallsView, txFlowView } from "../annotate/model";
+import { txCallsView, txFlowView, type ViewId } from "../annotate/model";
 import { useAnnotations } from "../annotate/store";
 import type { Pos } from "../graph/store";
 import type { Viewport } from "../workspace/serialize";
@@ -140,6 +140,20 @@ export const useTabs = create<TabsState>((set, get) => ({
     set({ tabs: fixedTabs(), active: "graph" });
   },
 }));
+
+/** The annotated canvas these tabs show: the address graph, or the active tx tab's flow or call graph (null on the Data tab). */
+export function shownView(s: Pick<TabsState, "tabs" | "active">): ViewId | null {
+  if (s.active === "graph") return "graph";
+  const tab = s.tabs.find((t) => t.id === s.active);
+  if (tab?.kind !== "tx") return null;
+  return tab.view === "calls" ? txCallsView(tab.hash) : txFlowView(tab.hash);
+}
+
+// Annotate mode belongs to a canvas on screen: switching the tab or a tx tab's view leaves it.
+useTabs.subscribe((s) => {
+  const { active, setMode } = useAnnotations.getState();
+  if (active !== null && active !== shownView(s)) setMode(null);
+});
 
 /** The snapshot a tx tab shows instead of live data (undefined when live or not an open tab). */
 export function useTxSnapshot(hash: string): TxSnapshot | undefined {

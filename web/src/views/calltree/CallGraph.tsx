@@ -1,6 +1,7 @@
 import type cytoscape from "cytoscape";
 import { useEffect, useMemo, useState } from "react";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
+import { AnnotateToolbar } from "../../annotate/AnnotateToolbar";
 import { AnnotationLayer } from "../../annotate/AnnotationLayer";
 import { txCallsView } from "../../annotate/model";
 import { CytoscapeView } from "../../graph/CytoscapeView";
@@ -160,8 +161,9 @@ export function CallGraph({
         onHover={setHover}
       />
       <AnnotationLayer view={txCallsView(hash)} cy={noteCy} />
+      <AnnotateToolbar view={txCallsView(hash)} />
       {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
-      <CanvasTools exporter={exporter} />
+      <CanvasTools exporter={exporter} annotateView={txCallsView(hash)} />
     </div>
   );
 }

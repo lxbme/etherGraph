@@ -51,6 +51,7 @@ describe("AnnotationLayer", () => {
     const text = container.querySelector("text")!;
     expect(text.getAttribute("fill")).toBe("var(--note-ink)");
     expect(text.querySelectorAll("tspan")).toHaveLength(2);
+    expect(text).toHaveStyle({ whiteSpace: "pre" }); // spaces kept, as the export's fillText does
     expect(container.querySelector("rect")!.getAttribute("fill")).toBe("none");
   });
 

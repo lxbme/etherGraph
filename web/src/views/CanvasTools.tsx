@@ -1,7 +1,9 @@
 import type cytoscape from "cytoscape";
-import { Download, Eye, EyeOff, ScanSearch, SquareDashedMousePointer } from "lucide-react";
+import { Download, Eye, EyeOff, PenLine, ScanSearch, SquareDashedMousePointer } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
+import type { ViewId } from "../annotate/model";
+import { useAnnotations } from "../annotate/store";
 import { exportImage, IMAGE_EXT, type ImageFormat } from "../graph/exportImage";
 import { identifiable, identifyAddresses, useIdentifying } from "../graph/identify";
 import { useGraph } from "../graph/store";
@@ -21,17 +23,20 @@ export interface CanvasExport {
 
 /**
  * The top-right tool group of a canvas: `children` (more tools, e.g. "show hidden"), the select-mode
- * toggle (on canvases with a box selection) and the Export menu, in one row so they never overlap.
+ * toggle (on canvases with a box selection), the annotate toggle (on canvases with annotations, `annotateView`)
+ * and the Export menu, in one row so they never overlap.
  */
 export function CanvasTools({
   selectMode,
   onSelectModeChange,
   exporter,
+  annotateView,
   children,
 }: {
   selectMode?: boolean;
   onSelectModeChange?(v: boolean): void;
   exporter: CanvasExport;
+  annotateView?: ViewId;
   children?: ReactNode;
 }) {
   const t = useT();
@@ -51,8 +56,31 @@ export function CanvasTools({
           <SquareDashedMousePointer size={14} />
         </button>
       )}
+      {annotateView && <AnnotateToggle view={annotateView} />}
       <ExportMenu exporter={exporter} />
     </div>
+  );
+}
+
+/** Enters or leaves annotate mode on this canvas. */
+function AnnotateToggle({ view }: { view: ViewId }) {
+  const t = useT();
+  const on = useAnnotations((s) => s.active === view);
+  const label = t("annotate.toggle");
+  return (
+    <button
+      type="button"
+      className="btn btn--icon btn--compact"
+      aria-pressed={on}
+      aria-label={label}
+      title={label}
+      onClick={() => {
+        const s = useAnnotations.getState();
+        s.setMode(s.active === view ? null : view);
+      }}
+    >
+      <PenLine size={14} />
+    </button>
   );
 }
 

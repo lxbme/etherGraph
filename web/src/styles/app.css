@@ -722,6 +722,45 @@ a.btn { text-decoration: none; }
   pointer-events: none;
   overflow: hidden;
 }
+/* Annotate mode: the overlay takes the pointer (the canvas tools, legend and bars stay above it). */
+.annotation-layer--active { pointer-events: all; cursor: crosshair; user-select: none; touch-action: none; }
+.annotation-layer--select { cursor: default; }
+.annotation-layer--text { cursor: text; }
+/* The annotate bar: centred one row under the canvas tools, so the two never meet on a narrow canvas. */
+.annotate-bar {
+  position: absolute;
+  top: calc(var(--sp-2) + var(--h-compact) + var(--sp-2));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  max-width: calc(100% - var(--sp-3) - var(--sp-3));
+  padding: var(--sp-1);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+}
+.annotate-bar__sep { align-self: stretch; width: 1px; background: var(--line); }
+.annotate-bar__dot { display: block; width: var(--sp-3); height: var(--sp-3); border-radius: 100%; }
+/* The text editor sits exactly over the text it writes (left, top, font size set inline in screen px). */
+.annotate-editor {
+  position: absolute;
+  z-index: 6;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 1px dashed var(--accent);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  font-family: inherit;
+  white-space: pre;
+  overflow: hidden;
+  resize: none;
+}
 .canvas-tools {
   position: absolute;
   top: var(--sp-2);
