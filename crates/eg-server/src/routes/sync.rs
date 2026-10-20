@@ -63,8 +63,8 @@ pub async fn sync(
             jobs: None,
         }));
     }
-    // Shallow: one page per kind. Loading older records is always full depth.
-    let cap = (shallow && dir == SyncDirection::Latest).then_some(s.ctx.cfg.page_size);
+    // Shallow: up to `shallow_pages` pages per kind. Loading older records is always full depth.
+    let cap = (shallow && dir == SyncDirection::Latest).then_some(s.ctx.cfg.shallow_cap());
     let mut jobs = Vec::with_capacity(addrs.len());
     for a in addrs {
         jobs.push(

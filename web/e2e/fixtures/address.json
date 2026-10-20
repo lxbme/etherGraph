@@ -25,7 +25,8 @@
       "to_block": 19500000,
       "truncated": false,
       "state": "ok",
-      "last_synced_at": "2026-10-17T09:00:00Z"
+      "last_synced_at": "2026-10-17T09:00:00Z",
+      "oldest_ts": null
     },
     {
       "kind": "internal",
@@ -33,7 +34,8 @@
       "to_block": 19500000,
       "truncated": false,
       "state": "ok",
-      "last_synced_at": "2026-10-17T09:00:00Z"
+      "last_synced_at": "2026-10-17T09:00:00Z",
+      "oldest_ts": null
     },
     {
       "kind": "erc20",
@@ -41,7 +43,8 @@
       "to_block": 19500000,
       "truncated": false,
       "state": "ok",
-      "last_synced_at": "2026-10-17T09:00:00Z"
+      "last_synced_at": "2026-10-17T09:00:00Z",
+      "oldest_ts": null
     },
     {
       "kind": "erc721",
@@ -49,7 +52,8 @@
       "to_block": 19500000,
       "truncated": false,
       "state": "ok",
-      "last_synced_at": "2026-10-17T09:00:00Z"
+      "last_synced_at": "2026-10-17T09:00:00Z",
+      "oldest_ts": null
     },
     {
       "kind": "erc1155",
@@ -57,7 +61,8 @@
       "to_block": 19500000,
       "truncated": false,
       "state": "ok",
-      "last_synced_at": "2026-10-17T09:00:00Z"
+      "last_synced_at": "2026-10-17T09:00:00Z",
+      "oldest_ts": null
     }
   ],
   "first_seen": "2024-01-10T08:00:00Z",

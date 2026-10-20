@@ -89,6 +89,7 @@ impl Default for BlockscoutCfg {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SyncCfg {
+    pub shallow_pages: u32,
     pub max_records_per_category: u32,
     pub stale_after_secs: u64,
     pub reorg_window_blocks: u64,
@@ -99,6 +100,7 @@ pub struct SyncCfg {
 impl Default for SyncCfg {
     fn default() -> Self {
         Self {
+            shallow_pages: 5,
             max_records_per_category: 10_000,
             stale_after_secs: 600,
             reorg_window_blocks: 64,
@@ -418,12 +420,16 @@ impl Config {
         if self.sync.workers == 0 {
             bail!("sync.workers must be > 0");
         }
+        if self.sync.shallow_pages == 0 {
+            bail!("sync.shallow_pages must be > 0");
+        }
         self.auth.validate()?;
         Ok(())
     }
 
     pub fn ingest(&self) -> IngestConfig {
         IngestConfig {
+            shallow_pages: self.sync.shallow_pages,
             max_records_per_category: self.sync.max_records_per_category,
             reorg_window_blocks: self.sync.reorg_window_blocks,
             stale_after: Duration::from_secs(self.sync.stale_after_secs),
@@ -440,6 +446,14 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shallow_pages_zero_is_rejected() {
+        let text = "[source]\nmode = \"fixture\"\n[sync]\nshallow_pages = 0\n";
+        let env = |k: &str| (k == "DATABASE_URL").then(|| "postgres://x".to_owned());
+        let err = Config::parse(text, env).unwrap_err().to_string();
+        assert!(err.contains("sync.shallow_pages"), "{err}");
+    }
 
     #[test]
     fn https_without_trusted_forwarding_warns_about_one_shared_bucket() {

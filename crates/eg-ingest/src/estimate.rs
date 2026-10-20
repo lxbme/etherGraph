@@ -122,6 +122,7 @@ mod tests {
             truncated,
             state: SyncState::Ok,
             last_synced_at: age.map(|s| now() - chrono::Duration::seconds(s)),
+            oldest_ts: None,
         }
     }
 

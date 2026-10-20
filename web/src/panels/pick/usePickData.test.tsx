@@ -24,7 +24,7 @@ const edge = (from: number, to: number, count = 1): EdgeDto => ({
   trust: { level: "listed", impersonates: null, reason: null },
 });
 const cov = (at: string | null): SyncStatusDto => ({
-  kind: "native", from_block: null, to_block: null, truncated: false, state: "ok", last_synced_at: at,
+  kind: "native", from_block: null, to_block: null, truncated: false, state: "ok", last_synced_at: at, oldest_ts: null,
 });
 
 const C0 = 1;

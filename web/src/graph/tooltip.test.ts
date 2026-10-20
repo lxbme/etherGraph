@@ -28,7 +28,7 @@ describe("nodeTooltip", () => {
     expect(nodeTooltip(node({ balance: "1000000000000000000" }), {}).find((l) => l.label === "Balance")?.sub).toBeUndefined();
   });
   test("synced shows the newest coverage time (UTC) with a local title; partial wins", () => {
-    const cov = (t: string): SyncStatusDto => ({ kind: "native", from_block: 1, to_block: 2, truncated: false, state: "ok", last_synced_at: t });
+    const cov = (t: string): SyncStatusDto => ({ kind: "native", from_block: 1, to_block: 2, truncated: false, state: "ok", last_synced_at: t, oldest_ts: null });
     const ls = nodeTooltip(node({ synced: true, labels: [{ id: 1, text: "x", category: "cex", source: "user" }] }), {
       coverage: [cov("2026-01-01T00:00:00Z"), cov("2026-02-03T04:05:06Z")],
     });
@@ -53,7 +53,7 @@ describe("nodeTooltip", () => {
   });
   test("coverage shows the block range, marked partial when a category was truncated", () => {
     const cov = (from: number | null, to: number | null, truncated = false): SyncStatusDto => ({
-      kind: "native", from_block: from, to_block: to, truncated, state: "ok", last_synced_at: "2026-02-03T04:05:06Z",
+      kind: "native", from_block: from, to_block: to, truncated, state: "ok", last_synced_at: "2026-02-03T04:05:06Z", oldest_ts: null,
     });
     const ls = nodeTooltip(node({ synced: true }), { coverage: [cov(18_000_000, 19_500_000), cov(17_250_000, 19_400_000), cov(null, null)] });
     const line = ls.find((l) => l.label === "Coverage");

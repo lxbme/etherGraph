@@ -426,7 +426,7 @@ test("synced candidates cost no calls unless their cached coverage failed or nev
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   useGraph.getState().addCenter(ME);
   const cov = (state: "ok" | "failed", last: string | null) =>
-    [{ kind: "native" as const, from_block: 1, to_block: 2, truncated: false, state, last_synced_at: last }];
+    [{ kind: "native" as const, from_block: 1, to_block: 2, truncated: false, state, last_synced_at: last, oldest_ts: null }];
   qc.setQueryData(graphQueryKey(useGraph.getState()), {
     nodes: [node(999), node(1, { synced: true }), node(2, { synced: true }), node(3, { synced: true })],
     edges: [], omitted: {},

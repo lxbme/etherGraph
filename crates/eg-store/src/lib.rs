@@ -114,6 +114,9 @@ pub struct SyncRow {
     pub truncated: bool,
     pub state: SyncState,
     pub last_synced_at: Option<DateTime<Utc>>,
+    /// Time of the oldest stored transfer of this kind; set only for
+    /// truncated rows.
+    pub oldest_ts: Option<DateTime<Utc>>,
 }
 
 impl Store {
@@ -257,8 +260,15 @@ impl Store {
     pub async fn sync_rows(&self, addrs: &[Address]) -> Result<Vec<SyncRow>> {
         let keys: Vec<Vec<u8>> = addrs.iter().copied().map(addr_to_bytes).collect();
         let rows = sqlx::query(
-            "SELECT address, kind, from_block, to_block, truncated, state, last_synced_at \
-             FROM address_sync WHERE address = ANY($1) ORDER BY address, kind",
+            "SELECT s.address, s.kind, s.from_block, s.to_block, s.truncated, s.state, \
+                    s.last_synced_at, \
+                    CASE WHEN s.truncated THEN LEAST( \
+                        (SELECT min(t.ts) FROM transfers t \
+                          WHERE t.from_addr = s.address AND t.kind = s.kind), \
+                        (SELECT min(t.ts) FROM transfers t \
+                          WHERE t.to_addr = s.address AND t.kind = s.kind) \
+                    ) END AS oldest_ts \
+             FROM address_sync s WHERE s.address = ANY($1) ORDER BY s.address, s.kind",
         )
         .bind(&keys)
         .fetch_all(&self.pool)
@@ -285,6 +295,7 @@ impl Store {
                     state: SyncState::parse(&state)
                         .ok_or_else(|| StoreError::Invalid(format!("unknown state {state}")))?,
                     last_synced_at: r.try_get("last_synced_at")?,
+                    oldest_ts: r.try_get("oldest_ts")?,
                 })
             })
             .collect()
@@ -740,6 +751,55 @@ mod tests {
         assert_eq!(store.sync_rows(&[a]).await.unwrap().len(), 2);
         assert_eq!(store.sync_rows(&[a, b]).await.unwrap().len(), 3);
         assert!(store.sync_rows(&[]).await.unwrap().is_empty());
+    }
+
+    #[sqlx::test]
+    async fn sync_rows_oldest_ts_only_for_truncated(pool: PgPool) {
+        let store = Store::from_pool(pool.clone());
+        let job = new_job(&pool).await;
+        let a = Address::repeat_byte(0xa);
+        let at = |s: &str| s.parse::<DateTime<Utc>>().unwrap();
+        let mut v = vec![
+            tr(1, TransferKind::Erc20, U256::from(1)),
+            tr(2, TransferKind::Erc20, U256::from(1)),
+            tr(3, TransferKind::Native, U256::from(1)),
+        ];
+        v[0].ts = at("2022-04-01T00:00:00Z");
+        v[1].ts = at("2022-03-23T13:16:57Z");
+        v[2].ts = at("2022-01-01T00:00:00Z");
+        assign_sub_ids(&mut v);
+        let sync = |kind, truncated| SyncUpdate {
+            address: a,
+            kind,
+            from_block: 1,
+            to_block: 2,
+            truncated,
+            expected_from: None,
+        };
+        store
+            .write_page(
+                job,
+                &v,
+                &[],
+                &json!({}),
+                Some(&sync(TransferKind::Erc20, true)),
+            )
+            .await
+            .unwrap();
+        store
+            .write_page(
+                job,
+                &[],
+                &[],
+                &json!({}),
+                Some(&sync(TransferKind::Native, false)),
+            )
+            .await
+            .unwrap();
+        let rows = store.sync_rows(&[a]).await.unwrap();
+        let ts = |k| rows.iter().find(|r| r.kind == k).unwrap().oldest_ts;
+        assert_eq!(ts(TransferKind::Erc20), Some(at("2022-03-23T13:16:57Z")));
+        assert_eq!(ts(TransferKind::Native), None);
     }
 
     #[sqlx::test]

@@ -67,7 +67,7 @@ pub async fn profile(
             addr,
             SyncDirection::Latest,
             Priority::Interactive,
-            Some(s.ctx.cfg.page_size),
+            Some(s.ctx.cfg.shallow_cap()),
             None,
         )
         .await

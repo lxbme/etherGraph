@@ -66,7 +66,7 @@ const wallet: AddressProfileDto = {
     partial: false, syncing: false, synced: true, hot: false, identified: true, nonce: null, balance: null,
   },
   is_proxy: false, implementation: null, creator: null, creation_tx: null,
-  coverage: [{ kind: "native", from_block: 1, to_block: 2, truncated: false, state: "ok", last_synced_at: null }],
+  coverage: [{ kind: "native", from_block: 1, to_block: 2, truncated: false, state: "ok", last_synced_at: null, oldest_ts: null }],
   first_seen: "2024-09-12T01:02:03Z", last_seen: "2026-10-16T04:11:07Z",
 };
 

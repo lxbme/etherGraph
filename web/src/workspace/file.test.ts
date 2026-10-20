@@ -68,7 +68,7 @@ const graphData = (): GraphResponseDto => ({
   nodes: nodes(),
   edges: [edge(A, B), edge(A, C)],
   omitted: { [A]: 3 },
-  coverage: { [A]: [{ kind: "native", from_block: 1, to_block: 9, truncated: false, state: "ok", last_synced_at: null }] },
+  coverage: { [A]: [{ kind: "native", from_block: 1, to_block: 9, truncated: false, state: "ok", last_synced_at: null, oldest_ts: null }] },
 });
 const flow = (hash: string): TxFlowDto => ({
   tx: {

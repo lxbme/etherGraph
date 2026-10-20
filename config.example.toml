@@ -12,6 +12,7 @@ base_url = "https://eth.blockscout.com/api/v2"
 rate_per_sec = 2
 
 [sync]
+shallow_pages = 5   # 首次（浅）同步每类最多页数，每页 1000 条
 max_records_per_category = 10000
 stale_after_secs = 600
 reorg_window_blocks = 64

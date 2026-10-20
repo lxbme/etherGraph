@@ -492,7 +492,7 @@ test("a synced target shows when it was last synced and refreshes on a click", a
   newCenter(C0);
   world[C0] = nbs(100, 1);
   const at = new Date(Date.now() - 3 * 86_400_000).toISOString();
-  canvas = { ...canvas, coverage: { [addr(C0)]: [{ kind: "native", from_block: null, to_block: null, truncated: false, state: "ok", last_synced_at: at }] } };
+  canvas = { ...canvas, coverage: { [addr(C0)]: [{ kind: "native", from_block: null, to_block: null, truncated: false, state: "ok", last_synced_at: at, oldest_ts: null }] } };
   mount([C0]);
   expect(await screen.findByText("Last synced: 3 days ago")).toBeInTheDocument();
   expect(screen.getByText("about 6 calls · 4,900 calls left today")).toBeInTheDocument();

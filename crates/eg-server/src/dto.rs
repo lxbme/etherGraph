@@ -513,6 +513,9 @@ pub struct SyncStatusDto {
     #[ts(type = r#""syncing" | "ok" | "failed""#)]
     pub state: String,
     pub last_synced_at: Option<String>,
+    /// Time of the oldest stored transfer of this kind; set only for truncated
+    /// rows.
+    pub oldest_ts: Option<String>,
 }
 
 impl From<&SyncRow> for SyncStatusDto {
@@ -524,6 +527,7 @@ impl From<&SyncRow> for SyncStatusDto {
             truncated: r.truncated,
             state: r.state.as_str().to_owned(),
             last_synced_at: r.last_synced_at.map(rfc3339),
+            oldest_ts: r.oldest_ts.map(rfc3339),
         }
     }
 }

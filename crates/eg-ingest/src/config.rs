@@ -7,6 +7,8 @@ use alloy_primitives::{Address, address};
 #[derive(Clone, Debug)]
 pub struct IngestConfig {
     pub page_size: u32,
+    /// Pages per kind a first (shallow) sync takes.
+    pub shallow_pages: u32,
     pub max_records_per_category: u32,
     pub reorg_window_blocks: u64,
     pub stale_after: Duration,
@@ -20,11 +22,19 @@ pub struct IngestConfig {
     pub max_attempts: i32,
 }
 
+impl IngestConfig {
+    /// Records per kind a shallow sync takes: `page_size * shallow_pages`.
+    pub fn shallow_cap(&self) -> u32 {
+        self.page_size.saturating_mul(self.shallow_pages)
+    }
+}
+
 impl Default for IngestConfig {
     fn default() -> Self {
         const WEEK: Duration = Duration::from_secs(7 * 24 * 3600);
         Self {
             page_size: 1000,
+            shallow_pages: 5,
             max_records_per_category: 10_000,
             reorg_window_blocks: 64,
             stale_after: Duration::from_secs(600),
@@ -48,6 +58,8 @@ mod tests {
     fn defaults_match_global_constraints() {
         let c = IngestConfig::default();
         assert_eq!(c.page_size, 1000);
+        assert_eq!(c.shallow_pages, 5);
+        assert_eq!(c.shallow_cap(), 5000);
         assert_eq!(c.max_records_per_category, 10_000);
         assert_eq!(c.reorg_window_blocks, 64);
         assert_eq!(c.stale_after, Duration::from_secs(600));

@@ -1042,8 +1042,8 @@ async fn batches_own_jobs_until_the_last_one_is_cancelled(pool: PgPool) {
     let id = sync_job(&app, json!({"addresses": [from], "batch": "b1"})).await;
     let job = active_job(&app, id).await.unwrap();
     assert_eq!(job["batches"], json!(["b1"]));
-    // Shallow by default: one page per kind.
-    assert_eq!(job["params"]["cap"], 1000);
+    // Shallow by default: up to five pages per kind.
+    assert_eq!(job["params"]["cap"], 5000);
 
     let again = sync_job(&app, json!({"addresses": [from], "batch": "b2"})).await;
     assert_eq!(again, id);
@@ -1051,8 +1051,8 @@ async fn batches_own_jobs_until_the_last_one_is_cancelled(pool: PgPool) {
     assert_eq!(job["batches"], json!(["b1", "b2"]));
     let (st, status) = get(&app, "/api/status").await;
     assert_eq!(st, StatusCode::OK, "{status}");
-    // eth_blockNumber + one page for each of the five kinds.
-    assert_eq!(status["queued_calls"], 6);
+    // eth_blockNumber + five pages for each of the five kinds.
+    assert_eq!(status["queued_calls"], 26);
 
     let mut rx = state.ctx.bus.subscribe();
     let (st, b) = delete(&app, "/api/batches/b1").await;

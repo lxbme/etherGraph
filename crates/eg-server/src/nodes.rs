@@ -301,6 +301,7 @@ mod tests {
             truncated: false,
             state: SyncState::Ok,
             last_synced_at: None,
+            oldest_ts: None,
         }
     }
 

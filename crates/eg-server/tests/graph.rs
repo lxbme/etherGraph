@@ -713,6 +713,7 @@ async fn graph_node_flags_and_names(pool: PgPool) {
         json!({
             "kind": "native", "from_block": 10, "to_block": 20, "truncated": true,
             "state": "syncing", "last_synced_at": cov[0]["last_synced_at"].clone(),
+            "oldest_ts": "2023-11-14T22:13:20.000Z",
         })
     );
     assert!(cov[0]["last_synced_at"].is_string());

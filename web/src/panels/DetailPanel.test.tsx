@@ -21,8 +21,8 @@ const profile = (labels: LabelDto[] = [], over: Partial<AddressProfileDto> = {})
   },
   is_proxy: false, implementation: null, creator: null, creation_tx: null,
   coverage: [
-    { kind: "native", from_block: 100, to_block: 200, truncated: true, state: "ok", last_synced_at: null },
-    { kind: "erc20", from_block: null, to_block: null, truncated: false, state: "syncing", last_synced_at: null },
+    { kind: "native", from_block: 100, to_block: 200, truncated: true, state: "ok", last_synced_at: null, oldest_ts: null },
+    { kind: "erc20", from_block: null, to_block: null, truncated: false, state: "syncing", last_synced_at: null, oldest_ts: null },
   ],
   first_seen: null, last_seen: null, ...over,
 });
