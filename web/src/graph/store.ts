@@ -89,9 +89,13 @@ export interface GraphState {
   raiseLimit(center: string, by: number): void;
   /**
    * Sets the picks of each key of `next` in one history step: each key becomes a shown center, every listed address is
-   * unhidden, and an address that left a key's list and is then in no center's list and not a center is hidden.
+   * unhidden, and an address that left a key's list and is then kept by no center and not a center is hidden.
+   * `previous` is each center's own list before the change (`ownNeighbours` when the picker opened); it serves this
+   * hiding rule only: an address in `previous[k]` but not in `next[k]` left k's list too (a legacy top-k center has no
+   * picks to compare with), and a center that still has no picks keeps the addresses of its `previous` list.
+   * "Kept" means: in a picked center's list, or in the `previous` list of a center without picks.
    */
-  applyPicks(next: Record<string, string[]>): void;
+  applyPicks(next: Record<string, string[]>, previous?: Record<string, string[]>): void;
   setFilter(f: EdgeFilterDto): void;
   setSort(s: SortKey): void;
   /** Sets filter and sort as ONE history step. */
@@ -485,9 +489,11 @@ export const useGraph = create<GraphState>()((set, get) => {
       if (cur >= MAX_NEIGHBOUR_LIMIT) return;
       tracked((s) => ({ limits: { ...s.limits, [a]: Math.min(MAX_NEIGHBOUR_LIMIT, (s.limits[a] ?? cur) + by) } }));
     }),
-    applyPicks: (next) => live(() => {
+    applyPicks: (next, previous) => live(() => {
       const entries = Object.entries(next).map(([k, l]) => [lc(k), cleanList(l)] as const);
       if (entries.length === 0) return;
+      const before: Record<string, string[]> = {};
+      for (const [k, l] of Object.entries(previous ?? {})) before[lc(k)] = cleanList(l);
       tracked((s) => {
         const keys = entries.map(([k]) => k);
         const centers = [...s.centers, ...cleanList(keys).filter((k) => !s.centers.includes(k))];
@@ -495,12 +501,13 @@ export const useGraph = create<GraphState>()((set, get) => {
         const dropped = new Set<string>();
         for (const [k, l] of entries) {
           const keep = new Set(l);
-          for (const a of s.picks[k] ?? []) if (!keep.has(a)) dropped.add(a);
+          for (const a of [...(s.picks[k] ?? []), ...(before[k] ?? [])]) if (!keep.has(a)) dropped.add(a);
           picks[k] = l;
         }
         const isCenter = new Set(centers);
-        const listed = new Set(centers.flatMap((c) => picks[c] ?? []));
-        const hide = [...dropped].filter((a) => !isCenter.has(a) && !listed.has(a));
+        // A picked center keeps its list; a legacy (top-k) center keeps the neighbours it showed.
+        const kept = new Set(centers.flatMap((c) => picks[c] ?? before[c] ?? []));
+        const hide = [...dropped].filter((a) => !isCenter.has(a) && !kept.has(a));
         const show = [...new Set([...keys, ...entries.flatMap(([, l]) => l)])].filter((a) => !!s.ui[a]?.hidden);
         let ui = s.ui;
         if (show.length > 0) ui = applyUiPatch(ui, show, { hidden: false });

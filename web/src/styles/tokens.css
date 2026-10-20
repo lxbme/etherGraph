@@ -54,6 +54,8 @@
   --h-control: 32px;
   --h-compact: 28px;
   --h-tag: 20px;
+  /* A neighbour row of the picker (two lines); PICK_ROW_HEIGHT in PickNeighboursDialog.tsx */
+  --h-pick-row: 44px;
   --h-pane-min: 120px;
   --h-graph-min: 200px;
   --mh-popover: 70vh;

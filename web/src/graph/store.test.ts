@@ -506,6 +506,32 @@ describe("picked neighbours", () => {
     expect(g().centers).toEqual([A, B]);
   });
 
+  test("legacy_center_first_pick_hides_its_dropped_top_k_neighbours", () => {
+    const E = "0x" + "e".repeat(40);
+    // A legacy (top-k) center showing B, C, D: its first pick keeps B only.
+    g().loadSnapshot({ centers: [A], filter: {}, expandedPairs: [], ui: {}, limits: { [A]: 3 } });
+    g().applyPicks({ [A]: [B, E] }, { [A]: [B, C, D.toUpperCase().replace("0X", "0x")] });
+    expect(g().picks).toEqual({ [A]: [B, E] });
+    expect(g().ui[C]?.hidden).toBe(true);
+    expect(g().ui[D]?.hidden).toBe(true);
+    expect(g().ui[B]?.hidden ?? false).toBe(false);
+    expect(g().ui[E]?.hidden ?? false).toBe(false);
+    g().undo();
+    expect(g().ui[C]?.hidden ?? false).toBe(false);
+    expect(g().picks).toEqual({});
+  });
+
+  test("a_node_a_legacy_center_keeps_is_not_hidden_when_another_center_drops_it", () => {
+    // B is a legacy center showing C; A (picked) showed C and D and drops both.
+    g().loadSnapshot({ centers: [A, B], filter: {}, expandedPairs: [], ui: {}, limits: { [B]: 3 }, picks: { [A]: [C, D] } });
+    g().applyPicks({ [A]: [] }, { [A]: [C, D], [B]: [C] });
+    expect(g().ui[C]?.hidden ?? false).toBe(false);
+    expect(g().ui[D]?.hidden).toBe(true);
+    // A legacy target keeps nothing once it is picked itself.
+    g().applyPicks({ [B]: [] }, { [B]: [C] });
+    expect(g().ui[C]?.hidden).toBe(true);
+  });
+
   test("hiding_removes_from_picks", () => {
     g().setCenters([A, B]);
     g().applyPicks({ [A]: [C, D], [B]: [C] });

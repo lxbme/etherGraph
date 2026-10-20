@@ -24,6 +24,7 @@ import { useLocale } from "./i18n";
 import { saveStatusLabel, useUnsavedChangesPrompt, useWorkspace } from "./workspace/useWorkspace";
 import { registerExpansionEffects } from "./panels/expand/expansion";
 import { AddressGraph } from "./views/AddressGraph";
+import { PickHost } from "./panels/pick/PickHost";
 import { GraphSnapshotBanner, LiveConfirm } from "./views/SnapshotBanner";
 import { registerSnapshotEffects } from "./workspace/snapshot";
 import { ExportFileDialog } from "./shell/ExportFileDialog";
@@ -94,6 +95,7 @@ function Shell() {
         <StatusBar saveStatus={wsStatus} />
         <HelpDrawer />
         <Tour />
+        <PickHost />
         <LiveConfirm />
         <ExportFileDialog />
       </div>
