@@ -6,20 +6,19 @@ import { ApiError } from "../api/errors";
 import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
-import { useCanvasMetrics } from "../graph/canvasMetrics";
 import { openFakePopover, pressEscape } from "../graph/fakePopover.testutil";
 import { useBoxSelection } from "../graph/boxSelection";
 import type { CytoscapeViewProps } from "../graph/CytoscapeView";
-import { pairKey, setUnfreezeHandler, useGraph } from "../graph/store";
+import { pairKey, useGraph } from "../graph/store";
 import { Toasts } from "../shell/Toasts";
 import { DetailPanel } from "../panels/DetailPanel";
 import { useInfo } from "../panels/info/infoStore";
+import { usePick } from "../panels/pick/pickStore";
 import { useUi } from "../panels/uiStore";
 import { exportImage } from "../graph/exportImage";
 import { relayoutGraph } from "../graph/relayout";
 import { download } from "../lib/download";
 import { useWorkspace } from "../workspace/useWorkspace";
-import { registerSnapshotEffects } from "../workspace/snapshot";
 import { clearExport, useFileRequest } from "../workspace/fileRequest";
 import { AddressGraph } from "./AddressGraph";
 import { GraphSnapshotBanner, LiveConfirm } from "./SnapshotBanner";
@@ -95,6 +94,7 @@ beforeEach(() => {
   h.renders = 0;
   useGraph.getState().reset();
   useBoxSelection.setState({ ids: [] });
+  usePick.getState().close();
   useUi.setState({ labelEditorFor: null, detailOpen: true });
   vi.spyOn(api, "graphEdges").mockResolvedValue(data);
 });
@@ -407,13 +407,12 @@ test("batch bar: Unpin only while a selected node is pinned; hide, expand as cen
   expect(await screen.findByText("Copied 2 addresses")).toBeInTheDocument();
   expect(useBoxSelection.getState().ids).toEqual([A, B]); // copying keeps the selection
 
-  // "Expand as centers" asks first, for the selected non-centers only (A already is one).
+  // "Expand as centers" opens the picker for the selected non-centers only (A already is one).
   act(() => bar().getByRole("button", { name: "Expand as centers" }).click());
-  const confirm = screen.getByRole("dialog", { name: /^Expand 0xbbbb/ });
+  expect(usePick.getState().targets).toEqual([B]);
   expect(useGraph.getState().centers).toEqual([A]);
   expect(useBoxSelection.getState().ids).toEqual([]);
-  act(() => within(confirm).getByRole("button", { name: "Cancel" }).click());
-  expect(screen.queryByRole("dialog")).toBeNull();
+  act(() => usePick.getState().close());
   act(() => props().onSelectionChange([B]));
   act(() => bar().getByRole("button", { name: "Hide" }).click());
   expect(useGraph.getState().ui[B]?.hidden).toBe(true);
@@ -462,6 +461,20 @@ test("'Expand neighbors…' opens the expansion dialog for that node", async () 
   expect(screen.getByRole("dialog", { name: "Expand neighbors of " + A.slice(0, 6) + "…" + A.slice(-4) })).toBeInTheDocument();
   expect(counterparties).toHaveBeenCalledWith(A, { sort: "count_asc", limit: 1000, kind: "all" });
   expect(await screen.findByText("No stored counterparties yet. Sync this address first.")).toBeInTheDocument();
+});
+
+test("context_menu_expand_opens_picker", async () => {
+  await mountWithData();
+  act(() => props().onCxtNode(B, { x: 1, y: 1 }));
+  act(() => screen.getByRole("menuitem", { name: "Expand…" }).click());
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(usePick.getState().targets).toEqual([B]);
+  expect(useGraph.getState().centers).toEqual([A]);
+  // A center offers it as well: its picks can be changed (or made, after "Not now").
+  act(() => usePick.getState().close());
+  act(() => props().onCxtNode(A, { x: 1, y: 1 }));
+  act(() => screen.getByRole("menuitem", { name: "Expand…" }).click());
+  expect(usePick.getState().targets).toEqual([A]);
 });
 
 test("right-clicking an unselected node selects it, so Add label opens the editor for that node", async () => {
@@ -516,52 +529,37 @@ describe("+N more proxy", () => {
   /** A as a top-k center (from a workspace saved before picks): only such a center has a limit to raise. */
   const topK = () => useGraph.getState().loadSnapshot({ centers: [A], filter: {}, expandedPairs: [], ui: {}, limits: { [A]: 59 } });
 
-  test("omitted neighbours show as a proxy node; clicking it raises the limit once, as one undoable step and one refetch", async () => {
+  test("more_node_opens_picker", async () => {
     vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
-    topK();
     await mountWithData();
     await waitFor(() => expect(ids()).toContain(`more:${A}`));
-    expect(props().elements.find((e) => e.data.id === `more:${A}`)?.data.label).toBe("+12 more · click +12");
+    expect(props().elements.find((e) => e.data.id === `more:${A}`)?.data.label).toBe("+12 more · click to pick");
     act(() => {
       useGraph.getState().select({ kind: "node", address: B });
       useBoxSelection.getState().set([A]);
     });
-    useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 20 });
-    const before = useGraph.getState().limits[A]!;
+    const raise = vi.spyOn(useGraph.getState(), "raiseLimit");
+    const steps = useGraph.getState()._past.length;
     const calls = vi.mocked(api.graphEdges).mock.calls.length;
     act(() => props().onTapNode(`more:${A}`, { shift: false }));
-    expect(useGraph.getState().limits[A]).toBe(before + 40); // capacity 60 - 20 visible, 1 center
+    expect(usePick.getState().targets).toEqual([A]);
+    // A picked center shows exactly its picks: the click raises no limit and changes nothing.
+    expect(raise).not.toHaveBeenCalled();
+    expect(useGraph.getState().limits).toEqual({});
+    expect(useGraph.getState()._past.length).toBe(steps);
     expect(useGraph.getState().selection).toEqual({ kind: "node", address: B });
     expect(useBoxSelection.getState().ids).toEqual([A]);
-    await waitFor(() => expect(vi.mocked(api.graphEdges).mock.calls.length).toBe(calls + 1));
-    act(() => useGraph.getState().undo());
-    expect(useGraph.getState().limits[A]).toBe(before);
+    expect(vi.mocked(api.graphEdges).mock.calls.length).toBe(calls);
   });
 
-  test("a double-click on the proxy reveals one batch; a later click reveals another", async () => {
+  test("a top-k center's proxy opens the picker too, its limit left as it was", async () => {
     vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
     topK();
     await mountWithData();
-    useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 20 });
-    const before = useGraph.getState().limits[A]!;
-    const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+    await waitFor(() => expect(ids()).toContain(`more:${A}`));
     act(() => props().onTapNode(`more:${A}`, { shift: false }));
-    now.mockReturnValue(1100);
-    act(() => props().onTapNode(`more:${A}`, { shift: false }));
-    expect(useGraph.getState().limits[A]).toBe(before + 40);
-    now.mockReturnValue(1500);
-    // The raised limit re-derived the elements, so the visible count was re-measured; pin it again.
-    useCanvasMetrics.getState().set({ visible: 20 });
-    act(() => props().onTapNode(`more:${A}`, { shift: false }));
-    expect(useGraph.getState().limits[A]).toBe(before + 80);
-  });
-
-  test("a center at the server's maximum limit shows no proxy", async () => {
-    vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
-    await mountWithData();
-    expect(ids()).toContain(`more:${A}`);
-    act(() => useGraph.getState().raiseLimit(A, 5000));
-    await waitFor(() => expect(ids()).not.toContain(`more:${A}`));
+    expect(usePick.getState().targets).toEqual([A]);
+    expect(useGraph.getState().limits[A]).toBe(59);
   });
 
   describe("a restored (dragged) proxy position", () => {
@@ -729,11 +727,9 @@ describe("a frozen (snapshot) graph", () => {
 
   let address: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
-    registerSnapshotEffects();
     vi.spyOn(api, "nodes").mockResolvedValue([]);
     address = vi.spyOn(api, "address").mockResolvedValue({} as never);
   });
-  afterEach(() => setUnfreezeHandler(null));
 
   test("draws the file's data with no graph request, under a banner", () => {
     mountFrozen();
@@ -758,8 +754,8 @@ describe("a frozen (snapshot) graph", () => {
     expect(useGraph.getState().frozen).toBeNull();
     expect(useGraph.getState().expandedPairs.has(pairKey(A, B))).toBe(true);
     await waitFor(() => expect(api.graphEdges).toHaveBeenCalled());
-    // The centers get the request the app sends when a center is added (it syncs those not yet synced).
-    expect(address).toHaveBeenCalledWith(A, { sync: "auto" });
+    // Going live queues no sync or refresh: those wait for a click (spec §5.6).
+    expect(address).not.toHaveBeenCalledWith(A, { sync: "auto" });
     expect(screen.queryByText(/^Snapshot from a file/)).toBeNull();
   });
 
@@ -798,7 +794,7 @@ describe("a frozen (snapshot) graph", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh from chain" }));
     expect(useGraph.getState().frozen).toBeNull();
     await waitFor(() => expect(api.graphEdges).toHaveBeenCalled());
-    expect(address).toHaveBeenCalledWith(A, { sync: "auto" });
+    expect(address).not.toHaveBeenCalledWith(A, { sync: "auto" });
   });
 
   test("hide, pin and drag work on the snapshot", () => {

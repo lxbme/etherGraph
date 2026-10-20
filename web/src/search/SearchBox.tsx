@@ -3,8 +3,7 @@ import { api } from "../api/endpoints";
 import { ApiError, messageFor } from "../api/errors";
 import { useT, type MsgKey } from "../i18n";
 import { isShortcut } from "../graph/shortcuts";
-import { syncCenter } from "../graph/nodeActions";
-import { useGraph } from "../graph/store";
+import { introduce } from "../graph/nodeActions";
 import { useTabs } from "../shell/tabs";
 import { classifyInput } from "./classify";
 
@@ -30,16 +29,8 @@ export function SearchBox() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const openAddress = (addr: string) => {
-    const a = addr.toLowerCase();
-    useTabs.getState().activate("graph");
-    // A snapshot graph is refreshed from the chain first (after a confirm).
-    useGraph.getState().guardLive(() => {
-      useGraph.getState().revealCenter(a);
-      useGraph.getState().select({ kind: "node", address: a });
-      syncCenter(a);
-    });
-  };
+  /** The address alone on the graph, selected, with the picker offered when it is new (spec §5.1). */
+  const openAddress = (addr: string) => introduce([addr], { activateGraph: true });
 
   const submit = async () => {
     if (busy) return;

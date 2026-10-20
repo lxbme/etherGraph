@@ -8,6 +8,7 @@ import type { LabelDto } from "../api/generated/LabelDto";
 import type { SyncStatusDto } from "../api/generated/SyncStatusDto";
 import { qk } from "../api/queryClient";
 import { neighborsOf } from "../graph/neighbors";
+import { introduce, pickNeighbours } from "../graph/nodeActions";
 import { useGraph } from "../graph/store";
 import { useGraphData } from "../graph/useGraphData";
 import { formatFixed } from "../lib/amount";
@@ -43,21 +44,13 @@ function Time({ iso }: { iso: string }) {
   return <span className="num" title={formatLocalTime(iso)}>{formatTime(iso)}</span>;
 }
 
+/** An address link: `onNavigate`, or else the address alone on the graph, selected, with the picker offered (spec §5.5). */
 function AddrButton({ addr, onNavigate }: { addr: string; onNavigate?: (addr: string) => void }) {
-  const addCenter = useGraph((s) => s.addCenter);
-  const select = useGraph((s) => s.select);
-  const guardLive = useGraph((s) => s.guardLive);
   return (
     <button
       className="detail__link num"
       title={addr}
-      onClick={() => {
-        if (onNavigate) return onNavigate(addr.toLowerCase());
-        guardLive(() => {
-          addCenter(addr);
-          select({ kind: "node", address: addr.toLowerCase() });
-        });
-      }}
+      onClick={() => (onNavigate ? onNavigate(addr.toLowerCase()) : introduce([addr], { activateGraph: true }))}
     >
       {shortAddr(addr)}
     </button>
@@ -112,6 +105,9 @@ export function NodeDetail({
   const closeEditor = useUi((u) => u.closeLabelEditor);
   const openEditor = useUi((u) => u.openLabelEditor);
   const { data: graph } = useGraphData();
+  const lower = address.toLowerCase();
+  /** A shown center with nothing picked yet (a new one): picking is what comes next once it is synced. */
+  const awaitsPicks = useGraph((s) => s.centers.includes(lower) && !s.ui[lower]?.hidden && s.picks[lower]?.length === 0);
   const q = useQuery({ queryKey: qk.address(address), queryFn: () => api.address(address) });
 
   const sync = useMutation({
@@ -154,6 +150,8 @@ export function NodeDetail({
   const tags = nodeTags({ token: n.token, is_proxy: isProxy });
   const categories = shownCategories([...new Set(labels.map((l) => l.category))], tags);
   const syncKey: MsgKey = n.syncing ? "sync.syncing" : n.synced ? "sync.ok" : "node.notSynced";
+  // Synced, picked with none: the panel says the neighbours can be picked now (spec §5.2) and makes it the main action.
+  const ready = forGraph && awaitsPicks && n.synced && !n.syncing;
 
   return (
     <div className="detail__section">
@@ -250,9 +248,15 @@ export function NodeDetail({
         )}
       </dl>
 
-      {/* 6. Primary action */}
+      {/* 6. Primary action (picking neighbours once a new center is synced, else syncing) */}
+      {ready && <p className="detail__hint" role="status">{t("pick.ready")}</p>}
       <div className="detail__actions">
-        <button className="btn btn--primary" onClick={() => startSync(undefined)}>{t("node.syncRefresh")}</button>
+        {forGraph && (
+          <button className={ready ? "btn btn--primary" : "btn"} onClick={() => pickNeighbours(address, graph)}>
+            {t("pick.open")}
+          </button>
+        )}
+        <button className={ready ? "btn" : "btn btn--primary"} onClick={() => startSync(undefined)}>{t("node.syncRefresh")}</button>
         {anyTruncated && <button className="btn" onClick={() => startSync("older")}>{t("node.fetchOlder")}</button>}
       </div>
 

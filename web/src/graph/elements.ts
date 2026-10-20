@@ -3,10 +3,8 @@ import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { t } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { flaggedLabel, worstFlag } from "../lib/trust";
-import { K_FLOOR } from "./budget";
-import { moreNext } from "./estimate";
 import { MORE_PREFIX } from "./moreId";
-import { firstBatch, graphSelection, MAX_NEIGHBOUR_LIMIT, type GraphSelection, type GraphState, type NodeUi, type Pos } from "./store";
+import { graphSelection, type GraphSelection, type GraphState, type NodeUi, type Pos } from "./store";
 import { edgeWidth, type VisualEdge } from "./visualEdges";
 
 export { isMoreId, MORE_PREFIX } from "./moreId";
@@ -51,14 +49,14 @@ export function nodeElement(
 }
 
 /**
- * The placeholder for a center's omitted neighbours; clicking it reveals the next batch. Not selectable, but
+ * The placeholder for a center's omitted neighbours; clicking it opens the neighbour picker. Not selectable, but
  * draggable: once dragged (`pos`) it is `placed`, and layouts other than Re-layout leave it there.
  */
-export function moreElements(center: string, count: number, next: number, pos?: Pos): cytoscape.ElementDefinition[] {
+export function moreElements(center: string, count: number, pos?: Pos): cytoscape.ElementDefinition[] {
   const id = `${MORE_PREFIX}${center}`;
   const proxy: cytoscape.ElementDefinition = {
     group: "nodes",
-    data: { id, label: t("graph.more", { count, next }), center, ...(pos && { placed: true }) },
+    data: { id, label: t("graph.more", { count }), center, ...(pos && { placed: true }) },
     classes: "more",
     selectable: false,
     grabbable: true,
@@ -96,10 +94,7 @@ export function edgeElement(v: VisualEdge, highlighted: boolean): cytoscape.Elem
   };
 }
 
-type ViewState = Pick<GraphState, "ui" | "centers" | "selection" | "highlightTransfer"> & Partial<Pick<GraphState, "limits" | "proxyPos">> & {
-    /** What one click on "+N more" adds: the reveal batch and each center's distinct shown neighbours. */
-    reveal?: { batch: number; shown: Record<string, number> };
-  };
+type ViewState = Pick<GraphState, "ui" | "centers" | "selection" | "highlightTransfer"> & Partial<Pick<GraphState, "proxyPos">>;
 
 function isHighlighted(v: VisualEdge, h: ViewState["highlightTransfer"]): boolean {
   if (!h || lc(v.from) !== lc(h.from) || lc(v.to) !== lc(h.to)) return false;
@@ -140,12 +135,7 @@ export function toElements(
   const proxies: cytoscape.ElementDefinition[] = [];
   for (const c of state.centers.map(lc)) {
     const count = omitted[c] ?? 0;
-    // At the server's maximum limit a click could reveal nothing more.
-    if (count > 0 && present.has(c) && (state.limits?.[c] ?? 0) < MAX_NEIGHBOUR_LIMIT) {
-      const next = moreNext(count, state.limits?.[c] ?? firstBatch(), state.reveal?.shown[c] ?? 0, state.reveal?.batch ?? K_FLOOR);
-      // Shown neighbours can already reach the maximum: no "click +0" proxy.
-      if (next > 0) proxies.push(...moreElements(c, count, next, state.proxyPos?.[c]));
-    }
+    if (count > 0 && present.has(c)) proxies.push(...moreElements(c, count, state.proxyPos?.[c]));
   }
   out.push(...proxies.filter((e) => e.group === "nodes"));
   for (const v of visual) {

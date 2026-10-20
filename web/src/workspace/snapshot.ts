@@ -8,8 +8,6 @@ import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import type { TxFlowDto } from "../api/generated/TxFlowDto";
 import type { TxRawDto } from "../api/generated/TxRawDto";
 import { qk } from "../api/queryClient";
-import { syncCenter } from "../graph/nodeActions";
-import { setUnfreezeHandler } from "../graph/store";
 
 /**
  * Frozen view data from a file: shown read-only (never written to the chain tables, never mixed into live
@@ -117,9 +115,4 @@ export function useLiveIdentities(addresses: string[]): Map<string, NodeSummaryD
 /** `nodes` with live identities laid over them. */
 export function overlayNodes(nodes: NodeSummaryDto[], live: Map<string, NodeSummaryDto>): NodeSummaryDto[] {
   return live.size === 0 ? nodes : nodes.map((n) => overlayIdentity(n, live.get(lc(n.address))));
-}
-
-/** Wires a graph refresh to the backend: each center gets the request the app sends when a center is added. Idempotent. */
-export function registerSnapshotEffects(): void {
-  setUnfreezeHandler((centers) => centers.forEach(syncCenter));
 }

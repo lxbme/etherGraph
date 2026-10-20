@@ -1,6 +1,7 @@
+import { api } from "../api/endpoints";
 import type { GraphSnapshot } from "../workspace/snapshot";
 import { useAssetRegistry } from "./assetRegistry";
-import { setUnfreezeHandler, useGraph, type GraphState } from "./store";
+import { useGraph, type GraphState } from "./store";
 
 const A = "0x" + "aa".repeat(20);
 const B = "0x" + "bb".repeat(20);
@@ -27,7 +28,6 @@ beforeEach(() => {
   g().setCenters([A, B]);
   g().freeze(SNAP);
 });
-afterEach(() => setUnfreezeHandler(null));
 
 const gated: [string, () => void][] = [
   ["addCenter", () => g().addCenter(C)],
@@ -122,13 +122,14 @@ test("guardLive runs at once when live and asks when frozen", () => {
   expect(run).toHaveBeenCalledTimes(2);
 });
 
-test("unfreeze hands the centers to the unfreeze handler (to sync them); reset and loadSnapshot drop the snapshot without it", () => {
-  const onUnfreeze = vi.fn();
-  setUnfreezeHandler(onUnfreeze);
+test("unfreeze goes live and syncs nothing; reset and loadSnapshot drop the snapshot too", () => {
+  const sync = vi.spyOn(api, "sync");
+  const address = vi.spyOn(api, "address");
   g().unfreeze();
-  expect(onUnfreeze).toHaveBeenCalledWith([A, B]);
-  g().unfreeze();
-  expect(onUnfreeze).toHaveBeenCalledTimes(1);
+  expect(g().frozen).toBeNull();
+  expect(g().centers).toEqual([A, B]);
+  expect(sync).not.toHaveBeenCalled();
+  expect(address).not.toHaveBeenCalled();
 
   g().freeze(SNAP);
   g().reset();
@@ -136,7 +137,7 @@ test("unfreeze hands the centers to the unfreeze handler (to sync them); reset a
   g().freeze(SNAP);
   g().loadSnapshot({ centers: [C], filter: {}, expandedPairs: [], ui: {} });
   expect(g().frozen).toBeNull();
-  expect(onUnfreeze).toHaveBeenCalledTimes(1);
+  vi.restoreAllMocks();
 });
 
 test("refresh from chain (unfreeze) drops the file's assets from the session registry", () => {

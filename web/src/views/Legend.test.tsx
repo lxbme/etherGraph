@@ -109,7 +109,7 @@ test("without a collapse key it renders every group inline, with no toggle", () 
 
 test("the +N more swatch is a wide dashed pill with a +, outlined in the canvas pill's colour", () => {
   render(<Legend groups={fullLegendGroups("light")} />);
-  const svg = screen.getByText("+N more: hidden neighbours, click to show").closest("li")!.querySelector("svg")!;
+  const svg = screen.getByText("+N more: neighbours not on the graph, click to pick").closest("li")!.querySelector("svg")!;
   const rect = svg.querySelector("rect")!;
   expect(Number(rect.getAttribute("width"))).toBeGreaterThan(Number(rect.getAttribute("height")));
   expect(rect.getAttribute("stroke")).toBe(stateColors("light").more.stroke);

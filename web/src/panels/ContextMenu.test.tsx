@@ -59,7 +59,7 @@ test("wallets and unknown nodes get one 'Expand neighbors…' item; contracts ge
   expect(onBrowse).toHaveBeenCalledTimes(1);
 });
 
-test("'Expand…' sits right before the neighbours item for wallets and contracts, runs onExpandSelf, and is absent for a center", () => {
+test("'Expand…' sits right before the neighbours item for wallets and contracts, runs onExpandSelf, and is offered for a center too", () => {
   for (const [kind, next] of [["eoa", "Expand neighbors…"], ["contract", "Browse interactions…"]] as const) {
     const onExpandSelf = vi.fn();
     const { unmount } = render(menu(false, kind, () => {}, () => {}, onExpandSelf));
@@ -70,8 +70,10 @@ test("'Expand…' sits right before the neighbours item for wallets and contract
     unmount();
   }
   act(() => useGraph.getState().addCenter(A));
-  render(menu(false, "eoa"));
-  expect(screen.queryByRole("menuitem", { name: "Expand…" })).toBeNull();
+  const onExpandSelf = vi.fn();
+  render(menu(false, "eoa", () => {}, () => {}, onExpandSelf));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Expand…" }));
+  expect(onExpandSelf).toHaveBeenCalledTimes(1);
 });
 
 test("wallets have no 'Browse interactions…' item", () => {

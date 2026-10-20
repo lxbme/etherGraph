@@ -10,6 +10,7 @@ import type { GraphResponseDto } from "../../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import { useCanvasMetrics } from "../../graph/canvasMetrics";
 import { firstBatchFor, useGraph } from "../../graph/store";
+import { useGraphData } from "../../graph/useGraphData";
 import { useQuota } from "../../shell/statusStore";
 import { clearToasts, Toasts } from "../../shell/Toasts";
 import { PickHost } from "./PickHost";
@@ -458,4 +459,43 @@ test("a legacy center showing neighbours can be cleared to none as well", async 
   fireEvent.click(confirmBtn());
   expect(useGraph.getState().picks[addr(C0)]).toEqual([]);
   expect(useGraph.getState().ui[addr(100)]?.hidden).toBe(true);
+});
+
+test("a target just put on the graph: the picker waits for the canvas to show it (no sync question for a synced one)", async () => {
+  newCenter(C1);
+  world[C0] = nbs(100, 3);
+  // The canvas: shows C1 and keeps showing it while a new graph request loads.
+  function Canvas() {
+    const { data } = useGraphData();
+    return <div data-testid="canvas">{data?.nodes.map((n) => n.address).join(",")}</div>;
+  }
+  qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={qc}>
+      <Canvas />
+      <PickHost />
+    </QueryClientProvider>,
+  );
+  await waitFor(() => expect(screen.getByTestId("canvas")).toHaveTextContent(addr(C1)));
+  // The canvas request with C0 answers only when released.
+  let release!: () => void;
+  vi.mocked(api.graphEdges).mockImplementation(async (req) => {
+    if (req.dry_run) return dryRun(req);
+    if (!req.addresses.includes(addr(C0))) return canvas;
+    await new Promise<void>((r) => (release = r));
+    return canvas;
+  });
+  act(() => {
+    useGraph.getState().revealCenter(addr(C0));
+    usePick.getState().open([addr(C0)]);
+  });
+  const dialog = await screen.findByRole("dialog");
+  expect(within(dialog).getByText("Loading…")).toBeInTheDocument();
+  await waitFor(() => expect(release).toBeTypeOf("function"));
+  expect(screen.queryByText("Sync first to list its neighbours (about 6 calls)")).toBeNull();
+  canvas = { ...canvas, nodes: [...canvas.nodes, node(C0)] };
+  await act(async () => release());
+  await waitFor(() => expect(box(100)).toBeInTheDocument());
+  expect(screen.queryByText("Sync first to list its neighbours (about 6 calls)")).toBeNull();
+  expect(sync).not.toHaveBeenCalled();
 });

@@ -105,7 +105,7 @@ export function identifyAction(
 
 /**
  * The address graph's batch bar, over its box selection. "Expand as centers" hands the selected non-centers to
- * `onMakeCenters` (a confirm dialog, spec §5) and is left out when every selected node is already a center.
+ * `onMakeCenters` (the neighbour picker, spec §5.5) and is left out when every selected node is already a center.
  */
 export function BatchBar({
   insetLeft,

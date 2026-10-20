@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { create } from "zustand";
+import { introduce } from "../graph/nodeActions";
 import { graphSelection, useGraph } from "../graph/store";
 import { useTabs } from "./tabs";
 
@@ -27,13 +28,9 @@ export function applyRoute(r: Route): void {
   if (!r || r.kind === "admin") return;
   applying = true;
   try {
-    if (r.kind === "address") {
-      useGraph.getState().revealCenter(r.addr);
-      useGraph.getState().select({ kind: "node", address: r.addr });
-      useTabs.getState().activate("graph");
-    } else {
-      useTabs.getState().openTx(r.hash);
-    }
+    // Like a search: the address alone, the picker offered only when it was not a center (a reload opens nothing).
+    if (r.kind === "address") introduce([r.addr], { activateGraph: true });
+    else useTabs.getState().openTx(r.hash);
   } finally {
     applying = false;
   }

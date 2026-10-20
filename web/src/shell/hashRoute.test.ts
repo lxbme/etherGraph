@@ -1,9 +1,11 @@
 import { act, renderHook } from "@testing-library/react";
 import { useGraph } from "../graph/store";
+import { usePick } from "../panels/pick/pickStore";
 import { leaveAdmin, parseHash, useAdminRoute, useHashRouting } from "./hashRoute";
 import { useTabs } from "./tabs";
 
 const A = "0x" + "ab".repeat(20);
+const TX = "0x" + "12".repeat(32);
 
 function setHash(h: string) {
   history.replaceState(null, "", h);
@@ -45,4 +47,30 @@ test("while the admin page is open the graph does not rewrite the hash; leaving 
   expect(useAdminRoute.getState().open).toBe(false);
   expect(location.hash).toBe("#/");
   unmount();
+});
+
+describe("#/address links", () => {
+  beforeEach(() => usePick.getState().close());
+
+  test("a link to a new address puts it alone on the graph, selects it and offers the picker", () => {
+    useTabs.setState({ tabs: [{ id: "graph" }, { id: TX, kind: "tx", hash: TX }], active: TX });
+    history.replaceState(null, "", `#/address/${A}`);
+    const { unmount } = renderHook(() => useHashRouting());
+    expect(useGraph.getState().centers).toEqual([A]);
+    expect(useGraph.getState().picks[A]).toEqual([]);
+    expect(useGraph.getState().selection).toEqual({ kind: "node", address: A });
+    expect(useTabs.getState().active).toBe("graph");
+    expect(usePick.getState().targets).toEqual([A]);
+    unmount();
+  });
+
+  test("route_reload_on_existing_center_opens_nothing", () => {
+    useGraph.getState().setCenters([A]);
+    history.replaceState(null, "", `#/address/${A}`);
+    const { unmount } = renderHook(() => useHashRouting());
+    expect(useGraph.getState().centers).toEqual([A]);
+    expect(useGraph.getState().selection).toEqual({ kind: "node", address: A });
+    expect(usePick.getState().targets).toBeNull();
+    unmount();
+  });
 });

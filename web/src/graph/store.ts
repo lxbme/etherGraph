@@ -60,7 +60,10 @@ export interface GraphState {
   pendingLive: (() => void) | null;
   /** Shows `s` instead of live data. Not history-tracked. */
   freeze(s: GraphSnapshot): void;
-  /** Back to live data (the graph query runs again; the file's assets leave the registry); the unfreeze handler syncs the centers. No-op when live. */
+  /**
+   * Back to live data (the graph query runs again; the file's assets leave the registry). Nothing is synced: that
+   * waits for a click (spec §5.6). No-op when live.
+   */
   unfreeze(): void;
   /**
    * Runs `run` at once when live; on a snapshot, keeps it for a confirm instead ("Refresh from chain first?").
@@ -165,14 +168,6 @@ interface HistoryEntry {
   effect?: ExpandEffect;
 }
 
-/** Called with the centers when a snapshot graph goes live (the app syncs them). The store has no network code. */
-let unfreezeHandler: ((centers: string[]) => void) | null = null;
-
-/** Registers the unfreeze handler; `null` unregisters it. */
-export function setUnfreezeHandler(h: ((centers: string[]) => void) | null): void {
-  unfreezeHandler = h;
-}
-
 /** Whether undoing/redoing to `snap` changes what the graph query asks for (or runs a batch effect). */
 function changesGraph(s: GraphState, entry: HistoryEntry): boolean {
   if (entry.effect) return true;
@@ -224,20 +219,6 @@ function currentNodeBudget(fresh = false, m: CanvasSize = useCanvasMetrics.getSt
         : // Scaling one side scales the area: 60% of innerWidth x innerHeight.
           { width: window.innerWidth * UNMEASURED_CANVAS_SHARE, height: window.innerHeight };
   return nodeBudget(nodeCapacity(canvas), fresh ? 0 : m.visible);
-}
-
-/** How many more neighbours one click on a "+N more" node reveals: a single center's share of the free budget. */
-export function revealBatch(): number {
-  return revealBatchFor(useCanvasMetrics.getState());
-}
-
-/** `revealBatch()` as a hook: re-renders only when the batch itself changes (not on every metrics write). */
-export function useRevealBatch(): number {
-  return useCanvasMetrics(revealBatchFor);
-}
-
-function revealBatchFor(m: CanvasSize): number {
-  return perCenterBatch(currentNodeBudget(false, m), 1, 0);
 }
 
 /** Neighbour limit of a new center: the per-center batch for one new center under the current node budget. */
@@ -416,7 +397,6 @@ export const useGraph = create<GraphState>()((set, get) => {
       // The file's assets (symbol, decimals, trust) must not linger in the live filter list.
       useAssetRegistry.getState().clear();
       set({ frozen: null });
-      unfreezeHandler?.(get().centers);
     },
     guardLive: (run) => {
       if (get().frozen) set({ pendingLive: run });

@@ -8,6 +8,7 @@ import { graphQueryKey } from "../graph/useGraphData";
 import { useLocale } from "../i18n";
 import { formatLocalTime } from "../lib/format";
 import { NodeDetail } from "./NodeDetail";
+import { usePick } from "./pick/pickStore";
 
 const A = "0x" + "aa".repeat(20);
 const IMPL = "0x" + "AB".repeat(20);
@@ -30,7 +31,10 @@ function renderDetail(onNavigate?: (a: string) => void, p: AddressProfileDto = p
     </QueryClientProvider>,
   );
 }
-beforeEach(() => useGraph.getState().reset());
+beforeEach(() => {
+  useGraph.getState().reset();
+  usePick.getState().close();
+});
 afterEach(() => vi.restoreAllMocks());
 
 test("with onNavigate the implementation button navigates locally and leaves the main graph alone", async () => {
@@ -42,11 +46,15 @@ test("with onNavigate the implementation button navigates locally and leaves the
   expect(useGraph.getState().selection).toBeNull();
 });
 
-test("without onNavigate the implementation button adds a center and selects it", async () => {
+test("without onNavigate the implementation button puts it on the graph alone, selects it and offers the picker", async () => {
+  const sync = vi.spyOn(api, "sync");
   renderDetail();
   fireEvent.click(await screen.findByTitle(IMPL));
-  expect(useGraph.getState().centers.map((c) => c.toLowerCase())).toContain(IMPL.toLowerCase());
+  expect(useGraph.getState().centers).toEqual([IMPL.toLowerCase()]);
+  expect(useGraph.getState().picks[IMPL.toLowerCase()]).toEqual([]);
   expect(useGraph.getState().selection).toEqual({ kind: "node", address: IMPL.toLowerCase() });
+  expect(usePick.getState().targets).toEqual([IMPL.toLowerCase()]);
+  expect(sync).not.toHaveBeenCalled();
 });
 
 const B = "0x" + "bb".repeat(20);
@@ -220,4 +228,62 @@ test("an imported label shows its dataset; a cross-chain one says so and neither
   expect(within(main).queryByRole("button")).toBeNull();
   expect(within(x).queryByRole("button")).toBeNull();
   expect(within(screen.getByTestId("node-tags")).getByText("Hacker / exploiter")).toHaveClass("tag--hacker");
+});
+
+describe("node_detail_offers_pick_and_highlights_when_ready", () => {
+  const PICK = "Pick neighbours…";
+  const READY = "Synced: you can pick neighbours now";
+  const node = (synced: boolean) => ({ ...wallet.node, labels: [], synced });
+  /** The graph tab's detail of A, with A on the canvas. */
+  function renderGraphDetail(synced = true) {
+    const p = { ...wallet, node: node(synced) };
+    vi.spyOn(api, "graphEdges").mockResolvedValue({ nodes: [node(synced)], edges: [], omitted: {}, coverage: {} });
+    qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    vi.spyOn(api, "address").mockResolvedValue(p);
+    render(
+      <QueryClientProvider client={qc}>
+        <NodeDetail address={A} graph />
+      </QueryClientProvider>,
+    );
+  }
+
+  test("a synced center with nothing picked yet: the primary action, with the hint; a click opens the picker", async () => {
+    useGraph.getState().addCenter(A);
+    renderGraphDetail();
+    const pick = await screen.findByRole("button", { name: PICK });
+    expect(pick).toHaveClass("btn--primary");
+    expect(screen.getByRole("button", { name: "Sync / refresh" })).not.toHaveClass("btn--primary");
+    expect(screen.getByText(READY)).toBeInTheDocument();
+    fireEvent.click(pick);
+    expect(usePick.getState().targets).toEqual([A]);
+    expect(useGraph.getState().centers).toEqual([A]);
+  });
+
+  test("otherwise it is offered as a plain button, without the hint", async () => {
+    // Picks made already.
+    useGraph.getState().loadSnapshot({ centers: [A], filter: {}, expandedPairs: [], ui: {}, picks: { [A]: [B] } });
+    renderGraphDetail();
+    expect(await screen.findByRole("button", { name: PICK })).not.toHaveClass("btn--primary");
+    expect(screen.getByRole("button", { name: "Sync / refresh" })).toHaveClass("btn--primary");
+    expect(screen.queryByText(READY)).toBeNull();
+    cleanup();
+    // Not synced yet.
+    useGraph.getState().reset();
+    useGraph.getState().addCenter(A);
+    renderGraphDetail(false);
+    expect(await screen.findByRole("button", { name: PICK })).not.toHaveClass("btn--primary");
+    expect(screen.queryByText(READY)).toBeNull();
+    cleanup();
+    // Not a center.
+    useGraph.getState().reset();
+    renderGraphDetail();
+    expect(await screen.findByRole("button", { name: PICK })).not.toHaveClass("btn--primary");
+    expect(screen.queryByText(READY)).toBeNull();
+  });
+
+  test("a tx tab's detail has no picker button (its own Add to graph offers it)", async () => {
+    renderDetail(undefined, wallet);
+    await screen.findByTestId("node-kv");
+    expect(screen.queryByRole("button", { name: PICK })).toBeNull();
+  });
 });

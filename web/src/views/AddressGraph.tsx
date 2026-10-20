@@ -16,12 +16,11 @@ import { useShortcuts } from "../graph/useShortcuts";
 import { BatchBar } from "../panels/BatchBar";
 import { ContextMenu } from "../panels/ContextMenu";
 import { ExpandDialog } from "../panels/expand/ExpandDialog";
-import { ExpandSelfDialog } from "../panels/expand/ExpandSelfDialog";
 import { InteractionsDialog } from "../panels/expand/InteractionsDialog";
+import { usePick } from "../panels/pick/pickStore";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
-import { firstBatch, revealBatch, useGraph, useRevealBatch, type Pos } from "../graph/store";
-import { revealStep, shownNeighbourCounts } from "../graph/estimate";
+import { useGraph, type Pos } from "../graph/store";
 import { graphStylesheet } from "../graph/styles";
 import { useGraphData } from "../graph/useGraphData";
 import { deriveVisualEdges } from "../graph/visualEdges";
@@ -41,9 +40,6 @@ const EXPORTER: CanvasExport = {
   baseName: () => `ethergraph-${safeFileName(useWorkspace.getState().name, "graph")}`,
   onExportFile: () => requestExport("graph"),
 };
-
-/** A second tap on the same "+N more" node within this window is part of a double-click. */
-const REVEAL_DEBOUNCE_MS = 300;
 
 const NO_NODES: NodeSummaryDto[] = [];
 const lc = (s: string) => s.toLowerCase();
@@ -67,8 +63,6 @@ export function AddressGraph() {
   const proxyPos = useGraph((s) => s.proxyPos);
   const selection = useGraph((s) => s.selection);
   const highlightTransfer = useGraph((s) => s.highlightTransfer);
-  const limits = useGraph((s) => s.limits);
-  const batch = useRevealBatch();
   const epoch = useGraph((s) => s.epoch);
   const frozen = useGraph((s) => s.frozen !== null);
 
@@ -95,10 +89,9 @@ export function AddressGraph() {
     () => (data ? deriveVisualEdges(data.edges, expandedPairs, hidden) : []),
     [data, expandedPairs, hidden, locale],
   );
-  const shown = useMemo(() => (data ? shownNeighbourCounts(data, centers) : {}), [data, centers]);
   const elements = useMemo(
-    () => (data ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer, limits, proxyPos, reveal: { batch, shown } }, data.omitted) : []),
-    [data, visual, ui, centers, selection, highlightTransfer, limits, proxyPos, batch, shown],
+    () => (data ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer, proxyPos }, data.omitted) : []),
+    [data, visual, ui, centers, selection, highlightTransfer, proxyPos],
   );
   const boxCount = useBoxSelection((s) => s.ids.length);
   const legend = useMemo(() => legendFor(elements, theme, boxCount), [elements, theme, boxCount]);
@@ -149,18 +142,8 @@ export function AddressGraph() {
   const [browsing, setBrowsing] = useState<NodeSummaryDto | null>(null);
   const closeExpand = useCallback(() => setExpanding(null), []);
   const closeBrowse = useCallback(() => setBrowsing(null), []);
-  /**
-   * Targets of the single-layer expansion being confirmed (the menu's "Expand…" or the batch bar), as summaries
-   * at click time: the dialog reads the live ones from `data` on every render and keeps these only as a fallback.
-   */
-  const [confirming, setConfirming] = useState<NodeSummaryDto[] | null>(null);
-  const closeConfirm = useCallback(() => setConfirming(null), []);
-  /** Opens the confirm dialog for `ids` that the result knows; making centers turns a snapshot live first. */
-  const confirmExpand = (ids: string[]) => {
-    const want = new Set(ids.map(lc));
-    const targets = (data?.nodes ?? []).filter((n) => want.has(lc(n.address)));
-    if (targets.length > 0) useGraph.getState().guardLive(() => setConfirming(targets));
-  };
+  /** The menu's "Expand…" and the batch bar's "Expand as centers": the neighbour picker for `ids` (on the canvas). */
+  const pickFor = (ids: string[]) => usePick.getState().open(ids);
 
   const onCxtNode = (id: string, pos: Pos) => {
     const node = data?.nodes.find((n) => lc(n.address) === lc(id));
@@ -217,20 +200,6 @@ export function AddressGraph() {
     });
   };
 
-  /** A "+N more" node: raise its center's limit by one more per-center batch. */
-  const lastReveal = useRef<{ center: string; at: number } | null>(null);
-  const revealMore = (center: string) => {
-    // A double-click taps twice: reveal one batch, not two.
-    const now = Date.now();
-    const last = lastReveal.current;
-    if (last && last.center === center && now - last.at < REVEAL_DEBOUNCE_MS) return;
-    lastReveal.current = { center, at: now };
-    useGraph.getState().raiseLimit(
-      center,
-      revealStep(useGraph.getState().limits[lc(center)] ?? firstBatch(), shown[lc(center)] ?? 0, revealBatch()),
-    );
-  };
-
   const onDblTapNode = (id: string) => {
     const a = lc(id);
     const n = data?.nodes.find((x) => lc(x.address) === a);
@@ -263,8 +232,9 @@ export function AddressGraph() {
         layout="incremental"
         positionsEpoch={epoch}
         onTapNode={(id) => {
+          // "+N more": the picker for its center (spec §4), not the next batch.
           if (id.startsWith(MORE_PREFIX)) {
-            revealMore(id.slice(MORE_PREFIX.length));
+            pickFor([id.slice(MORE_PREFIX.length)]);
             return;
           }
           useBoxSelection.getState().clear();
@@ -287,7 +257,7 @@ export function AddressGraph() {
       />
       {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
       <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
-      <BatchBar insetLeft={legendCover} nodes={data?.nodes ?? NO_NODES} onMakeCenters={confirmExpand} />
+      <BatchBar insetLeft={legendCover} nodes={data?.nodes ?? NO_NODES} onMakeCenters={pickFor} />
       <CanvasTools selectMode={selectMode} onSelectModeChange={useBoxSelection.getState().setSelectMode} exporter={EXPORTER}>
         <IdentifyAllButton nodes={shownNodes} />
         <button
@@ -329,13 +299,12 @@ export function AddressGraph() {
             const target = menu.node;
             useGraph.getState().guardLive(() => setBrowsing(target));
           }}
-          onExpandSelf={() => confirmExpand([menu.node.address])}
+          onExpandSelf={() => pickFor([menu.node.address])}
           onClose={closeMenu}
         />
       )}
       {expanding && <ExpandDialog node={expanding} onClose={closeExpand} />}
       {browsing && <InteractionsDialog contract={browsing} onClose={closeBrowse} />}
-      {confirming && data && <ExpandSelfDialog targets={confirming} data={data} onClose={closeConfirm} />}
       {centers.length === 0 && !frozen && <div className="address-graph__empty">{tr("view.empty")}</div>}
       {centers.length > 0 && error != null && (
         <div className="address-graph__status address-graph__status--error" role="alert">{messageFor(error)}</div>

@@ -26,7 +26,6 @@ import { registerExpansionEffects } from "./panels/expand/expansion";
 import { AddressGraph } from "./views/AddressGraph";
 import { PickHost } from "./panels/pick/PickHost";
 import { GraphSnapshotBanner, LiveConfirm } from "./views/SnapshotBanner";
-import { registerSnapshotEffects } from "./workspace/snapshot";
 import { ExportFileDialog } from "./shell/ExportFileDialog";
 import { useFileDrop } from "./workspace/fileRequest";
 import { AuthGate } from "./auth/AuthGate";
@@ -45,7 +44,6 @@ export function App() {
 function Shell() {
   useEffect(() => {
     registerExpansionEffects();
-    registerSnapshotEffects();
   }, []);
   useHashRouting();
   useEvents();

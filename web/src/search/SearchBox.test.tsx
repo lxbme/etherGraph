@@ -1,3 +1,4 @@
+import { QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { api } from '../api/endpoints'
@@ -5,7 +6,9 @@ import { ApiError } from '../api/errors'
 import { useCanvasMetrics } from '../graph/canvasMetrics'
 import { useGraph } from '../graph/store'
 import { useTabs } from '../shell/tabs'
-import { qk, queryClient } from '../api/queryClient'
+import { queryClient } from '../api/queryClient'
+import { useGraphData } from '../graph/useGraphData'
+import { usePick } from '../panels/pick/pickStore'
 import { useLocale } from '../i18n'
 import { useInfo } from '../panels/info/infoStore'
 import { SearchBox } from './SearchBox'
@@ -13,8 +16,15 @@ import { SearchBox } from './SearchBox'
 const A = '0x' + 'ab'.repeat(20)
 const H = '0x' + 'cd'.repeat(32)
 
+/** Runs the graph query, as the canvas does. */
+function GraphProbe() {
+  useGraphData()
+  return null
+}
+
 beforeEach(() => {
   vi.restoreAllMocks()
+  usePick.getState().close()
   useGraph.getState().reset()
   useTabs.setState({ tabs: [{ id: 'graph' }], active: 'graph' })
 })
@@ -41,18 +51,44 @@ describe('SearchBox', () => {
     expect(screen.getByText('未找到该名称或地址')).toBeInTheDocument()
   })
 
-  it('enter on address adds a center, selects it and triggers one auto sync', async () => {
+  it('search_reveals_alone_and_opens_picker', async () => {
     vi.spyOn(api, 'search').mockResolvedValue({ kind: 'address', value: A, resolved_address: null })
     const addr = vi.spyOn(api, 'address').mockResolvedValue({} as never)
-    render(<SearchBox />)
+    const sync = vi.spyOn(api, 'sync')
+    const edges = vi.spyOn(api, 'graphEdges').mockResolvedValue({ nodes: [], edges: [], omitted: {}, coverage: {} })
+    useTabs.setState({ tabs: [{ id: 'graph' }, { id: H, kind: 'tx', hash: H }], active: H })
+    queryClient.clear()
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SearchBox />
+        <GraphProbe />
+      </QueryClientProvider>,
+    )
     const box = screen.getByRole('searchbox')
     await userEvent.type(box, `${A}{Enter}`)
     await waitFor(() => expect(useGraph.getState().centers).toEqual([A]))
     expect(useGraph.getState().selection).toEqual({ kind: 'node', address: A })
     expect(useTabs.getState().active).toBe('graph')
-    expect(addr).toHaveBeenCalledTimes(1)
-    expect(addr).toHaveBeenCalledWith(A, { sync: 'auto' })
+    expect(usePick.getState().targets).toEqual([A])
     expect(box).toHaveValue('')
+    // The address alone: picked with none, so the graph request asks for no neighbours.
+    await waitFor(() => expect(edges).toHaveBeenCalled())
+    expect(edges.mock.calls.at(-1)![0]).toMatchObject({ addresses: [A], picks: { [A]: [] }, limits: {} })
+    // Nothing is synced or refreshed before a click.
+    expect(addr).not.toHaveBeenCalledWith(A, { sync: 'auto' })
+    expect(sync).not.toHaveBeenCalled()
+  })
+
+  it('search_of_an_existing_center_opens_nothing', async () => {
+    vi.spyOn(api, 'search').mockResolvedValue({ kind: 'address', value: A, resolved_address: null })
+    const sync = vi.spyOn(api, 'sync')
+    useGraph.getState().setCenters([A])
+    render(<SearchBox />)
+    await userEvent.type(screen.getByRole('searchbox'), `${A}{Enter}`)
+    await waitFor(() => expect(useGraph.getState().selection).toEqual({ kind: 'node', address: A }))
+    expect(useGraph.getState().centers).toEqual([A])
+    expect(usePick.getState().targets).toBeNull()
+    expect(sync).not.toHaveBeenCalled()
   })
 
   it('a searched address becomes a center picked with no neighbours yet', async () => {
@@ -74,16 +110,6 @@ describe('SearchBox', () => {
     await userEvent.type(screen.getByRole('searchbox'), `${A}{Enter}`)
     await waitFor(() => expect(useGraph.getState().ui[A]?.hidden).toBe(false))
     expect(useGraph.getState().centers).toEqual([A])
-  })
-
-  it('the auto-sync profile seeds the address query cache', async () => {
-    vi.spyOn(api, 'search').mockResolvedValue({ kind: 'address', value: A, resolved_address: null })
-    const profile = { node: { address: A }, coverage: [] } as never
-    vi.spyOn(api, 'address').mockResolvedValue(profile)
-    queryClient.clear()
-    render(<SearchBox />)
-    await userEvent.type(screen.getByRole('searchbox'), `${A}{Enter}`)
-    await waitFor(() => expect(queryClient.getQueryData(qk.address(A))).toBe(profile))
   })
 
   it('tx opens a tx tab', async () => {

@@ -3,7 +3,7 @@ import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { shortAddr } from "../lib/address";
 import { edgeElement, nodeElement, toElements } from "./elements";
-import { MAX_NEIGHBOUR_LIMIT, type GraphState, type NodeUi } from "./store";
+import type { GraphState, NodeUi } from "./store";
 import { edgeWidth, type VisualEdge } from "./visualEdges";
 
 const A = "0x" + "a".repeat(40);
@@ -157,7 +157,7 @@ describe("toElements", () => {
   test("a center with omitted neighbours gets a +N more proxy node and a dashed-style edge", () => {
     const els = toElements(nodes, [vedge()], state({ centers: [A] }), { [A]: 12 });
     const more = els.find((e) => e.data.id === `more:${A}`)!;
-    expect(more.data.label).toBe("+12 more · click +3");
+    expect(more.data.label).toBe("+12 more · click to pick");
     expect(more.data.center).toBe(A);
     expect(classesOf(more)).toEqual(["more"]);
     expect(more.selectable).toBe(false);
@@ -178,15 +178,6 @@ describe("toElements", () => {
     expect(more.data.placed).toBe(true);
   });
 
-  test("the +N more label says what one click adds: the batch, capped by what is left (limit raised past the shown count)", () => {
-    const label = (omitted: number) => {
-      const els = toElements(nodes, [], { ...state({ centers: [A] }), limits: { [A]: 10 }, reveal: { batch: 12, shown: { [A]: 25 } } }, { [A]: omitted });
-      return els.find((e) => e.data.id === `more:${A}`)!.data.label;
-    };
-    expect(label(40)).toBe("+40 more · click +12");
-    expect(label(5)).toBe("+5 more · click +5");
-  });
-
   test("no proxy when the center is hidden, nothing is omitted, or the address is not a center", () => {
     const hiddenCenter = toElements(nodes, [], state({ centers: [A], ui: { [A]: ui({ hidden: true }) } }), { [A]: 12 });
     expect(hiddenCenter.some((e) => String(e.data.id).startsWith("more"))).toBe(false);
@@ -194,23 +185,6 @@ describe("toElements", () => {
     expect(none.some((e) => String(e.data.id).startsWith("more"))).toBe(false);
     const notCenter = toElements(nodes, [], state({ centers: [A] }), { [B]: 3 });
     expect(notCenter.some((e) => String(e.data.id).startsWith("more"))).toBe(false);
-  });
-
-  test("no proxy once the center's limit is at the server's maximum (it could reveal nothing more)", () => {
-    const atMax = toElements(nodes, [], { ...state({ centers: [A] }), limits: { [A]: MAX_NEIGHBOUR_LIMIT } }, { [A]: 12 });
-    expect(atMax.some((e) => String(e.data.id).startsWith("more"))).toBe(false);
-    const below = toElements(nodes, [], { ...state({ centers: [A] }), limits: { [A]: MAX_NEIGHBOUR_LIMIT - 1 } }, { [A]: 12 });
-    expect(below.some((e) => e.data.id === `more:${A}`)).toBe(true);
-  });
-
-  test("no proxy when a click would reveal nothing (the shown neighbours already reach the server's maximum)", () => {
-    const full = toElements(
-      nodes,
-      [],
-      { ...state({ centers: [A] }), limits: { [A]: 10 }, reveal: { batch: 12, shown: { [A]: MAX_NEIGHBOUR_LIMIT } } },
-      { [A]: 12 },
-    );
-    expect(full.some((e) => String(e.data.id).startsWith("more"))).toBe(false);
   });
 
   test("selected pair marks edges in both directions", () => {

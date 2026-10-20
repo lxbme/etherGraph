@@ -1,8 +1,7 @@
-import { renderHook, act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { useCanvasMetrics } from "./canvasMetrics";
 import { setHistoryEffectHandler, type ExpandEffect } from "./historyEffects";
-import { firstBatch, firstBatchFor, MAX_NEIGHBOUR_LIMIT, ownNeighbours, pairKey, revealBatch, useGraph, useRevealBatch } from "./store";
+import { firstBatch, firstBatchFor, MAX_NEIGHBOUR_LIMIT, ownNeighbours, pairKey, useGraph } from "./store";
 
 const A = "0x" + "a".repeat(40);
 const B = "0x" + "b".repeat(40);
@@ -378,33 +377,6 @@ describe("per-center limits", () => {
     expect(g().limits).toEqual({ [A]: 12, [B]: 59 });
     g().reset();
     expect(g().limits).toEqual({});
-  });
-});
-
-describe("useRevealBatch", () => {
-  test("equals revealBatch() and follows the canvas metrics", () => {
-    useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 0 });
-    const { result } = renderHook(() => useRevealBatch());
-    expect(result.current).toBe(revealBatch());
-    const before = result.current;
-    act(() => useCanvasMetrics.getState().set({ width: 2400, height: 1400 }));
-    expect(result.current).toBe(revealBatch());
-    expect(result.current).not.toBe(before);
-    act(() => useCanvasMetrics.getState().set({ visible: 200 }));
-    expect(result.current).toBe(revealBatch());
-  });
-
-  test("re-renders only when the batch changes, not on every metrics write", () => {
-    useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 0 });
-    let renders = 0;
-    renderHook(() => {
-      renders++;
-      return useRevealBatch();
-    });
-    const before = renders;
-    act(() => useCanvasMetrics.getState().set({ visible: 0 }));
-    act(() => useCanvasMetrics.getState().set({ width: 960, height: 576 }));
-    expect(renders).toBe(before);
   });
 });
 
