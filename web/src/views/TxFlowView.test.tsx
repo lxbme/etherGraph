@@ -467,7 +467,7 @@ describe("box selection", () => {
     expect(getTxCy(HASH)).toBe(f.cy);
     act(() => within(screen.getByRole("toolbar", { name: "Canvas tools" })).getByRole("button", { name: "Export" }).click());
     act(() => within(screen.getByRole("menu", { name: "Export" })).getByRole("menuitem", { name: "PNG" }).click());
-    expect(exportImage).toHaveBeenLastCalledWith(f.cy, "png");
+    expect(exportImage).toHaveBeenLastCalledWith(f.cy, "png", []);
     expect(download).toHaveBeenLastCalledWith(blob, "ethergraph-tx-1111111111.png");
     cleanup();
     expect(getTxCy(HASH)).toBeNull();

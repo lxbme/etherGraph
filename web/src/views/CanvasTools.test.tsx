@@ -121,7 +121,7 @@ describe("export menu", () => {
     expect(screen.queryByRole("menu")).toBeNull();
     await userEvent.click(within(await openMenu()).getByRole("menuitem", { name: "Transparent PNG" }));
     await userEvent.click(within(await openMenu()).getByRole("menuitem", { name: "SVG" }));
-    expect(vi.mocked(exportImage).mock.calls).toEqual([[cy, "png"], [cy, "png-transparent"], [cy, "svg"]]);
+    expect(vi.mocked(exportImage).mock.calls).toEqual([[cy, "png", []], [cy, "png-transparent", []], [cy, "svg", []]]);
     expect(vi.mocked(download).mock.calls).toEqual([
       [blob, "ethergraph-w.png"],
       [blob, "ethergraph-w.png"],

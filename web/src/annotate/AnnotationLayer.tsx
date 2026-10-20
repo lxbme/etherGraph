@@ -14,6 +14,7 @@ import { arrowHead, ellipseOf, hitTest, rectOf, textLines } from "./geometry";
 import { textWidth } from "./measure";
 import {
   bounds,
+  FONT_FAMILY,
   FONT_SIZE,
   LINE_HEIGHT,
   STROKE_WIDTH,
@@ -69,7 +70,7 @@ function Shape({ a, textRef }: { a: Annotation; textRef?: (el: SVGTextElement | 
     case "text":
       // Spaces are kept, as the export's fillText keeps them.
       return (
-        <text ref={textRef} x={a.x1} y={a.y1} fill={color} fontSize={FONT_SIZE} dominantBaseline="hanging" style={{ whiteSpace: "pre" }}>
+        <text ref={textRef} x={a.x1} y={a.y1} fill={color} fontFamily={FONT_FAMILY} fontSize={FONT_SIZE} dominantBaseline="hanging" style={{ whiteSpace: "pre" }}>
           {textLines(a).map((line, i) => (
             <tspan key={i} x={a.x1} y={a.y1 + i * FONT_SIZE * LINE_HEIGHT}>
               {line}
@@ -287,10 +288,10 @@ export function AnnotationLayer({ view, cy }: { view: ViewId; cy: cytoscape.Core
   const selBox = sel ? bounds([sel], measure) : null;
   const pad = 4 / vp.zoom;
   const editorLines = editor ? editor.text.split("\n") : [];
-  // The editor is as wide as its longest line in its own font (it inherits the overlay's), plus 1em to type into:
+  // The editor is as wide as its longest line in the annotation font, plus 1em to type into:
   // a `cols` width counts average characters and is about half the width of a CJK or "WWW" line.
   const editorSize = FONT_SIZE * vp.zoom;
-  const editorFont = `${editorSize}px ${(svgRef.current && getComputedStyle(svgRef.current).fontFamily) || "sans-serif"}`;
+  const editorFont = `${editorSize}px ${FONT_FAMILY}`;
   const editorWidth = Math.max(...editorLines.map((l) => textWidth(l, editorFont, editorSize)), 0) + editorSize;
 
   return (
@@ -337,6 +338,7 @@ export function AnnotationLayer({ view, cy }: { view: ViewId; cy: cytoscape.Core
             // The first line's box starts half a leading above the text's top, as the overlay draws it.
             top: (editor.y - ((LINE_HEIGHT - 1) / 2) * FONT_SIZE) * vp.zoom + vp.pan.y,
             width: editorWidth,
+            fontFamily: FONT_FAMILY,
             fontSize: editorSize,
             lineHeight: LINE_HEIGHT,
             color: `var(--note-${editor.color})`,

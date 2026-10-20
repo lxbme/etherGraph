@@ -2,7 +2,7 @@ import type cytoscape from "cytoscape";
 import { Download, Eye, EyeOff, PenLine, ScanSearch, SquareDashedMousePointer } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
-import type { ViewId } from "../annotate/model";
+import type { Annotation, ViewId } from "../annotate/model";
 import { useAnnotations } from "../annotate/store";
 import { exportImage, IMAGE_EXT, type ImageFormat } from "../graph/exportImage";
 import { identifiable, identifyAddresses, useIdentifying } from "../graph/identify";
@@ -17,6 +17,8 @@ export interface CanvasExport {
   cy(): cytoscape.Core | null;
   /** The download name without its extension, e.g. `ethergraph-tx-7e57000000`. */
   baseName(): string;
+  /** The view's annotations, drawn into the PNG and SVG exports (none when absent). */
+  annotations?(): Annotation[];
   /** "File…": the view as a snapshot file; the item is shown only when this is given. */
   onExportFile?(): void;
 }
@@ -110,13 +112,17 @@ function ExportMenu({ exporter }: { exporter: CanvasExport }) {
   const exportAs = (format: ImageFormat) => {
     const cy = exporter.cy();
     if (!cy || cy.elements().empty()) return void toast(t("tools.nothingToExport"), "error");
-    let blob: Blob;
+    const save = (blob: Blob) => download(blob, `${exporter.baseName()}.${IMAGE_EXT[format]}`);
+    const fail = (e: unknown) => toast(t("tools.exportFailed", { reason: e instanceof Error ? e.message : String(e) }), "error");
+    let out: Blob | Promise<Blob>;
     try {
-      blob = exportImage(cy, format);
+      out = exportImage(cy, format, exporter.annotations?.() ?? []);
     } catch (e) {
-      return void toast(t("tools.exportFailed", { reason: e instanceof Error ? e.message : String(e) }), "error");
+      return void fail(e);
     }
-    download(blob, `${exporter.baseName()}.${IMAGE_EXT[format]}`);
+    // Only a PNG with annotations is composed asynchronously.
+    if (out instanceof Promise) out.then(save, fail);
+    else save(out);
   };
 
   const label = t("tools.export");

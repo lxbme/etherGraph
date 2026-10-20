@@ -462,7 +462,7 @@ test("the_call_graph_registers_apart_from_the_flow_and_exports_as_ethergraph_cal
   expect(tools.queryByRole("button", { name: "Box select (Shift+drag)" })).toBeNull();
   act(() => tools.getByRole("button", { name: "Export" }).click());
   act(() => within(screen.getByRole("menu", { name: "Export" })).getByRole("menuitem", { name: "SVG" }).click());
-  expect(exportImage).toHaveBeenLastCalledWith(cy, "svg");
+  expect(exportImage).toHaveBeenLastCalledWith(cy, "svg", []);
   expect(download).toHaveBeenLastCalledWith(blob, "ethergraph-calls-2222222222.svg");
   unmount();
   expect(getCallCy(HASH)).toBeNull();

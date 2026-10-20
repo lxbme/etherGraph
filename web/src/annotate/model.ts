@@ -20,6 +20,9 @@ export const ANNOTATION_COLORS: AnnotationColor[] = ["red", "amber", "blue", "in
 export const STROKE_WIDTH = 2; // model units
 export const FONT_SIZE = 14; // model units
 export const LINE_HEIGHT = 1.3;
+/** The page font (`--font-sans` in styles/tokens.css, keep in sync): on-screen text, its editor and the export use it. */
+export const FONT_FAMILY =
+  "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif";
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 

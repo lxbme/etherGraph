@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { FONT_SIZE, LINE_HEIGHT, STROKE_WIDTH, type Annotation } from "./model";
+import { FONT_FAMILY, FONT_SIZE, LINE_HEIGHT, STROKE_WIDTH, type Annotation } from "./model";
 import { paintAnnotations } from "./paint";
 
 const COLORS = { red: "#r", amber: "#a", blue: "#b", ink: "#i" };
@@ -43,5 +43,11 @@ describe("paintAnnotations", () => {
     expect(t.map(([, args]) => args[2])).toEqual([7, 7 + FONT_SIZE * LINE_HEIGHT, 7 + 2 * FONT_SIZE * LINE_HEIGHT]);
     expect(log).toContain("fillStyle=#i");
     expect(log).toContain("textBaseline=top");
+  });
+
+  test("text uses the page font stack, as the overlay does", () => {
+    const { ctx, log } = fakeCtx();
+    paintAnnotations(ctx, [a({ kind: "text", text: "x" })], COLORS);
+    expect(log).toContain(`font=${FONT_SIZE}px ${FONT_FAMILY}`);
   });
 });

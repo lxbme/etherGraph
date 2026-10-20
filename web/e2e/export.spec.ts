@@ -131,3 +131,25 @@ test("a tx tab exports as ethergraph-tx-<10 hex> in all three formats", async ({
   }
   expect(mock.unhandled).toEqual([]);
 });
+
+test("SVG export contains annotation text; the PNG with annotations is still a PNG", async ({ page, mock }) => {
+  await searchAndPick(page, A);
+  await expectLaidOut(page, "main", 4);
+  await page.waitForTimeout(600); // the first layout's glide
+  const graph = page.getByTestId("address-graph");
+  const box = (await graph.boundingBox())!;
+  await graph.getByRole("toolbar", { name: "Canvas tools" }).getByRole("button", { name: "Annotate" }).click();
+  await graph.getByRole("toolbar", { name: "Annotate" }).getByRole("button", { name: "Text" }).click();
+  await page.mouse.click(box.x + box.width * 0.6, box.y + box.height * 0.7);
+  const editor = graph.locator("textarea.annotate-editor");
+  await expect(editor).toBeFocused();
+  await page.keyboard.type("look here 中文");
+  await page.keyboard.press("Enter");
+  await expect(editor).toHaveCount(0);
+
+  const svg = await exportFrom(page, ".address-graph", "SVG");
+  expect(svg.text).toContain("look here 中文");
+  const png = await exportFrom(page, ".address-graph", "PNG");
+  expect(png).toMatchObject({ type: "image/png", head: PNG_MAGIC });
+  expect(mock.unhandled).toEqual([]);
+});

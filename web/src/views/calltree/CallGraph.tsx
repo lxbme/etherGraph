@@ -4,6 +4,7 @@ import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import { AnnotateToolbar } from "../../annotate/AnnotateToolbar";
 import { AnnotationLayer } from "../../annotate/AnnotationLayer";
 import { txCallsView } from "../../annotate/model";
+import { useAnnotations } from "../../annotate/store";
 import { CytoscapeView } from "../../graph/CytoscapeView";
 import { getCallCy, registerCallCy } from "../../graph/cyRegistry";
 import { nodeElement } from "../../graph/elements";
@@ -127,6 +128,7 @@ export function CallGraph({
     () => ({
       cy: () => getCallCy(hash),
       baseName: () => `ethergraph-calls-${hash.replace(/^0x/i, "").slice(0, 10).toLowerCase()}`,
+      annotations: () => useAnnotations.getState().byView[txCallsView(hash)] ?? [],
       onExportFile: () => requestExport("tx", hash.toLowerCase()),
     }),
     [hash],

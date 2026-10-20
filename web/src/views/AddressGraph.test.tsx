@@ -291,11 +291,11 @@ test("the canvas tools export the address graph as ethergraph-<workspace name or
     act(() => within(screen.getByRole("menu", { name: "Export" })).getByRole("menuitem", { name: item }).click());
   };
   pick("SVG");
-  expect(exportImage).toHaveBeenLastCalledWith(f.cy, "svg");
+  expect(exportImage).toHaveBeenLastCalledWith(f.cy, "svg", []);
   expect(download).toHaveBeenLastCalledWith(blob, "ethergraph-graph.svg");
   act(() => useWorkspace.setState({ name: "Case/7" }));
   pick("Transparent PNG");
-  expect(exportImage).toHaveBeenLastCalledWith(f.cy, "png-transparent");
+  expect(exportImage).toHaveBeenLastCalledWith(f.cy, "png-transparent", []);
   expect(download).toHaveBeenLastCalledWith(blob, "ethergraph-Case_7.png");
   act(() => useWorkspace.getState().clear());
 });

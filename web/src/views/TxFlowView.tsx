@@ -157,6 +157,7 @@ export function TxFlowView({ hash }: { hash: string }) {
     () => ({
       cy: () => getTxCy(hash),
       baseName: () => `ethergraph-tx-${hash.replace(/^0x/i, "").slice(0, 10).toLowerCase()}`,
+      annotations: () => useAnnotations.getState().byView[txFlowView(hash)] ?? [],
       onExportFile: () => requestExport("tx", hash.toLowerCase()),
     }),
     [hash],

@@ -8,6 +8,7 @@ import { getMainCy, setMainCy } from "../graph/cyRegistry";
 import { useBoxSelection } from "../graph/boxSelection";
 import { AnnotateToolbar } from "../annotate/AnnotateToolbar";
 import { AnnotationLayer } from "../annotate/AnnotationLayer";
+import { useAnnotations } from "../annotate/store";
 import { CytoscapeView } from "../graph/CytoscapeView";
 import { isMoreId, MORE_PREFIX, toElements } from "../graph/elements";
 import { useCanvasMetrics } from "../graph/canvasMetrics";
@@ -41,6 +42,7 @@ import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
 const EXPORTER: CanvasExport = {
   cy: getMainCy,
   baseName: () => `ethergraph-${safeFileName(useWorkspace.getState().name, "graph")}`,
+  annotations: () => useAnnotations.getState().byView["graph"] ?? [],
   onExportFile: () => requestExport("graph"),
 };
 

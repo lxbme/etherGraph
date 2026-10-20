@@ -1,5 +1,5 @@
 import { arrowHead, ellipseOf, rectOf, textLines } from "./geometry";
-import { FONT_SIZE, LINE_HEIGHT, STROKE_WIDTH, type Annotation, type AnnotationColor } from "./model";
+import { FONT_FAMILY, FONT_SIZE, LINE_HEIGHT, STROKE_WIDTH, type Annotation, type AnnotationColor } from "./model";
 
 /** Paints annotations in the context's current transform (model coordinates); shared by the PNG and SVG exports. */
 export function paintAnnotations(
@@ -11,7 +11,7 @@ export function paintAnnotations(
   ctx.lineWidth = STROKE_WIDTH;
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
-  ctx.font = `${FONT_SIZE}px sans-serif`;
+  ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
   ctx.textBaseline = "top"; // (x1,y1) is the top-left of the first line
   ctx.textAlign = "left";
   for (const a of list) {
