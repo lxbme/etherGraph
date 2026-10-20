@@ -45,6 +45,23 @@ interface Nb {
   name?: string;
   ens?: string;
   token?: boolean | Tok;
+  /** The transfer's raw sum (default "1"). */
+  sum?: string;
+  /** The neighbour sends to the center instead. */
+  incoming?: boolean;
+  /** The asset's decimals (default 18). */
+  decimals?: number | null;
+}
+
+/** The edge between center `c` and neighbour `x`, ranked `count`. */
+function nbEdge(c: number, x: Nb, count: number): EdgeDto {
+  const e = edge(c, x.n, count, x.token);
+  return {
+    ...e,
+    ...(x.incoming ? { from: e.to, to: e.from } : {}),
+    ...(x.sum !== undefined ? { sum: x.sum } : {}),
+    ...(x.decimals !== undefined ? { decimals: x.decimals } : {}),
+  };
 }
 /** Each center's neighbours in rank order (busiest first). */
 let world: Record<number, Nb[]>;
@@ -65,7 +82,7 @@ function dryRun(req: GraphRequestDto): GraphResponseDto {
     const shown = ordered.filter((x, i) => i < limit || pref.has(addr(x.n)));
     if (all.length > shown.length) omitted[a] = all.length - shown.length;
     nodes.push(node(c), ...shown.map((x) => node(x.n, { display_name: x.name ?? null, ens: x.ens ?? null })));
-    edges.push(...shown.map((x) => edge(c, x.n, 5000 - all.indexOf(x), x.token)));
+    edges.push(...shown.map((x) => nbEdge(c, x, 5000 - all.indexOf(x))));
   }
   return { nodes, edges, omitted, coverage: {} };
 }
@@ -770,4 +787,163 @@ test("a change of k can be undone back to the checks right before it, once", asy
   expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
   fireEvent.click(box(107));
   expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+});
+
+const ETH = (n: number) => `${n}000000000000000000`;
+/** The rows' addresses (as numbers) in list order. */
+const order = () => screen.getAllByRole("checkbox").map((b) => parseInt(b.closest("label")!.querySelector("[title]")!.getAttribute("title")!, 16));
+const row = (n: number) => box(n).closest("label") as HTMLElement;
+
+test("amount sort orders by the chosen asset and direction", async () => {
+  newCenter(C0);
+  // Ranked by count: 100 (the smallest outgoing sum) first; 103 only receives from the center in USDT, 104 only sends.
+  world[C0] = [
+    { n: 100, sum: ETH(5) },
+    { n: 101, sum: ETH(30) },
+    { n: 102, sum: ETH(12) },
+    { n: 103, token: true, sum: "99" },
+    { n: 104, incoming: true, sum: ETH(500) },
+  ];
+  mount([C0]);
+  await waitFor(() => expect(box(104).checked).toBe(true));
+  fireEvent.change(screen.getByRole("combobox", { name: "Assets" }), { target: { value: "native" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Direction" }), { target: { value: "out" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Sort" }), { target: { value: "amount" } });
+  expect(order()).toEqual([101, 102, 100]);
+  expect(within(row(101)).getByText("30 ETH")).toBeInTheDocument();
+  expect(within(row(102)).getByText("12 ETH")).toBeInTheDocument();
+  expect(within(row(100)).getByText("5 ETH")).toBeInTheDocument();
+  expect(within(row(100)).getByText("5,000 transfers")).toBeInTheDocument();
+  // Both directions: 104's incoming 500 leads.
+  fireEvent.change(screen.getByRole("combobox", { name: "Direction" }), { target: { value: "all" } });
+  expect(order()).toEqual([104, 101, 102, 100]);
+});
+
+test("direction filter hides rows without a matching flow", async () => {
+  newCenter(C0);
+  world[C0] = [{ n: 100 }, { n: 101, incoming: true }, { n: 102, token: true, incoming: true }];
+  mount([C0]);
+  await waitFor(() => expect(box(102).checked).toBe(true));
+  const dir = screen.getByRole("combobox", { name: "Direction" }) as HTMLSelectElement;
+  expect([...dir.options].map((o) => o.textContent)).toEqual(["All directions", "Incoming", "Outgoing"]);
+  expect(dir.value).toBe("all");
+  fireEvent.change(dir, { target: { value: "in" } });
+  expect(order()).toEqual([101, 102]);
+  fireEvent.change(dir, { target: { value: "out" } });
+  expect(order()).toEqual([100]);
+  fireEvent.change(screen.getByRole("combobox", { name: "Assets" }), { target: { value: TOKEN } });
+  expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+  expect(screen.getByText("No neighbours match")).toBeInTheDocument();
+  fireEvent.change(dir, { target: { value: "in" } });
+  expect(order()).toEqual([102]);
+});
+
+test("amount sort is offered only with an asset chosen", async () => {
+  newCenter(C0);
+  world[C0] = nbs(100, 3);
+  mount([C0]);
+  await waitFor(() => expect(box(102).checked).toBe(true));
+  const sort = screen.getByRole("combobox", { name: "Sort" }) as HTMLSelectElement;
+  const values = () => [...sort.options].map((o) => o.value);
+  expect(values()).toEqual(["count", "recent"]);
+  const assets = screen.getByRole("combobox", { name: "Assets" });
+  fireEvent.change(assets, { target: { value: "native" } });
+  expect(values()).toEqual(["count", "recent", "amount"]);
+  fireEvent.change(sort, { target: { value: "amount" } });
+  expect(sort.value).toBe("amount");
+  // Back to all assets: the amount sort goes, the graph's sort is back.
+  fireEvent.change(assets, { target: { value: "" } });
+  expect(values()).toEqual(["count", "recent"]);
+  expect(sort.value).toBe("count");
+});
+
+test("unknown decimals show the raw sum", async () => {
+  const ODD: Tok = { address: "0x" + "f".repeat(40), symbol: "ODD", trust: { level: "unknown", impersonates: null, reason: null } };
+  newCenter(C0);
+  world[C0] = [{ n: 100, token: ODD, sum: "1234567", decimals: null }, { n: 101, token: ODD, sum: "5", decimals: 0 }];
+  mount([C0]);
+  await waitFor(() => expect(box(101).checked).toBe(true));
+  // No amount without an asset chosen.
+  expect(within(row(100)).queryByText("1,234,567 ODD")).toBeNull();
+  expect(within(row(100)).queryByRole("img", { name: "Unknown decimals" })).toBeNull();
+  fireEvent.change(screen.getByRole("combobox", { name: "Assets" }), { target: { value: ODD.address } });
+  expect(within(row(100)).getByText("1,234,567 ODD")).toBeInTheDocument();
+  expect(within(row(100)).getByRole("img", { name: "Unknown decimals" })).toBeInTheDocument();
+  expect(within(row(101)).getByText("5 ODD")).toBeInTheDocument();
+  expect(within(row(101)).queryByRole("img", { name: "Unknown decimals" })).toBeNull();
+});
+
+test("check all shown checks every shown unlocked row across groups", async () => {
+  useGraph.getState().loadSnapshot({
+    centers: [addr(C0), addr(C1), addr(C9)],
+    filter: {},
+    expandedPairs: [],
+    ui: {},
+    picks: { [addr(C0)]: [], [addr(C1)]: [], [addr(C9)]: [addr(X)] },
+  });
+  canvas = { nodes: [node(C0), node(C1), node(C9), node(X)], edges: [edge(C9, X)], omitted: {}, coverage: {} };
+  // X is locked (on the canvas for C9) and matches the query too: it does not count.
+  world[C0] = [{ n: 100, name: "Kraken 1" }, { n: 101, name: "Kraken 2" }, { n: 102 }, { n: X, name: "Kraken X" }];
+  world[C1] = [{ n: 200, name: "Kraken 3" }, { n: 201 }, { n: 202, name: "Kraken 4" }];
+  mount([C0, C1]);
+  await waitFor(() => expect(box(202).checked).toBe(true));
+  const all = () => screen.getByRole("button", { name: /^Check all shown/ });
+  // Every row checked already: nothing to add.
+  expect(all()).toHaveTextContent("Check all shown (0)");
+  expect(all()).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Select none" }));
+  expect(all()).toHaveTextContent("Check all shown (6)");
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search name, ENS or address" }), { target: { value: "kraken" } });
+  expect(all()).toHaveTextContent("Check all shown (4)");
+  expect(all()).toBeEnabled();
+  fireEvent.click(all());
+  expect(all()).toHaveTextContent("Check all shown (0)");
+  expect(all()).toBeDisabled();
+  expect(confirmBtn()).toHaveTextContent("Expand 5 checked");
+  fireEvent.click(confirmBtn());
+  const picks = useGraph.getState().picks;
+  expect([...picks[addr(C0)]!].sort()).toEqual([100, 101, X].map(addr).sort());
+  expect([...picks[addr(C1)]!].sort()).toEqual([200, 202].map(addr));
+});
+
+test("k on a narrowed view checks the first k shown rows", async () => {
+  newCenter(C0);
+  world[C0] = [
+    { n: 100, sum: ETH(5) },
+    { n: 101, sum: ETH(30) },
+    { n: 102, incoming: true, sum: ETH(900) },
+    { n: 103, sum: ETH(12) },
+    { n: 104, sum: ETH(1) },
+  ];
+  mount([C0]);
+  await waitFor(() => expect(box(104).checked).toBe(true));
+  fireEvent.change(screen.getByRole("combobox", { name: "Assets" }), { target: { value: "native" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Direction" }), { target: { value: "out" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Sort" }), { target: { value: "amount" } });
+  const k = screen.getByRole("spinbutton", { name: /Check the top/ });
+  fireEvent.change(k, { target: { value: "2" } });
+  expect(order()).toEqual([101, 103, 100, 104]);
+  expect(screen.getAllByRole("checkbox").map((b) => (b as HTMLInputElement).checked)).toEqual([true, true, false, false]);
+  // The top-k run answering later keeps them.
+  await new Promise((r) => setTimeout(r, 300));
+  expect(confirmBtn()).toHaveTextContent("Expand 2 checked");
+  // Undo goes back to every row checked.
+  fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+  expect(confirmBtn()).toHaveTextContent("Expand 5 checked");
+  fireEvent.change(k, { target: { value: "2" } });
+  fireEvent.click(confirmBtn());
+  expect([...useGraph.getState().picks[addr(C0)]!].sort()).toEqual([101, 103].map(addr));
+});
+
+test("k on a view back to default follows the top-k run again", async () => {
+  newCenter(C0);
+  world[C0] = [{ n: 100, sum: ETH(5) }, { n: 101, sum: ETH(30) }, { n: 102, sum: ETH(12) }];
+  mount([C0]);
+  await waitFor(() => expect(box(102).checked).toBe(true));
+  const search = screen.getByRole("searchbox", { name: "Search name, ENS or address" });
+  fireEvent.change(search, { target: { value: "x" } });
+  fireEvent.change(search, { target: { value: "" } });
+  fireEvent.change(screen.getByRole("spinbutton", { name: /Check the top/ }), { target: { value: "1" } });
+  await waitFor(() => expect(box(101).checked).toBe(false));
+  expect([100, 101, 102].map((n) => box(n).checked)).toEqual([true, false, false]);
 });

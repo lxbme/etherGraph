@@ -32,6 +32,19 @@ function makeWorld(peers = 12): World {
   return { nodes, edges, filtered: {} };
 }
 
+/** ETH that A sends each even peer (the odd ones send to A): an order of its own, unlike the counts'. */
+const SENT = [1, 0, 7, 0, 3, 0, 11, 0, 5, 0, 9, 0];
+
+/** Like `makeWorld`, with amounts: A sends `SENT[i]` ETH to each even peer, and every odd peer sends A more than that. */
+function makeAmountWorld(): World {
+  const world = makeWorld(0);
+  world.edges = SENT.map((eth, i) => {
+    world.nodes.set(peer(i), summary(peer(i), { display_name: peerName(i) }));
+    return i % 2 ? transfer(peer(i), A, 100 - i, undefined, 1000 + i) : transfer(A, peer(i), 100 - i, undefined, eth);
+  });
+  return world;
+}
+
 /** X's sync is done: it is synced and its transfers are stored (the server then reports the change). */
 async function finishSync(mock: MockApi, world: World) {
   world.nodes.set(X, { ...world.nodes.get(X)!, synced: true });
@@ -170,6 +183,42 @@ test("synced_address_opens_picker_directly: the list is there at once, k re-chec
   await expect.poll(() => mock.count(GRAPH)).toBeGreaterThan(before);
   await expect(page.getByRole("status", { name: "Updating" })).toHaveCount(0);
   expect(await real(page)).toEqual(three);
+  expect(mock.unhandled).toEqual([]);
+});
+
+test("amount sort and check all shown pick the largest outgoing neighbours", async ({ page, mock }) => {
+  installWorld(mock, makeAmountWorld());
+  await search(page, A);
+  const dialog = page.getByRole("dialog", { name: "Expand Alice" });
+  await listed(dialog, 12);
+
+  await dialog.getByRole("combobox", { name: "Assets" }).selectOption("native");
+  await dialog.getByRole("combobox", { name: "Direction" }).selectOption({ label: "Outgoing" });
+  await dialog.getByRole("combobox", { name: "Sort" }).selectOption({ label: "By amount" });
+  // The six peers A sends to, largest amount first, each with its amount.
+  const outgoing = [6, 10, 2, 8, 4, 0];
+  await expect(dialog.getByRole("checkbox")).toHaveCount(6);
+  for (const [i, n] of outgoing.entries()) {
+    const row = dialog.locator("label.pick__row").nth(i);
+    await expect(row).toContainText(peerName(n));
+    await expect(row).toContainText(`${SENT[n]} native`);
+  }
+
+  // Nothing checked, then every shown row; the odd peers stay unchecked.
+  await dialog.getByRole("button", { name: "Select none" }).click();
+  await dialog.getByRole("button", { name: "Check all shown (6)" }).click();
+  await expect(dialog.getByRole("button", { name: "Check all shown (0)" })).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "Expand 6 checked" })).toBeEnabled();
+
+  // k on the narrowed view: the three largest outgoing.
+  await dialog.getByRole("spinbutton").fill("3");
+  await expect.poll(() => checks(dialog)).toEqual(outgoing.map((_, i) => i < 3));
+  await dialog.getByRole("button", { name: "Expand 3 checked" }).click();
+  await expect(dialog).toBeHidden();
+
+  await expect.poll(() => real(page)).toEqual([A, peer(6), peer(10), peer(2)].sort());
+  expect(liveBodies(mock).at(-1)!.picks![A]).toHaveLength(3);
+  expect(mock.count(SYNC)).toBe(0);
   expect(mock.unhandled).toEqual([]);
 });
 

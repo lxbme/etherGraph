@@ -1,5 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { api, type TransfersParams } from "../api/endpoints";
 import { messageFor } from "../api/errors";
@@ -20,6 +20,7 @@ import { useTabs } from "../shell/tabs";
 import { AssetButton } from "./info/AssetButton";
 import { TrustBadge } from "./info/TrustBadge";
 import { TruncationBanner } from "./TruncationBanner";
+import { UnknownDecimals } from "./UnknownDecimals";
 import { groupsForPair, type TransferGroup } from "./transferGroups";
 import { useRefreshFromChain } from "../workspace/snapshot";
 
@@ -46,15 +47,6 @@ function baseParams(filter: EdgeFilterDto): TransfersParams {
 
 function symbolOf(asset: string | null, symbol: string | null): string {
   return symbol ?? (asset === null ? "ETH" : shortAddr(asset));
-}
-
-function UnknownDecimals() {
-  const t = useT();
-  return (
-    <span className="transfers__warn" role="img" aria-label={t("transfers.unknownDecimals")} title={t("transfers.unknownDecimals")}>
-      <AlertTriangle size={12} aria-hidden="true" />
-    </span>
-  );
 }
 
 /** Right-aligned fixed-decimal amount cell; the exact value is the title. */

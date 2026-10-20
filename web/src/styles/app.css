@@ -974,6 +974,7 @@ a.btn { text-decoration: none; }
 .pick__k-row { display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
 .pick__k { display: flex; align-items: center; gap: var(--sp-2); color: var(--fg-muted); font-size: var(--fs-12); }
 .pick__k-input { width: 6em; }
+.pick__check-shown { margin-left: auto; color: var(--accent); }
 .pick__notes { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3); color: var(--fg-muted); font-size: var(--fs-12); }
 .pick__notes:empty { display: none; }
 .pick__refresh { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); }
@@ -1035,6 +1036,7 @@ a.btn { text-decoration: none; }
 .pick__assets { display: flex; gap: var(--sp-2); min-width: 0; overflow: hidden; color: var(--fg-muted); font-size: var(--fs-11); white-space: nowrap; }
 .pick__asset { display: inline-flex; flex: none; align-items: center; gap: var(--sp-1); }
 .pick__nums { display: flex; flex: none; flex-direction: column; align-items: flex-end; color: var(--fg-muted); font-size: var(--fs-12); }
+.pick__amount { color: var(--fg); white-space: nowrap; }
 .pick__footer { display: flex; flex: none; flex-direction: column; gap: var(--sp-2); }
 .pick__actions { flex-wrap: wrap; }
 .pick__confirm { display: flex; flex-direction: column; gap: var(--sp-1); }

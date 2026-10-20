@@ -2,7 +2,7 @@ import type { EdgeDto } from "../../api/generated/EdgeDto";
 import type { GraphResponseDto } from "../../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import type { TrustDto } from "../../api/generated/TrustDto";
-import { neighbourRows } from "./neighbours";
+import { flowTotals, neighbourRows } from "./neighbours";
 
 const addr = (n: number) => "0x" + n.toString(16).padStart(40, "0");
 const node = (n: number): NodeSummaryDto => ({
@@ -96,4 +96,31 @@ test("an edge repeated by merged chunks counts once", () => {
   const e = edge(C, 2, { count: 3 });
   const rows = neighbourRows(result([C, 2], [e, { ...e }]), addr(C), ctx());
   expect(rows[0]!.count).toBe(3);
+});
+
+test("flows split by asset and direction", () => {
+  const USDC = "0x" + "cd".repeat(20);
+  const r = result([C, 2], [
+    edge(C, 2, { count: 2, sum: "10" }),
+    edge(2, C, { count: 1, sum: "3" }),
+    edge(C, 2, { asset: USDC.toUpperCase().replace("0X", "0x"), asset_kind: "erc20", symbol: "USDC", decimals: 6, count: 4, sum: "7" }),
+  ]);
+  const p = neighbourRows(r, addr(C), ctx())[0]!;
+  expect(p.flows).toEqual([
+    { asset: null, dir: "out", count: 2, sum: 10n, decimals: 18, symbol: "ETH" },
+    { asset: null, dir: "in", count: 1, sum: 3n, decimals: 18, symbol: "ETH" },
+    { asset: USDC, dir: "out", count: 4, sum: 7n, decimals: 6, symbol: "USDC" },
+  ]);
+  expect(flowTotals(p, null, "out").sum).toBe(10n);
+  expect(flowTotals(p, null, "all").sum).toBe(13n);
+  expect(flowTotals(p, USDC, "in").count).toBe(0);
+  expect(flowTotals(p, USDC, "out")).toEqual({ count: 4, sum: 7n });
+  expect(flowTotals(p, "all", "all").count).toBe(7);
+});
+
+test("repeated chunk edges count once in flows", () => {
+  const e = edge(C, 2, { count: 3, sum: "5" });
+  const p = neighbourRows(result([C, 2], [e, { ...e }]), addr(C), ctx())[0]!;
+  expect(p.flows).toEqual([{ asset: null, dir: "out", count: 3, sum: 5n, decimals: 18, symbol: "ETH" }]);
+  expect(flowTotals(p, null, "all")).toEqual({ count: 3, sum: 5n });
 });

@@ -377,10 +377,10 @@ export function summary(address: string, over: Partial<NodeSummaryDto> = {}): No
   };
 }
 
-/** One ETH transfer aggregate `from → to` with `count` transfers (the latest at `last`). */
-export function transfer(from: string, to: string, count: number, last = "2024-03-02T12:30:00Z"): EdgeDto {
+/** One ETH transfer aggregate `from → to` with `count` transfers (the latest at `last`) of `eth` ETH in all (default `count`). */
+export function transfer(from: string, to: string, count: number, last = "2024-03-02T12:30:00Z", eth = count): EdgeDto {
   return {
-    from: lc(from), to: lc(to), asset: null, asset_kind: "native", count, sum: `${count}000000000000000000`,
+    from: lc(from), to: lc(to), asset: null, asset_kind: "native", count, sum: `${eth}000000000000000000`,
     first_ts: "2024-01-10T08:00:00Z", last_ts: last, decimals: 18, symbol: null,
     trust: { level: "listed", impersonates: null, reason: null },
   };

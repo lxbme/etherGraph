@@ -10,6 +10,7 @@ import { MAX_CENTERS, MAX_NEIGHBOUR_LIMIT, ownNeighbours, useGraph, type SortKey
 import { useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
 import { newBatchId } from "../../lib/batchId";
+import { formatAmount } from "../../lib/amount";
 import { formatTime } from "../../lib/format";
 import { TRUST_MARK, TRUST_TIER, isListed, trustFlag, trustText } from "../../lib/trust";
 import { useJobProgress, useQuota } from "../../shell/statusStore";
@@ -17,7 +18,8 @@ import { toast } from "../../shell/Toasts";
 import { offerUndo } from "../expand/expansion";
 import { TrustBadge } from "../info/TrustBadge";
 import { TruncationBanner } from "../TruncationBanner";
-import type { NeighbourRow } from "./neighbours";
+import { UnknownDecimals } from "../UnknownDecimals";
+import { flowMatches, flowTotals, type NeighbourRow } from "./neighbours";
 import { usePickData, type PickGroup } from "./usePickData";
 
 /** Height of one neighbour row in px: `--h-pick-row` in tokens.css. */
@@ -34,6 +36,10 @@ const lc = (s: string) => s.toLowerCase();
 const nameOf = (n: NodeSummaryDto | undefined, address: string) =>
   n?.display_name ?? n?.ens ?? n?.contract_name ?? shortAddr(address);
 const assetKey = (a: string | null) => a ?? NATIVE;
+
+/** The direction filter's values, relative to the center ("out": center → neighbour). */
+type Direction = "all" | "in" | "out";
+const DIRECTIONS: Direction[] = ["all", "in", "out"];
 
 interface AssetOption {
   key: string;
@@ -114,6 +120,7 @@ export function PickNeighboursDialog({
   const [draft, setDraft] = useState(() => String(k));
   const [query, setQuery] = useState("");
   const [asset, setAsset] = useState(ALL);
+  const [direction, setDirection] = useState<Direction>("all");
   const [sort, setSort] = useState<SortKey>(graphSort);
   /** Checks per center; a center without an entry shows its `defaults` (a top-k one follows k that way). */
   const [checked, setChecked] = useState<Record<string, Set<string>>>({});
@@ -255,14 +262,37 @@ export function PickNeighboursDialog({
   const assetOption = (o: AssetOption) => <option key={o.key} value={o.key} title={o.key === NATIVE ? undefined : o.key}>{assetText(o)}</option>;
 
   const q = query.trim().toLowerCase();
+  /** The asset filter as a flow's asset ("all": any). */
+  const flowAsset: string | null | "all" = asset === ALL ? "all" : asset === NATIVE ? null : asset;
+  /** The view shows other rows, or in another order, than the graph's list: k then follows the shown order. */
+  const narrowed = asset !== ALL || direction !== "all" || sort !== graphSort || q !== "";
+  /** The group's rows under the search, the asset and direction filters, in the dialog's sort. */
   const shownRows = (g: PickGroup): NeighbourRow[] => {
-    const rows = g.rows.filter((r) => matches(r, q) && (asset === ALL || r.assets.some((a) => assetKey(a.asset) === asset)));
-    if (sort === graphSort) return rows;
+    const rows = g.rows.filter((r) => matches(r, q) && r.flows.some((f) => flowMatches(f, flowAsset, direction)));
+    const index = new Map(rows.map((r, i) => [r.address, i]));
+    const byIndex = (x: NeighbourRow, y: NeighbourRow) => index.get(x.address)! - index.get(y.address)!;
+    // The chosen asset's amount in the chosen direction, largest first.
+    if (sort === "amount" && flowAsset !== "all") {
+      const sum = new Map(rows.map((r) => [r.address, flowTotals(r, flowAsset, direction).sum]));
+      return [...rows].sort((x, y) => {
+        const a = sum.get(x.address)!;
+        const b = sum.get(y.address)!;
+        return b > a ? 1 : b < a ? -1 : byIndex(x, y);
+      });
+    }
+    if (sort === graphSort || sort === "amount") return rows;
     const time = (s: string) => Date.parse(s) || 0;
     const key = sort === "recent" ? (r: NeighbourRow) => time(r.lastTs) : (r: NeighbourRow) => r.count;
-    const index = new Map(rows.map((r, i) => [r.address, i]));
-    return [...rows].sort((x, y) => key(y) - key(x) || index.get(x.address)! - index.get(y.address)!);
+    return [...rows].sort((x, y) => key(y) - key(x) || byIndex(x, y));
   };
+  /** Each synced group's shown rows, by center. */
+  const shown = new Map(synced.map((g) => [g.center, shownRows(g)]));
+  /** Per synced group, its shown rows that are neither locked nor checked: what "Check all shown" adds. */
+  const uncheckedShown = synced.map((g) => {
+    const sel = selection(g);
+    return { g, rows: shown.get(g.center)!.filter((r) => !r.locked && !sel.has(r.address)) };
+  });
+  const uncheckedShownCount = uncheckedShown.reduce((n, x) => n + x.rows.length, 0);
 
   const toggle = (g: PickGroup, address: string) => {
     setKUndo(null);
@@ -281,14 +311,35 @@ export function PickNeighboursDialog({
     setKUndo((prev) => prev ?? { k, checked: Object.fromEntries(synced.map((g) => [g.center, new Set(selection(g))])) });
     setK(n);
     // k replaces the checks: a top-k group follows its defaults (the new top-k run); a picked one takes its first k.
+    // On a narrowed view every group takes its first k shown rows.
     setChecked((prev) => {
       const next = { ...prev };
       for (const g of synced) {
-        if (picks[g.center]?.length) next[g.center] = new Set([...g.rows.slice(0, n), ...g.rows.filter((r) => r.locked)].map((r) => r.address));
+        const top = narrowed ? shown.get(g.center)! : picks[g.center]?.length ? g.rows : null;
+        if (top) next[g.center] = new Set([...top.slice(0, n), ...g.rows.filter((r) => r.locked)].map((r) => r.address));
         else delete next[g.center];
       }
       return next;
     });
+  };
+
+  /** Adds every shown, unlocked row of each synced group to its checks. */
+  const checkShown = () => {
+    if (uncheckedShownCount === 0) return;
+    setKUndo(null);
+    setChecked((prev) => {
+      const next = { ...prev };
+      for (const { g, rows } of uncheckedShown) {
+        if (rows.length > 0) next[g.center] = new Set([...(prev[g.center] ?? g.defaults), ...rows.map((r) => r.address)]);
+      }
+      return next;
+    });
+  };
+
+  const onAsset = (v: string) => {
+    setAsset(v);
+    // The amount sort needs an asset unless the graph sorts by amount itself.
+    if (v === ALL && sort === "amount" && graphSort !== "amount") setSort(graphSort);
   };
 
   /** Back to the checks and k right before the change of k; the checks stay put when the old k's run answers. */
@@ -472,15 +523,18 @@ export function PickNeighboursDialog({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <select className="input input--compact" aria-label={t("filter.assets")} value={asset} onChange={(e) => setAsset(e.target.value)}>
+        <select className="input input--compact" aria-label={t("filter.assets")} value={asset} onChange={(e) => onAsset(e.target.value)}>
           <option value={ALL}>{t("pick.assetAll")}</option>
           {listedAssets.length > 0 && <optgroup label={t("filter.listedTokens", { count: listedAssets.length })}>{listedAssets.map(assetOption)}</optgroup>}
           {otherAssets.length > 0 && <optgroup label={t("filter.otherTokens", { count: otherAssets.length })}>{otherAssets.map(assetOption)}</optgroup>}
         </select>
+        <select className="input input--compact" aria-label={t("pick.dir")} value={direction} onChange={(e) => setDirection(e.target.value as Direction)}>
+          {DIRECTIONS.map((d) => <option key={d} value={d}>{t(`pick.dir.${d}`)}</option>)}
+        </select>
         <select className="input input--compact" aria-label={t("filter.sort")} value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
           <option value="count">{t("filter.sort.count")}</option>
           <option value="recent">{t("filter.sort.recent")}</option>
-          {graphSort === "amount" && <option value="amount">{t("filter.sort.amount")}</option>}
+          {(asset !== ALL || graphSort === "amount") && <option value="amount">{t("filter.sort.amount")}</option>}
         </select>
         <div className="pick__k-row">
           <label className="pick__k">
@@ -500,6 +554,9 @@ export function PickNeighboursDialog({
           {kUndo && (
             <button type="button" className="btn btn--compact" onClick={undoK}>{t("pick.undoK")}</button>
           )}
+          <button type="button" className="btn btn--ghost btn--compact pick__check-shown" disabled={uncheckedShownCount === 0} onClick={checkShown}>
+            {t("pick.checkVisible", { count: uncheckedShownCount })}
+          </button>
         </div>
       </div>
       {!many && first && notes(first)}
@@ -515,7 +572,7 @@ export function PickNeighboursDialog({
       >
         {groups.map((g) => {
           const open = !many || !collapsed.has(g.center);
-          const rows = g.synced ? shownRows(g) : [];
+          const rows = shown.get(g.center) ?? [];
           const sel = selection(g);
           const name = nameOf(g.summary, g.center);
           return (
@@ -543,6 +600,8 @@ export function PickNeighboursDialog({
                 <Rows
                   rows={rows}
                   view={view}
+                  asset={flowAsset}
+                  direction={direction}
                   isChecked={(r) => isChecked(r, sel)}
                   onToggle={(r) => toggle(g, r.address)}
                   active={active[g.center]}
@@ -583,6 +642,8 @@ export function PickNeighboursDialog({
 function Rows({
   rows,
   view,
+  asset,
+  direction,
   isChecked,
   onToggle,
   active,
@@ -591,6 +652,9 @@ function Rows({
 }: {
   rows: NeighbourRow[];
   view: View;
+  /** The asset filter ("all": none): a chosen asset's amount shows on each row. */
+  asset: string | null | "all";
+  direction: Direction;
   isChecked(r: NeighbourRow): boolean;
   onToggle(r: NeighbourRow): void;
   active: string | undefined;
@@ -643,12 +707,42 @@ function Rows({
               ))}
             </span>
           </span>
-          <span className="pick__nums">
-            <span className="num">{t("pick.count", { count: r.count })}</span>
-            <span title={formatTime(r.lastTs)}>{ago(r.lastTs, now, t)}</span>
-          </span>
+          <Nums row={r} asset={asset} direction={direction} now={now} t={t} />
         </label>
       ))}
     </div>
+  );
+}
+
+/**
+ * A row's figures: the transfers in the filtered asset and direction and the latest one's age; with an asset chosen,
+ * that asset's amount first (the raw integer, marked, when its decimals are unknown). Two lines, so the row keeps its
+ * fixed height.
+ */
+function Nums({ row, asset, direction, now, t }: { row: NeighbourRow; asset: string | null | "all"; direction: Direction; now: number; t: T }) {
+  const { count, sum } = flowTotals(row, asset, direction);
+  const countText = <span className="num">{t("pick.count", { count })}</span>;
+  const age = <span title={formatTime(row.lastTs)}>{ago(row.lastTs, now, t)}</span>;
+  if (asset === "all") {
+    return (
+      <span className="pick__nums">
+        {countText}
+        {age}
+      </span>
+    );
+  }
+  const flow = row.flows.find((f) => flowMatches(f, asset, direction));
+  const amount = formatAmount(sum.toString(), flow?.decimals ?? null);
+  const symbol = flow?.symbol ?? (asset ? shortAddr(asset) : NATIVE);
+  return (
+    <span className="pick__nums">
+      <span className="num pick__amount">
+        {amount.unknownDecimals && <UnknownDecimals />}
+        {`${amount.text} ${symbol}`}
+      </span>
+      <span>
+        {countText} · {age}
+      </span>
+    </span>
   );
 }
