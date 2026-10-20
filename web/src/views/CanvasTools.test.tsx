@@ -6,7 +6,8 @@ import { exportImage } from "../graph/exportImage";
 import { useIdentifying } from "../graph/identify";
 import { download } from "../lib/download";
 import { Toasts } from "../shell/Toasts";
-import { CanvasTools, IdentifyAllButton, type CanvasExport } from "./CanvasTools";
+import { useGraph } from "../graph/store";
+import { CanvasTools, IdentifyAllButton, MoreToggleButton, type CanvasExport } from "./CanvasTools";
 
 vi.mock("../graph/exportImage", async (orig) => ({ ...(await orig<typeof import("../graph/exportImage")>()), exportImage: vi.fn() }));
 vi.mock("../lib/download", async (orig) => ({ ...(await orig<typeof import("../lib/download")>()), download: vi.fn() }));
@@ -51,6 +52,32 @@ test("Identify all is disabled while an identification run is in flight", () => 
   act(() => useIdentifying.setState({ running: true }));
   expect(button).toBeDisabled();
   act(() => useIdentifying.setState({ running: false }));
+});
+
+test("the toggle hides all proxies, then reads show all with the count", () => {
+  const A = "0x" + "a".repeat(40);
+  const B = "0x" + "b".repeat(40);
+  const HIDE = 'Hide all "+N more"';
+  useGraph.getState().reset();
+  act(() => useGraph.getState().setCenters([A, B]));
+  const { rerender } = render(<MoreToggleButton proxied={[]} />);
+  expect(screen.getByRole("button", { name: HIDE })).toBeDisabled();
+  rerender(<MoreToggleButton proxied={[A, B]} />);
+  const hide = screen.getByRole("button", { name: HIDE });
+  expect(hide).toHaveAttribute("title", HIDE);
+  expect(hide).toBeEnabled();
+  act(() => hide.click());
+  expect(useGraph.getState().hiddenProxies).toEqual([A, B]);
+  // The hidden proxies leave the canvas.
+  rerender(<MoreToggleButton proxied={[]} />);
+  const show = screen.getByRole("button", { name: 'Show all "+N more" (2)' });
+  expect(show).toBeEnabled();
+  act(() => show.click());
+  expect(useGraph.getState().hiddenProxies).toEqual([]);
+  expect(screen.getByRole("button", { name: HIDE })).toBeDisabled();
+  // A hidden entry that is no longer a center does not count.
+  act(() => useGraph.setState({ hiddenProxies: ["0x" + "c".repeat(40)] }));
+  expect(screen.getByRole("button", { name: HIDE })).toBeDisabled();
 });
 
 describe("export menu", () => {

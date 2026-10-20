@@ -94,7 +94,7 @@ export function edgeElement(v: VisualEdge, highlighted: boolean): cytoscape.Elem
   };
 }
 
-type ViewState = Pick<GraphState, "ui" | "centers" | "selection" | "highlightTransfer"> & Partial<Pick<GraphState, "proxyPos">>;
+type ViewState = Pick<GraphState, "ui" | "centers" | "selection" | "highlightTransfer"> & Partial<Pick<GraphState, "proxyPos" | "hiddenProxies">>;
 
 function isHighlighted(v: VisualEdge, h: ViewState["highlightTransfer"]): boolean {
   if (!h || lc(v.from) !== lc(h.from) || lc(v.to) !== lc(h.to)) return false;
@@ -108,7 +108,7 @@ function inSelectedPair(v: VisualEdge, sel: GraphSelection | null): boolean {
   return (f === a && t === b) || (f === b && t === a);
 }
 
-/** Nodes first (hidden ones skipped), then edges whose endpoints are both present. */
+/** Nodes first (hidden ones skipped), then edges whose endpoints are both present. Hidden "+N more" proxies are left out. */
 export function toElements(
   nodes: NodeSummaryDto[],
   visual: VisualEdge[],
@@ -133,9 +133,10 @@ export function toElements(
     );
   }
   const proxies: cytoscape.ElementDefinition[] = [];
+  const hiddenProxies = new Set(state.hiddenProxies ?? []);
   for (const c of state.centers.map(lc)) {
     const count = omitted[c] ?? 0;
-    if (count > 0 && present.has(c)) proxies.push(...moreElements(c, count, state.proxyPos?.[c]));
+    if (count > 0 && present.has(c) && !hiddenProxies.has(c)) proxies.push(...moreElements(c, count, state.proxyPos?.[c]));
   }
   out.push(...proxies.filter((e) => e.group === "nodes"));
   for (const v of visual) {

@@ -1,9 +1,10 @@
 import type cytoscape from "cytoscape";
-import { Download, ScanSearch, SquareDashedMousePointer } from "lucide-react";
+import { Download, Eye, EyeOff, ScanSearch, SquareDashedMousePointer } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { exportImage, IMAGE_EXT, type ImageFormat } from "../graph/exportImage";
 import { identifiable, identifyAddresses, useIdentifying } from "../graph/identify";
+import { useGraph } from "../graph/store";
 import { useT } from "../i18n";
 import { download } from "../lib/download";
 import { toast } from "../shell/Toasts";
@@ -145,6 +146,31 @@ export function IdentifyAllButton({ nodes }: { nodes: readonly NodeSummaryDto[] 
     >
       <ScanSearch size={14} />
       {t("tools.identifyAll", { count: addrs.length })}
+    </button>
+  );
+}
+
+/**
+ * The address graph's "+N more" toggle: "show all (N)" while some center's proxy is hidden, else "hide all", which hides
+ * the proxy of every center in `proxied` (those on the canvas) and is disabled when there is none.
+ */
+export function MoreToggleButton({ proxied }: { proxied: readonly string[] }) {
+  const t = useT();
+  const centers = useGraph((s) => s.centers);
+  const all = useGraph((s) => s.hiddenProxies);
+  const hidden = all.filter((c) => centers.includes(c));
+  const showing = hidden.length > 0;
+  const label = showing ? t("tools.showAllMore", { count: hidden.length }) : t("tools.hideAllMore");
+  return (
+    <button
+      type="button"
+      className="btn btn--icon btn--compact"
+      aria-label={label}
+      title={label}
+      disabled={!showing && proxied.length === 0}
+      onClick={() => useGraph.getState().setProxiesHidden(showing ? hidden : [...proxied], !showing)}
+    >
+      {showing ? <Eye size={14} /> : <EyeOff size={14} />}
     </button>
   );
 }

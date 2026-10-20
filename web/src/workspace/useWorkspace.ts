@@ -59,6 +59,7 @@ useGraph.subscribe((s, prev) => {
     s.limits !== prev.limits ||
     s.picks !== prev.picks ||
     s.proxyPos !== prev.proxyPos ||
+    s.hiddenProxies !== prev.hiddenProxies ||
     s.frozen !== prev.frozen
   ) {
     graphVersion++;
@@ -311,6 +312,7 @@ function applyState({ graph: state, tabs, active }: WorkspaceStateV2): void {
     limits: state.limits,
     picks: state.picks,
     proxyPos: state.proxies,
+    hiddenProxies: state.hidden_proxies,
   });
   // A snapshot view stays one until it is refreshed from the chain.
   if (state.snapshot) useGraph.getState().freeze(state.snapshot);

@@ -753,6 +753,25 @@ a.btn { text-decoration: none; }
   font-size: var(--fs-12);
   pointer-events: none;
 }
+/* The × on a hovered "+N more", centred on its top-right corner (left/top set inline). */
+.graph-more-hide {
+  position: absolute;
+  z-index: 7;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--h-tag);
+  height: var(--h-tag);
+  padding: 0;
+  border-radius: var(--h-tag);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  box-shadow: var(--shadow-pop);
+  color: var(--fg-muted);
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+}
+.graph-more-hide:hover { color: var(--fg); }
 .graph-tooltip__line { display: flex; gap: var(--sp-2); }
 .graph-tooltip__label { flex: none; color: var(--fg-muted); }
 .graph-tooltip__value { min-width: 0; overflow-wrap: anywhere; }

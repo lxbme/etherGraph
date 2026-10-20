@@ -167,3 +167,18 @@ test("'Identify type' shows only for a node that needs it and queues just that a
   render(menu(false, "contract")); // identified: true
   expect(screen.queryByRole("menuitem", { name: "Identify type" })).toBeNull();
 });
+
+test('show "+N more" only for a center whose proxy is hidden', () => {
+  const SHOW = 'Show "+N more"';
+  const { unmount } = render(menu(false));
+  expect(screen.queryByRole("menuitem", { name: SHOW })).toBeNull();
+  unmount();
+  act(() => useGraph.getState().setCenters([A]));
+  const shown = render(menu(false));
+  expect(screen.queryByRole("menuitem", { name: SHOW })).toBeNull();
+  shown.unmount();
+  act(() => useGraph.getState().setProxiesHidden([A], true));
+  render(menu(false));
+  fireEvent.click(screen.getByRole("menuitem", { name: SHOW }));
+  expect(useGraph.getState().hiddenProxies).toEqual([]);
+});

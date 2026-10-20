@@ -187,6 +187,12 @@ describe("toElements", () => {
     expect(notCenter.some((e) => String(e.data.id).startsWith("more"))).toBe(false);
   });
 
+  test("a hidden center gets no proxy", () => {
+    const els = toElements(nodes, [], { ...state({ centers: [A, B] }), hiddenProxies: [A] }, { [A]: 12, [B]: 3 });
+    const ids = els.map((e) => String(e.data.id)).filter((id) => id.startsWith("more"));
+    expect(ids).toEqual([`more:${B}`, `more-edge:${B}`]);
+  });
+
   test("selected pair marks edges in both directions", () => {
     const els = toElements(
       nodes,

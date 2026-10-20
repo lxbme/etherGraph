@@ -522,3 +522,47 @@ describe("proxy positions", () => {
     expect(useWorkspace.getState().dirty).toBe(true);
   });
 });
+
+describe("hidden proxies", () => {
+  const MIXED = "0x" + "A".repeat(40);
+
+  test("hidden_proxies round-trips and drops non-centers", async () => {
+    g().setCenters([A, B]);
+    g().setProxiesHidden([A, B], true);
+    g().removeCenter(B);
+    // A stale entry (no longer a center) is not written.
+    useGraph.setState({ hiddenProxies: [A, B] });
+    const s = serialize(g(), VP);
+    expect(s.hidden_proxies).toEqual([A]);
+    expect(deserialize(JSON.parse(JSON.stringify(s)), 1)).toEqual({ ok: true, state: { graph: s, tabs: [], active: "graph" } });
+    g().setProxiesHidden([A], false);
+    expect("hidden_proxies" in serialize(g(), VP)).toBe(false);
+
+    const bad = deserialize({ ...s, hidden_proxies: [1] }, 1);
+    expect(!bad.ok && bad.reason).toContain("hidden_proxies");
+    const saved = { ...s, hidden_proxies: [MIXED, B] };
+    g().reset();
+    m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(saved)) }));
+    await expect(loadWorkspace(7)).resolves.toBe(true);
+    expect(g().hiddenProxies).toEqual([A]);
+  });
+
+  test("a workspace without hidden_proxies loads with none hidden", async () => {
+    g().setCenters([A]);
+    const s = serialize(g(), VP);
+    expect("hidden_proxies" in s).toBe(false);
+    useGraph.setState({ hiddenProxies: [A] });
+    m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(s)) }));
+    await expect(loadWorkspace(7)).resolves.toBe(true);
+    expect(g().hiddenProxies).toEqual([]);
+  });
+
+  test("hiding a proxy marks the workspace dirty", async () => {
+    g().setCenters([A]);
+    m.createWorkspace.mockResolvedValue(dto());
+    await saveNew("w");
+    expect(useWorkspace.getState().dirty).toBe(false);
+    g().setProxiesHidden([A], true);
+    expect(useWorkspace.getState().dirty).toBe(true);
+  });
+});

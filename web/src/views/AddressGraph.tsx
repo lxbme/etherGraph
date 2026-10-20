@@ -1,5 +1,5 @@
 import type cytoscape from "cytoscape";
-import { Network } from "lucide-react";
+import { Network, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/endpoints";
 import { t, useLocale, useT } from "../i18n";
@@ -31,7 +31,7 @@ import { useTheme } from "../shell/theme";
 import { requestExport } from "../workspace/fileRequest";
 import { useWorkspace } from "../workspace/useWorkspace";
 import { GraphTooltip } from "./GraphTooltip";
-import { CanvasTools, IdentifyAllButton, type CanvasExport } from "./CanvasTools";
+import { CanvasTools, IdentifyAllButton, MoreToggleButton, type CanvasExport } from "./CanvasTools";
 import { LEGEND_COLLAPSED_KEY, Legend } from "./Legend";
 
 /** The address graph's Export menu: the live canvas, named after the workspace; "File…" exports the graph as a snapshot file. */
@@ -42,6 +42,8 @@ const EXPORTER: CanvasExport = {
 };
 
 const NO_NODES: NodeSummaryDto[] = [];
+/** A rendered (container-relative) bounding box. */
+type Box = { x1: number; y1: number; x2: number; y2: number };
 const lc = (s: string) => s.toLowerCase();
 
 /** The address relationship canvas: store + graph data → Cytoscape, and interactions back into the store/API. */
@@ -61,6 +63,7 @@ export function AddressGraph() {
   const expandedPairs = useGraph((s) => s.expandedPairs);
   const ui = useGraph((s) => s.ui);
   const proxyPos = useGraph((s) => s.proxyPos);
+  const hiddenProxies = useGraph((s) => s.hiddenProxies);
   const selection = useGraph((s) => s.selection);
   const highlightTransfer = useGraph((s) => s.highlightTransfer);
   const epoch = useGraph((s) => s.epoch);
@@ -90,8 +93,16 @@ export function AddressGraph() {
     [data, expandedPairs, hidden, locale],
   );
   const elements = useMemo(
-    () => (data ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer, proxyPos }, data.omitted) : []),
-    [data, visual, ui, centers, selection, highlightTransfer, proxyPos],
+    () =>
+      data
+        ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer, proxyPos, hiddenProxies }, data.omitted)
+        : [],
+    [data, visual, ui, centers, selection, highlightTransfer, proxyPos, hiddenProxies],
+  );
+  /** Centers whose "+N more" proxy is on the canvas. */
+  const proxied = useMemo(
+    () => elements.filter((e) => e.group === "nodes" && isMoreId(String(e.data.id))).map((e) => String(e.data.center)),
+    [elements],
   );
   const boxCount = useBoxSelection((s) => s.ids.length);
   const legend = useMemo(() => legendFor(elements, theme, boxCount), [elements, theme, boxCount]);
@@ -99,6 +110,8 @@ export function AddressGraph() {
   const [legendCover, setLegendCover] = useState(0);
 
   const [hover, setHover] = useState<{ kind: "node" | "edge"; id: string; pos: Pos } | null>(null);
+  /** The "+N more" under the pointer (or under its × button): its center and rendered box. */
+  const [moreHover, setMoreHover] = useState<{ center: string; box: Box } | null>(null);
   // `locale` is a dependency so an open tooltip is re-translated.
   const tooltipLines = useMemo((): TooltipLine[] | null => {
     if (!hover || !data) return null;
@@ -184,9 +197,8 @@ export function AddressGraph() {
     // A proxy that left the canvas (everything revealed, center gone) is placed afresh if it comes back.
     // Only the current result decides: positions restored with a workspace wait for it.
     if (!current) return;
-    const proxied = elements.filter((e) => e.group === "nodes" && isMoreId(String(e.data.id))).map((e) => String(e.data.center));
     useGraph.getState().pruneProxyPositions(proxied);
-  }, [elements, current]);
+  }, [elements, proxied, current]);
 
   const onReady = (cy: cytoscape.Core) => {
     cyRef.current = cy;
@@ -194,6 +206,14 @@ export function AddressGraph() {
     // The box selection is the canvas's native selection: clearing it drops the ring too.
     useBoxSelection.getState().bindCanvas(() => cy.$(":selected").unselect());
     cy.on("viewport", () => setMenu(null));
+    // The × of a hovered "+N more". Moving onto the button (outside the canvas element) is no mouseout for Cytoscape.
+    cy.on("mouseover", "node.more", (e) => {
+      const b = e.target.renderedBoundingBox({ includeLabels: false });
+      setMoreHover({ center: String(e.target.data("center")), box: { x1: b.x1, y1: b.y1, x2: b.x2, y2: b.y2 } });
+    });
+    cy.on("mouseout", "node.more", () => setMoreHover(null));
+    cy.on("viewport grab drag", () => setMoreHover(null));
+    cy.on("remove", "node.more", () => setMoreHover(null));
     cy.on("grab", "node", (e) => {
       const p = e.target.position();
       grabbed.current[e.target.id()] = { x: p.x, y: p.y };
@@ -225,7 +245,7 @@ export function AddressGraph() {
   };
 
   return (
-    <div className="address-graph" ref={rootRef} data-testid="address-graph">
+    <div className="address-graph" ref={rootRef} data-testid="address-graph" onPointerLeave={() => setMoreHover(null)}>
       <CytoscapeView
         elements={elements}
         stylesheet={stylesheet}
@@ -256,6 +276,29 @@ export function AddressGraph() {
         fitInsetLeft={legendCover}
       />
       {hover && tooltipLines && <GraphTooltip anchor={hover.pos} lines={tooltipLines} />}
+      {moreHover && (
+        <button
+          type="button"
+          className="graph-more-hide"
+          style={{ left: moreHover.box.x2, top: moreHover.box.y1 }}
+          aria-label={tr("graph.moreHide")}
+          title={tr("graph.moreHide")}
+          onPointerLeave={(e) => {
+            // Back over the proxy: Cytoscape still has it hovered and reports leaving it.
+            const r = rootRef.current?.getBoundingClientRect();
+            const { x1, y1, x2, y2 } = moreHover.box;
+            const x = e.clientX - (r?.left ?? 0);
+            const y = e.clientY - (r?.top ?? 0);
+            if (!(x >= x1 && x <= x2 && y >= y1 && y <= y2)) setMoreHover(null);
+          }}
+          onClick={() => {
+            useGraph.getState().setProxiesHidden([moreHover.center], true);
+            setMoreHover(null);
+          }}
+        >
+          <X size={12} />
+        </button>
+      )}
       <Legend groups={legend} collapsedKey={LEGEND_COLLAPSED_KEY} onCover={setLegendCover} />
       <BatchBar insetLeft={legendCover} nodes={data?.nodes ?? NO_NODES} onMakeCenters={pickFor} />
       <CanvasTools selectMode={selectMode} onSelectModeChange={useBoxSelection.getState().setSelectMode} exporter={EXPORTER}>
@@ -273,6 +316,7 @@ export function AddressGraph() {
         >
           <Network size={14} />
         </button>
+        <MoreToggleButton proxied={proxied} />
         {hiddenOnCanvas > 0 && (
           <button
             type="button"

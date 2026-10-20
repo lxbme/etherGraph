@@ -17,6 +17,8 @@ export interface WorkspaceStateV1 {
   proxies?: Record<string, Pos>;
   /** Neighbours picked per center (a center with an entry, even an empty one, shows exactly those). Absent in older states: their centers keep top-k. */
   picks?: Record<string, string[]>;
+  /** Centers whose "+N more" is hidden. Absent when none is, and in older states. */
+  hidden_proxies?: string[];
   viewport: { zoom: number; pan: { x: number; y: number } };
 }
 
@@ -55,7 +57,7 @@ export interface SerializeOpts {
 const lc = (s: string) => s.toLowerCase();
 
 export function serialize(
-  state: Pick<GraphState, "centers" | "filter" | "sort" | "expandedPairs" | "ui" | "limits" | "picks" | "proxyPos">,
+  state: Pick<GraphState, "centers" | "filter" | "sort" | "expandedPairs" | "ui" | "limits" | "picks" | "proxyPos" | "hiddenProxies">,
   viewport: WorkspaceStateV1["viewport"],
   opts: SerializeOpts = {},
 ): WorkspaceStateV1 {
@@ -80,6 +82,7 @@ export function serialize(
       return l === undefined ? [] : [[c, [...l]]];
     }),
   );
+  const hiddenProxies = state.hiddenProxies.filter((c) => state.centers.includes(c));
   return {
     nodes: addrs.map((address) => {
       const u = state.ui[address];
@@ -104,6 +107,7 @@ export function serialize(
     ),
     ...(Object.keys(picks).length > 0 ? { picks } : {}),
     ...(Object.keys(proxies).length > 0 ? { proxies } : {}),
+    ...(hiddenProxies.length > 0 ? { hidden_proxies: hiddenProxies } : {}),
     viewport: { zoom: viewport.zoom, pan: { ...viewport.pan } },
   };
 }
@@ -193,6 +197,7 @@ function deserializeGraph(v: unknown): Parsed<WorkspaceStateV1 & { snapshot?: Gr
   }
   if (v.picks !== undefined && !isPicks(v.picks)) return bad(t("ws.err.field", { field: "picks" }));
   if (v.proxies !== undefined && !isPositions(v.proxies)) return bad(t("ws.err.field", { field: "proxies" }));
+  if (v.hidden_proxies !== undefined && !isStrArr(v.hidden_proxies)) return bad(t("ws.err.field", { field: "hidden_proxies" }));
   if (v.snapshot !== undefined && !isGraphSnapshot(v.snapshot)) return bad(t("ws.err.field", { field: "snapshot" }));
   // Centers saved without a limit (older states) get the first batch of a new center.
   const stored: Record<string, number> = {};
@@ -208,5 +213,6 @@ function deserializeGraph(v: unknown): Parsed<WorkspaceStateV1 & { snapshot?: Gr
     next.proxies = {};
     for (const [k, p] of Object.entries(v.proxies as Record<string, Pos>)) next.proxies[lc(k)] = p;
   }
+  if (v.hidden_proxies !== undefined) next.hidden_proxies = (v.hidden_proxies as string[]).map(lc);
   return { ok: true, state: next };
 }

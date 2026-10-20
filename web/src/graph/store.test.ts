@@ -183,6 +183,37 @@ describe("graph store", () => {
     expect(g().proxyPos).toEqual({});
   });
 
+  test("setProxiesHidden hides and undo restores", () => {
+    g().setCenters([A, B]);
+    g().setProxiesHidden([A.toUpperCase().replace("0X", "0x"), A, B], true);
+    expect(g().hiddenProxies).toEqual([A, B]);
+    g().setProxiesHidden([A], false);
+    expect(g().hiddenProxies).toEqual([B]);
+    g().undo();
+    expect(g().hiddenProxies).toEqual([A, B]);
+    g().undo();
+    expect(g().hiddenProxies).toEqual([]);
+    g().redo();
+    expect(g().hiddenProxies).toEqual([A, B]);
+    g().reset();
+    expect(g().hiddenProxies).toEqual([]);
+    g().loadSnapshot({ centers: [A], filter: {}, expandedPairs: [], ui: {}, hiddenProxies: [A, C] });
+    expect(g().hiddenProxies).toEqual([A]);
+  });
+
+  test("removing a center drops its hidden proxy", () => {
+    g().setCenters([A, B, C]);
+    g().setProxiesHidden([A, B, C], true);
+    g().removeCenter(A);
+    expect(g().hiddenProxies).toEqual([B, C]);
+    g().setHidden([B], true);
+    expect(g().hiddenProxies).toEqual([C]);
+    g().undo();
+    expect(g().hiddenProxies).toEqual([B, C]);
+    g().undo();
+    expect(g().hiddenProxies).toEqual([A, B, C]);
+  });
+
   test("snapshot undo keeps current positions", () => {
     g().setPinned([A], true);
     g().setPositions({ [A]: { x: 9, y: 9 } });
