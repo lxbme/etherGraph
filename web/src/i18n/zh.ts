@@ -356,7 +356,6 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "filter.searchAssets": "搜索资产",
   "filter.searchPlaceholder": "符号或地址",
   "filter.noMatch": "没有匹配的资产",
-  "filter.impersonations": "疑似仿冒（{count}）",
   "filter.listedTokens": "认可名单（{count}）",
   "filter.otherTokens": "其他代币（{count}）",
   "filter.minAmount": "最小金额",

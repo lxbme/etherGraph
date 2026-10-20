@@ -9,7 +9,7 @@ import { useGraphData } from "../graph/useGraphData";
 import { type MsgKey, useT } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { parseHumanAmount } from "../lib/amount";
-import { TRUST_TIER, trustFlag } from "../lib/trust";
+import { TRUST_TIER, isListed } from "../lib/trust";
 import { TRANSFER_KINDS, transferKindName } from "../lib/transferKinds";
 import { TrustBadge } from "./info/TrustBadge";
 
@@ -132,14 +132,15 @@ function FilterForm({ onClose }: { onClose: () => void }) {
     return [...m.values()].sort(
       (a, b) =>
         TRUST_TIER[a.trust.level] - TRUST_TIER[b.trust.level] ||
-        (a.key === ETH ? -1 : b.key === ETH ? 1 : a.label.localeCompare(b.label)),
+        (a.key === ETH ? -1 : b.key === ETH ? 1 : a.label.localeCompare(b.label)) ||
+        a.key.localeCompare(b.key),
     );
   }, [data, registry, init.assets]);
-  const [groupOpen, setGroupOpen] = useState(() => options.some((o) => trustFlag(o.trust) && assets.has(o.key)));
+  const [groupOpen, setGroupOpen] = useState(() => options.some((o) => !isListed(o.trust) && assets.has(o.key)));
   const q = query.trim().toLowerCase();
   const shown = options.filter((o) => matches(o, q));
-  const plain = shown.filter((o) => !trustFlag(o.trust));
-  const flagged = shown.filter((o) => trustFlag(o.trust));
+  const listed = shown.filter((o) => isListed(o.trust));
+  const other = shown.filter((o) => !isListed(o.trust));
 
   const thresholdValid = (opt: AssetOption, text: string) =>
     text.trim() === "" || typeof opt.decimals !== "number" || parseHumanAmount(text, opt.decimals) !== null;
@@ -285,14 +286,19 @@ function FilterForm({ onClose }: { onClose: () => void }) {
             />
           )}
           {options.length > 0 && shown.length === 0 && <span className="filter__hint">{t("filter.noMatch")}</span>}
-          {plain.map(row)}
-          {flagged.length > 0 && (
+          {listed.length > 0 && (
+            <>
+              <div className="filter__subhead">{t("filter.listedTokens", { count: listed.length })}</div>
+              {listed.map(row)}
+            </>
+          )}
+          {other.length > 0 && (
             <>
               <button type="button" className="filter__group-head" aria-expanded={groupOpen} onClick={() => setGroupOpen((v) => !v)}>
                 {groupOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                {t("filter.impersonations", { count: flagged.length })}
+                {t("filter.otherTokens", { count: other.length })}
               </button>
-              {groupOpen && flagged.map(row)}
+              {groupOpen && other.map(row)}
             </>
           )}
         </fieldset>

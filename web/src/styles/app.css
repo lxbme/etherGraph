@@ -863,6 +863,7 @@ a.btn { text-decoration: none; }
   text-align: left;
   cursor: pointer;
 }
+.filter__subhead { display: flex; align-items: center; min-height: var(--h-compact); color: var(--fg-muted); font-size: var(--fs-12); }
 .filter__group-head svg { flex: none; color: var(--fg-muted); }
 .filter__threshold { flex: 1; min-width: 0; }
 .filter__error { color: var(--neg); font-size: var(--fs-12); }

@@ -22,7 +22,7 @@ const TOKENS: EdgeDto[] = Array.from({ length: 40 }, (_, i) => ({
 
 test.use({ viewport: { width: 1366, height: 768 } });
 
-test("with 40 assets the filter keeps Apply on screen; search, trust group and the impersonation toggle work", async ({ page, mock }) => {
+test("with 40 assets the filter keeps Apply on screen; search, listed group and the impersonation toggle work", async ({ page, mock }) => {
   mock.on(GRAPH, () => ({ json: { ...fixtures.graph, edges: [...fixtures.graph.edges, ...TOKENS] } }));
   await searchAndPick(page, A);
   await expectLaidOut(page, "main", 4);
@@ -40,16 +40,17 @@ test("with 40 assets the filter keeps Apply on screen; search, trust group and t
   expect(box.y + box.height).toBeLessThanOrEqual(768);
   expect(box.x + box.width).toBeLessThanOrEqual(1366);
   const body = dialog.locator(".filter__body");
-  expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
   expect(await dialog.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
 
-  // Impersonations are grouped and collapsed; the real USDT is listed above.
-  const group = dialog.getByRole("button", { name: "Possible impersonations (8)" });
+  // Tokens on a token list come first; every other token sits in a collapsed group.
+  const group = dialog.getByRole("button", { name: "Other tokens (40)" });
   await expect(group).toHaveAttribute("aria-expanded", "false");
+  await group.click();
+  expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
   await dialog.getByRole("searchbox", { name: "Search assets" }).fill("usdt");
-  await expect(dialog.getByRole("checkbox", { name: "USDT" })).toHaveCount(1);
-  await dialog.getByRole("button", { name: "Possible impersonations (8)" }).click();
   await expect(dialog.getByRole("checkbox", { name: "USDT" })).toHaveCount(9);
+  await expect(dialog.getByText("On token lists (1)")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Other tokens (8)" })).toBeVisible();
   await expect(dialog.getByText("Possible impersonation", { exact: true })).toHaveCount(8);
 
   // The toggle reaches the request body.

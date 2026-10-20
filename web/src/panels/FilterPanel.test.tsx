@@ -263,10 +263,12 @@ const trustEdges = () => [
 const rowSymbols = () =>
   [...document.querySelectorAll(".filter__asset .filter__check")].map((l) => l.textContent);
 
-test("asset rows show symbol, short address and trust badge, listed first, impersonations collapsed", () => {
-  setup(trustEdges());
-  expect(rowSymbols()).toEqual(["ETH", "USDC", "USDT", "ABC"]);
-  const group = screen.getByRole("button", { name: "Possible impersonations (2)" });
+test("asset rows: tokens on a token list first, every other token in a collapsed group, each with its contract", () => {
+  const PLAIN_USDT = "0x" + "ab".repeat(20);
+  setup([...trustEdges(), edge({ asset: PLAIN_USDT, asset_kind: "erc20", decimals: 6, symbol: "USDT", trust: unknown })]);
+  expect(rowSymbols()).toEqual(["ETH", "USDC", "USDT"]);
+  expect(screen.getByText("On token lists (3)")).toBeInTheDocument();
+  const group = screen.getByRole("button", { name: "Other tokens (4)" });
   expect(group).toHaveAttribute("aria-expanded", "false");
   expect(screen.queryByLabelText("AIRDROP")).toBeNull();
   // Short addresses (6…4) tell the real token from a copy; ETH has none.
@@ -276,12 +278,13 @@ test("asset rows show symbol, short address and trust badge, listed first, imper
 
   fireEvent.click(group);
   expect(group).toHaveAttribute("aria-expanded", "true");
-  expect(rowSymbols()).toEqual(["ETH", "USDC", "USDT", "ABC", "AIRDROP", "USDT"]);
+  expect(rowSymbols()).toEqual(["ETH", "USDC", "USDT", "ABC", "USDT", "AIRDROP", "USDT"]);
   const fakeRow = screen.getByText("0xf1f1…f1f1").closest(".filter__asset")!;
   expect(fakeRow).toHaveTextContent("Possible impersonation");
   expect(screen.getByText("0x5c5c…5c5c").closest(".filter__asset")!).toHaveTextContent("Known scam");
-  // The real USDT carries no warning.
+  // The real USDT and the undetected one carry no warning.
   expect(screen.getByText("0xdac1…1ec7").closest(".filter__asset")!.querySelector(".tag")).toBeNull();
+  expect(screen.getByText("0xabab…abab").closest(".filter__asset")!.querySelector(".tag")).toBeNull();
 
   // Ticking inside the group works like any other row.
   fireEvent.click(screen.getByLabelText("AIRDROP"));
@@ -289,11 +292,11 @@ test("asset rows show symbol, short address and trust badge, listed first, imper
   expect(useGraph.getState().filter).toEqual({ assets: [{ asset: SCAM }] });
 });
 
-test("the impersonations group starts open when one of its tokens is already ticked", () => {
-  useGraph.getState().setFilter({ assets: [{ asset: SCAM }] });
+test("the other-tokens group starts open when one of its tokens is already ticked", () => {
+  useGraph.getState().setFilter({ assets: [{ asset: UNK }] });
   setup(trustEdges());
-  expect(screen.getByRole("button", { name: "Possible impersonations (2)" })).toHaveAttribute("aria-expanded", "true");
-  expect(screen.getByLabelText("AIRDROP")).toBeChecked();
+  expect(screen.getByRole("button", { name: "Other tokens (3)" })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByLabelText("ABC")).toBeChecked();
 });
 
 const many = () =>
@@ -308,6 +311,7 @@ test("no asset search with 8 or fewer options", () => {
 
 test("asset search over more than 8 options matches symbol or address, case-insensitive, keeping ticks", () => {
   setup([...many(), edge({ asset: USDC, asset_kind: "erc20", decimals: 6, symbol: "USDC", trust: listed })]);
+  fireEvent.click(screen.getByRole("button", { name: "Other tokens (10)" }));
   const search = screen.getByRole("searchbox", { name: "Search assets" });
   fireEvent.click(screen.getByLabelText("TOK3"));
   fireEvent.change(search, { target: { value: "usdc" } });
@@ -324,10 +328,11 @@ test("asset search over more than 8 options matches symbol or address, case-inse
   expect(useGraph.getState().filter.assets).toEqual([{ asset: USDC }, { asset: "0x" + "03".repeat(20) }]);
 });
 
-test("search narrows the impersonations group and its count", () => {
+test("search narrows both groups and their counts", () => {
   setup([...many(), ...trustEdges()]);
   fireEvent.change(screen.getByRole("searchbox", { name: "Search assets" }), { target: { value: "usdt" } });
   expect(rowSymbols()).toEqual(["USDT"]);
-  fireEvent.click(screen.getByRole("button", { name: "Possible impersonations (1)" }));
+  expect(screen.getByText("On token lists (1)")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Other tokens (1)" }));
   expect(rowSymbols()).toEqual(["USDT", "USDT"]);
 });

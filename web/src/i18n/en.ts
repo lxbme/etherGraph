@@ -354,7 +354,6 @@ export const en = {
   "filter.searchAssets": "Search assets",
   "filter.searchPlaceholder": "Symbol or address",
   "filter.noMatch": "No matching assets",
-  "filter.impersonations": "Possible impersonations ({count})",
   "filter.listedTokens": "On token lists ({count})",
   "filter.otherTokens": "Other tokens ({count})",
   "filter.minAmount": "Min amount",
