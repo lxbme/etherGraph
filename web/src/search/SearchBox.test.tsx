@@ -55,13 +55,14 @@ describe('SearchBox', () => {
     expect(box).toHaveValue('')
   })
 
-  it('a searched address becomes a center with a budgeted first batch', async () => {
+  it('a searched address becomes a center picked with no neighbours yet', async () => {
     useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 0 })
     vi.spyOn(api, 'search').mockResolvedValue({ kind: 'address', value: A, resolved_address: null })
     vi.spyOn(api, 'address').mockResolvedValue({} as never)
     render(<SearchBox />)
     await userEvent.type(screen.getByRole('searchbox'), `${A}{Enter}`)
-    await waitFor(() => expect(useGraph.getState().limits).toEqual({ [A]: 59 }))
+    await waitFor(() => expect(useGraph.getState().picks).toEqual({ [A]: [] }))
+    expect(useGraph.getState().limits).toEqual({})
   })
 
   it('searching a hidden address shows it again', async () => {

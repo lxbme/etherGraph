@@ -6,7 +6,7 @@ import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import { qk } from "../api/queryClient";
 import { useCanvasMetrics } from "./canvasMetrics";
 import { useGraph } from "./store";
-import { useGraphData } from "./useGraphData";
+import { graphQueryKey, useGraphData } from "./useGraphData";
 
 const A = "0x" + "aa".repeat(20);
 const B = "0x" + "bb".repeat(20);
@@ -41,10 +41,10 @@ test("graph query uses centers, filter and sort and skips when no centers", asyn
   await waitFor(() => expect(result.current.data).toEqual(resp(A)));
   expect(spy).toHaveBeenCalledTimes(1);
   expect(spy).toHaveBeenCalledWith(
-    { addresses: [A], filter, sort: "recent", limits: { [A]: 59 }, prefer: [] },
+    { addresses: [A], filter, sort: "recent", limits: {}, picks: { [A]: [] }, prefer: [] },
     { signal: expect.any(AbortSignal) },
   );
-  expect(qc.getQueryData(qk.graph([A], { filter, sort: "recent", limits: { [A]: 59 } }))).toEqual(resp(A));
+  expect(qc.getQueryData(qk.graph([A], { filter, sort: "recent", limits: {}, picks: { [A]: [] } }))).toEqual(resp(A));
 });
 
 test("keeps the previous data while a new key loads, and drops it when centers empty", async () => {
@@ -106,18 +106,18 @@ test("sends center limits and prefers the visible non-center nodes of the shown 
   );
   const { result } = renderHook(() => useGraphData(), { wrapper });
   act(() => {
-    useGraph.getState().addCenter(A);
+    useGraph.getState().loadSnapshot({ centers: [A], filter: {}, expandedPairs: [], ui: {}, limits: { [A]: 59 } });
     useGraph.getState().raiseLimit(C, 3); // a limit of a non-center is never sent
   });
   await waitFor(() => expect(result.current.data?.nodes).toHaveLength(4));
-  expect(spy.mock.calls[0]?.[0]).toMatchObject({ limits: { [A]: 59 }, prefer: [] });
+  expect(spy.mock.calls[0]?.[0]).toMatchObject({ limits: { [A]: 59 }, picks: {}, prefer: [] });
 
   act(() => {
     useGraph.getState().setHidden([D], true);
     useGraph.getState().addCenter(B);
   });
   await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
-  expect(spy.mock.calls[1]?.[0]).toMatchObject({ addresses: [A, B], limits: { [A]: 59, [B]: 59 }, prefer: [C] });
+  expect(spy.mock.calls[1]?.[0]).toMatchObject({ addresses: [A, B], limits: { [A]: 59 }, picks: { [B]: [] }, prefer: [C] });
 });
 
 test("raising a limit refetches; a new prefer set alone does not", async () => {
@@ -125,7 +125,7 @@ test("raising a limit refetches; a new prefer set alone does not", async () => {
     nodes: [node(A), node(B)], edges: [], omitted: {}, coverage: {},
   }));
   const { result } = renderHook(() => useGraphData(), { wrapper });
-  act(() => useGraph.getState().addCenter(A));
+  act(() => useGraph.getState().loadSnapshot({ centers: [A], filter: {}, expandedPairs: [], ui: {}, limits: { [A]: 59 } }));
   await waitFor(() => expect(result.current.data).toBeDefined());
   expect(spy).toHaveBeenCalledTimes(1);
   act(() => useGraph.getState().raiseLimit(A, 10));
@@ -183,5 +183,43 @@ describe("a frozen (snapshot) graph", () => {
     act(() => useGraph.getState().unfreeze());
     await waitFor(() => expect(result.current.data).toEqual(resp(A)));
     expect(edges).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("picked centers", () => {
+  const load = (picks: Record<string, string[]>) =>
+    useGraph.getState().loadSnapshot({
+      centers: [A, B], filter: {}, expandedPairs: [], ui: {}, limits: { [A]: 5, [B]: 9 }, picks,
+    });
+
+  test("request_sends_picks_of_picked_centers_only", async () => {
+    const spy = vi.spyOn(api, "graphEdges").mockResolvedValue(resp(A));
+    act(() => load({ [B]: [C], [D]: [A] }));
+    const { result } = renderHook(() => useGraphData(), { wrapper });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    // A keeps its top-k limit; B's limit is moot once picked; D is not a center.
+    expect(spy.mock.calls[0]?.[0]).toMatchObject({ addresses: [A, B], limits: { [A]: 5 }, picks: { [B]: [C] } });
+  });
+
+  test("picks_change_refetches", async () => {
+    const spy = vi.spyOn(api, "graphEdges").mockResolvedValue(resp(A));
+    act(() => load({ [B]: [C] }));
+    const before = graphQueryKey(useGraph.getState());
+    const { result } = renderHook(() => useGraphData(), { wrapper });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    act(() => useGraph.getState().applyPicks({ [B]: [C, D] }));
+    expect(graphQueryKey(useGraph.getState())).not.toEqual(before);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    expect(spy.mock.calls[1]?.[0]).toMatchObject({ picks: { [B]: [C, D] } });
+  });
+
+  test("filter_change_keeps_picks", async () => {
+    const spy = vi.spyOn(api, "graphEdges").mockResolvedValue(resp(A));
+    act(() => load({ [B]: [C] }));
+    const { result } = renderHook(() => useGraphData(), { wrapper });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    act(() => useGraph.getState().applyFilter({ direction: "in" }, "recent"));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    expect(spy.mock.calls[1]?.[0]).toMatchObject({ filter: { direction: "in" }, sort: "recent", picks: { [B]: [C] } });
   });
 });

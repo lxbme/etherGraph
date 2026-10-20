@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
+import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import { useAssetRegistry } from "./assetRegistry";
 import { nodeBudget, nodeCapacity, perCenterBatch } from "./budget";
 import { useCanvasMetrics } from "./canvasMetrics";
@@ -43,6 +44,12 @@ export interface GraphState {
   proxyPos: Record<string, Pos>;
   /** Neighbour limit per center (kept after a center is removed, so re-adding it restores it); only centers' entries are sent. */
   limits: Record<string, number>;
+  /**
+   * Neighbours picked by hand per center (lowercase keys and values; kept after a center is removed, like `limits`).
+   * A center with an entry (even `[]`) is picked: it shows exactly these neighbours. A center without one (from an
+   * older workspace or file) keeps its top-k `limits`. Only centers' entries are sent.
+   */
+  picks: Record<string, string[]>;
   selection: Selection;
   highlightTransfer: { from: string; to: string; asset: string | null } | null;
   /** Bumped by `reset` and `loadSnapshot`: a new canvas whose nodes have nothing to do with earlier ones. */
@@ -62,7 +69,10 @@ export interface GraphState {
   guardLive(run: () => void): void;
   /** Answers the confirm: true refreshes (unfreezes) and then runs the pending action; false drops it. */
   resolveLive(go: boolean): void;
-  /** New centers (here and in `revealCenter`/`setCenters`/`loadSnapshot`) without a limit get `firstBatch()`. */
+  /**
+   * New centers (here and in `revealCenter(s)`/`setCenters`/`expand`) with neither a limit nor picks start picked with
+   * none (`picks[a] = []`); a re-added center keeps its entry.
+   */
   addCenter(a: string): void;
   /** Makes `a` a shown center (adds it and/or unhides it) in one history step; no-op if it already is. */
   revealCenter(a: string): void;
@@ -70,17 +80,28 @@ export interface GraphState {
   revealCenters(a: string[]): void;
   removeCenter(a: string): void;
   setCenters(a: string[]): void;
-  /** Adds `addresses` as shown centers with limit `k` (existing centers keep theirs) in one history step whose undo/redo runs the batch's effect. */
+  /**
+   * Adds `addresses` as shown centers in one history step whose undo/redo runs the batch's effect. New ones start picked
+   * with none; a re-added center from an older workspace (a limit, no picks) gets limit `k`; existing centers keep theirs.
+   */
   expand(addresses: string[], batch: string, k: number): void;
-  /** Raises a center's limit by `by` (> 0) in one history step. */
+  /** Raises a center's limit by `by` (> 0) in one history step (top-k centers only; a picked center ignores limits). */
   raiseLimit(center: string, by: number): void;
+  /**
+   * Sets the picks of each key of `next` in one history step: each key becomes a shown center, every listed address is
+   * unhidden, and an address that left a key's list and is then in no center's list and not a center is hidden.
+   */
+  applyPicks(next: Record<string, string[]>): void;
   setFilter(f: EdgeFilterDto): void;
   setSort(s: SortKey): void;
   /** Sets filter and sort as ONE history step. */
   applyFilter(f: EdgeFilterDto, sort: SortKey): void;
   togglePair(a: string, b: string): void;
   setPinned(addrs: string[], v: boolean): void;
-  /** Hiding a center also drops it from `centers` (same history step), so its neighbours do not linger alone. */
+  /**
+   * Hiding a center also drops it from `centers`, and hiding any address drops it from every picks list (same history
+   * step), so neighbours do not linger alone and a hidden pick counts as unchecked.
+   */
   setHidden(addrs: string[], v: boolean): void;
   setNote(a: string, note: string): void;
   /** Not history-tracked. */
@@ -110,6 +131,8 @@ export interface GraphState {
     expandedPairs: string[];
     ui: Record<string, NodeUi>;
     limits?: Record<string, number>;
+    /** Absent in older workspaces and files: their centers keep top-k. */
+    picks?: Record<string, string[]>;
     /** Dragged "+N more" positions by center; entries of other addresses are dropped. */
     proxyPos?: Record<string, Pos>;
   }): void;
@@ -126,6 +149,7 @@ interface Snapshot {
   filter: EdgeFilterDto;
   sort: SortKey;
   limits: Record<string, number>;
+  picks: Record<string, string[]>;
 }
 /**
  * A snapshot step, or (when `positions` is set) a position-move step; `effect` runs after it is undone/redone.
@@ -153,12 +177,15 @@ function changesGraph(s: GraphState, entry: HistoryEntry): boolean {
   const sameSet = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every((k) => b.has(k));
   const sameLimits = (a: Record<string, number>, b: Record<string, number>) =>
     Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([k, n]) => b[k] === n);
+  const samePicks = (a: Record<string, string[]>, b: Record<string, string[]>) =>
+    Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([k, l]) => b[k]?.join(",") === l.join(","));
   return (
     snap.centers.join(",") !== s.centers.join(",") ||
     !sameSet(snap.expandedPairs, s.expandedPairs) ||
     snap.filter !== s.filter ||
     snap.sort !== s.sort ||
-    !sameLimits(snap.limits, s.limits)
+    !sameLimits(snap.limits, s.limits) ||
+    !samePicks(snap.picks, s.picks)
   );
 }
 
@@ -228,6 +255,53 @@ export function withFirstBatch(
   return next;
 }
 
+/**
+ * `picks` with an empty list for each of `addrs` (lowercase) that has neither a limit nor picks: a new center starts
+ * picked with none. The same object when nothing is missing.
+ */
+function withNoPicks(
+  limits: Record<string, number>,
+  picks: Record<string, string[]>,
+  addrs: string[],
+): Record<string, string[]> {
+  const missing = addrs.filter((a) => limits[a] === undefined && picks[a] === undefined);
+  if (missing.length === 0) return picks;
+  const next = { ...picks };
+  for (const a of missing) next[a] = [];
+  return next;
+}
+
+/** Lowercase and deduplicated, in order. */
+const cleanList = (l: string[]) => [...new Set(l.map(lc))];
+
+/** `picks` with every address of `gone` dropped from every list; the same object when no list changes. */
+function withoutPicked(picks: Record<string, string[]>, gone: Set<string>): Record<string, string[]> {
+  let next: Record<string, string[]> | null = null;
+  for (const [k, l] of Object.entries(picks)) {
+    if (!l.some((a) => gone.has(a))) continue;
+    next ??= { ...picks };
+    next[k] = l.filter((a) => !gone.has(a));
+  }
+  return next ?? picks;
+}
+
+/**
+ * The neighbours `center` brings into the graph: its picks when picked, else (a top-k center) its neighbours on the
+ * edges of `data` that are not hidden.
+ */
+export function ownNeighbours(center: string, data: GraphResponseDto | undefined): string[] {
+  const c = lc(center);
+  const { picks, ui } = useGraph.getState();
+  const picked = picks[c];
+  if (picked) return picked;
+  const out = new Set<string>();
+  for (const e of data?.edges ?? []) {
+    const other = e.from === c ? e.to : e.to === c ? e.from : null;
+    if (other && other !== c && !ui[other]?.hidden) out.add(other);
+  }
+  return [...out];
+}
+
 function snapshot(s: GraphState): Snapshot {
   const ui: Record<string, UiFlags> = {};
   for (const [k, v] of Object.entries(s.ui)) {
@@ -240,6 +314,7 @@ function snapshot(s: GraphState): Snapshot {
     filter: s.filter,
     sort: s.sort,
     limits: { ...s.limits },
+    picks: { ...s.picks },
   };
 }
 
@@ -271,6 +346,7 @@ const initial = () => ({
   ui: {} as Record<string, NodeUi>,
   proxyPos: {} as Record<string, Pos>,
   limits: {} as Record<string, number>,
+  picks: {} as Record<string, string[]>,
   selection: null as Selection,
   highlightTransfer: null as GraphState["highlightTransfer"],
   frozen: null as GraphSnapshot | null,
@@ -318,6 +394,7 @@ export const useGraph = create<GraphState>()((set, get) => {
         filter: snap.filter,
         sort: snap.sort,
         limits: { ...snap.limits },
+        picks: { ...snap.picks },
       },
       entry.effect ? { snap: snapshot(s), effect: entry.effect } : { snap: snapshot(s) },
     ];
@@ -352,7 +429,7 @@ export const useGraph = create<GraphState>()((set, get) => {
       live(() => {
         const addr = lc(a);
         if (get().centers.includes(addr)) return;
-        tracked((s) => ({ centers: [...s.centers, addr], limits: withFirstBatch(s.limits, [addr]) }));
+        tracked((s) => ({ centers: [...s.centers, addr], picks: withNoPicks(s.limits, s.picks, [addr]) }));
       }),
     revealCenter: (a) => get().revealCenters([a]),
     revealCenters: (list) => live(() => {
@@ -364,7 +441,7 @@ export const useGraph = create<GraphState>()((set, get) => {
       tracked((cur) => ({
         centers: added.length > 0 ? [...cur.centers, ...added] : cur.centers,
         ui: hidden.length > 0 ? applyUiPatch(cur.ui, hidden, { hidden: false }) : cur.ui,
-        limits: withFirstBatch(cur.limits, addrs),
+        picks: withNoPicks(cur.limits, cur.picks, addrs),
       }));
     }),
     removeCenter: (a) =>
@@ -377,7 +454,7 @@ export const useGraph = create<GraphState>()((set, get) => {
       live(() =>
         tracked((s) => {
           const centers = [...new Set(list.map(lc))];
-          return { centers, limits: withFirstBatch(s.limits, centers) };
+          return { centers, picks: withNoPicks(s.limits, s.picks, centers) };
         }),
       ),
     expand: (addresses, batch, k) => live(() => {
@@ -387,11 +464,14 @@ export const useGraph = create<GraphState>()((set, get) => {
         (s) => {
           const fresh = addrs.filter((a) => !s.centers.includes(a));
           const hidden = addrs.filter((a) => s.ui[a]?.hidden);
-          const limits = { ...s.limits };
-          for (const a of fresh) limits[a] = k;
+          // Only a re-added top-k center (a limit, no picks) takes `k`; every other new center starts picked with none.
+          const legacy = fresh.filter((a) => s.limits[a] !== undefined && s.picks[a] === undefined);
+          const limits = legacy.length > 0 ? { ...s.limits } : s.limits;
+          for (const a of legacy) limits[a] = k;
           return {
             centers: [...s.centers, ...fresh],
-            limits: withFirstBatch(limits, addrs),
+            limits,
+            picks: withNoPicks(limits, s.picks, addrs),
             ui: hidden.length > 0 ? applyUiPatch(s.ui, hidden, { hidden: false }) : s.ui,
           };
         },
@@ -404,6 +484,29 @@ export const useGraph = create<GraphState>()((set, get) => {
       const cur = get().limits[a] ?? firstBatch();
       if (cur >= MAX_NEIGHBOUR_LIMIT) return;
       tracked((s) => ({ limits: { ...s.limits, [a]: Math.min(MAX_NEIGHBOUR_LIMIT, (s.limits[a] ?? cur) + by) } }));
+    }),
+    applyPicks: (next) => live(() => {
+      const entries = Object.entries(next).map(([k, l]) => [lc(k), cleanList(l)] as const);
+      if (entries.length === 0) return;
+      tracked((s) => {
+        const keys = entries.map(([k]) => k);
+        const centers = [...s.centers, ...cleanList(keys).filter((k) => !s.centers.includes(k))];
+        const picks = { ...s.picks };
+        const dropped = new Set<string>();
+        for (const [k, l] of entries) {
+          const keep = new Set(l);
+          for (const a of s.picks[k] ?? []) if (!keep.has(a)) dropped.add(a);
+          picks[k] = l;
+        }
+        const isCenter = new Set(centers);
+        const listed = new Set(centers.flatMap((c) => picks[c] ?? []));
+        const hide = [...dropped].filter((a) => !isCenter.has(a) && !listed.has(a));
+        const show = [...new Set([...keys, ...entries.flatMap(([, l]) => l)])].filter((a) => !!s.ui[a]?.hidden);
+        let ui = s.ui;
+        if (show.length > 0) ui = applyUiPatch(ui, show, { hidden: false });
+        if (hide.length > 0) ui = applyUiPatch(ui, hide, { hidden: true });
+        return { centers, picks, ui };
+      });
     }),
     setFilter: (f) => live(() => tracked(() => ({ filter: f }))),
     setSort: (sort) => live(() => tracked(() => ({ sort }))),
@@ -424,7 +527,8 @@ export const useGraph = create<GraphState>()((set, get) => {
         if (!v) return { ui };
         const gone = new Set(addrs.map(lc));
         const centers = s.centers.filter((c) => !gone.has(c));
-        return centers.length === s.centers.length ? { ui } : { ui, centers };
+        const picks = withoutPicked(s.picks, gone);
+        return { ui, ...(centers.length === s.centers.length ? {} : { centers }), ...(picks === s.picks ? {} : { picks }) };
       }),
     setNote: (a, note) => tracked((s) => ({ ui: applyUiPatch(s.ui, [a], { note }) })),
     setPositions: (p) =>
@@ -513,6 +617,8 @@ export const useGraph = create<GraphState>()((set, get) => {
       const centers = [...new Set(v.centers.map(lc))];
       const limits: Record<string, number> = {};
       for (const [k, n] of Object.entries(v.limits ?? {})) limits[lc(k)] = n;
+      const picks: Record<string, string[]> = {};
+      for (const [k, l] of Object.entries(v.picks ?? {})) picks[lc(k)] = cleanList(l);
       const proxyPos: Record<string, Pos> = {};
       for (const [k, p] of Object.entries(v.proxyPos ?? {})) if (centers.includes(lc(k))) proxyPos[lc(k)] = p;
       set({
@@ -520,7 +626,9 @@ export const useGraph = create<GraphState>()((set, get) => {
         epoch: get().epoch + 1,
         centers,
         proxyPos,
-        limits: withFirstBatch(limits, centers, { fresh: true }),
+        // Top-k centers without a limit (older states) get a first batch; picked ones need none.
+        limits: withFirstBatch(limits, centers.filter((c) => picks[c] === undefined), { fresh: true }),
+        picks,
         filter: v.filter,
         sort: v.sort ?? "count",
         expandedPairs: new Set(v.expandedPairs),

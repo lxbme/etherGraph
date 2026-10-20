@@ -2,7 +2,7 @@ import { renderHook, act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { useCanvasMetrics } from "./canvasMetrics";
 import { setHistoryEffectHandler, type ExpandEffect } from "./historyEffects";
-import { firstBatch, firstBatchFor, MAX_NEIGHBOUR_LIMIT, pairKey, revealBatch, useGraph, useRevealBatch } from "./store";
+import { firstBatch, firstBatchFor, MAX_NEIGHBOUR_LIMIT, ownNeighbours, pairKey, revealBatch, useGraph, useRevealBatch } from "./store";
 
 const A = "0x" + "a".repeat(40);
 const B = "0x" + "b".repeat(40);
@@ -253,37 +253,38 @@ describe("per-center limits", () => {
     expect(firstBatchFor(500)).toBe(3); // floor K_FLOOR
   });
 
-  test("setCenters with several new centers shares the budget; loadSnapshot ignores the old canvas", () => {
+  test("loadSnapshot shares the budget between top-k centers without a limit, ignoring the old canvas", () => {
     useCanvasMetrics.getState().set({ visible: 20 });
-    g().setCenters([A, B, C, D]);
-    expect(g().limits).toEqual({ [A]: 9, [B]: 9, [C]: 9, [D]: 9 });
+    g().loadSnapshot({ centers: [A, B, C, D], ui: {}, filter: {}, expandedPairs: [] } as never);
+    expect(g().limits).toEqual({ [A]: 14, [B]: 14, [C]: 14, [D]: 14 }); // (60 - 4) / 4
     g().loadSnapshot({ centers: [A, B], ui: {}, filter: {}, expandedPairs: [] } as never);
     expect(g().limits).toEqual({ [A]: 29, [B]: 29 }); // (60 - 2) / 2
   });
 
-  test("a single revealCenter keeps the full single-center batch", () => {
-    g().revealCenter(A);
+  test("a single loaded top-k center without a limit gets the full single-center batch", () => {
+    g().loadSnapshot({ centers: [A], ui: {}, filter: {}, expandedPairs: [] } as never);
     expect(g().limits[A]).toBe(59);
   });
 
-  test("addCenter writes the first batch; an existing limit is kept", () => {
-    g().addCenter("x");
-    expect(g().limits.x).toBe(59);
+  test("a removed top-k center re-added with addCenter keeps its raised limit", () => {
+    g().loadSnapshot({ centers: ["x"], ui: {}, filter: {}, expandedPairs: [], limits: { x: 59 } });
     g().raiseLimit("x", 5);
     g().removeCenter("x");
     g().addCenter("x");
     expect(g().limits.x).toBe(64);
+    expect(g().picks.x).toBeUndefined();
   });
 
-  test("revealCenter and setCenters give new centers a first batch", () => {
+  test("revealCenter and setCenters give new centers no first batch, whatever the canvas", () => {
     g().revealCenter(A.toUpperCase().replace("0X", "0x"));
-    expect(g().limits).toEqual({ [A]: 59 });
+    expect(g().limits).toEqual({});
     useCanvasMetrics.getState().set({ visible: 10 });
     g().setCenters([A, B]);
-    expect(g().limits).toEqual({ [A]: 59, [B]: 49 });
+    expect(g().limits).toEqual({});
+    expect(g().picks).toEqual({ [A]: [], [B]: [] });
   });
 
-  test("expand adds centers with limit k in one step; undo/redo run the batch effects", () => {
+  test("expand adds centers picked with none in one step; undo/redo run the batch effects", () => {
     const undone: ExpandEffect[] = [];
     const redone: ExpandEffect[] = [];
     setHistoryEffectHandler({
@@ -296,16 +297,17 @@ describe("per-center limits", () => {
     g().addCenter(C);
     g().expand(["a", "b"], "b1", 7);
     expect(g().centers).toEqual([C, "a", "b"]);
-    expect(g().limits).toEqual({ [C]: 59, a: 7, b: 7 });
+    expect(g().picks).toEqual({ [C]: [], a: [], b: [] });
 
     g().undo();
     expect(g().centers).toEqual([C]);
-    expect(g().limits).toEqual({ [C]: 59 });
+    expect(g().picks).toEqual({ [C]: [] });
     expect(undone).toEqual([{ kind: "expand", batch: "b1", addresses: ["a", "b"] }]);
 
     g().redo();
     expect(g().centers).toEqual([C, "a", "b"]);
-    expect(g().limits).toEqual({ [C]: 59, a: 7, b: 7 });
+    expect(g().picks).toEqual({ [C]: [], a: [], b: [] });
+    expect(g().limits).toEqual({});
     expect(redone).toEqual([{ kind: "expand", batch: "b1", addresses: ["a", "b"] }]);
 
     g().undo();
@@ -313,12 +315,20 @@ describe("per-center limits", () => {
   });
 
   test("expand keeps the limit of an address that already is a center and unhides hidden ones", () => {
-    g().addCenter(A);
+    g().loadSnapshot({ centers: [A], ui: {}, filter: {}, expandedPairs: [], limits: { [A]: 59 } });
     g().setHidden([B], true);
     g().expand([A, B.toUpperCase().replace("0X", "0x")], "b1", 7);
     expect(g().centers).toEqual([A, B]);
-    expect(g().limits).toEqual({ [A]: 59, [B]: 7 });
+    expect(g().limits).toEqual({ [A]: 59 });
+    expect(g().picks).toEqual({ [B]: [] });
     expect(g().ui[B]?.hidden).toBe(false);
+  });
+
+  test("expand gives a re-added top-k center limit k and keeps a re-added picked center's picks", () => {
+    g().loadSnapshot({ centers: [], ui: {}, filter: {}, expandedPairs: [], limits: { [A]: 3 }, picks: { [B]: [C] } });
+    g().expand([A, B], "b1", 7);
+    expect(g().limits).toEqual({ [A]: 7 });
+    expect(g().picks).toEqual({ [B]: [C] });
   });
 
   test("undo and redo of an expand work without a handler", () => {
@@ -343,7 +353,7 @@ describe("per-center limits", () => {
   test("raiseLimit is one history step without effect", () => {
     const onUndo = vi.fn();
     setHistoryEffectHandler({ onUndo, onRedo: vi.fn() });
-    g().expand(["a", "b"], "b1", 7);
+    g().loadSnapshot({ centers: ["a", "b"], ui: {}, filter: {}, expandedPairs: [], limits: { a: 7, b: 7 } });
     g().raiseLimit("a", 5);
     expect(g().limits.a).toBe(12);
     g().undo();
@@ -354,7 +364,7 @@ describe("per-center limits", () => {
   });
 
   test("raiseLimit stops at the server's per-center maximum", () => {
-    g().expand(["a"], "b1", 990);
+    g().loadSnapshot({ centers: ["a"], ui: {}, filter: {}, expandedPairs: [], limits: { a: 990 } });
     g().raiseLimit("a", 50);
     expect(g().limits.a).toBe(MAX_NEIGHBOUR_LIMIT);
     const steps = g()._past.length;
@@ -403,5 +413,134 @@ describe("loadSnapshot proxy positions", () => {
     const p = { x: 3, y: 4 };
     g().loadSnapshot({ centers: [A], ui: {}, filter: {}, expandedPairs: [], proxyPos: { [A]: p, [B]: { x: 1, y: 1 } } } as never);
     expect(g().proxyPos).toEqual({ [A]: p });
+  });
+});
+
+describe("picked neighbours", () => {
+  const edge = (from: string, to: string) => ({
+    from, to, asset: null, count: 1, sum: "1", first_ts: "", last_ts: "", decimals: null, symbol: null, trust: "unknown",
+  }) as never;
+
+  test("new_centers_start_picked_with_none", () => {
+    g().revealCenter(A.toUpperCase().replace("0X", "0x"));
+    expect(g().picks[A]).toEqual([]);
+    expect(g().limits[A]).toBeUndefined();
+    g().addCenter(B);
+    g().setCenters([B, C]);
+    expect(g().picks).toEqual({ [A]: [], [B]: [], [C]: [] });
+    expect(g().limits).toEqual({});
+  });
+
+  test("re-adding a center keeps its picks or its limit", () => {
+    g().addCenter(A);
+    g().applyPicks({ [A]: [B] });
+    g().removeCenter(A);
+    g().addCenter(A);
+    expect(g().picks[A]).toEqual([B]);
+    g().loadSnapshot({ centers: [C], filter: {}, expandedPairs: [], ui: {}, limits: { [C]: 12 } });
+    g().removeCenter(C);
+    g().revealCenter(C);
+    expect(g().limits[C]).toBe(12);
+    expect(g().picks[C]).toBeUndefined();
+  });
+
+  test("loaded_centers_without_picks_stay_top_k", () => {
+    g().loadSnapshot({ centers: [A, B], filter: {}, expandedPairs: [], ui: {}, limits: { [A]: 12, [B]: 7 } });
+    expect(g().picks).toEqual({});
+    expect(g().limits).toEqual({ [A]: 12, [B]: 7 });
+  });
+
+  test("loadSnapshot keeps given picks (lowercased) and gives those centers no first batch", () => {
+    const up = (x: string) => x.toUpperCase().replace("0X", "0x");
+    g().loadSnapshot({ centers: [A, B], filter: {}, expandedPairs: [], ui: {}, picks: { [up(A)]: [up(C), C] } });
+    expect(g().picks).toEqual({ [A]: [C] });
+    expect(g().limits).toEqual({ [B]: 59 });
+    g().reset();
+    expect(g().picks).toEqual({});
+  });
+
+  test("applyPicks_is_one_undo_step", () => {
+    g().addCenter(A);
+    const steps = g()._past.length;
+    g().applyPicks({ [A]: [B, C.toUpperCase().replace("0X", "0x"), B], [D]: [] });
+    expect(g()._past.length).toBe(steps + 1);
+    expect(g().centers).toEqual([A, D]);
+    expect(g().picks).toEqual({ [A]: [B, C], [D]: [] });
+    g().undo();
+    expect(g().centers).toEqual([A]);
+    expect(g().picks).toEqual({ [A]: [] });
+    g().redo();
+    expect(g().picks).toEqual({ [A]: [B, C], [D]: [] });
+  });
+
+  test("applyPicks_unhides_checked_and_hides_dropped", () => {
+    g().addCenter(A);
+    g().setHidden([C], true);
+    g().applyPicks({ [A]: [B, C] });
+    expect(g().ui[C]?.hidden).toBe(false);
+    g().applyPicks({ [A]: [B] });
+    expect(g().ui[C]?.hidden).toBe(true);
+    expect(g().ui[B]?.hidden ?? false).toBe(false);
+  });
+
+  test("applyPicks makes a hidden key a shown center again", () => {
+    g().addCenter(A);
+    g().setHidden([A], true);
+    g().applyPicks({ [A]: [B] });
+    expect(g().centers).toEqual([A]);
+    expect(g().ui[A]?.hidden).toBe(false);
+  });
+
+  test("dropping_a_neighbour_another_center_keeps_does_not_hide_it", () => {
+    g().setCenters([A, B]);
+    g().applyPicks({ [A]: [C], [B]: [C] });
+    g().applyPicks({ [A]: [] });
+    expect(g().ui[C]?.hidden ?? false).toBe(false);
+  });
+
+  test("dropping a neighbour that is itself a center does not hide it", () => {
+    g().setCenters([A, B]);
+    g().applyPicks({ [A]: [B] });
+    g().applyPicks({ [A]: [] });
+    expect(g().ui[B]?.hidden ?? false).toBe(false);
+    expect(g().centers).toEqual([A, B]);
+  });
+
+  test("hiding_removes_from_picks", () => {
+    g().setCenters([A, B]);
+    g().applyPicks({ [A]: [C, D], [B]: [C] });
+    const steps = g()._past.length;
+    g().setHidden([C], true);
+    expect(g()._past.length).toBe(steps + 1);
+    expect(g().picks).toEqual({ [A]: [D], [B]: [] });
+    g().undo();
+    expect(g().picks).toEqual({ [A]: [C, D], [B]: [C] });
+    g().setHidden([D], false);
+    expect(g().picks).toEqual({ [A]: [C, D], [B]: [C] });
+  });
+
+  test("expand_gives_new_centers_empty_picks", () => {
+    g().addCenter(A);
+    g().expand([A, B], "b1", 7);
+    expect(g().centers).toEqual([A, B]);
+    expect(g().picks).toEqual({ [A]: [], [B]: [] });
+    expect(g().limits).toEqual({});
+  });
+
+  test("filter_change_keeps_picks", () => {
+    g().addCenter(A);
+    g().applyPicks({ [A]: [B] });
+    const picks = g().picks;
+    g().applyFilter({ direction: "in" }, "recent");
+    expect(g().picks).toBe(picks);
+  });
+
+  test("ownNeighbours: the picks of a picked center, the shown neighbours of a legacy one", () => {
+    g().loadSnapshot({ centers: [A, B], filter: {}, expandedPairs: [], ui: {}, limits: { [B]: 5 }, picks: { [A]: [C] } });
+    g().setHidden([D], true);
+    const data = { nodes: [], edges: [edge(A, D), edge(B, C), edge(D, B), edge(C, A), edge(B, A)], omitted: {}, coverage: {} };
+    expect(ownNeighbours(A, data)).toEqual([C]);
+    expect(ownNeighbours(B.toUpperCase().replace("0X", "0x"), data)).toEqual([C, A]);
+    expect(ownNeighbours(B, undefined)).toEqual([]);
   });
 });

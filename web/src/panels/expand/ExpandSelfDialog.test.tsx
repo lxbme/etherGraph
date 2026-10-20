@@ -103,7 +103,7 @@ test("a synced target: exact headline, its counterparties, no calls, the canvas 
   expect(screen.queryByText(/Over the canvas capacity/)).toBeNull();
 });
 
-test("an unsynced target: a range, the sync calls; Expand syncs only it (shallow) and centers it with k; one undo removes it", async () => {
+test("an unsynced target: a range, the sync calls; Expand syncs only it (shallow) and centers it, picked with none; one undo removes it", async () => {
   fresh[addr(T)] = 3;
   const { onClose } = mount([node(T, { synced: false, nonce: 42 })]);
   expect(await screen.findByText("About 3–55 new nodes")).toBeInTheDocument();
@@ -121,7 +121,9 @@ test("an unsynced target: a range, the sync calls; Expand syncs only it (shallow
   expect(api.sync).toHaveBeenCalledTimes(1);
   expect(vi.mocked(api.sync).mock.calls[0]![0]).toEqual({ addresses: [addr(T)], batch: expect.any(String), depth: "shallow" });
   expect(centers()).toEqual([addr(C0), addr(T)]);
-  expect(useGraph.getState().limits[addr(T)]).toBe(9);
+  // A new center starts picked with none: k no longer applies to it (the picker replaces this dialog).
+  expect(useGraph.getState().picks[addr(T)]).toEqual([]);
+  expect(useGraph.getState().limits[addr(T)]).toBeUndefined();
 
   fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
   expect(centers()).toEqual([addr(C0)]);

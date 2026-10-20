@@ -10,22 +10,34 @@ import { useGraph, type GraphState } from "./store";
 /** Most `prefer` addresses the server accepts. */
 const MAX_PREFER = 2000;
 
-/** The limits of the centers only (the server rejects keys that are not centers). */
-function centerLimits(s: Pick<GraphState, "centers" | "limits">): Record<string, number> {
+type Neighbours = Pick<GraphState, "centers" | "limits" | "picks">;
+
+/** The limits of the top-k centers only (the server rejects keys that are not centers; a picked center ignores its limit). */
+function centerLimits(s: Neighbours): Record<string, number> {
   const out: Record<string, number> = {};
   for (const c of s.centers) {
     const n = s.limits[c];
-    if (n !== undefined) out[c] = n;
+    if (n !== undefined && s.picks[c] === undefined) out[c] = n;
+  }
+  return out;
+}
+
+/** The picks of the picked centers only (the server rejects keys that are not centers). */
+function centerPicks(s: Pick<GraphState, "centers" | "picks">): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const c of s.centers) {
+    const l = s.picks[c];
+    if (l !== undefined) out[c] = l;
   }
   return out;
 }
 
 /**
  * The query key of the graph for the given store state (shared with the SSE invalidation logic).
- * Center limits are part of it (raising one refetches); `prefer` is not, or every new node would refetch.
+ * Center limits and picks are part of it (changing one refetches); `prefer` is not, or every new node would refetch.
  */
-export function graphQueryKey(s: Pick<GraphState, "centers" | "filter" | "sort" | "limits">) {
-  return qk.graph(s.centers, { filter: s.filter, sort: s.sort, limits: centerLimits(s) });
+export function graphQueryKey(s: Pick<GraphState, "centers" | "filter" | "sort" | "limits" | "picks">) {
+  return qk.graph(s.centers, { filter: s.filter, sort: s.sort, limits: centerLimits(s), picks: centerPicks(s) });
 }
 
 /** Visible non-center nodes of the shown result, ranked ahead by the server when a limit applies. */
@@ -51,6 +63,7 @@ export function useGraphData(): { data?: GraphResponseDto; isFetching: boolean; 
   const filter = useGraph((s) => s.filter);
   const sort = useGraph((s) => s.sort);
   const limits = useGraph((s) => s.limits);
+  const picks = useGraph((s) => s.picks);
   const frozen = useGraph((s) => s.frozen);
   const frozenAddrs = useMemo(() => (frozen ? frozen.data.nodes.map((n) => n.address) : NO_ADDRS), [frozen]);
   const live = useLiveIdentities(frozenAddrs);
@@ -62,11 +75,18 @@ export function useGraphData(): { data?: GraphResponseDto; isFetching: boolean; 
   // The result on screen when a request starts (the previous key's while a new one loads): read for `prefer`.
   const shown = useRef<GraphResponseDto | undefined>(undefined);
   const q = useQuery({
-    queryKey: graphQueryKey({ centers, filter, sort, limits }),
+    queryKey: graphQueryKey({ centers, filter, sort, limits, picks }),
     // The signal aborts the HTTP request when the query is cancelled (e.g. superseded by a refetch).
     queryFn: ({ signal }) =>
       api.graphEdges(
-        { addresses: centers, filter, sort, limits: centerLimits({ centers, limits }), prefer: preferFor(shown.current) },
+        {
+          addresses: centers,
+          filter,
+          sort,
+          limits: centerLimits({ centers, limits, picks }),
+          picks: centerPicks({ centers, picks }),
+          prefer: preferFor(shown.current),
+        },
         { signal },
       ),
     enabled,

@@ -513,8 +513,12 @@ test("a failing query after a success keeps the previous nodes and shows the err
 describe("+N more proxy", () => {
   const withOmitted = (n: number): GraphResponseDto => ({ ...data, omitted: { [A]: n } });
 
+  /** A as a top-k center (from a workspace saved before picks): only such a center has a limit to raise. */
+  const topK = () => useGraph.getState().loadSnapshot({ centers: [A], filter: {}, expandedPairs: [], ui: {}, limits: { [A]: 59 } });
+
   test("omitted neighbours show as a proxy node; clicking it raises the limit once, as one undoable step and one refetch", async () => {
     vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
+    topK();
     await mountWithData();
     await waitFor(() => expect(ids()).toContain(`more:${A}`));
     expect(props().elements.find((e) => e.data.id === `more:${A}`)?.data.label).toBe("+12 more · click +12");
@@ -536,6 +540,7 @@ describe("+N more proxy", () => {
 
   test("a double-click on the proxy reveals one batch; a later click reveals another", async () => {
     vi.mocked(api.graphEdges).mockResolvedValue(withOmitted(12));
+    topK();
     await mountWithData();
     useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 20 });
     const before = useGraph.getState().limits[A]!;

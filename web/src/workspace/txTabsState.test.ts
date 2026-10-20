@@ -62,7 +62,9 @@ function canvas(positions: Record<string, { x: number; y: number }>, vp: { zoom:
   return cy;
 }
 const json = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
-const v1 = () => json(serialize((g().setCenters([A]), g()), VP, { nodes: [A] }));
+/** Top-k centers, as in a workspace saved before picks existed: they keep a limit through a save and a reopen. */
+const topK = (addrs: string[]) => g().loadSnapshot({ centers: addrs, filter: {}, expandedPairs: [], ui: {} });
+const v1 = () => json(serialize((topK([A]), g()), VP, { nodes: [A] }));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -116,7 +118,7 @@ describe("schema versions", () => {
 
 describe("tx tabs round-trip", () => {
   test("two tabs with positions, viewport, detail tab and the active tab save and open again", async () => {
-    g().setCenters([A]);
+    topK([A]);
     useTabs.setState({ tabs: [{ id: "graph" }, txTab(H1, { detailTab: "logs" }), txTab(H2)], active: H2 });
     const cys = {
       [H1]: canvas({ [A]: { x: 1, y: 2 }, [B]: { x: 3, y: 4 } }, { zoom: 2, pan: { x: 5, y: 6 } }),

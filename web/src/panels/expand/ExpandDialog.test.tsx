@@ -229,8 +229,9 @@ test("confirming syncs shallow under a new batch, expands, and offers Undo until
   const g = useGraph.getState();
   expect(g._past.at(-1)?.effect).toEqual({ kind: "expand", batch: req.batch, addresses: [addr(1), addr(2), addr(3)] });
   expect(g.centers).toEqual([addr(1), addr(2), addr(3)]);
-  // perCenterBatch(60, 3, 3) = 19
-  expect(g.limits[addr(1)]).toBe(19);
+  // Every new center starts picked with no neighbours, waiting to be picked (spec §5).
+  expect(g.picks[addr(1)]).toEqual([]);
+  expect(g.limits[addr(1)]).toBeUndefined();
   expect(onClose).toHaveBeenCalled();
   expect(await screen.findByText("Expanded 3 addresses")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();

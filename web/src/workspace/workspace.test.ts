@@ -60,9 +60,12 @@ beforeEach(() => {
   useWorkspace.getState().clear();
 });
 
+/** Top-k centers, as in a workspace saved before picks existed: they keep a limit through a save and a reopen. */
+const topK = (addrs: string[]) => g().loadSnapshot({ centers: addrs, filter: {}, expandedPairs: [], ui: {} });
+
 describe("serialize", () => {
   test("serialize/deserialize round-trip", () => {
-    g().setCenters([A]);
+    topK([A]);
     g().togglePair(A, B);
     g().applyFilter({ direction: "in" }, "count");
     g().setPinned([B], true);
@@ -221,7 +224,7 @@ describe("leaving the page", () => {
 
 describe("sort persistence", () => {
   test("hide_suspicious round-trips through serialize/deserialize/load", async () => {
-    g().setCenters([A]);
+    topK([A]);
     g().applyFilter({ hide_suspicious: true, direction: "out" }, "count");
     const s = serialize(g(), VP);
     expect(s.filter).toEqual({ hide_suspicious: true, direction: "out" });
@@ -239,7 +242,7 @@ describe("sort persistence", () => {
   });
 
   test("sort round-trips through serialize/deserialize/load", async () => {
-    g().setCenters([A]);
+    topK([A]);
     g().applyFilter({}, "recent");
     const s = serialize(g(), VP);
     expect(s.sort).toBe("recent");
@@ -345,7 +348,7 @@ describe("workspace copy", () => {
 
 describe("limits", () => {
   test("serialize writes the limits of centers only and they load back", async () => {
-    g().setCenters([A, B]);
+    topK([A, B]);
     g().raiseLimit(A, 5);
     g().removeCenter(B);
     const s = serialize(g(), VP);
@@ -407,7 +410,7 @@ describe("proxy positions", () => {
   const MIXED = "0x" + "A".repeat(40);
 
   test("serialize writes the proxies of centers only; none means no field; round-trips", () => {
-    g().setCenters([A]);
+    topK([A]);
     g().setPositions({ [`more:${A}`]: P, [`more:${B}`]: Q });
     const s = serialize(g(), VP);
     expect(s.proxies).toEqual({ [A]: P });
