@@ -105,7 +105,7 @@ export function NodeDetail({
   const editorFor = useUi((u) => u.labelEditorFor);
   const closeEditor = useUi((u) => u.closeLabelEditor);
   const openEditor = useUi((u) => u.openLabelEditor);
-  const { data: graph } = useGraphData();
+  const { data: graph, visibleEdges } = useGraphData();
   const lower = address.toLowerCase();
   /** A shown center with nothing picked yet (a new one): picking is what comes next once it is synced. */
   const awaitsPicks = useGraph((s) => s.centers.includes(lower) && !s.ui[lower]?.hidden && s.picks[lower]?.length === 0);
@@ -141,7 +141,7 @@ export function NodeDetail({
   const partialReason = (c: SyncStatusDto) =>
     t("node.partialReason", { kind: transferKindName(c.kind, t), block: c.from_block === null ? "—" : String(c.from_block) });
   const covered = KINDS.filter((k) => coverage.get(k.value)?.to_block != null).length;
-  const stats = canvasStats(address, graph?.edges ?? []);
+  const stats = canvasStats(address, visibleEdges);
   const balance = n.balance != null ? formatFixed(n.balance, 18, "eth") : null;
   const labels = [...n.labels, ...fileLabels];
   // Etherscan's raw flag, unless the node says this is a misflagged implementation (nodes saved before the flag lack it).

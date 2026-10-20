@@ -36,10 +36,13 @@ const GRAPH = {
 };
 
 vi.mock("../lib/download", async (orig) => ({ ...(await orig<typeof import("../lib/download")>()), download: vi.fn() }));
-vi.mock("../graph/useGraphData", () => ({ useGraphData: () => ({ data: GRAPH }) }));
+// What the mocked hooks return; a test overrides it for one case.
+let graphState: { data?: typeof GRAPH; error?: unknown } = {};
+let transfersError: unknown = null;
+vi.mock("../graph/useGraphData", () => ({ useGraphData: () => ({ data: GRAPH, ...graphState }) }));
 vi.mock("./useDataTransfers", async (orig) => ({
   ...(await orig<typeof import("./useDataTransfers")>()),
-  useDataTransfers: () => ({ rows: ROWS, loading: false, done: true, capped: false, loadMore: () => {}, error: null }),
+  useDataTransfers: () => ({ rows: ROWS, loading: false, done: true, capped: false, loadMore: () => {}, error: transfersError }),
 }));
 
 /** The tab inside a query client (its snapshot refresh queries one). */
@@ -49,6 +52,8 @@ const hiddenKeys = () => Object.keys(useGraph.getState().hiddenTransfers).sort()
 const sidebar = () => screen.getByRole("search");
 
 beforeEach(() => {
+  graphState = {};
+  transfersError = null;
   useGraph.getState().reset();
   useDataFilter.getState().reset();
 });
@@ -139,4 +144,37 @@ test("export excludes hidden rows unless include hidden is ticked", async () => 
   fireEvent.click(screen.getByRole("checkbox", { name: "Include hidden" }));
   fireEvent.click(screen.getByRole("button", { name: "Export CSV (3)" }));
   expect(await bodyRows()).toBe(3);
+});
+
+test("the include hidden box is inert while hidden rows are not listed", () => {
+  render(<DataTab />);
+  const box = screen.getByRole("checkbox", { name: "Include hidden" });
+  expect(box).toBeEnabled();
+  fireEvent.click(within(sidebar()).getByRole("switch", { name: "Show hidden" }));
+  expect(box).toBeDisabled();
+  fireEvent.click(within(sidebar()).getByRole("switch", { name: "Show hidden" }));
+  expect(box).toBeEnabled();
+});
+
+test("a failed graph shows its error with a retry instead of the empty message", () => {
+  graphState = { data: undefined, error: new Error("boom") };
+  render(<DataTab />);
+  expect(screen.getByRole("alert")).toBeInTheDocument();
+  expect(screen.queryByText("No edges on the canvas yet")).toBeNull();
+  expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+});
+
+test("a hidden row is exported with hidden=true when show hidden and include hidden are on", async () => {
+  const dl = vi.mocked((await import("../lib/download")).download);
+  dl.mockClear();
+  render(<DataTab />);
+  act(() => useGraph.getState().setTransfersHidden([hiddenFromTransfer(ROWS[0]!)], true));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Include hidden" }));
+  fireEvent.click(screen.getByRole("button", { name: "Export CSV (3)" }));
+  const text = await (dl.mock.calls.at(-1)![0] as Blob).text();
+  const lines = text.slice(1).split("\r\n").filter(Boolean);
+  const col = lines[0]!.split(",").indexOf("hidden");
+  const flags = lines.slice(1).map((l) => l.split(",")[col]);
+  expect(flags.filter((f) => f === "true")).toHaveLength(1);
+  expect(lines.find((l) => l.includes(ROWS[0]!.tx_hash))!.split(",")[col]).toBe("true");
 });

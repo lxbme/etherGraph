@@ -12,7 +12,9 @@ import { graphSelection, useGraph } from "./store";
 function isTyping(t: EventTarget | null): boolean {
   const el = t as HTMLElement | null;
   if (!el || !el.tagName) return false;
-  return /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable;
+  // A checkbox, radio or button takes no typing: the keys stay shortcuts while one has focus (e.g. after ticking a Data tab row).
+  if (el.tagName === "INPUT") return !/^(checkbox|radio|button|submit|reset|range|color|file|image)$/.test((el as HTMLInputElement).type);
+  return /^(TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable;
 }
 
 function overlayOpen(e: KeyboardEvent): boolean {
@@ -85,7 +87,10 @@ export function useShortcuts(getData: () => GraphResponseDto | undefined): void 
       listenShortcutKeys((e) => {
         const hit = shortcutFor(e);
         if (!hit || hit.id === "search") return;
-        if (useTabs.getState().active !== "graph" && hit.id !== "save" && hit.id !== "saveAs") return;
+        // Save works on any tab; undo and redo also on the Data tab (hiding transfers there is undoable); the rest only on the graph.
+        const active = useTabs.getState().active;
+        const anyTab = hit.id === "save" || hit.id === "saveAs" || (active === "data" && (hit.id === "undo" || hit.id === "redo"));
+        if (active !== "graph" && !anyTab) return;
         let address = "";
         if (hit.scope === "node") {
           const sel = graphSelection(useGraph.getState().selection);

@@ -81,3 +81,13 @@ test("hidden column reflects the hidden set", () => {
   const csv = parse(transfersCsv([r, tr({ sub_id: "1" })], { [transferKey(r)]: hiddenFromTransfer(r) }, new Map()).slice(1));
   expect(csv.map((x) => x[13])).toEqual(["hidden", "true", "false"]);
 });
+
+test("a value a spreadsheet would run as a formula gets a leading apostrophe", () => {
+  const csv = transfersCsv([tr({ symbol: '=HYPERLINK("x")' })], {}, new Map([[A, "@foo"], [B, "-1+1"]]));
+  expect(csv).toContain(`"'=HYPERLINK(""x"")"`);
+  const row = parse(csv.slice(1))[1]!;
+  expect(row[9]).toBe(`'=HYPERLINK("x")`);
+  expect(row[6]).toBe("'@foo");
+  expect(row[8]).toBe("'-1+1");
+  expect(row[1]).toBe("7");
+});

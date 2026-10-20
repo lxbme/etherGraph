@@ -86,6 +86,21 @@ test("hiding a transfer on the Data tab thins its edge on the graph", async ({ p
   expect(mock.unhandled).toEqual([]);
 });
 
+test("Ctrl+Z on the Data tab undoes the last hide", async ({ page, mock }) => {
+  installWorld(mock, makeWorld());
+  await searchAndPick(page, A);
+  await expect.poll(() => abEdges(page)).toBe(1);
+  await page.getByRole("tab", { name: "Data" }).click();
+  await expect(page.getByTestId("data-row")).toHaveCount(3);
+  await dataRow(page, T1).getByRole("checkbox").check();
+  await expect(dataRow(page, T1)).toHaveClass(/data__row--hidden/);
+
+  // Still on the Data tab: the shortcut undoes the hide.
+  await page.keyboard.press("Control+z");
+  await expect(dataRow(page, T1)).not.toHaveClass(/data__row--hidden/);
+  await expect(dataRow(page, T1).getByRole("checkbox")).not.toBeChecked();
+});
+
 test("exporting CSV downloads the filtered transfers", async ({ page, mock }) => {
   installWorld(mock, makeWorld());
   await searchAndPick(page, A);

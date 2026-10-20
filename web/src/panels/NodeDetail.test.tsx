@@ -170,6 +170,29 @@ test("transactions and neighbours come from the canvas edges", async () => {
   expect(within(kv).getByText("Neighbours").nextElementSibling).toHaveTextContent("2");
 });
 
+test("transactions and neighbours leave out transfers hidden on the Data tab", async () => {
+  act(() => useGraph.getState().setCenters([A]));
+  renderDetail(undefined, wallet);
+  const e = { asset: null, asset_kind: "native", sum: "1", first_ts: "", last_ts: "", decimals: 18, symbol: null, trust: { level: "listed", impersonates: null, reason: null } } as const;
+  const data: GraphResponseDto = {
+    nodes: [], omitted: {}, coverage: {},
+    edges: [{ ...e, from: A, to: B, count: 1 }, { ...e, from: C, to: A, count: 4 }],
+  };
+  act(() => qc.setQueryData(graphQueryKey(useGraph.getState()), data));
+  const kv = await screen.findByTestId("node-kv");
+  await waitFor(() => expect(within(kv).getByText("Transactions").nextElementSibling).toHaveTextContent("5"));
+  expect(within(kv).getByText("Neighbours").nextElementSibling).toHaveTextContent("2");
+  // The only transfer of A → B is hidden: that edge leaves the canvas.
+  act(() =>
+    useGraph.getState().setTransfersHidden(
+      [{ tx_hash: "0x" + "01".repeat(32), sub_id: "0", from: A, to: B, asset: null, amount: "1", ts: "", kind: "native" }],
+      true,
+    ),
+  );
+  await waitFor(() => expect(within(kv).getByText("Transactions").nextElementSibling).toHaveTextContent("4"));
+  expect(within(kv).getByText("Neighbours").nextElementSibling).toHaveTextContent("1");
+});
+
 test("copy writes the full address and shows a check", async () => {
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });

@@ -4,8 +4,13 @@ import { transferKey, type HiddenTransfer } from "../graph/hiddenTransfers";
 const BOM = "﻿";
 const HEADER = ["time_utc", "block", "tx_hash", "sub_id", "type", "from", "from_name", "to", "to_name", "symbol", "token", "amount", "amount_raw", "hidden"];
 
-/** One RFC 4180 field: quoted when it holds a comma, quote, CR or LF, with inner quotes doubled. */
-function field(v: string): string {
+/**
+ * One RFC 4180 field: quoted when it holds a comma, quote, CR or LF, with inner quotes doubled. A value a spreadsheet
+ * would run as a formula (leading `=`, `+`, `-`, `@`, tab or CR; symbols and names are attacker-controlled) gets a
+ * leading apostrophe first. No numeric column starts with those characters.
+ */
+function field(raw: string): string {
+  const v = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
   return /[,"\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
 

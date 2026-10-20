@@ -154,3 +154,22 @@ test("is idle while frozen", async () => {
   expect(batch).not.toHaveBeenCalled();
   expect(result.current).toMatchObject({ rows: [], loading: false, capped: false });
 });
+
+test("does not page the previous graph's pairs while a changed graph loads", async () => {
+  const batch = vi.spyOn(api, "transfersBatch").mockResolvedValue({ items: [transfer(1)], next_cursor: null });
+  const { result } = renderHook(() => useDataTransfers(), { wrapper });
+  graphOf([edge(A, B)]);
+  await waitFor(() => expect(result.current.done).toBe(true));
+  expect(batch).toHaveBeenCalledTimes(1);
+
+  // A new filter reloads the graph; until it answers, the old edges stand in as placeholder data.
+  let answer!: (r: Awaited<ReturnType<typeof api.graphEdges>>) => void;
+  vi.spyOn(api, "graphEdges").mockReturnValue(new Promise((r) => (answer = r)));
+  act(() => useGraph.getState().setFilter({ kinds: ["native"] }));
+  await new Promise((r) => setTimeout(r, 30));
+  expect(batch).toHaveBeenCalledTimes(1);
+
+  await act(async () => answer({ nodes: [], edges: [edge(A, C)], omitted: {}, coverage: {} }));
+  await waitFor(() => expect(batch).toHaveBeenCalledTimes(2));
+  expect(batch.mock.calls[1]![0].pairs).toEqual([{ from: A, to: C, asset: null }]);
+});

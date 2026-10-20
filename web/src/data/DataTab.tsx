@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import type { TransferDto } from "../api/generated/TransferDto";
 import { messageFor } from "../api/errors";
@@ -25,7 +26,8 @@ export function DataTab() {
   const hasCenters = useGraph((s) => s.centers.length > 0);
   const ui = useGraph((s) => s.ui);
   const refreshFromChain = useRefreshFromChain();
-  const { data } = useGraphData();
+  const qc = useQueryClient();
+  const { data, error: graphError } = useGraphData();
   const hiddenTransfers = useGraph((s) => s.hiddenTransfers);
   const setTransfersHidden = useGraph((s) => s.setTransfersHidden);
   const { rows, loading, capped, loadMore, error } = useDataTransfers();
@@ -74,6 +76,18 @@ export function DataTab() {
       </div>
     );
   }
+  if (!hasEdges && graphError != null) {
+    return (
+      <div className="data">
+        <div className="transfers__msg transfers__msg--error" role="alert">
+          {messageFor(graphError)}{" "}
+          <button type="button" className="btn btn--compact" onClick={() => void qc.invalidateQueries({ queryKey: ["graph"] })}>
+            {t("common.retry")}
+          </button>
+        </div>
+      </div>
+    );
+  }
   if (!hasEdges) {
     // The graph's first result is still on its way.
     const waiting = hasCenters && !data;
@@ -102,7 +116,7 @@ export function DataTab() {
           </span>
           <span className="data__bulk">
             <label className="data__include">
-              <input type="checkbox" checked={includeHidden} onChange={(e) => setIncludeHidden(e.target.checked)} />
+              <input type="checkbox" checked={includeHidden} disabled={!filter.showHidden} onChange={(e) => setIncludeHidden(e.target.checked)} />
               {t("data.includeHidden")}
             </label>
             <button type="button" className="btn btn--compact" disabled={exportRows.length === 0} onClick={exportCsv}>

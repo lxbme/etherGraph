@@ -99,6 +99,24 @@ describe("useShortcuts stays out of the way", () => {
     }
   });
 
+  test("a focused checkbox does not own the keys, a text field does", async () => {
+    const { actions } = await setup();
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    document.body.appendChild(box);
+    const text = document.createElement("input");
+    document.body.appendChild(text);
+    try {
+      fireEvent.keyDown(text, { key: "p" });
+      expect(actions.togglePin).not.toHaveBeenCalled();
+      fireEvent.keyDown(box, { key: "p" });
+      expect(actions.togglePin).toHaveBeenCalledWith(A);
+    } finally {
+      box.remove();
+      text.remove();
+    }
+  });
+
   test("while a dialog or menu is open", async () => {
     const { actions } = await setup();
     for (const role of ["dialog", "menu"]) {
@@ -125,6 +143,20 @@ describe("useShortcuts stays out of the way", () => {
     fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
     expect(actions.togglePin).not.toHaveBeenCalled();
     expect(undo).not.toHaveBeenCalled();
+  });
+
+  test("on the Data tab undo and redo work and the node keys do not", async () => {
+    const { actions, useGraph } = await setup();
+    const { useTabs } = await import("../shell/tabs");
+    const undo = vi.spyOn(useGraph.getState(), "undo");
+    const redo = vi.spyOn(useGraph.getState(), "redo");
+    act(() => useTabs.setState({ tabs: [{ id: "graph" }, { id: "data", kind: "data" }], active: "data" }));
+    fireEvent.keyDown(document.body, { key: "p" });
+    fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+    fireEvent.keyDown(document.body, { key: "z", ctrlKey: true, shiftKey: true });
+    expect(actions.togglePin).not.toHaveBeenCalled();
+    expect(undo).toHaveBeenCalledTimes(1);
+    expect(redo).toHaveBeenCalledTimes(1);
   });
 
   test("while the admin page covers the graph (Save included)", async () => {

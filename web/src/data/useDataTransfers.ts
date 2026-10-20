@@ -59,7 +59,7 @@ export function useDataTransfers(): {
   loadMore(): void;
   error: unknown;
 } {
-  const { data } = useGraphData();
+  const { data, isPlaceholderData } = useGraphData();
   const ui = useGraph((s) => s.ui);
   const filter = useGraph((s) => s.filter);
   const frozen = useGraph((s) => s.frozen !== null);
@@ -73,7 +73,8 @@ export function useDataTransfers(): {
     return stable.current.pairs;
   }, [edges, ui]);
   const chunks = useMemo(() => chunked(pairs), [pairs]);
-  const enabled = !frozen && pairs.length > 0;
+  // Not while the graph reloads: the pairs are then the previous result's, stood in as placeholder data.
+  const enabled = !frozen && !isPlaceholderData && pairs.length > 0;
 
   const q = useInfiniteQuery({
     queryKey: qk.transfersBatch(pairs, filter),
