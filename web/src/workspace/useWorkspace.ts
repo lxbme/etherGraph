@@ -57,6 +57,7 @@ useGraph.subscribe((s, prev) => {
     s.expandedPairs !== prev.expandedPairs ||
     s.ui !== prev.ui ||
     s.limits !== prev.limits ||
+    s.picks !== prev.picks ||
     s.proxyPos !== prev.proxyPos ||
     s.frozen !== prev.frozen
   ) {
@@ -308,6 +309,7 @@ function applyState({ graph: state, tabs, active }: WorkspaceStateV2): void {
     expandedPairs: state.expanded_pairs.map(([a, b]) => pairKey(a, b)),
     ui,
     limits: state.limits,
+    picks: state.picks,
     proxyPos: state.proxies,
   });
   // A snapshot view stays one until it is refreshed from the chain.

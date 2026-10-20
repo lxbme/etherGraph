@@ -5,6 +5,7 @@ import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
 import { useCanvasMetrics } from "../graph/canvasMetrics";
 import { getMainCy } from "../graph/cyRegistry";
 import { useGraph } from "../graph/store";
+import { graphQueryKey } from "../graph/useGraphData";
 import { useInfo } from "../panels/info/infoStore";
 import { useTabs } from "../shell/tabs";
 import { deserialize, serialize } from "./serialize";
@@ -65,7 +66,8 @@ const topK = (addrs: string[]) => g().loadSnapshot({ centers: addrs, filter: {},
 
 describe("serialize", () => {
   test("serialize/deserialize round-trip", () => {
-    topK([A]);
+    g().setCenters([A]);
+    g().applyPicks({ [A]: [B] });
     g().togglePair(A, B);
     g().applyFilter({ direction: "in" }, "count");
     g().setPinned([B], true);
@@ -75,6 +77,7 @@ describe("serialize", () => {
     expect(s.expanded_pairs).toEqual([[A, B]]);
     expect(s.nodes.find((n) => n.address === A)).toMatchObject({ x: 1, y: 2 });
     expect(s.nodes.find((n) => n.address === B)).toMatchObject({ x: 5, y: 6, pinned: true, note: "hi" });
+    expect(s.picks).toEqual({ [A]: [B] });
     const r = deserialize(JSON.parse(JSON.stringify(s)), 1);
     expect(r).toEqual({ ok: true, state: { graph: s, tabs: [], active: "graph" } });
   });
@@ -360,7 +363,7 @@ describe("limits", () => {
   });
 
   test("an old state without limits loads and every center gets a first batch", async () => {
-    g().setCenters([A, B]);
+    topK([A, B]);
     const { limits: _omit, ...legacy } = serialize(g(), VP);
     g().reset();
     const r = deserialize(JSON.parse(JSON.stringify(legacy)), 1);
@@ -372,12 +375,12 @@ describe("limits", () => {
 
   test("legacy centers share the budget over an empty canvas, ignoring the nodes now visible (R12)", () => {
     useCanvasMetrics.getState().set({ visible: 40 });
-    const r = deserialize({ ...serialize((g().setCenters([A, B]), g()), VP), limits: undefined }, 1);
+    const r = deserialize({ ...serialize((topK([A, B]), g()), VP), limits: undefined }, 1);
     expect(r.ok && r.state.graph.limits).toEqual({ [A]: 29, [B]: 29 }); // (60 - 2) / 2, not (20 - 2) / 2
   });
 
   test("centers missing from limits get a first batch", () => {
-    g().setCenters([A, B]);
+    topK([A, B]);
     const s = { ...serialize(g(), VP), limits: { [A]: 12 } };
     const r = deserialize(JSON.parse(JSON.stringify(s)), 1);
     expect(r.ok && r.state.graph.limits).toEqual({ [A]: 12, [B]: 59 });
@@ -400,6 +403,80 @@ describe("limits", () => {
     g().setCenters([A]);
     useWorkspace.getState().setCurrent(dto());
     g().raiseLimit(A, 3);
+    expect(useWorkspace.getState().dirty).toBe(true);
+  });
+});
+
+describe("picks", () => {
+  const C = "0x" + "c".repeat(40);
+  const reopen = async (s: unknown) => {
+    g().reset();
+    m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(s)) }));
+    await expect(loadWorkspace(7)).resolves.toBe(true);
+  };
+
+  test("picks_round_trip", async () => {
+    g().setCenters([A, B]);
+    g().applyPicks({ [A]: [B, C] }); // B stays picked with none
+    const s = serialize(g(), VP);
+    expect(s.picks).toEqual({ [A]: [B, C], [B]: [] });
+    expect(s.limits).toEqual({});
+    await reopen(s);
+    expect(g().picks).toEqual({ [A]: [B, C], [B]: [] });
+    expect(g().limits).toEqual({}); // picked centers get no first batch
+  });
+
+  test("old_state_without_picks_opens_with_top_k_centers", async () => {
+    topK([A, B]);
+    const { picks: _omit, ...legacy } = serialize(g(), VP);
+    expect(_omit).toBeUndefined();
+    const r = deserialize(JSON.parse(JSON.stringify(legacy)), 1);
+    expect(r.ok && r.state.graph.picks).toBeUndefined();
+    await reopen(legacy);
+    expect(g().picks).toEqual({});
+    expect(g().limits).toEqual({ [A]: 29, [B]: 29 });
+  });
+
+  test("keys and values are lowercased on load", () => {
+    g().setCenters([A]);
+    const s = { ...serialize(g(), VP), picks: { ["0x" + "A".repeat(40)]: ["0x" + "B".repeat(40)] } };
+    const r = deserialize(JSON.parse(JSON.stringify(s)), 1);
+    expect(r.ok && r.state.graph.picks).toEqual({ [A]: [B] });
+  });
+
+  test("bad_picks_are_rejected", () => {
+    const good = serialize((g().setCenters([A]), g()), VP);
+    expect(deserialize({ ...good, picks: { [A]: [42] } }, 1)).toEqual({ ok: false, reason: "Invalid picks" });
+    expect(deserialize({ ...good, picks: { junk: [B] } }, 1).ok).toBe(false);
+    expect(deserialize({ ...good, picks: { [A]: ["junk"] } }, 1).ok).toBe(false);
+    expect(deserialize({ ...good, picks: { [A]: B } }, 1).ok).toBe(false);
+    expect(deserialize({ ...good, picks: [B] }, 1).ok).toBe(false);
+  });
+
+  test("picks_of_removed_centers_are_not_written", () => {
+    g().setCenters([A, B]);
+    g().applyPicks({ [A]: [C], [B]: [C] });
+    g().removeCenter(B);
+    expect(serialize(g(), VP).picks).toEqual({ [A]: [C] });
+    g().removeCenter(A);
+    expect("picks" in serialize(g(), VP)).toBe(false);
+  });
+
+  test("reopened_workspace_requests_the_same_picks", async () => {
+    g().setCenters([A, B]);
+    g().applyPicks({ [A]: [C] });
+    const key = graphQueryKey(g());
+    const s = serialize(g(), VP);
+    await reopen(s);
+    expect(graphQueryKey(g())).toEqual(key);
+    expect(JSON.stringify(key)).toContain(JSON.stringify({ [A]: [C], [B]: [] }));
+  });
+
+  test("a picks-only change marks the workspace dirty", () => {
+    g().setCenters([A]);
+    useWorkspace.getState().setCurrent(dto());
+    expect(useWorkspace.getState().dirty).toBe(false);
+    useGraph.setState({ picks: { [A]: [B] } }); // nothing else changes
     expect(useWorkspace.getState().dirty).toBe(true);
   });
 });

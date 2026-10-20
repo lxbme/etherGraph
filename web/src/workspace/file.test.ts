@@ -484,6 +484,8 @@ describe("malformed or hostile files (Review Focus 4)", () => {
     ["a center that is not an address", (f) => ((f.state.graph.centers = ["0x12"]), f)],
     ["an expanded pair with a member that is not an address", (f) => ((f.state.graph.expanded_pairs = [[A, "x"]]), f)],
     ["a limit keyed by something that is not an address", (f) => ((f.state.graph.limits = { [A]: 5, junk: 5 }), f)],
+    ["a pick list keyed by something that is not an address", (f) => ((f.state.graph.picks = { [A]: [B], junk: [B] }), f)],
+    ["a picked neighbour that is not an address", (f) => ((f.state.graph.picks = { [A]: ["<b>"] }), f)],
     ["a \"+N more\" position keyed by something that is not an address", (f) => ((f.state.graph.proxies = { [A]: { x: 1, y: 2 }, junk: { x: 1, y: 2 } }), f)],
     ["absurd token decimals", (f) => ((f.state.graph.snapshot.data.edges[0].decimals = 1e9), f)],
     ["a node token of an unknown standard", (f) => ((f.state.graph.snapshot.data.nodes[0].token = { standard: "erc777", symbol: null, decimals: null }), f)],

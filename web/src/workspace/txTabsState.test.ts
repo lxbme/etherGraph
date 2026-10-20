@@ -118,7 +118,8 @@ describe("schema versions", () => {
 
 describe("tx tabs round-trip", () => {
   test("two tabs with positions, viewport, detail tab and the active tab save and open again", async () => {
-    topK([A]);
+    g().setCenters([A]);
+    g().applyPicks({ [A]: [B] });
     useTabs.setState({ tabs: [{ id: "graph" }, txTab(H1, { detailTab: "logs" }), txTab(H2)], active: H2 });
     const cys = {
       [H1]: canvas({ [A]: { x: 1, y: 2 }, [B]: { x: 3, y: 4 } }, { zoom: 2, pan: { x: 5, y: 6 } }),
@@ -149,6 +150,7 @@ describe("tx tabs round-trip", () => {
     expect(open[2]).toMatchObject({ kind: "tx", hash: H2, layout: { positions: tabs[1]!.positions, viewport: tabs[1]!.viewport } });
     expect(open[2]).not.toHaveProperty("detailTab");
     expect(g().centers).toEqual([A]);
+    expect(g().picks).toEqual({ [A]: [B] });
     expect(useWorkspace.getState()).toMatchObject({ id: 7, updatedAt: "T5", dirty: false });
   });
 

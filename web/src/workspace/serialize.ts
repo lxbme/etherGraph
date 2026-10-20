@@ -15,6 +15,8 @@ export interface WorkspaceStateV1 {
   limits?: Record<string, number>;
   /** Dragged "+N more" node positions by center. Absent when none was dragged and in older states. */
   proxies?: Record<string, Pos>;
+  /** Neighbours picked per center (a center with an entry, even an empty one, shows exactly those). Absent in older states: their centers keep top-k. */
+  picks?: Record<string, string[]>;
   viewport: { zoom: number; pan: { x: number; y: number } };
 }
 
@@ -53,7 +55,7 @@ export interface SerializeOpts {
 const lc = (s: string) => s.toLowerCase();
 
 export function serialize(
-  state: Pick<GraphState, "centers" | "filter" | "sort" | "expandedPairs" | "ui" | "limits" | "proxyPos">,
+  state: Pick<GraphState, "centers" | "filter" | "sort" | "expandedPairs" | "ui" | "limits" | "picks" | "proxyPos">,
   viewport: WorkspaceStateV1["viewport"],
   opts: SerializeOpts = {},
 ): WorkspaceStateV1 {
@@ -70,6 +72,12 @@ export function serialize(
     state.centers.flatMap((c) => {
       const p = state.proxyPos[c];
       return p === undefined ? [] : [[c, { x: p.x, y: p.y }]];
+    }),
+  );
+  const picks = Object.fromEntries(
+    state.centers.flatMap((c) => {
+      const l = state.picks[c];
+      return l === undefined ? [] : [[c, [...l]]];
     }),
   );
   return {
@@ -94,6 +102,7 @@ export function serialize(
         return n === undefined ? [] : [[c, n]];
       }),
     ),
+    ...(Object.keys(picks).length > 0 ? { picks } : {}),
     ...(Object.keys(proxies).length > 0 ? { proxies } : {}),
     viewport: { zoom: viewport.zoom, pan: { ...viewport.pan } },
   };
@@ -105,6 +114,9 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const isStr = (v: unknown): v is string => typeof v === "string";
 const isStrArr = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr);
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
+const isPicks = (v: unknown): v is Record<string, string[]> =>
+  isObj(v) && Object.entries(v).every(([k, l]) => ADDRESS.test(k) && isStrArr(l) && l.every((a) => ADDRESS.test(a)));
 const isLimit = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 1;
 
 const DETAIL_TABS: readonly string[] = ["overview", "input", "transfers", "internal", "logs", "raw"];
@@ -179,14 +191,19 @@ function deserializeGraph(v: unknown): Parsed<WorkspaceStateV1 & { snapshot?: Gr
   if (v.limits !== undefined && !(isObj(v.limits) && Object.values(v.limits).every(isLimit))) {
     return bad(t("ws.err.field", { field: "limits" }));
   }
+  if (v.picks !== undefined && !isPicks(v.picks)) return bad(t("ws.err.field", { field: "picks" }));
   if (v.proxies !== undefined && !isPositions(v.proxies)) return bad(t("ws.err.field", { field: "proxies" }));
   if (v.snapshot !== undefined && !isGraphSnapshot(v.snapshot)) return bad(t("ws.err.field", { field: "snapshot" }));
   // Centers saved without a limit (older states) get the first batch of a new center.
   const stored: Record<string, number> = {};
   for (const [k, n] of Object.entries((v.limits ?? {}) as Record<string, number>)) stored[lc(k)] = n;
   // The batch is shared by all of them, over an empty canvas (ruling R12).
-  const limits = withFirstBatch(stored, centers.map(lc), { fresh: true });
+  // Picked centers need none: they show exactly their picks.
+  const picks: Record<string, string[]> = {};
+  for (const [k, l] of Object.entries((v.picks ?? {}) as Record<string, string[]>)) picks[lc(k)] = l.map(lc);
+  const limits = withFirstBatch(stored, centers.map(lc).filter((c) => picks[c] === undefined), { fresh: true });
   const next = { ...(v as unknown as WorkspaceStateV1), limits };
+  if (v.picks !== undefined) next.picks = picks;
   if (v.proxies !== undefined) {
     next.proxies = {};
     for (const [k, p] of Object.entries(v.proxies as Record<string, Pos>)) next.proxies[lc(k)] = p;
