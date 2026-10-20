@@ -180,7 +180,7 @@ test("a node dropped by a filter returns to its previous position on undo", asyn
   expect(mock.unhandled).toEqual([]);
 });
 
-test("under Inbound the node transfer table asks for the side the canvas shows", async ({ page, mock }) => {
+test("under Inbound the node transfer table still asks for both sides", async ({ page, mock }) => {
   await searchAddress(page, mock, A);
   await expectLaidOut(page, "main", 4);
   await page.getByRole("button", { name: /Filter/ }).click();
@@ -195,12 +195,10 @@ test("under Inbound the node transfer table asks for the side the canvas shows",
       const p = new URL(r.url()).searchParams;
       return `${p.get("address")}:${p.get("direction")}`;
     });
-  // A (the selected center) keeps the filter's direction.
-  await expect.poll(asked).toContain(`${A}:in`);
-  // D is not a center: the canvas shows D→A, so D's table asks for its outgoing side.
+  // The graph filter only decides what the canvas draws; the table has its own direction, "all" by default.
   await tapNode(page, "main", D);
-  await expect.poll(asked).toContain(`${D}:out`);
-  expect(asked()).not.toContain(`${D}:in`);
+  await expect.poll(asked).toContain(`${D}:null`);
+  expect(asked().filter((a) => !a.endsWith(":null"))).toEqual([]);
   expect(mock.unhandled).toEqual([]);
 });
 

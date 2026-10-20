@@ -3,7 +3,6 @@ import { api } from "../../api/endpoints";
 import { messageFor } from "../../api/errors";
 import type { GraphResponseDto } from "../../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
-import type { TrustDto } from "../../api/generated/TrustDto";
 import { nodeCapacity, SHALLOW_CALLS, SHALLOW_MAX_CALLS } from "../../graph/budget";
 import { useCanvasMetrics } from "../../graph/canvasMetrics";
 import { MAX_CENTERS, MAX_NEIGHBOUR_LIMIT, ownNeighbours, useGraph, type SortKey } from "../../graph/store";
@@ -12,9 +11,9 @@ import { shortAddr } from "../../lib/address";
 import { newBatchId } from "../../lib/batchId";
 import { formatAmount } from "../../lib/amount";
 import { formatTime } from "../../lib/format";
-import { TRUST_MARK, TRUST_TIER, isListed, trustFlag, trustText } from "../../lib/trust";
 import { useJobProgress, useQuota } from "../../shell/statusStore";
 import { toast } from "../../shell/Toasts";
+import { AssetOptGroups, type AssetOption } from "../AssetOptGroups";
 import { offerUndo } from "../expand/expansion";
 import { TrustBadge } from "../info/TrustBadge";
 import { TruncationBanner } from "../TruncationBanner";
@@ -40,12 +39,6 @@ const assetKey = (a: string | null) => a ?? NATIVE;
 /** The direction filter's values, relative to the center ("out": center → neighbour). */
 type Direction = "all" | "in" | "out";
 const DIRECTIONS: Direction[] = ["all", "in", "out"];
-
-interface AssetOption {
-  key: string;
-  label: string;
-  trust: TrustDto;
-}
 
 type T = ReturnType<typeof useT>;
 
@@ -245,21 +238,6 @@ export function PickNeighboursDialog({
     }
     return [...out.values()];
   }, [groups]);
-  // Tokens on a token list come first, the native coin leading; every other token after, unknown ones before flagged.
-  const bySymbol = (x: AssetOption, y: AssetOption) => x.label.localeCompare(y.label) || x.key.localeCompare(y.key);
-  const listedAssets = assets
-    .filter((o) => isListed(o.trust))
-    .sort((x, y) => (x.key === NATIVE ? -1 : y.key === NATIVE ? 1 : bySymbol(x, y)));
-  const otherAssets = assets
-    .filter((o) => !isListed(o.trust))
-    .sort((x, y) => TRUST_TIER[x.trust.level] - TRUST_TIER[y.trust.level] || bySymbol(x, y));
-  /** A token's symbol with its contract, so look-alikes differ; flagged ones also say why. */
-  const assetText = (o: AssetOption) => {
-    const name = o.key === NATIVE || o.label === shortAddr(o.key) ? o.label : `${o.label} · ${shortAddr(o.key)}`;
-    const flag = trustFlag(o.trust);
-    return flag ? `${TRUST_MARK} ${name} · ${trustText(flag, t)}` : name;
-  };
-  const assetOption = (o: AssetOption) => <option key={o.key} value={o.key} title={o.key === NATIVE ? undefined : o.key}>{assetText(o)}</option>;
 
   const q = query.trim().toLowerCase();
   /** The asset filter as a flow's asset ("all": any). */
@@ -525,8 +503,7 @@ export function PickNeighboursDialog({
         />
         <select className="input input--compact" aria-label={t("filter.assets")} value={asset} onChange={(e) => onAsset(e.target.value)}>
           <option value={ALL}>{t("pick.assetAll")}</option>
-          {listedAssets.length > 0 && <optgroup label={t("filter.listedTokens", { count: listedAssets.length })}>{listedAssets.map(assetOption)}</optgroup>}
-          {otherAssets.length > 0 && <optgroup label={t("filter.otherTokens", { count: otherAssets.length })}>{otherAssets.map(assetOption)}</optgroup>}
+          <AssetOptGroups options={assets} native={NATIVE} />
         </select>
         <select className="input input--compact" aria-label={t("pick.dir")} value={direction} onChange={(e) => setDirection(e.target.value as Direction)}>
           {DIRECTIONS.map((d) => <option key={d} value={d}>{t(`pick.dir.${d}`)}</option>)}

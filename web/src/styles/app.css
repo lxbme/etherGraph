@@ -825,6 +825,11 @@ a.btn { text-decoration: none; }
 .transfers__hash { padding: 0; color: var(--accent); background: none; border: 0; font-size: var(--fs-12); cursor: pointer; }
 .transfers__hash:hover { text-decoration: underline; }
 .transfers__more { margin: var(--sp-2) var(--sp-3); }
+.transfers__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--line); }
+.transfers__bar select { min-width: 0; max-width: 100%; }
+.transfers__time { left: 0; right: auto; gap: var(--sp-2); }
+.transfers__reset { padding: 0; color: var(--accent); background: none; border: 0; font-size: var(--fs-12); cursor: pointer; }
+.transfers__reset:hover { text-decoration: underline; }
 .transfers__group-head {
   display: flex;
   align-items: center;

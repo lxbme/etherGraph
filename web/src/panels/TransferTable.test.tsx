@@ -9,11 +9,13 @@ import { qk } from "../api/queryClient";
 import { graphQueryKey } from "../graph/useGraphData";
 import { useGraph } from "../graph/store";
 import { useTabs } from "../shell/tabs";
+import { useLocale } from "../i18n";
 import { useInfo } from "./info/infoStore";
 import { formatLocalTime } from "../lib/format";
 import { LiveConfirm } from "../views/SnapshotBanner";
 import { TransferTable } from "./TransferTable";
 import { groupsForPair } from "./transferGroups";
+import { useTransferFilter } from "./transferFilter";
 
 const A = "0x" + "aa".repeat(20);
 const B = "0x" + "bb".repeat(20);
@@ -47,6 +49,7 @@ function seedGraph(edges: EdgeDto[]) {
 beforeEach(() => {
   qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   useGraph.getState().reset();
+  useTransferFilter.getState().reset();
   useTabs.setState({ tabs: [{ id: "graph" }], active: "graph" });
 });
 afterEach(() => vi.restoreAllMocks());
@@ -89,19 +92,22 @@ test("node selection lists transfers and loads more with cursor", async () => {
   );
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderTable();
-  await screen.findByText("Out");
+  const table = await screen.findByRole("table");
+  expect(within(table).getByText("Out")).toBeInTheDocument();
   expect(spy).toHaveBeenCalledWith(expect.objectContaining({ address: A, limit: 50, cursor: undefined }));
   fireEvent.click(screen.getByRole("button", { name: "Load more" }));
-  await screen.findByText("In");
+  await within(table).findByText("In");
   expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ address: A, cursor: "c1" }));
   expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
 });
 
-test("carries over kinds, time and the single asset threshold", async () => {
+test("the global filter no longer narrows the node table", async () => {
   const spy = vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null });
   act(() => {
+    useGraph.getState().setCenters([A]);
     useGraph.getState().setFilter({
       kinds: ["erc20", "native"],
+      direction: "in",
       time: { from: "2024-01-01T00:00:00Z", to: "2024-02-01T00:00:00Z" },
       assets: [{ asset: USDC.toUpperCase().replace("0X", "0x"), min_amount: "100" }],
     });
@@ -109,70 +115,127 @@ test("carries over kinds, time and the single asset threshold", async () => {
   });
   renderTable();
   await screen.findByText("No matching transfers");
-  expect(spy).toHaveBeenCalledWith(
-    expect.objectContaining({
-      address: A, asset: USDC, minAmount: "100", kinds: ["erc20", "native"],
-      timeFrom: "2024-01-01T00:00:00Z", timeTo: "2024-02-01T00:00:00Z",
-    }),
-  );
+  const arg = spy.mock.calls[0]![0];
+  expect(arg.address).toBe(A);
+  for (const k of ["asset", "minAmount", "kinds", "timeFrom", "timeTo", "direction"] as const) expect(arg[k]).toBeUndefined();
 });
 
-describe("node scope direction (the filter's is relative to the centers)", () => {
-  const D = "0x" + "dd".repeat(20);
-  async function directionFor(selected: string, centers: string[], edges: EdgeDto[]) {
-    const spy = vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null });
-    act(() => {
-      useGraph.getState().setCenters(centers);
-      useGraph.getState().setFilter({ direction: "in" });
-      useGraph.getState().select({ kind: "node", address: selected });
-    });
-    seedGraph(edges);
-    renderTable();
-    await screen.findByText("No matching transfers");
-    return spy.mock.calls[0]![0];
-  }
-
-  test("a non-center node under Inbound is the sender: direction=out", async () => {
-    expect(await directionFor(D, [A], [edge({ from: D, to: A })])).toMatchObject({ address: D, direction: "out" });
-  });
-
-  test("a center keeps the filter direction", async () => {
-    expect(await directionFor(A, [A], [edge({ from: D, to: A })])).toMatchObject({ address: A, direction: "in" });
-  });
-
-  test("a center adjacent to another center sends no direction", async () => {
-    const arg = await directionFor(A, [A, B], [edge({ from: D, to: A }), edge({ from: A, to: B })]);
-    expect(arg.address).toBe(A);
-    expect(arg.direction).toBeUndefined();
-  });
-});
-
-test("node scope with several filtered assets renders one section per asset", async () => {
+test("the bar's asset and time reach the query", async () => {
   const spy = vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null });
   act(() => {
-    useGraph.getState().addCenter(A);
-    useGraph.getState().setFilter({ direction: "out", assets: [{ asset: null, min_amount: "1" }, { asset: USDC.toUpperCase().replace("0X", "0x") }] });
+    useGraph.getState().setCenters([A]);
+    useGraph.getState().select({ kind: "node", address: A });
+  });
+  seedGraph([edge({}), edge({ from: B, to: A, asset: USDC, asset_kind: "erc20", decimals: 6, symbol: "USDC" })]);
+  renderTable();
+  await screen.findByText("No matching transfers");
+  const asset = screen.getByRole("combobox", { name: "Asset" });
+  // All assets, then the listed group: ETH first, then the edge's token.
+  expect(within(asset).getAllByRole("option").map((o) => o.textContent)).toEqual(["All assets", "ETH", "USDC · 0xa0b8…eb48"]);
+  expect(asset.querySelector("optgroup")).toHaveAttribute("label", "On token lists (2)");
+  expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+
+  fireEvent.change(asset, { target: { value: USDC } });
+  fireEvent.click(screen.getByRole("button", { name: "All time" }));
+  const from = screen.getByLabelText("From (UTC)");
+  const to = screen.getByLabelText("To (UTC)");
+  fireEvent.change(from, { target: { value: "2022-03-23" } });
+  fireEvent.change(to, { target: { value: "2022-03-31" } });
+  expect(to).toHaveAttribute("min", "2022-03-23");
+  expect(from).toHaveAttribute("max", "2022-03-31");
+  fireEvent.change(screen.getByRole("combobox", { name: "Direction" }), { target: { value: "in" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "Type" }), { target: { value: "erc20" } });
+  await waitFor(() =>
+    expect(spy).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        address: A, asset: USDC, direction: "in", kinds: ["erc20"],
+        timeFrom: "2022-03-23T00:00:00Z", timeTo: "2022-03-31T23:59:59Z",
+      }),
+    ),
+  );
+  expect(screen.getByRole("button", { name: "2022-03-23 – 2022-03-31" })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+  expect(screen.getByRole("button", { name: "All time" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Reset" }));
+  expect(screen.queryByRole("button", { name: "Reset" })).toBeNull();
+  expect(useTransferFilter.getState()).toMatchObject({ from: null, to: null, asset: undefined, direction: "all", kind: "all" });
+  expect(screen.getByRole("combobox", { name: "Asset" })).toHaveValue("");
+  // Back to the first, unfiltered query (cached, so no new request).
+  expect(spy.mock.calls.every((c) => c[0].address === A)).toBe(true);
+  expect(spy.mock.calls[0]![0]).toEqual({ address: A, limit: 50, cursor: undefined });
+});
+
+test("the filter survives selecting another node", async () => {
+  const spy = vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null });
+  act(() => {
+    useGraph.getState().setCenters([A]);
     useGraph.getState().select({ kind: "node", address: A });
   });
   seedGraph([edge({})]);
   renderTable();
-  const sections = await screen.findAllByTestId("transfer-group");
-  expect(sections).toHaveLength(2);
-  expect(sections[0]).toHaveTextContent("ETH");
-  expect(sections[0]).toHaveTextContent("≥ 1");
-  // The first section starts open.
-  await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
-  expect(spy.mock.calls[0]![0]).toMatchObject({ address: A, direction: "out", asset: null, minAmount: "1" });
-  fireEvent.click(sections[1]!.querySelector("button")!);
-  await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
-  const second = spy.mock.calls[1]![0];
-  expect(second).toMatchObject({ address: A, direction: "out", asset: USDC });
-  expect(second.minAmount).toBeUndefined();
+  await screen.findByText("No matching transfers");
+  fireEvent.change(screen.getByRole("combobox", { name: "Asset" }), { target: { value: "eth" } });
+  await waitFor(() => expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ address: A, asset: null })));
+  act(() => useGraph.getState().select({ kind: "node", address: B }));
+  await waitFor(() => expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ address: B, asset: null })));
+  expect(screen.getByRole("combobox", { name: "Asset" })).toHaveValue("eth");
+});
+
+test("pair scope hides groups of other assets and passes time to rows", async () => {
+  const spy = vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null });
+  act(() => {
+    useGraph.getState().addCenter(A);
+    useGraph.getState().select({ kind: "pair", a: A, b: B });
+  });
+  seedGraph([
+    edge({ count: 9 }),
+    edge({ from: B, to: A, asset: USDC, asset_kind: "erc20", count: 7, sum: "5000000", decimals: 6, symbol: "USDC" }),
+  ]);
+  renderTable();
+  expect(await screen.findAllByTestId("transfer-group")).toHaveLength(2);
+  // No direction in pair scope: each group already has one.
+  expect(screen.queryByRole("combobox", { name: "Direction" })).toBeNull();
+  act(() => useTransferFilter.getState().set({ asset: USDC, from: "2024-01-01", kind: "erc20" }));
+  const groups = screen.getAllByTestId("transfer-group");
+  expect(groups).toHaveLength(1);
+  expect(groups[0]).toHaveTextContent("USDC");
+  await waitFor(() =>
+    expect(spy).toHaveBeenLastCalledWith(
+      expect.objectContaining({ from: B, to: A, asset: USDC, timeFrom: "2024-01-01T00:00:00Z", kinds: ["erc20"] }),
+    ),
+  );
+  const arg = spy.mock.lastCall![0];
+  expect(arg.direction).toBeUndefined();
+  expect(arg.minAmount).toBeUndefined();
+});
+
+test("the bar shows no caption text", async () => {
+  vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null });
+  act(() => useLocale.getState().setLocale("zh"));
+  try {
+    act(() => {
+      useGraph.getState().setCenters([A]);
+      useGraph.getState().setFilter({ assets: [{ asset: null }] });
+      useGraph.getState().select({ kind: "node", address: A });
+    });
+    seedGraph([edge({})]);
+    renderTable();
+    const bar = screen.getByRole("toolbar");
+    act(() => useTransferFilter.getState().set({ from: "2024-01-01", kind: "native" }));
+    const controls = [...bar.querySelectorAll("button, select")].map((c) => c.textContent).join("");
+    expect(bar.textContent).toBe(controls);
+    expect(within(bar).getByRole("button", { name: "重置" })).toBeInTheDocument();
+    expect(screen.queryByText(/全局/)).toBeNull();
+  } finally {
+    act(() => useLocale.getState().setLocale("en"));
+  }
 });
 
 test("pair selection renders collapsible groups with header totals", async () => {
   const spy = vi.spyOn(api, "transfers").mockResolvedValue({ items: [tr({})], next_cursor: null });
   act(() => {
+    // The global filter's threshold no longer reaches the rows.
     useGraph.getState().setFilter({ assets: [{ asset: null, min_amount: "0.5" }] });
     useGraph.getState().addCenter(A);
     useGraph.getState().select({ kind: "pair", a: A, b: B });
@@ -191,7 +254,8 @@ test("pair selection renders collapsible groups with header totals", async () =>
   expect(spy.mock.calls[0]![0].minAmount).toBeUndefined();
   fireEvent.click(ethHead);
   await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
-  expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ from: A, to: B, asset: null, minAmount: "0.5" }));
+  expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ from: A, to: B, asset: null }));
+  expect(spy.mock.lastCall![0].minAmount).toBeUndefined();
   fireEvent.click(usdcHead);
   expect(usdcHead).toHaveAttribute("aria-expanded", "false");
 });
@@ -210,7 +274,7 @@ test("clicking a row sets highlightTransfer and clicking again clears it", async
   vi.spyOn(api, "transfers").mockResolvedValue({ items: [tr({ asset: USDC, kind: "erc20" })], next_cursor: null });
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderTable();
-  const row = (await screen.findByText("Out")).closest("tr")!;
+  const row = (await screen.findAllByTestId("transfer-row"))[0]!;
   fireEvent.click(row);
   expect(useGraph.getState().highlightTransfer).toEqual({ from: A, to: B, asset: USDC });
   fireEvent.click(row);
@@ -275,10 +339,11 @@ test("the type column uses the same labels as the kind filter", async () => {
   });
   act(() => useGraph.getState().select({ kind: "node", address: A }));
   renderTable();
-  expect(await screen.findByText("Native transfers")).toHaveClass("transfers__muted");
-  expect(screen.getByText("Internal transactions")).toBeInTheDocument();
-  expect(screen.getByText("ERC20")).toBeInTheDocument();
-  expect(screen.queryByText("native")).toBeNull();
+  const table = await screen.findByRole("table");
+  expect(within(table).getByText("Native transfers")).toHaveClass("transfers__muted");
+  expect(within(table).getByText("Internal transactions")).toBeInTheDocument();
+  expect(within(table).getByText("ERC20")).toBeInTheDocument();
+  expect(within(table).queryByText("native")).toBeNull();
 });
 
 test("clicking the asset cell opens the asset in the info panel without selecting the row", async () => {

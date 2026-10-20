@@ -4,11 +4,9 @@ import { useState } from "react";
 import { api, type TransfersParams } from "../api/endpoints";
 import { messageFor } from "../api/errors";
 import type { EdgeDto } from "../api/generated/EdgeDto";
-import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
 import type { TransferDto } from "../api/generated/TransferDto";
 import { qk } from "../api/queryClient";
 import { useT } from "../i18n";
-import { useAssetRegistry } from "../graph/assetRegistry";
 import { graphSelection, useGraph } from "../graph/store";
 import { useGraphData } from "../graph/useGraphData";
 import { shortAddr } from "../lib/address";
@@ -19,31 +17,14 @@ import { transferKindName } from "../lib/transferKinds";
 import { useTabs } from "../shell/tabs";
 import { AssetButton } from "./info/AssetButton";
 import { TrustBadge } from "./info/TrustBadge";
+import { TransferFilterBar } from "./TransferFilterBar";
+import { transferParams, useTransferFilter } from "./transferFilter";
 import { TruncationBanner } from "./TruncationBanner";
 import { UnknownDecimals } from "./UnknownDecimals";
 import { groupsForPair, type TransferGroup } from "./transferGroups";
 import { useRefreshFromChain } from "../workspace/snapshot";
 
 const PAGE_SIZE = 50;
-
-/** Normalizes a filter asset ("eth" / null / undefined -> null, else lowercase address). */
-function normAsset(a: string | null | undefined): string | null {
-  return a == null || a.toLowerCase() === "eth" ? null : a.toLowerCase();
-}
-
-function thresholdFor(filter: EdgeFilterDto, asset: string | null): string | undefined {
-  const hit = filter.assets?.find((e) => normAsset(e.asset) === asset);
-  return hit?.min_amount ?? undefined;
-}
-
-/** Filter carry-over shared by every scope (kinds, time). */
-function baseParams(filter: EdgeFilterDto): TransfersParams {
-  return {
-    kinds: filter.kinds ?? undefined,
-    timeFrom: filter.time?.from ?? undefined,
-    timeTo: filter.time?.to ?? undefined,
-  };
-}
 
 function symbolOf(asset: string | null, symbol: string | null): string {
   return symbol ?? (asset === null ? "ETH" : shortAddr(asset));
@@ -180,13 +161,14 @@ function GroupSection({
   group,
   open,
   onToggle,
-  filter,
+  params,
   selected,
 }: {
   group: TransferGroup;
   open: boolean;
   onToggle: () => void;
-  filter: EdgeFilterDto;
+  /** The bar's time and type, for every group. */
+  params: TransfersParams;
   selected: string;
 }) {
   const t = useT();
@@ -209,25 +191,21 @@ function GroupSection({
       {open && (
         <TransferRows
           selected={selected}
-          params={{
-            ...baseParams(filter),
-            from: group.from,
-            to: group.to,
-            asset: group.asset,
-            minAmount: thresholdFor(filter, group.asset),
-          }}
+          params={{ ...params, from: group.from, to: group.to, asset: group.asset }}
         />
       )}
     </section>
   );
 }
 
-function PairGroups({ a, b }: { a: string; b: string }) {
-  const filter = useGraph((s) => s.filter);
-  const { data } = useGraphData();
+/** The pair's (direction, asset) groups; the bar's asset hides the others, its time and type narrow the rows. */
+function PairGroups({ a, b, edges }: { a: string; b: string; edges: EdgeDto[] }) {
+  const filter = useTransferFilter();
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const t = useT();
-  const groups = groupsForPair(data?.edges ?? [], a, b);
+  const groups = groupsForPair(edges, a, b).filter((g) => filter.asset === undefined || g.asset === filter.asset);
+  // Each group has its own direction and asset.
+  const params = transferParams({ ...filter, asset: undefined, direction: "all" });
   if (groups.length === 0) return <div className="transfers__msg">{t("transfers.empty")}</div>;
   return (
     <>
@@ -237,7 +215,7 @@ function PairGroups({ a, b }: { a: string; b: string }) {
           group={g}
           open={open[g.key] ?? i === 0}
           onToggle={() => setOpen((o) => ({ ...o, [g.key]: !(o[g.key] ?? i === 0) }))}
-          filter={filter}
+          params={params}
           selected={a}
         />
       ))}
@@ -245,120 +223,62 @@ function PairGroups({ a, b }: { a: string; b: string }) {
   );
 }
 
-/** Node scope with two or more filtered assets: one collapsible section per asset, each with its threshold. */
-function AssetSections({ address, filter, direction }: { address: string; filter: EdgeFilterDto; direction: Dir }) {
-  const known = useAssetRegistry((r) => r.assets);
-  const [open, setOpen] = useState<Record<string, boolean>>({});
-  const assets = [...new Set((filter.assets ?? []).map((f) => normAsset(f.asset)))];
-  return (
-    <>
-      {assets.map((asset, i) => {
-        const key = asset ?? "eth";
-        const isOpen = open[key] ?? i === 0;
-        const min = thresholdFor(filter, asset);
-        const symbol = symbolOf(asset, asset === null ? "ETH" : known[asset]?.symbol ?? null);
-        return (
-          <section key={key} className="transfers__group" data-testid="transfer-group">
-            <button
-              type="button"
-              className="transfers__group-head"
-              aria-expanded={isOpen}
-              onClick={() => setOpen((o) => ({ ...o, [key]: !isOpen }))}
-            >
-              {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              <span>
-                {symbol}
-                {min !== undefined ? ` · ≥ ${min}` : ""}
-              </span>
-              {asset !== null && known[asset] && <TrustBadge trust={known[asset].trust} />}
-            </button>
-            {isOpen && (
-              <TransferRows
-                selected={address}
-                params={{ ...nodeParams(filter, address, direction), asset, minAmount: min }}
-              />
-            )}
-          </section>
-        );
-      })}
-    </>
-  );
-}
-
-type Dir = TransfersParams["direction"];
-
-/**
- * The filter's direction is relative to the centers, the transfer query's to the selected node. A center
- * keeps it; any other node sits on the far side of the canvas edges, so it flips. A center adjacent to
- * another center shows edges on both sides of it (into it and into the other center), so no direction.
- */
-export function nodeDirection(dir: EdgeFilterDto["direction"], address: string, centers: string[], edges: EdgeDto[]): Dir {
-  if (dir !== "in" && dir !== "out") return undefined;
-  const a = address.toLowerCase();
-  const cs = new Set(centers.map((c) => c.toLowerCase()));
-  if (!cs.has(a)) return dir === "in" ? "out" : "in";
-  const touchesCenter = edges.some((e) => {
+/** The graph edges touching a node, or running between a pair in either direction. */
+function edgesTouching(edges: EdgeDto[], sel: { kind: "node"; address: string } | { kind: "pair"; a: string; b: string }): EdgeDto[] {
+  if (sel.kind === "node") {
+    const a = sel.address.toLowerCase();
+    return edges.filter((e) => e.from.toLowerCase() === a || e.to.toLowerCase() === a);
+  }
+  const x = sel.a.toLowerCase();
+  const y = sel.b.toLowerCase();
+  return edges.filter((e) => {
     const f = e.from.toLowerCase();
     const t = e.to.toLowerCase();
-    return (f === a && t !== a && cs.has(t)) || (t === a && f !== a && cs.has(f));
+    return (f === x && t === y) || (f === y && t === x);
   });
-  return touchesCenter ? undefined : dir;
-}
-
-/** Address-scope params: the shared carry-over plus the canvas-matching direction. */
-function nodeParams(filter: EdgeFilterDto, address: string, direction: Dir): TransfersParams {
-  return { ...baseParams(filter), address, direction };
 }
 
 export function TransferTable() {
   const selection = useGraph((s) => graphSelection(s.selection));
-  const filter = useGraph((s) => s.filter);
-  const centers = useGraph((s) => s.centers);
   const frozen = useGraph((s) => s.frozen !== null);
+  const filter = useTransferFilter();
   const { data } = useGraphData();
   const refreshFromChain = useRefreshFromChain();
   const t = useT();
 
-  let body;
-  let banner = null;
   if (!selection) {
-    body = <div className="transfers__msg">{t("transfers.select")}</div>;
-  } else if (frozen) {
+    return <div className="transfers"><div className="transfers__msg">{t("transfers.select")}</div></div>;
+  }
+  if (frozen) {
     // A snapshot carries edges, not single transfers; the receiver's own rows would not match its edges.
-    body = (
-      <div className="transfers__msg">
-        {t("transfers.snapshot")}{" "}
-        <button type="button" className="btn btn--compact" onClick={refreshFromChain}>
-          {t("snapshot.refresh")}
-        </button>
+    return (
+      <div className="transfers">
+        <div className="transfers__msg">
+          {t("transfers.snapshot")}{" "}
+          <button type="button" className="btn btn--compact" onClick={refreshFromChain}>
+            {t("snapshot.refresh")}
+          </button>
+        </div>
       </div>
     );
-  } else if (selection.kind === "node") {
+  }
+  const edges = data?.edges ?? [];
+  let banner = null;
+  let body;
+  if (selection.kind === "node") {
     const sel = selection.address.toLowerCase();
     const coverage = Object.entries(data?.coverage ?? {}).find(([a]) => a.toLowerCase() === sel)?.[1] ?? [];
     banner = <TruncationBanner address={selection.address} coverage={coverage} forGraph />;
-    const n = filter.assets?.length ?? 0;
-    const direction = nodeDirection(filter.direction, selection.address, centers, data?.edges ?? []);
-    if (n >= 2) {
-      body = (
-        <AssetSections
-          key={`${selection.address}|${direction}|${JSON.stringify(filter)}`}
-          address={selection.address}
-          filter={filter}
-          direction={direction}
-        />
-      );
-    } else {
-      const params = nodeParams(filter, selection.address, direction);
-      if (n === 1) {
-        const only = normAsset(filter.assets![0]!.asset);
-        params.asset = only;
-        params.minAmount = thresholdFor(filter, only);
-      }
-      body = <TransferRows key={JSON.stringify(params)} params={params} selected={selection.address} />;
-    }
+    const params: TransfersParams = { address: selection.address, ...transferParams(filter) };
+    body = <TransferRows key={JSON.stringify(params)} params={params} selected={selection.address} />;
   } else {
-    body = <PairGroups key={`${selection.a}|${selection.b}`} a={selection.a} b={selection.b} />;
+    body = <PairGroups key={`${selection.a}|${selection.b}`} a={selection.a} b={selection.b} edges={edges} />;
   }
-  return <div className="transfers">{banner}{body}</div>;
+  return (
+    <div className="transfers">
+      <TransferFilterBar edges={edgesTouching(edges, selection)} pair={selection.kind === "pair"} />
+      {banner}
+      {body}
+    </div>
+  );
 }
