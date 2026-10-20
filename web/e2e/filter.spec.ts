@@ -46,7 +46,13 @@ test("with 40 assets the filter keeps Apply on screen; search, listed group and 
   const group = dialog.getByRole("button", { name: "Other tokens (40)" });
   await expect(group).toHaveAttribute("aria-expanded", "false");
   await group.click();
+  // With the long list open, Apply is still on screen and the body (not the popover) scrolls.
+  const openBox = (await apply.boundingBox())!;
+  expect(openBox.y).toBeGreaterThanOrEqual(0);
+  expect(openBox.y + openBox.height).toBeLessThanOrEqual(768);
+  expect(openBox.x + openBox.width).toBeLessThanOrEqual(1366);
   expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  expect(await dialog.evaluate((el) => el.scrollHeight <= el.clientHeight)).toBe(true);
   await dialog.getByRole("searchbox", { name: "Search assets" }).fill("usdt");
   await expect(dialog.getByRole("checkbox", { name: "USDT" })).toHaveCount(9);
   await expect(dialog.getByText("On token lists (1)")).toBeVisible();
