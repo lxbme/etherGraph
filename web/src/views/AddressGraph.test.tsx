@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import type cytoscape from "cytoscape";
 import { api } from "../api/endpoints";
 import { ApiError } from "../api/errors";
+import { qk } from "../api/queryClient";
 import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
@@ -723,7 +724,7 @@ describe("a frozen (snapshot) graph", () => {
       </QueryClientProvider>,
     );
     act(() => props().onReady?.(fakeCy().cy));
-    return r;
+    return { ...r, qc };
   }
 
   const SYNC_NOTE = "This syncs 1 center never synced here (about 6 calls).";
@@ -804,9 +805,9 @@ describe("a frozen (snapshot) graph", () => {
 
   test("the banner's Refresh from chain goes live at once when every center is synced here, syncing nothing", async () => {
     vi.mocked(api.nodes).mockResolvedValue([node(A, true)]);
-    mountFrozen();
-    await waitFor(() => expect(api.nodes).toHaveBeenCalled());
-    await act(async () => {});
+    const { qc } = mountFrozen();
+    // The receiver's summaries of the centers are in: the refresh is known to sync nothing.
+    await waitFor(() => expect(qc.getQueryData(qk.nodes([A]))).toBeDefined());
     fireEvent.click(screen.getByRole("button", { name: "Refresh from chain" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(useGraph.getState().frozen).toBeNull();

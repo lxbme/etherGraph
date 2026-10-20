@@ -5,11 +5,13 @@ import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { TransferDto } from "../api/generated/TransferDto";
 import { ApiError } from "../api/errors";
+import { qk } from "../api/queryClient";
 import { graphQueryKey } from "../graph/useGraphData";
 import { useGraph } from "../graph/store";
 import { useTabs } from "../shell/tabs";
 import { useInfo } from "./info/infoStore";
 import { formatLocalTime } from "../lib/format";
+import { LiveConfirm } from "../views/SnapshotBanner";
 import { TransferTable } from "./TransferTable";
 import { groupsForPair } from "./transferGroups";
 
@@ -328,7 +330,13 @@ describe("a frozen (snapshot) graph", () => {
     ["a pair", { kind: "pair" as const, a: A, b: B }],
   ])("%s: no transfers request, a hint; Refresh from chain loads them", async (_, sel) => {
     const spy = vi.spyOn(api, "transfers").mockResolvedValue({ items: [tr({})], next_cursor: null });
-    vi.spyOn(api, "nodes").mockResolvedValue([]);
+    // A is synced here: refreshing syncs nothing, so it goes live at once.
+    vi.spyOn(api, "nodes").mockResolvedValue([
+      {
+        address: A, kind: "eoa", display_name: null, ens: null, contract_name: null, labels: [],
+        partial: false, syncing: false, synced: true, hot: false, identified: true, nonce: null, balance: null,
+      },
+    ]);
     vi.spyOn(api, "graphEdges").mockResolvedValue({ nodes: [], edges: [edge({})], omitted: {}, coverage: {} });
     act(() => {
       useGraph.getState().setCenters([A]);
@@ -338,9 +346,35 @@ describe("a frozen (snapshot) graph", () => {
     renderTable();
     expect(screen.getByText(HINT)).toBeInTheDocument();
     expect(spy).not.toHaveBeenCalled();
+    // The receiver's summaries of the centers are in: the refresh is known to sync nothing.
+    await waitFor(() => expect(qc.getQueryData(qk.nodes([A]))).toBeDefined());
     fireEvent.click(screen.getByRole("button", { name: "Refresh from chain" }));
     expect(useGraph.getState().frozen).toBeNull();
     await waitFor(() => expect(spy).toHaveBeenCalled());
     expect(screen.queryByText(HINT)).toBeNull();
+  });
+
+  test("Refresh from chain asks first (with the count and calls) when a center was never synced here", async () => {
+    vi.spyOn(api, "nodes").mockResolvedValue([]);
+    const sync = vi.spyOn(api, "sync");
+    act(() => {
+      useGraph.getState().setCenters([A]);
+      freeze();
+      useGraph.getState().select({ kind: "node", address: A });
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <TransferTable />
+        <LiveConfirm />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Refresh from chain" }));
+    const dialog = screen.getByRole("dialog", { name: "Refresh from chain" });
+    expect(await within(dialog).findByText("This syncs 1 center never synced here (about 6 calls).")).toBeInTheDocument();
+    expect(useGraph.getState().frozen).not.toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(useGraph.getState().frozen).not.toBeNull();
+    expect(sync).not.toHaveBeenCalled();
   });
 });

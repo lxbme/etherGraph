@@ -2,7 +2,7 @@ import { SHALLOW_CALLS } from "../graph/budget";
 import { useGraph } from "../graph/store";
 import { useT } from "../i18n";
 import { formatLocalTime, formatTime } from "../lib/format";
-import { useRefreshSyncCount } from "../workspace/snapshot";
+import { useRefreshFromChain, useRefreshSyncCount } from "../workspace/snapshot";
 
 /** The bar above a snapshot (frozen) view's canvas: when the file was exported, and the way back to live data. */
 export function SnapshotBanner({ exportedAt, onRefresh }: { exportedAt: string; onRefresh: () => void }) {
@@ -23,9 +23,8 @@ export function SnapshotBanner({ exportedAt, onRefresh }: { exportedAt: string; 
  */
 export function GraphSnapshotBanner() {
   const exportedAt = useGraph((s) => s.frozen?.exported_at ?? null);
-  const syncs = useRefreshSyncCount();
+  const refresh = useRefreshFromChain();
   if (exportedAt === null) return null;
-  const refresh = () => (syncs === 0 ? useGraph.getState().unfreeze() : useGraph.getState().guardLive(() => {}));
   return <SnapshotBanner exportedAt={exportedAt} onRefresh={refresh} />;
 }
 

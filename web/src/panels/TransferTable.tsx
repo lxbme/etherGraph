@@ -20,6 +20,7 @@ import { useTabs } from "../shell/tabs";
 import { AssetButton } from "./info/AssetButton";
 import { TrustBadge } from "./info/TrustBadge";
 import { groupsForPair, type TransferGroup } from "./transferGroups";
+import { useRefreshFromChain } from "../workspace/snapshot";
 
 const PAGE_SIZE = 50;
 
@@ -322,6 +323,7 @@ export function TransferTable() {
   const centers = useGraph((s) => s.centers);
   const frozen = useGraph((s) => s.frozen !== null);
   const { data } = useGraphData();
+  const refreshFromChain = useRefreshFromChain();
   const t = useT();
 
   let body;
@@ -332,7 +334,7 @@ export function TransferTable() {
     body = (
       <div className="transfers__msg">
         {t("transfers.snapshot")}{" "}
-        <button type="button" className="btn btn--compact" onClick={() => useGraph.getState().unfreeze()}>
+        <button type="button" className="btn btn--compact" onClick={refreshFromChain}>
           {t("snapshot.refresh")}
         </button>
       </div>

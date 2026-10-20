@@ -146,6 +146,16 @@ export function useRefreshSyncCount(): number | null {
 }
 
 /**
+ * "Refresh from chain" for the snapshot graph (the banner, the transfers table): goes live at once when that syncs no
+ * center; otherwise (or while the count is not known yet) asks first with the refresh confirm, which says how many
+ * centers and calls. Never call `unfreeze()` directly from a button: the confirm is the click that pays for the syncs.
+ */
+export function useRefreshFromChain(): () => void {
+  const syncs = useRefreshSyncCount();
+  return () => (syncs === 0 ? useGraph.getState().unfreeze() : useGraph.getState().guardLive(() => {}));
+}
+
+/**
  * Going live from a snapshot graph (the user confirmed "Refresh from chain"): shallow-syncs, as one batch, the centers
  * the receiver has never synced and is not syncing. Synced centers are not re-synced. Never `sync=auto`.
  */
