@@ -2,6 +2,8 @@ import cytoscape from "cytoscape";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { api } from "../api/endpoints";
 import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
+import { txCallsView, txFlowView, type Annotation } from "../annotate/model";
+import { useAnnotations } from "../annotate/store";
 import { useCanvasMetrics } from "../graph/canvasMetrics";
 import { getCallCy, getTxCy } from "../graph/cyRegistry";
 import { useGraph } from "../graph/store";
@@ -74,6 +76,7 @@ beforeEach(() => {
   vi.mocked(getCallCy).mockReturnValue(null);
   useCanvasMetrics.getState().set({ width: 960, height: 576, visible: 0 });
   g().reset();
+  useAnnotations.getState().reset();
   useTabs.setState({ tabs: FIXED, active: "graph" });
   useWorkspace.getState().clear();
 });
@@ -391,5 +394,75 @@ describe("new workspace", () => {
     newWorkspace();
     expect(useTabs.getState()).toEqual(expect.objectContaining({ tabs: FIXED, active: "graph" }));
     expect(useWorkspace.getState().dirty).toBe(false);
+  });
+});
+
+describe("annotations", () => {
+  const note = (id: string, over: Partial<Annotation> = {}): Annotation => ({
+    id, kind: "rect", color: "amber", x1: 0, y1: 0, x2: 10, y2: 10, ...over,
+  });
+
+  test("graph and tx annotations round-trip", async () => {
+    useTabs.setState({ tabs: [...FIXED, txTab(H1)], active: "graph" });
+    const n = useAnnotations.getState();
+    n.add("graph", note("g1"));
+    n.add(txFlowView(H1), note("f1", { kind: "text", text: "a\nb" }));
+    n.add(txCallsView(H1), note("c1", { kind: "arrow" }));
+    const saved = json(captureState());
+    expect(saved.graph.annotations).toEqual([note("g1")]);
+    expect(saved.tabs[0]!.annotations).toEqual([note("f1", { kind: "text", text: "a\nb" })]);
+    expect(saved.tabs[0]!.call_annotations).toEqual([note("c1", { kind: "arrow" })]);
+    expect(deserialize(saved, 2)).toEqual({ ok: true, state: saved });
+
+    useAnnotations.getState().reset();
+    newWorkspace();
+    m.workspace.mockResolvedValue(dto({ state: saved as never }));
+    await loadWorkspace(7);
+    expect(useAnnotations.getState().byView).toEqual({
+      graph: [note("g1")],
+      [txFlowView(H1)]: [note("f1", { kind: "text", text: "a\nb" })],
+      [txCallsView(H1)]: [note("c1", { kind: "arrow" })],
+    });
+    expect(useAnnotations.getState().canUndo("graph")).toBe(false);
+    // Loading leaves the workspace clean; a change after it does not.
+    expect(useWorkspace.getState().dirty).toBe(false);
+    useAnnotations.getState().update("graph", "g1", { x2: 99 });
+    expect(useWorkspace.getState().dirty).toBe(true);
+  });
+
+  test("older workspaces load with none, and invalid entries are dropped", () => {
+    const plain = json({ graph: v1(), tabs: [{ hash: H1 }], active: H1 });
+    const r = deserialize(plain, 2);
+    expect(r.ok && r.state.graph).not.toHaveProperty("annotations");
+    expect(r.ok && r.state.tabs[0]).toEqual({ hash: H1 });
+    expect(captureState().graph).not.toHaveProperty("annotations");
+
+    const mixed = json({
+      graph: { ...v1(), annotations: [note("ok"), { id: "x", kind: "rect" }] },
+      tabs: [{ hash: H1, annotations: [{ bogus: true }], call_annotations: [note("c")] }],
+      active: H1,
+    });
+    const d = deserialize(mixed, 2);
+    expect(d.ok && d.state.graph.annotations).toEqual([note("ok")]);
+    expect(d.ok && d.state.tabs[0]).toEqual({ hash: H1, call_annotations: [note("c")] });
+  });
+
+  test("call annotations survive while the call graph is unmounted", () => {
+    // No call canvas is registered (the flow shows); the store still holds the call annotations.
+    expect(getCallCy(H1)).toBeNull();
+    useTabs.setState({ tabs: [...FIXED, txTab(H1, { view: "flow" })], active: H1 });
+    useAnnotations.getState().add(txCallsView(H1), note("c1"));
+    expect(captureState().tabs[0]!.call_annotations).toEqual([note("c1")]);
+  });
+
+  test("closing a tx tab drops its views, and a new workspace resets all", () => {
+    useTabs.setState({ tabs: [...FIXED, txTab(H1)], active: H1 });
+    useAnnotations.getState().add(txFlowView(H1), note("f"));
+    useAnnotations.getState().add(txCallsView(H1), note("c"));
+    useAnnotations.getState().add("graph", note("g"));
+    useTabs.getState().close(H1);
+    expect(Object.keys(useAnnotations.getState().byView)).toEqual(["graph"]);
+    newWorkspace();
+    expect(useAnnotations.getState().byView).toEqual({});
   });
 });

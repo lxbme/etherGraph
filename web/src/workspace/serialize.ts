@@ -1,3 +1,4 @@
+import { isAnnotation, type Annotation } from "../annotate/model";
 import { t } from "../i18n";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
 import type { HiddenTransfer } from "../graph/hiddenTransfers";
@@ -22,6 +23,8 @@ export interface WorkspaceStateV1 {
   hidden_proxies?: string[];
   /** Transfers hidden on the Data tab. Absent when none is, and in older states. */
   hidden_transfers?: HiddenTransfer[];
+  /** Canvas annotations on the address graph. Absent when there are none, and in older states. */
+  annotations?: Annotation[];
   viewport: { zoom: number; pan: { x: number; y: number } };
 }
 
@@ -37,6 +40,10 @@ export interface TxTabStateV2 {
   viewport?: Viewport;
   /** Call-graph node positions. Absent when the call graph was never drawn or moved, and in older states. */
   call_positions?: Record<string, Pos>;
+  /** Annotations on the flow graph. Absent when there are none, and in older states. */
+  annotations?: Annotation[];
+  /** Annotations on the call graph. Absent when there are none, and in older states. */
+  call_annotations?: Annotation[];
   snapshot?: TxSnapshot;
 }
 
@@ -148,6 +155,21 @@ const isHiddenTransfer = (v: unknown): v is HiddenTransfer =>
   isStr(v.ts) &&
   isStr(v.kind) && TRANSFER_KINDS.includes(v.kind);
 
+/** The valid annotations of a saved list (invalid entries dropped); undefined when none is left. */
+function validAnnotations(v: unknown): Annotation[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const list = v.filter(isAnnotation).map((a) => ({ ...a }));
+  return list.length > 0 ? list : undefined;
+}
+
+/** `tab` with its annotation fields validated: invalid entries dropped, empty lists removed. */
+function withValidAnnotations<T extends { annotations?: unknown; call_annotations?: unknown }>(tab: T): T {
+  const { annotations, call_annotations, ...rest } = tab;
+  const a = validAnnotations(annotations);
+  const c = validAnnotations(call_annotations);
+  return { ...rest, ...(a ? { annotations: a } : {}), ...(c ? { call_annotations: c } : {}) } as T;
+}
+
 type Parsed<T> = { ok: true; state: T } | { ok: false; reason: string };
 const bad = (reason: string) => ({ ok: false as const, reason });
 
@@ -177,7 +199,7 @@ export function deserialize(v: unknown, schemaVersion: number): Parsed<Workspace
       return bad(t("ws.err.field", { field: "call_positions" }));
     }
     if (tab.snapshot !== undefined && !isTxSnapshot(tab.snapshot)) return bad(t("ws.err.field", { field: "snapshot" }));
-    tabs.push({ ...(tab as unknown as TxTabStateV2), hash });
+    tabs.push(withValidAnnotations({ ...(tab as unknown as TxTabStateV2), hash }));
   }
   const active = isStr(v.active) ? lc(v.active) : null;
   if (active === null || (active !== "graph" && active !== "data" && !tabs.some((x) => x.hash === active))) {
@@ -234,5 +256,5 @@ function deserializeGraph(v: unknown): Parsed<WorkspaceStateV1 & { snapshot?: Gr
     for (const [k, p] of Object.entries(v.proxies as Record<string, Pos>)) next.proxies[lc(k)] = p;
   }
   if (v.hidden_proxies !== undefined) next.hidden_proxies = (v.hidden_proxies as string[]).map(lc);
-  return { ok: true, state: next };
+  return { ok: true, state: withValidAnnotations(next) };
 }

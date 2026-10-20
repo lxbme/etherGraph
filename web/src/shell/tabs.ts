@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { txCallsView, txFlowView } from "../annotate/model";
+import { useAnnotations } from "../annotate/store";
 import type { Pos } from "../graph/store";
 import type { Viewport } from "../workspace/serialize";
 import type { TxSnapshot } from "../workspace/snapshot";
@@ -87,6 +89,8 @@ export const useTabs = create<TabsState>((set, get) => ({
     if (idx < 0 || tabs[idx]!.kind !== "tx") return;
     const next = tabs.filter((t) => t.id !== id);
     set({ tabs: next, active: active === id ? (next[idx - 1] ?? next[0])!.id : active });
+    useAnnotations.getState().dropView(txFlowView(id));
+    useAnnotations.getState().dropView(txCallsView(id));
   },
   activate: (id) => {
     if (get().tabs.some((t) => t.id === id)) set({ active: id });
@@ -127,7 +131,14 @@ export const useTabs = create<TabsState>((set, get) => ({
       }),
     }));
   },
-  closeAllTx: () => set({ tabs: fixedTabs(), active: "graph" }),
+  closeAllTx: () => {
+    for (const t of get().tabs) {
+      if (t.kind !== "tx") continue;
+      useAnnotations.getState().dropView(txFlowView(t.hash));
+      useAnnotations.getState().dropView(txCallsView(t.hash));
+    }
+    set({ tabs: fixedTabs(), active: "graph" });
+  },
 }));
 
 /** The snapshot a tx tab shows instead of live data (undefined when live or not an open tab). */

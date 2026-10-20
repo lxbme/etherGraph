@@ -1,6 +1,8 @@
 import type cytoscape from "cytoscape";
 import { useEffect } from "react";
 import { create } from "zustand";
+import { txCallsView, txFlowView } from "../annotate/model";
+import { useAnnotations } from "../annotate/store";
 import { api } from "../api/endpoints";
 import { ApiError, messageFor } from "../api/errors";
 import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
@@ -63,6 +65,14 @@ useGraph.subscribe((s, prev) => {
     s.hiddenTransfers !== prev.hiddenTransfers ||
     s.frozen !== prev.frozen
   ) {
+    graphVersion++;
+    useWorkspace.getState().markDirty();
+  }
+});
+
+// Adding, changing, removing or recolouring an annotation marks the workspace dirty (selection and the tool do not).
+useAnnotations.subscribe((s, prev) => {
+  if (s.byView !== prev.byView) {
     graphVersion++;
     useWorkspace.getState().markDirty();
   }
@@ -142,6 +152,10 @@ function captureTab(tab: TxTab): TxTabStateV2 {
   }
   // Only what a drag stored: live dagre positions would pin nodes nobody placed once the workspace is reopened.
   const calls = tab.callLayout?.positions;
+  // Read from the store, not a canvas: the call graph is unmounted while the asset flow shows.
+  const { byView } = useAnnotations.getState();
+  const flowNotes = byView[txFlowView(tab.hash)];
+  const callNotes = byView[txCallsView(tab.hash)];
   return {
     hash: tab.hash,
     ...(tab.view === "calls" ? { view: tab.view } : {}),
@@ -149,6 +163,8 @@ function captureTab(tab: TxTab): TxTabStateV2 {
     ...(positions ? { positions } : {}),
     ...(viewport ? { viewport } : {}),
     ...(calls && Object.keys(calls).length > 0 ? { call_positions: calls } : {}),
+    ...(flowNotes && flowNotes.length > 0 ? { annotations: flowNotes.map((a) => ({ ...a })) } : {}),
+    ...(callNotes && callNotes.length > 0 ? { call_annotations: callNotes.map((a) => ({ ...a })) } : {}),
     ...(tab.snapshot !== undefined ? { snapshot: tab.snapshot } : {}),
   };
 }
@@ -170,6 +186,8 @@ function captureGraph(): WorkspaceStateV2["graph"] {
   }
   const g = useGraph.getState();
   const state = serialize(g, viewport, { nodes, positions });
+  const notes = useAnnotations.getState().byView.graph;
+  if (notes && notes.length > 0) state.annotations = notes.map((a) => ({ ...a }));
   return g.frozen ? { ...state, snapshot: g.frozen } : state;
 }
 
@@ -260,6 +278,7 @@ export function newWorkspace(): void {
   useInfo.getState().close("graph");
   useTabs.getState().closeAllTx();
   useGraph.getState().reset();
+  useAnnotations.getState().reset();
   useWorkspace.getState().clear();
 }
 
@@ -294,6 +313,14 @@ function txInit({ hash, view, detail_tab, positions, viewport, call_positions, s
 function applyState({ graph: state, tabs, active }: WorkspaceStateV2): void {
   // The saved tx tabs replace the open ones; the graph is restored with its tab shown, then the saved tab is.
   useTabs.getState().restoreTx(tabs.map(txInit), "graph");
+  // Annotations are replaced with the saved ones, history included.
+  const notes = useAnnotations.getState();
+  notes.reset();
+  notes.load("graph", state.annotations ?? []);
+  for (const tab of tabs) {
+    notes.load(txFlowView(tab.hash), tab.annotations ?? []);
+    notes.load(txCallsView(tab.hash), tab.call_annotations ?? []);
+  }
   const ui: Record<string, NodeUi> = {};
   for (const n of state.nodes) {
     ui[n.address.toLowerCase()] = {
