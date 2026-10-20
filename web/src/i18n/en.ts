@@ -659,6 +659,11 @@ export const en = {
   "snapshot.banner": "Snapshot from a file · exported {time}",
   "snapshot.refresh": "Refresh from chain",
   "snapshot.confirm": "This view is a snapshot from a file. Refresh it from the chain first?",
+  "snapshot.syncNote": {
+    one: "This syncs {count} center never synced here (about {calls} calls).",
+    other: "This syncs {count} centers never synced here (about {calls} calls).",
+  },
+  "snapshot.syncStarted": { one: "Syncing {count} center", other: "Syncing {count} centers" },
   "legend.title": "Legend",
   "legend.collapse": "Collapse legend",
   "legend.expand": "Expand legend",

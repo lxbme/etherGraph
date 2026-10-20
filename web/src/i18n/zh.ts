@@ -658,6 +658,11 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "snapshot.banner": "来自文件的快照 · 导出于 {time}",
   "snapshot.refresh": "从链上刷新",
   "snapshot.confirm": "此视图是来自文件的快照。要先从链上刷新吗？",
+  "snapshot.syncNote": {
+    one: "将同步 {count} 个本机从未同步过的中心（约 {calls} 次调用）。",
+    other: "将同步 {count} 个本机从未同步过的中心（约 {calls} 次调用）。",
+  },
+  "snapshot.syncStarted": { one: "正在同步 {count} 个中心", other: "正在同步 {count} 个中心" },
   "legend.title": "图例",
   "legend.collapse": "收起图例",
   "legend.expand": "展开图例",

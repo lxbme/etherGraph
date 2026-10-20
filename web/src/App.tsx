@@ -28,6 +28,7 @@ import { PickHost } from "./panels/pick/PickHost";
 import { GraphSnapshotBanner, LiveConfirm } from "./views/SnapshotBanner";
 import { ExportFileDialog } from "./shell/ExportFileDialog";
 import { useFileDrop } from "./workspace/fileRequest";
+import { registerSnapshotEffects } from "./workspace/snapshot";
 import { AuthGate } from "./auth/AuthGate";
 import { AdminPage } from "./admin/AdminView";
 
@@ -44,6 +45,7 @@ export function App() {
 function Shell() {
   useEffect(() => {
     registerExpansionEffects();
+    registerSnapshotEffects();
   }, []);
   useHashRouting();
   useEvents();

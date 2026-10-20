@@ -1,6 +1,8 @@
+import { SHALLOW_CALLS } from "../graph/budget";
 import { useGraph } from "../graph/store";
 import { useT } from "../i18n";
 import { formatLocalTime, formatTime } from "../lib/format";
+import { useRefreshSyncCount } from "../workspace/snapshot";
 
 /** The bar above a snapshot (frozen) view's canvas: when the file was exported, and the way back to live data. */
 export function SnapshotBanner({ exportedAt, onRefresh }: { exportedAt: string; onRefresh: () => void }) {
@@ -15,17 +17,23 @@ export function SnapshotBanner({ exportedAt, onRefresh }: { exportedAt: string; 
   );
 }
 
-/** The address graph's banner, while it shows a snapshot. */
+/**
+ * The address graph's banner, while it shows a snapshot. Refreshing syncs the centers never synced here, so it asks
+ * first (the confirm says how many) unless there are none.
+ */
 export function GraphSnapshotBanner() {
   const exportedAt = useGraph((s) => s.frozen?.exported_at ?? null);
+  const syncs = useRefreshSyncCount();
   if (exportedAt === null) return null;
-  return <SnapshotBanner exportedAt={exportedAt} onRefresh={() => useGraph.getState().unfreeze()} />;
+  const refresh = () => (syncs === 0 ? useGraph.getState().unfreeze() : useGraph.getState().guardLive(() => {}));
+  return <SnapshotBanner exportedAt={exportedAt} onRefresh={refresh} />;
 }
 
 /** Asks before a graph-changing action on a snapshot graph: refresh from the chain first, then run it. */
 export function LiveConfirm() {
   const t = useT();
   const pending = useGraph((s) => s.pendingLive !== null);
+  const syncs = useRefreshSyncCount();
   if (!pending) return null;
   const resolve = (go: boolean) => useGraph.getState().resolveLive(go);
   return (
@@ -40,6 +48,9 @@ export function LiveConfirm() {
         }}
       >
         <p>{t("snapshot.confirm")}</p>
+        {syncs != null && syncs > 0 && (
+          <p className="dialog__summary">{t("snapshot.syncNote", { count: syncs, calls: syncs * SHALLOW_CALLS })}</p>
+        )}
         <div className="dialog__actions">
           <button type="button" className="btn" onClick={() => resolve(false)}>
             {t("common.cancel")}

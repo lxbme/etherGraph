@@ -7,7 +7,13 @@ import type { LabelDto } from "../api/generated/LabelDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import type { TxFlowDto } from "../api/generated/TxFlowDto";
 import type { TxRawDto } from "../api/generated/TxRawDto";
+import { messageFor } from "../api/errors";
 import { qk } from "../api/queryClient";
+import { setUnfreezeHandler, useGraph } from "../graph/store";
+import { t } from "../i18n";
+import { newBatchId } from "../lib/batchId";
+import { SYNC_MAX } from "../panels/expand/expansion";
+import { toast } from "../shell/Toasts";
 
 /**
  * Frozen view data from a file: shown read-only (never written to the chain tables, never mixed into live
@@ -97,19 +103,71 @@ export function fileLabelsOf(nodes: NodeSummaryDto[] | undefined, address: strin
 const NODES_MAX = 2000;
 const NO_LIVE = new Map<string, NodeSummaryDto>();
 
+/** The receiver's own summaries of `key` (lowercase, deduped), in chunks the server accepts. No upstream call. */
+async function fetchNodes(key: string[]): Promise<NodeSummaryDto[]> {
+  const chunks: string[][] = [];
+  for (let i = 0; i < key.length; i += NODES_MAX) chunks.push(key.slice(i, i + NODES_MAX));
+  return (await Promise.all(chunks.map((c) => api.nodes(c)))).flat();
+}
+
+const keyOf = (addresses: string[]) => [...new Set(addresses.map(lc))].sort();
+
 /** The receiver's own summaries of `addresses` (lowercase key); no request for an empty list. */
 export function useLiveIdentities(addresses: string[]): Map<string, NodeSummaryDto> {
-  const key = useMemo(() => [...new Set(addresses.map(lc))].sort(), [addresses]);
-  const q = useQuery({
-    queryKey: qk.nodes(key),
-    queryFn: async () => {
-      const chunks: string[][] = [];
-      for (let i = 0; i < key.length; i += NODES_MAX) chunks.push(key.slice(i, i + NODES_MAX));
-      return (await Promise.all(chunks.map((c) => api.nodes(c)))).flat();
-    },
-    enabled: key.length > 0,
-  });
+  const key = useMemo(() => keyOf(addresses), [addresses]);
+  const q = useQuery({ queryKey: qk.nodes(key), queryFn: () => fetchNodes(key), enabled: key.length > 0 });
   return useMemo(() => (q.data ? new Map(q.data.map((n) => [lc(n.address), n])) : NO_LIVE), [q.data]);
+}
+
+/**
+ * The centers (lowercase) the receiver has never synced and is not syncing, from its own summaries `live`
+ * (an address it does not know counts as never synced): what refreshing a snapshot graph syncs.
+ */
+export function neverSynced(centers: string[], live: NodeSummaryDto[]): string[] {
+  const byAddr = new Map(live.map((n) => [lc(n.address), n]));
+  return keyOf(centers).filter((a) => {
+    const n = byAddr.get(a);
+    return !n || (!n.synced && !n.syncing);
+  });
+}
+
+/**
+ * How many centers refreshing the snapshot graph from the chain will sync (`neverSynced`); null while not known yet
+ * (or when the graph is live).
+ */
+export function useRefreshSyncCount(): number | null {
+  const frozen = useGraph((s) => s.frozen !== null);
+  const centers = useGraph((s) => s.centers);
+  const key = useMemo(() => keyOf(centers), [centers]);
+  const q = useQuery({ queryKey: qk.nodes(key), queryFn: () => fetchNodes(key), enabled: frozen && key.length > 0 });
+  if (!frozen) return null;
+  if (key.length === 0) return 0;
+  return q.data ? neverSynced(key, q.data).length : null;
+}
+
+/**
+ * Going live from a snapshot graph (the user confirmed "Refresh from chain"): shallow-syncs, as one batch, the centers
+ * the receiver has never synced and is not syncing. Synced centers are not re-synced. Never `sync=auto`.
+ */
+export async function syncNeverSyncedCenters(centers: string[]): Promise<void> {
+  const key = keyOf(centers);
+  if (key.length === 0) return;
+  try {
+    const todo = neverSynced(key, await fetchNodes(key));
+    if (todo.length === 0) return;
+    const batch = newBatchId();
+    for (let i = 0; i < todo.length; i += SYNC_MAX) {
+      await api.sync({ addresses: todo.slice(i, i + SYNC_MAX), depth: "shallow", batch });
+    }
+    toast(t("snapshot.syncStarted", { count: todo.length }));
+  } catch (e) {
+    toast(messageFor(e), "error");
+  }
+}
+
+/** Wires a graph refresh to the backend: the never-synced centers are synced (`syncNeverSyncedCenters`). Idempotent. */
+export function registerSnapshotEffects(): void {
+  setUnfreezeHandler((centers) => void syncNeverSyncedCenters(centers));
 }
 
 /** `nodes` with live identities laid over them. */

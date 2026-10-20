@@ -9,7 +9,7 @@ import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { openFakePopover, pressEscape } from "../graph/fakePopover.testutil";
 import { useBoxSelection } from "../graph/boxSelection";
 import type { CytoscapeViewProps } from "../graph/CytoscapeView";
-import { pairKey, useGraph } from "../graph/store";
+import { pairKey, setUnfreezeHandler, useGraph } from "../graph/store";
 import { Toasts } from "../shell/Toasts";
 import { DetailPanel } from "../panels/DetailPanel";
 import { useInfo } from "../panels/info/infoStore";
@@ -20,6 +20,7 @@ import { relayoutGraph } from "../graph/relayout";
 import { download } from "../lib/download";
 import { useWorkspace } from "../workspace/useWorkspace";
 import { clearExport, useFileRequest } from "../workspace/fileRequest";
+import { registerSnapshotEffects } from "../workspace/snapshot";
 import { AddressGraph } from "./AddressGraph";
 import { GraphSnapshotBanner, LiveConfirm } from "./SnapshotBanner";
 
@@ -725,11 +726,17 @@ describe("a frozen (snapshot) graph", () => {
     return r;
   }
 
+  const SYNC_NOTE = "This syncs 1 center never synced here (about 6 calls).";
   let address: ReturnType<typeof vi.spyOn>;
+  let syncs: ReturnType<typeof vi.spyOn>;
   beforeEach(() => {
+    registerSnapshotEffects();
+    // The receiver has never synced A (it does not know it).
     vi.spyOn(api, "nodes").mockResolvedValue([]);
     address = vi.spyOn(api, "address").mockResolvedValue({} as never);
+    syncs = vi.spyOn(api, "sync").mockResolvedValue({ estimated_calls: null, estimated_seconds: null, per_address: null, jobs: [1] });
   });
+  afterEach(() => setUnfreezeHandler(null));
 
   test("draws the file's data with no graph request, under a banner", () => {
     mountFrozen();
@@ -743,18 +750,24 @@ describe("a frozen (snapshot) graph", () => {
     act(() => props().onDblTapEdge(A, B));
     const dialog = screen.getByRole("dialog", { name: "Refresh from chain" });
     expect(within(dialog).getByText(CONFIRM)).toBeInTheDocument();
+    // It says what refreshing costs: A was never synced here.
+    expect(await within(dialog).findByText(SYNC_NOTE)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(useGraph.getState().frozen).not.toBeNull();
     expect(useGraph.getState().expandedPairs.size).toBe(0);
     expect(api.graphEdges).not.toHaveBeenCalled();
+    // Declining queues nothing.
+    expect(syncs).not.toHaveBeenCalled();
 
     act(() => props().onDblTapEdge(A, B));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Refresh from chain" }));
     expect(useGraph.getState().frozen).toBeNull();
     expect(useGraph.getState().expandedPairs.has(pairKey(A, B))).toBe(true);
     await waitFor(() => expect(api.graphEdges).toHaveBeenCalled());
-    // Going live queues no sync or refresh: those wait for a click (spec §5.6).
+    // The confirm was the click: the never-synced center is synced, shallow, as one batch (never sync=auto).
+    await waitFor(() => expect(syncs).toHaveBeenCalledTimes(1));
+    expect(syncs).toHaveBeenCalledWith({ addresses: [A], depth: "shallow", batch: expect.any(String) });
     expect(address).not.toHaveBeenCalledWith(A, { sync: "auto" });
     expect(screen.queryByText(/^Snapshot from a file/)).toBeNull();
   });
@@ -789,12 +802,34 @@ describe("a frozen (snapshot) graph", () => {
     expect(counterparties).not.toHaveBeenCalled();
   });
 
-  test("the banner's Refresh from chain goes live at once", async () => {
+  test("the banner's Refresh from chain goes live at once when every center is synced here, syncing nothing", async () => {
+    vi.mocked(api.nodes).mockResolvedValue([node(A, true)]);
     mountFrozen();
+    await waitFor(() => expect(api.nodes).toHaveBeenCalled());
+    await act(async () => {});
     fireEvent.click(screen.getByRole("button", { name: "Refresh from chain" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(useGraph.getState().frozen).toBeNull();
     await waitFor(() => expect(api.graphEdges).toHaveBeenCalled());
+    await act(async () => {});
+    expect(syncs).not.toHaveBeenCalled();
     expect(address).not.toHaveBeenCalledWith(A, { sync: "auto" });
+  });
+
+  test("the banner's Refresh from chain asks first, with the count and calls, when it would sync centers", async () => {
+    mountFrozen();
+    fireEvent.click(within(screen.getByTestId("snapshot-banner")).getByRole("button", { name: "Refresh from chain" }));
+    let dialog = screen.getByRole("dialog", { name: "Refresh from chain" });
+    expect(await within(dialog).findByText(SYNC_NOTE)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(useGraph.getState().frozen).not.toBeNull();
+    expect(syncs).not.toHaveBeenCalled();
+
+    fireEvent.click(within(screen.getByTestId("snapshot-banner")).getByRole("button", { name: "Refresh from chain" }));
+    dialog = screen.getByRole("dialog", { name: "Refresh from chain" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Refresh from chain" }));
+    expect(useGraph.getState().frozen).toBeNull();
+    await waitFor(() => expect(syncs).toHaveBeenCalledWith({ addresses: [A], depth: "shallow", batch: expect.any(String) }));
   });
 
   test("hide, pin and drag work on the snapshot", () => {

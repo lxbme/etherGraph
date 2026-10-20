@@ -4,7 +4,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { api } from "../api/endpoints";
 import type { LabelDto } from "../api/generated/LabelDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
-import { fileLabelsOf, isGraphSnapshot, isTxSnapshot, overlayIdentity, useLiveIdentities, type GraphSnapshot } from "./snapshot";
+import { fileLabelsOf, isGraphSnapshot, isTxSnapshot, neverSynced, overlayIdentity, syncNeverSyncedCenters, useLiveIdentities, type GraphSnapshot } from "./snapshot";
 
 const A = "0x" + "aa".repeat(20);
 
@@ -110,5 +110,34 @@ describe("useLiveIdentities", () => {
     const { result } = renderHook(() => useLiveIdentities([]), { wrapper });
     expect(result.current.size).toBe(0);
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("refreshing a snapshot graph syncs the never-synced centers", () => {
+  const B = "0x" + "bb".repeat(20);
+  const C = "0x" + "cc".repeat(20);
+  const D = "0x" + "dd".repeat(20);
+  afterEach(() => vi.restoreAllMocks());
+
+  test("neverSynced: unknown or not synced and not syncing", () => {
+    const live = [node({ address: A }), node({ address: C, synced: true }), node({ address: D, syncing: true })];
+    expect(neverSynced([B, A.toUpperCase().replace("0X", "0x"), C, D], live)).toEqual([A, B]);
+  });
+
+  test("2 never-synced + 1 synced center: one shallow sync request for the 2, as one batch", async () => {
+    vi.spyOn(api, "nodes").mockResolvedValue([node({ address: A }), node({ address: C, synced: true })]);
+    const sync = vi.spyOn(api, "sync").mockResolvedValue({ estimated_calls: null, estimated_seconds: null, per_address: null, jobs: [1, 2] });
+    const address = vi.spyOn(api, "address");
+    await syncNeverSyncedCenters([C, B, A]);
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(sync).toHaveBeenCalledWith({ addresses: [A, B], depth: "shallow", batch: expect.any(String) });
+    expect(address).not.toHaveBeenCalled();
+  });
+
+  test("every center synced: no sync request", async () => {
+    vi.spyOn(api, "nodes").mockResolvedValue([node({ address: A, synced: true })]);
+    const sync = vi.spyOn(api, "sync");
+    await syncNeverSyncedCenters([A]);
+    expect(sync).not.toHaveBeenCalled();
   });
 });

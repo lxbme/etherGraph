@@ -61,8 +61,8 @@ export interface GraphState {
   /** Shows `s` instead of live data. Not history-tracked. */
   freeze(s: GraphSnapshot): void;
   /**
-   * Back to live data (the graph query runs again; the file's assets leave the registry). Nothing is synced: that
-   * waits for a click (spec §5.6). No-op when live.
+   * Back to live data (the graph query runs again; the file's assets leave the registry); the unfreeze handler syncs
+   * the centers never synced here. No-op when live.
    */
   unfreeze(): void;
   /**
@@ -166,6 +166,17 @@ interface HistoryEntry {
   snap?: Snapshot;
   positions?: Record<string, Pos | null>;
   effect?: ExpandEffect;
+}
+
+/**
+ * Called with the centers when a snapshot graph goes live (the app syncs the never-synced ones: the refresh confirm is
+ * the click, and says how many). The store has no network code.
+ */
+let unfreezeHandler: ((centers: string[]) => void) | null = null;
+
+/** Registers the unfreeze handler; `null` unregisters it. */
+export function setUnfreezeHandler(h: ((centers: string[]) => void) | null): void {
+  unfreezeHandler = h;
 }
 
 /** Whether undoing/redoing to `snap` changes what the graph query asks for (or runs a batch effect). */
@@ -397,6 +408,7 @@ export const useGraph = create<GraphState>()((set, get) => {
       // The file's assets (symbol, decimals, trust) must not linger in the live filter list.
       useAssetRegistry.getState().clear();
       set({ frozen: null });
+      unfreezeHandler?.(get().centers);
     },
     guardLive: (run) => {
       if (get().frozen) set({ pendingLive: run });
