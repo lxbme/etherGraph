@@ -58,18 +58,19 @@ test("the toggle hides all proxies, then reads show all with the count", () => {
   const A = "0x" + "a".repeat(40);
   const B = "0x" + "b".repeat(40);
   const HIDE = 'Hide all "+N more"';
+  const OM = { [A]: 3, [B]: 2 };
   useGraph.getState().reset();
   act(() => useGraph.getState().setCenters([A, B]));
-  const { rerender } = render(<MoreToggleButton proxied={[]} />);
+  const { rerender } = render(<MoreToggleButton proxied={[]} omitted={OM} />);
   expect(screen.getByRole("button", { name: HIDE })).toBeDisabled();
-  rerender(<MoreToggleButton proxied={[A, B]} />);
+  rerender(<MoreToggleButton proxied={[A, B]} omitted={OM} />);
   const hide = screen.getByRole("button", { name: HIDE });
   expect(hide).toHaveAttribute("title", HIDE);
   expect(hide).toBeEnabled();
   act(() => hide.click());
   expect(useGraph.getState().hiddenProxies).toEqual([A, B]);
   // The hidden proxies leave the canvas.
-  rerender(<MoreToggleButton proxied={[]} />);
+  rerender(<MoreToggleButton proxied={[]} omitted={OM} />);
   const show = screen.getByRole("button", { name: 'Show all "+N more" (2)' });
   expect(show).toBeEnabled();
   act(() => show.click());
@@ -78,6 +79,24 @@ test("the toggle hides all proxies, then reads show all with the count", () => {
   // A hidden entry that is no longer a center does not count.
   act(() => useGraph.setState({ hiddenProxies: ["0x" + "c".repeat(40)] }));
   expect(screen.getByRole("button", { name: HIDE })).toBeDisabled();
+});
+
+test("hidden centers with nothing omitted are not counted, and showing clears them", () => {
+  const A = "0x" + "a".repeat(40);
+  const B = "0x" + "b".repeat(40);
+  useGraph.getState().reset();
+  act(() => {
+    useGraph.getState().setCenters([A, B]);
+    useGraph.setState({ hiddenProxies: [A, B] });
+  });
+  const { rerender } = render(<MoreToggleButton proxied={[]} omitted={{ [A]: 4, [B]: 0 }} />);
+  const show = screen.getByRole("button", { name: 'Show all "+N more" (1)' });
+  act(() => show.click());
+  expect(useGraph.getState().hiddenProxies).toEqual([]);
+  // Nothing omitted anywhere: reads hide, disabled without a visible proxy.
+  act(() => useGraph.setState({ hiddenProxies: [A, B] }));
+  rerender(<MoreToggleButton proxied={[]} omitted={{ [A]: 0, [B]: 0 }} />);
+  expect(screen.getByRole("button", { name: 'Hide all "+N more"' })).toBeDisabled();
 });
 
 describe("export menu", () => {

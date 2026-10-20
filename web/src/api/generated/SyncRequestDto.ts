@@ -10,7 +10,8 @@ addresses: Array<string>,
  */
 direction?: "latest" | "older" | null, dry_run?: boolean | null, 
 /**
- * Default `"shallow"`: one page per kind. Ignored (always full) for
+ * Default `"shallow"`: up to `sync.shallow_pages` pages per kind (5 by
+ * default). Ignored (always full) for
  * `direction: "older"`.
  */
 depth?: "shallow" | "full" | null, 

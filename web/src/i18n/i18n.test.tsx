@@ -100,11 +100,6 @@ describe("components", () => {
   });
 });
 
-it("the node panel's “fetch older” reads the same as the context menu item in zh", async () => {
-  const { zh } = await import("./zh");
-  expect(zh["node.fetchOlder"]).toBe(zh["ctx.older"]);
-});
-
 it("partial sync has one neutral name in the tooltip, the legend and the node panel", async () => {
   const { en } = await import("./en");
   const { zh } = await import("./zh");

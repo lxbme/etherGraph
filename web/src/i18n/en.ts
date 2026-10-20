@@ -334,7 +334,6 @@ export const en = {
   "node.partialReason": "Too many records: {kind} only synced from block {block}",
   "node.notSynced": "Not synced",
   "node.syncRefresh": "Sync / refresh",
-  "node.fetchOlder": "Fetch older records",
   "node.syncStarted": "Sync started",
   "sync.syncing": "Syncing",
   "sync.ok": "Synced",

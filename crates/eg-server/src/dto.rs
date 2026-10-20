@@ -697,7 +697,8 @@ pub struct SyncRequestDto {
     #[ts(optional = nullable, type = r#""latest" | "older" | null"#)]
     pub direction: Option<String>,
     pub dry_run: Option<bool>,
-    /// Default `"shallow"`: one page per kind. Ignored (always full) for
+    /// Default `"shallow"`: up to `sync.shallow_pages` pages per kind (5 by
+    /// default). Ignored (always full) for
     /// `direction: "older"`.
     #[ts(optional = nullable, type = r#""shallow" | "full" | null"#)]
     pub depth: Option<String>,

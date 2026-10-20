@@ -42,6 +42,7 @@ const EXPORTER: CanvasExport = {
 };
 
 const NO_NODES: NodeSummaryDto[] = [];
+const NO_OMITTED: Record<string, number> = {};
 /** A rendered (container-relative) bounding box. */
 type Box = { x1: number; y1: number; x2: number; y2: number };
 const lc = (s: string) => s.toLowerCase();
@@ -316,7 +317,7 @@ export function AddressGraph() {
         >
           <Network size={14} />
         </button>
-        <MoreToggleButton proxied={proxied} />
+        <MoreToggleButton proxied={proxied} omitted={data?.omitted ?? NO_OMITTED} />
         {hiddenOnCanvas > 0 && (
           <button
             type="button"

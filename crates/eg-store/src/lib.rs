@@ -264,9 +264,11 @@ impl Store {
                     s.last_synced_at, \
                     CASE WHEN s.truncated THEN LEAST( \
                         (SELECT min(t.ts) FROM transfers t \
-                          WHERE t.from_addr = s.address AND t.kind = s.kind), \
+                          WHERE t.from_addr = s.address AND t.kind = s.kind \
+                            AND t.block_number >= s.from_block), \
                         (SELECT min(t.ts) FROM transfers t \
-                          WHERE t.to_addr = s.address AND t.kind = s.kind) \
+                          WHERE t.to_addr = s.address AND t.kind = s.kind \
+                            AND t.block_number >= s.from_block) \
                     ) END AS oldest_ts \
              FROM address_sync s WHERE s.address = ANY($1) ORDER BY s.address, s.kind",
         )
@@ -800,6 +802,38 @@ mod tests {
         let ts = |k| rows.iter().find(|r| r.kind == k).unwrap().oldest_ts;
         assert_eq!(ts(TransferKind::Erc20), Some(at("2022-03-23T13:16:57Z")));
         assert_eq!(ts(TransferKind::Native), None);
+    }
+
+    #[sqlx::test]
+    async fn sync_rows_oldest_ts_ignores_rows_below_own_coverage(pool: PgPool) {
+        let store = Store::from_pool(pool.clone());
+        let job = new_job(&pool).await;
+        let a = Address::repeat_byte(0xa);
+        let at = |s: &str| s.parse::<DateTime<Utc>>().unwrap();
+        // Block 5 was stored by another address's sync; a's coverage starts at 10.
+        let mut v = vec![
+            tr(1, TransferKind::Erc20, U256::from(1)),
+            tr(2, TransferKind::Erc20, U256::from(1)),
+        ];
+        v[0].block_number = 5;
+        v[0].ts = at("2020-01-01T00:00:00Z");
+        v[1].block_number = 12;
+        v[1].ts = at("2022-03-23T13:16:57Z");
+        assign_sub_ids(&mut v);
+        let sync = SyncUpdate {
+            address: a,
+            kind: TransferKind::Erc20,
+            from_block: 10,
+            to_block: 20,
+            truncated: true,
+            expected_from: None,
+        };
+        store
+            .write_page(job, &v, &[], &json!({}), Some(&sync))
+            .await
+            .unwrap();
+        let rows = store.sync_rows(&[a]).await.unwrap();
+        assert_eq!(rows[0].oldest_ts, Some(at("2022-03-23T13:16:57Z")));
     }
 
     #[sqlx::test]

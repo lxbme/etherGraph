@@ -336,7 +336,6 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "node.partialReason": "记录过多：{kind} 只同步了区块 {block} 之后的部分",
   "node.notSynced": "未同步",
   "node.syncRefresh": "同步/刷新",
-  "node.fetchOlder": "继续拉更早的记录",
   "node.syncStarted": "已开始同步",
   "sync.syncing": "同步中",
   "sync.ok": "已同步",
