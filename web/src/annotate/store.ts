@@ -80,15 +80,19 @@ export const useAnnotations = create<AnnotationsState>()((set, get) => {
       const { selected } = get();
       const view = owner(selected);
       set({ color });
-      if (view !== null) {
-        commit(view, (get().byView[view] ?? []).map((a) => (a.id === selected && a.color !== color ? { ...a, color } : a)));
+      const cur = view !== null ? (get().byView[view] ?? []) : [];
+      if (view !== null && cur.some((a) => a.id === selected && a.color !== color)) {
+        commit(view, cur.map((a) => (a.id === selected ? { ...a, color } : a)));
       }
     },
     select: (selected) => set({ selected }),
     add: (view, a) => commit(view, [...(get().byView[view] ?? []), a]),
     update: (view, id, patch) => {
       const cur = get().byView[view] ?? [];
-      if (!cur.some((a) => a.id === id)) return;
+      const old = cur.find((a) => a.id === id);
+      if (!old) return;
+      const changed = (Object.keys(patch) as (keyof Annotation)[]).some((k) => k !== "id" && patch[k] !== old[k]);
+      if (!changed) return;
       commit(view, cur.map((a) => (a.id === id ? { ...a, ...patch, id } : a)));
     },
     remove: (view, id) => {

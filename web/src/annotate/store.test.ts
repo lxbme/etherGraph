@@ -55,6 +55,17 @@ describe("annotation store", () => {
     expect(s().byView.graph!.map((x) => x.color)).toEqual(["red", "red"]);
   });
 
+  test("no-op setColor and update add no undo step and do not dirty", () => {
+    s().setMode("graph");
+    s().load("graph", [a("1")]);
+    s().select("1");
+    const before = s().byView;
+    s().setColor("red");
+    s().update("graph", "1", { x2: 10, color: "red" });
+    expect(s().canUndo("graph")).toBe(false);
+    expect(s().byView).toBe(before);
+  });
+
   test("load clears history; dropView and reset forget views", () => {
     s().add("graph", a("1"));
     s().load("graph", [a("9")]);
