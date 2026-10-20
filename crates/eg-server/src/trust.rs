@@ -20,8 +20,9 @@ pub const TRUST_TTL: Duration = Duration::from_secs(60);
 /// Shortest normalized name that is matched (shorter names collide too often).
 const MIN_NAME_LEN: usize = 4;
 
-/// Latin look-alike of a Cyrillic, Greek, Lisu, Cherokee, Armenian or Coptic
-/// letter; other characters unchanged.
+/// Latin look-alike of a Cyrillic, Greek, Lisu, Cherokee, Armenian, Coptic,
+/// Ethiopic or Canadian syllabics letter, or of the tugrik sign; other
+/// characters unchanged.
 fn confusable(c: char) -> char {
     match c {
         // Cyrillic lowercase.
@@ -52,6 +53,8 @@ fn confusable(c: char) -> char {
         'І' => 'I',
         'Ј' => 'J',
         'Ѕ' => 'S',
+        'Ү' => 'Y',
+        'Ӏ' => 'I',
         // Greek capitals.
         'Α' => 'A',
         'Β' => 'B',
@@ -120,6 +123,7 @@ fn confusable(c: char) -> char {
         'Ꮶ' => 'K',
         'Ᏼ' => 'B',
         'Ᏻ' => 'G',
+        'Ꮳ' => 'C',
         // Armenian.
         'Տ' => 'S',
         'Ս' => 'U',
@@ -141,12 +145,12 @@ fn confusable(c: char) -> char {
         'Ⲧ' => 'T',
         'Ⲭ' => 'X',
         // Other look-alikes seen in spam symbols.
+        // Canadian syllabics.
         'ᗞ' => 'D',
+        // Tugrik sign.
         '₮' => 'T',
-        'Ү' => 'Y',
-        'Ӏ' => 'I',
+        // Ethiopic.
         'ሀ' => 'U',
-        'Ꮳ' => 'C',
         _ => c,
     }
 }
