@@ -242,10 +242,26 @@ test("pair scope with the ETH asset filter keeps the ETH group and hides token g
   serveAssets([edge({}), edge({ from: B, to: A, asset: USDC, asset_kind: "erc20", decimals: 6, symbol: "USDC" })], true);
   renderTable();
   expect(await screen.findAllByTestId("transfer-group")).toHaveLength(2);
-  act(() => useTransferFilter.getState().set({ asset: "eth" }));
+  act(() => useTransferFilter.getState().set({ asset: null }));
   const groups = screen.getAllByTestId("transfer-group");
   expect(groups).toHaveLength(1);
   expect(groups[0]).toHaveTextContent("ETH");
+});
+
+test("pair scope with a token asset filter keeps only that token's group", async () => {
+  vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null });
+  act(() => {
+    useGraph.getState().addCenter(A);
+    useGraph.getState().select({ kind: "pair", a: A, b: B });
+  });
+  seedGraph([edge({})]);
+  serveAssets([edge({}), edge({ from: B, to: A, asset: USDC, asset_kind: "erc20", decimals: 6, symbol: "USDC" })], true);
+  renderTable();
+  expect(await screen.findAllByTestId("transfer-group")).toHaveLength(2);
+  act(() => useTransferFilter.getState().set({ asset: USDC }));
+  const groups = screen.getAllByTestId("transfer-group");
+  expect(groups).toHaveLength(1);
+  expect(groups[0]).toHaveTextContent("USDC");
 });
 
 test("the node's asset options come from its stored transfers, not the filtered graph", async () => {

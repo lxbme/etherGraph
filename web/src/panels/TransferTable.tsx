@@ -1,4 +1,3 @@
-import { ETH_KEY } from "../graph/assetRegistry";
 import { useInfiniteQuery, useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
@@ -213,7 +212,7 @@ function PairGroups({ a, q }: { a: string; q: UseQueryResult<AddressAssetDto[]> 
     );
   }
   if (q.isPending) return <div className="transfers__msg">{t("common.loading")}</div>;
-  const groups = groupsFromAssets(q.data).filter((g) => filter.asset === undefined || (g.asset ?? ETH_KEY) === filter.asset);
+  const groups = groupsFromAssets(q.data).filter((g) => filter.asset === undefined || g.asset === filter.asset);
   // Each group has its own direction and asset.
   const params = transferParams({ ...filter, asset: undefined, direction: "all" });
   const totals = filter.from === null && filter.to === null && filter.kind === "all";
