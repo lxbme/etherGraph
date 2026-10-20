@@ -178,6 +178,8 @@ export function usePickData(targets: string[]): PickData {
     const visible = new Set((data?.nodes ?? []).map((n) => lc(n.address)).filter((a) => !hidden.has(a)));
     const allCenters = new Set([...centers.map(lc), ...addresses]);
     const shownCenters = new Set(centers.map(lc));
+    // The same prefer the dry runs were sent with: the server ranks it first.
+    const preferred = new Set(prefer.map(lc));
     const listed = list.data;
     const topResult = top.data?.result;
     return addresses.map((center): PickGroup => {
@@ -197,7 +199,7 @@ export function usePickData(targets: string[]): PickData {
       if (!ok || !listed) return base;
       // Only a shown center brings neighbours into the graph; a target that is not one yet owns none of them.
       const own = new Set(shownCenters.has(center) ? ownNeighbours(center, data).map(lc) : []);
-      const ctx = { visible, own, centers: allCenters, sort };
+      const ctx = { visible, own, centers: allCenters, prefer: preferred, sort };
       const rows = neighbourRows(listed, center, ctx);
       const omitted = omittedOf(listed, center);
       const total = totals.totals[synced.indexOf(center)];
@@ -216,7 +218,7 @@ export function usePickData(targets: string[]): PickData {
         hiddenByFilter: total === undefined ? 0 : Math.max(0, total - (neighbourCount(listed, center) + omitted)),
       };
     });
-  }, [addresses, summaries, synced, list.data, top.data, totals.totals, ui, data, centers, picks, sort]);
+  }, [addresses, summaries, synced, list.data, top.data, totals.totals, ui, data, centers, picks, sort, prefer]);
 
   const loading =
     !!frozen ||

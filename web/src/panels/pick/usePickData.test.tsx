@@ -44,7 +44,10 @@ function wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
 }
 
-/** Each center's neighbours: RANKED for C0, one fresh neighbour (center + 1000) for others; the top `limit` only. */
+/**
+ * Each center's neighbours: RANKED for C0 (counts by rank), one fresh neighbour (center + 1000) for others. Like the
+ * server: preferred neighbours rank first and are always shown, then the top `limit` of the rest.
+ */
 function dryRun(req: GraphRequestDto): GraphResponseDto {
   const edges: EdgeDto[] = [];
   const nodes: NodeSummaryDto[] = [];
@@ -52,9 +55,11 @@ function dryRun(req: GraphRequestDto): GraphResponseDto {
     const c = parseInt(a, 16);
     const limit = req.limits?.[a] ?? 200;
     const all = c === C0 ? RANKED : [c + 1000];
-    const shown = all.slice(0, limit);
+    const pref = new Set(req.prefer ?? []);
+    const ordered = [...all.filter((n) => pref.has(addr(n))), ...all.filter((n) => !pref.has(addr(n)))];
+    const shown = ordered.filter((n, i) => i < limit || pref.has(addr(n)));
     nodes.push(node(c), ...shown.map((n) => node(n)));
-    edges.push(...shown.map((n, i) => edge(c, n, 100 - i)));
+    edges.push(...shown.map((n) => edge(c, n, 100 - all.indexOf(n))));
   }
   return {
     nodes,
@@ -147,6 +152,27 @@ test("defaults_equal_the_top_k_dry_run", async () => {
   expect(dryRuns().filter((r) => limitsAre(r, 2))).toHaveLength(1);
   // The list itself is not fetched again.
   expect(dryRuns().filter((r) => limitsAre(r, 1000))).toHaveLength(1);
+});
+
+test("a preferred neighbour ranked low by count still heads the list, and the first k rows are the defaults", async () => {
+  topKCanvas();
+  const LOW = 104;
+  // 104 is the least busy of C0's neighbours but on the canvas (C9's neighbour): prefer ranks it first.
+  canvas = {
+    nodes: [node(C0), node(C9), node(LOW)],
+    edges: [edge(C9, LOW)],
+    omitted: {},
+    coverage: {},
+  };
+  const { result } = renderHook(() => usePickData([addr(C0)]), { wrapper });
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(dryRuns()[0]!.prefer).toEqual([addr(LOW)]);
+  act(() => result.current.setK(2));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  const g = result.current.groups[0]!;
+  expect(g.rows.map((r) => r.address)).toEqual([LOW, X, 101, 102, 103].map(addr));
+  expect(g.rows[0]).toMatchObject({ onCanvas: true, locked: true });
+  expect([...g.defaults].sort()).toEqual(g.rows.slice(0, 2).map((r) => r.address).sort());
 });
 
 test("a new center (picked with none) defaults to the top k as well", async () => {

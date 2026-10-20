@@ -29,6 +29,8 @@ export interface RowContext {
   own: ReadonlySet<string>;
   /** Centers (now and to be), lowercase: never rows. */
   centers: ReadonlySet<string>;
+  /** The `prefer` sent with the dry run, lowercase: the server ranks these first (absent: none). */
+  prefer?: ReadonlySet<string>;
   /** The graph sort; defaults to the store's. */
   sort?: SortKey;
 }
@@ -60,7 +62,8 @@ interface Acc {
 /**
  * The neighbours of `center` in a (dry-run) graph result, one row each: both directions and all assets aggregated
  * (`count` summed, `lastTs` the latest, assets deduplicated), other centers and self-transfers left out. Ordered like
- * the server ranks them, without `prefer`: by the graph sort (count / amount / recent) descending, ties by address.
+ * the server ranks them: preferred (`ctx.prefer`) first, then by the graph sort (count / amount / recent) descending,
+ * ties by address ascending — so the first k rows are exactly what a top-k request adds.
  */
 export function neighbourRows(result: GraphResponseDto, center: string, ctx: RowContext): NeighbourRow[] {
   const c = lc(center);
@@ -107,6 +110,8 @@ export function neighbourRows(result: GraphResponseDto, center: string, ctx: Row
       : sort === "recent"
         ? (x, y) => time(y.row.lastTs) - time(x.row.lastTs)
         : (x, y) => y.row.count - x.row.count;
-  list.sort((x, y) => key(x, y) || (x.row.address < y.row.address ? -1 : x.row.address > y.row.address ? 1 : 0));
+  const pref = ctx.prefer ?? new Set<string>();
+  const preferred = (x: Acc) => (pref.has(x.row.address) ? 0 : 1);
+  list.sort((x, y) => preferred(x) - preferred(y) || key(x, y) || (x.row.address < y.row.address ? -1 : x.row.address > y.row.address ? 1 : 0));
   return list.map((x) => x.row);
 }

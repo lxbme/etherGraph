@@ -22,10 +22,12 @@ const result = (nodes: number[], edges: EdgeDto[]): GraphResponseDto => ({
   nodes: nodes.map(node), edges, omitted: {}, coverage: {},
 });
 const C = 1;
-const ctx = (o: { visible?: number[]; own?: number[]; centers?: number[]; sort?: "count" | "amount" | "recent" } = {}) => ({
+type Sort = "count" | "amount" | "recent";
+const ctx = (o: { visible?: number[]; own?: number[]; centers?: number[]; prefer?: number[]; sort?: Sort } = {}) => ({
   visible: new Set((o.visible ?? []).map(addr)),
   own: new Set((o.own ?? []).map(addr)),
   centers: new Set((o.centers ?? [C]).map(addr)),
+  prefer: new Set((o.prefer ?? []).map(addr)),
   sort: o.sort ?? "count",
 });
 
@@ -68,12 +70,15 @@ test("rows_follow_the_graph_sort", () => {
     edge(C, 4, { count: 2, sum: "999", last_ts: "2024-03-01T00:00:00Z" }),
     edge(5, C, { count: 1, sum: "999", last_ts: "2024-06-01T00:00:00Z" }),
   ]);
-  const order = (sort: "count" | "amount" | "recent") =>
-    neighbourRows(r, addr(C), ctx({ sort })).map((x) => parseInt(x.address, 16));
+  const order = (sort: Sort, prefer: number[] = []) =>
+    neighbourRows(r, addr(C), ctx({ sort, prefer })).map((x) => parseInt(x.address, 16));
   // Ties (3 and 4 on count; 4 and 5 on amount; 3 and 5 on recent) go by address ascending.
   expect(order("count")).toEqual([2, 3, 4, 5]);
   expect(order("amount")).toEqual([3, 4, 5, 2]);
   expect(order("recent")).toEqual([3, 5, 4, 2]);
+  // Like the server, preferred (on-canvas) neighbours rank first, by the sort among themselves, then the others.
+  expect(order("count", [5, 4])).toEqual([4, 5, 2, 3]);
+  expect(order("recent", [2, 4])).toEqual([4, 2, 3, 5]);
 });
 
 test("locked_means_on_canvas_for_another_reason", () => {
