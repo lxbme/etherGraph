@@ -5,6 +5,9 @@ import { shortAddr } from "./address";
 /** The trust levels that get a warning; listed and unknown tokens show nothing. */
 export type TrustFlag = "suspicious" | "scam";
 
+/** Sort rank of a trust level: listed tokens first, then unknown ones, then possible impersonations and scams. */
+export const TRUST_TIER: Record<TrustDto["level"], number> = { listed: 0, unknown: 1, suspicious: 2, scam: 2 };
+
 /** The prefix of a flagged edge's label on both canvases. */
 export const TRUST_MARK = "⚠";
 

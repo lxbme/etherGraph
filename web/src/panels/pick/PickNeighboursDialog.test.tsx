@@ -8,6 +8,7 @@ import type { EdgeDto } from "../../api/generated/EdgeDto";
 import type { GraphRequestDto } from "../../api/generated/GraphRequestDto";
 import type { GraphResponseDto } from "../../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
+import type { TrustDto } from "../../api/generated/TrustDto";
 import { useCanvasMetrics } from "../../graph/canvasMetrics";
 import { firstBatchFor, useGraph } from "../../graph/store";
 import { useGraphData } from "../../graph/useGraphData";
@@ -22,18 +23,28 @@ const node = (n: number, o: Partial<NodeSummaryDto> = {}): NodeSummaryDto => ({
   address: addr(n), kind: "eoa", display_name: null, ens: null, contract_name: null, labels: [],
   partial: false, syncing: false, synced: true, hot: false, identified: true, nonce: null, balance: null, ...o,
 });
-const edge = (from: number, to: number, count = 1, token = false): EdgeDto => ({
-  from: addr(from), to: addr(to), asset: token ? TOKEN : null, asset_kind: token ? "erc20" : "native", count, sum: "1",
-  first_ts: "2024-01-01T00:00:00Z", last_ts: "2024-01-01T00:00:00Z", decimals: 18, symbol: token ? "USDT" : "ETH",
-  trust: token ? { level: "scam", impersonates: null, reason: "spam-token" } : { level: "listed", impersonates: null, reason: null },
-});
+/** A token other than the default scam USDT. */
+interface Tok {
+  address: string;
+  symbol: string;
+  trust: TrustDto;
+}
+const SCAM_USDT: Tok = { address: TOKEN, symbol: "USDT", trust: { level: "scam", impersonates: null, reason: "spam-token" } };
+const edge = (from: number, to: number, count = 1, token: boolean | Tok = false): EdgeDto => {
+  const tok = token === true ? SCAM_USDT : token || null;
+  return {
+    from: addr(from), to: addr(to), asset: tok?.address ?? null, asset_kind: tok ? "erc20" : "native", count, sum: "1",
+    first_ts: "2024-01-01T00:00:00Z", last_ts: "2024-01-01T00:00:00Z", decimals: 18, symbol: tok?.symbol ?? "ETH",
+    trust: tok?.trust ?? { level: "listed", impersonates: null, reason: null },
+  };
+};
 
 /** A neighbour in the world: its number, and optionally a name, an ENS name or a token transfer instead of ETH. */
 interface Nb {
   n: number;
   name?: string;
   ens?: string;
-  token?: boolean;
+  token?: boolean | Tok;
 }
 /** Each center's neighbours in rank order (busiest first). */
 let world: Record<number, Nb[]>;
@@ -220,6 +231,34 @@ test("search_and_asset_filter_narrow_rows_without_unchecking", async () => {
   fireEvent.change(assets, { target: { value: "" } });
   expect(screen.getAllByRole("checkbox")).toHaveLength(5);
   expect(box(100)).toBeChecked();
+});
+
+test("the asset filter lists genuine tokens first and flagged look-alikes last, each with its contract", async () => {
+  const REAL_USDT: Tok = { address: "0xdac17f958d2ee523a2206206994597c13d831ec7", symbol: "USDT", trust: { level: "listed", impersonates: null, reason: null } };
+  const FAKE_USDC: Tok = {
+    address: "0x" + "e".repeat(40),
+    symbol: "USDC",
+    trust: { level: "suspicious", impersonates: { address: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", symbol: "USDC", name: "USD Coin" }, reason: null },
+  };
+  const ODD: Tok = { address: "0x" + "f".repeat(40), symbol: "ABC", trust: { level: "unknown", impersonates: null, reason: null } };
+  world = { 1: [{ n: 100, token: true }, { n: 101, token: FAKE_USDC }, { n: 102, token: ODD }, { n: 103, token: REAL_USDT }, { n: 104 }] };
+  newCenter(1);
+  mount([1]);
+  await waitFor(() => expect(box(104)).toBeInTheDocument());
+  const select = screen.getByRole("combobox", { name: "Assets" });
+  const text = (o: HTMLOptionElement) => o.textContent;
+  // The native coin and listed tokens, then unknown ones; the flagged ones in their own group at the end.
+  const options = within(select).getAllByRole("option") as HTMLOptionElement[];
+  expect(options.map(text)).toEqual(["All assets", "ETH", "USDT · 0xdac1…1ec7", "ABC · 0xffff…ffff", "⚠ USDC · 0xeeee…eeee · Possible impersonation", "⚠ USDT · 0xdddd…dddd · Known scam"]);
+  const group = within(select).getByRole("group", { name: "Possible impersonations (2)" });
+  expect(within(group).getAllByRole("option").map((o) => (o as HTMLOptionElement).value)).toEqual([FAKE_USDC.address, TOKEN]);
+  // Each picks only its own contract: the real USDT is not the fake one.
+  fireEvent.change(select, { target: { value: REAL_USDT.address } });
+  expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+  expect(box(103)).toBeInTheDocument();
+  fireEvent.change(select, { target: { value: TOKEN } });
+  expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+  expect(box(100)).toBeInTheDocument();
 });
 
 test("sort by recent reorders the rows; the graph's sort is the default", async () => {

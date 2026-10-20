@@ -9,7 +9,7 @@ import { useGraphData } from "../graph/useGraphData";
 import { type MsgKey, useT } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { parseHumanAmount } from "../lib/amount";
-import { trustFlag } from "../lib/trust";
+import { TRUST_TIER, trustFlag } from "../lib/trust";
 import { TRANSFER_KINDS, transferKindName } from "../lib/transferKinds";
 import { TrustBadge } from "./info/TrustBadge";
 
@@ -31,8 +31,6 @@ const SORTS: { value: SortKey; label: MsgKey }[] = [
 /** Above this many assets the list gets a search box. */
 const SEARCH_MIN = 8;
 const UNRATED: TrustDto = { level: "unknown", impersonates: null, reason: null };
-/** Listed tokens first, then unknown ones, then possible impersonations and scams. */
-const TIER: Record<TrustDto["level"], number> = { listed: 0, unknown: 1, suspicious: 2, scam: 2 };
 
 interface AssetOption {
   key: string;
@@ -133,7 +131,7 @@ function FilterForm({ onClose }: { onClose: () => void }) {
     for (const key of init.assets?.map((a) => assetKey(a.asset)) ?? []) add(key, null, null, UNRATED);
     return [...m.values()].sort(
       (a, b) =>
-        TIER[a.trust.level] - TIER[b.trust.level] ||
+        TRUST_TIER[a.trust.level] - TRUST_TIER[b.trust.level] ||
         (a.key === ETH ? -1 : b.key === ETH ? 1 : a.label.localeCompare(b.label)),
     );
   }, [data, registry, init.assets]);

@@ -3,6 +3,7 @@ import { api } from "../../api/endpoints";
 import { messageFor } from "../../api/errors";
 import type { GraphResponseDto } from "../../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
+import type { TrustDto } from "../../api/generated/TrustDto";
 import { nodeCapacity, SHALLOW_CALLS } from "../../graph/budget";
 import { useCanvasMetrics } from "../../graph/canvasMetrics";
 import { MAX_CENTERS, MAX_NEIGHBOUR_LIMIT, ownNeighbours, useGraph, type SortKey } from "../../graph/store";
@@ -10,6 +11,7 @@ import { useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
 import { newBatchId } from "../../lib/batchId";
 import { formatTime } from "../../lib/format";
+import { TRUST_MARK, TRUST_TIER, trustFlag, trustText } from "../../lib/trust";
 import { useJobProgress, useQuota } from "../../shell/statusStore";
 import { toast } from "../../shell/Toasts";
 import { offerUndo } from "../expand/expansion";
@@ -31,6 +33,12 @@ const lc = (s: string) => s.toLowerCase();
 const nameOf = (n: NodeSummaryDto | undefined, address: string) =>
   n?.display_name ?? n?.ens ?? n?.contract_name ?? shortAddr(address);
 const assetKey = (a: string | null) => a ?? NATIVE;
+
+interface AssetOption {
+  key: string;
+  label: string;
+  trust: TrustDto;
+}
 
 type T = ReturnType<typeof useT>;
 
@@ -218,17 +226,30 @@ export function PickNeighboursDialog({
   const quotaLeft = quota ? Math.max(quota.limit - quota.used, 0) : null;
 
   const assets = useMemo(() => {
-    const out = new Map<string, string>();
+    const out = new Map<string, AssetOption>();
     for (const g of groups) {
       for (const r of g.rows) {
         for (const a of r.assets) {
           const key = assetKey(a.asset);
-          if (!out.has(key)) out.set(key, a.symbol ?? (a.asset ? shortAddr(a.asset) : key));
+          if (!out.has(key)) out.set(key, { key, label: a.symbol ?? (a.asset ? shortAddr(a.asset) : key), trust: a.trust });
         }
       }
     }
-    return [...out].sort((x, y) => x[1].localeCompare(y[1]));
+    // Like the graph's filter: genuine tokens first, flagged ones last; the native coin, then by symbol and contract.
+    return [...out.values()].sort(
+      (x, y) =>
+        TRUST_TIER[x.trust.level] - TRUST_TIER[y.trust.level] ||
+        (x.key === NATIVE ? -1 : y.key === NATIVE ? 1 : x.label.localeCompare(y.label) || x.key.localeCompare(y.key)),
+    );
   }, [groups]);
+  const flaggedAssets = assets.filter((o) => trustFlag(o.trust));
+  /** A token's symbol with its contract, so look-alikes differ; flagged ones also say why. */
+  const assetText = (o: AssetOption) => {
+    const name = o.key === NATIVE || o.label === shortAddr(o.key) ? o.label : `${o.label} · ${shortAddr(o.key)}`;
+    const flag = trustFlag(o.trust);
+    return flag ? `${TRUST_MARK} ${name} · ${trustText(flag, t)}` : name;
+  };
+  const assetOption = (o: AssetOption) => <option key={o.key} value={o.key} title={o.key === NATIVE ? undefined : o.key}>{assetText(o)}</option>;
 
   const q = query.trim().toLowerCase();
   const shownRows = (g: PickGroup): NeighbourRow[] => {
@@ -449,7 +470,8 @@ export function PickNeighboursDialog({
         />
         <select className="input input--compact" aria-label={t("filter.assets")} value={asset} onChange={(e) => setAsset(e.target.value)}>
           <option value={ALL}>{t("pick.assetAll")}</option>
-          {assets.map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+          {assets.filter((o) => !trustFlag(o.trust)).map(assetOption)}
+          {flaggedAssets.length > 0 && <optgroup label={t("filter.impersonations", { count: flaggedAssets.length })}>{flaggedAssets.map(assetOption)}</optgroup>}
         </select>
         <select className="input input--compact" aria-label={t("filter.sort")} value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
           <option value="count">{t("filter.sort.count")}</option>
