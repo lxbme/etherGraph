@@ -3,6 +3,8 @@ import { useGraph } from "../graph/store";
 import { useShortcuts } from "../graph/useShortcuts";
 import { useTabs } from "../shell/tabs";
 import { CanvasTools } from "../views/CanvasTools";
+import { useSaveRequest } from "../workspace/saveRequest";
+import { captureState } from "../workspace/useWorkspace";
 import { AnnotateToolbar } from "./AnnotateToolbar";
 import { AnnotationLayer } from "./AnnotationLayer";
 import { txCallsView, txFlowView, type Annotation, type ViewId } from "./model";
@@ -290,6 +292,37 @@ describe("annotate mode", () => {
     key(document.body, { key: "z", ctrlKey: true });
     expect(notes(flow)).toEqual([]);
     expect(notes("graph")).toEqual([rect("g")]);
+  });
+
+  test("Mod+S while writing a new text commits it first: the save captures the text", () => {
+    function Host() {
+      useShortcuts(() => undefined);
+      return <AnnotationLayer view="graph" cy={fakeCy() as never} />;
+    }
+    const { container } = render(<Host />);
+    act(() => {
+      s().setMode("graph");
+      s().setTool("text");
+    });
+    const svg = container.querySelector("svg.annotation-layer")!;
+    drag(svg, [300, 250], [300, 250]);
+    const box = container.querySelector("textarea")!;
+    act(() => box.focus());
+    fireEvent.change(box, { target: { value: "draft" } });
+    const before = useSaveRequest.getState().pending?.n ?? 0;
+    key(box, { key: "s", ctrlKey: true });
+    // The save request comes after the commit, so whatever acts on it captures the text.
+    expect(useSaveRequest.getState().pending).toMatchObject({ kind: "save", n: before + 1 });
+    expect(captureState().graph.annotations).toMatchObject([{ kind: "text", text: "draft", x1: 100, y1: 100 }]);
+    expect(container.querySelector("textarea")).toBeNull();
+    act(() => useSaveRequest.setState({ pending: null }));
+  });
+
+  test("in annotate mode the overlay suppresses the browser's context menu", () => {
+    const { svg } = renderLayer();
+    expect(fireEvent.contextMenu(svg())).toBe(true); // not prevented outside the mode
+    act(() => s().setMode("graph"));
+    expect(fireEvent.contextMenu(svg())).toBe(false);
   });
 
   test("the wheel is forwarded to the canvas", () => {

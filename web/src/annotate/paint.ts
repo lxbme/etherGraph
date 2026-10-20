@@ -1,5 +1,11 @@
 import { arrowHead, ellipseOf, rectOf, textLines } from "./geometry";
-import { FONT_FAMILY, FONT_SIZE, LINE_HEIGHT, STROKE_WIDTH, type Annotation, type AnnotationColor } from "./model";
+import { FONT_SIZE, LINE_HEIGHT, STROKE_WIDTH, fontOf, type Annotation, type AnnotationColor } from "./model";
+
+/**
+ * A line with its leading, trailing and repeated spaces made non-breaking: an SVG collapses them, the overlay
+ * (white-space: pre) and a canvas keep them, and a no-break space is as wide as a space.
+ */
+const keepSpaces = (line: string) => line.replace(/ (?= )|^ | $/g, "\u00a0");
 
 /** Paints annotations in the context's current transform (model coordinates); shared by the PNG and SVG exports. */
 export function paintAnnotations(
@@ -11,8 +17,9 @@ export function paintAnnotations(
   ctx.lineWidth = STROKE_WIDTH;
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
-  ctx.font = `${FONT_SIZE}px ${FONT_FAMILY}`;
-  ctx.textBaseline = "top"; // (x1,y1) is the top-left of the first line
+  ctx.font = fontOf(FONT_SIZE);
+  // (x1,y1) is the top of the first line, on the hanging baseline as the overlay's dominant-baseline (svgcanvas keeps it).
+  ctx.textBaseline = "hanging";
   ctx.textAlign = "left";
   for (const a of list) {
     const c = colors[a.color];
@@ -43,7 +50,7 @@ export function paintAnnotations(
         break;
       }
       case "text":
-        textLines(a).forEach((line, i) => ctx.fillText(line, a.x1, a.y1 + i * FONT_SIZE * LINE_HEIGHT));
+        textLines(a).forEach((line, i) => ctx.fillText(keepSpaces(line), a.x1, a.y1 + i * FONT_SIZE * LINE_HEIGHT));
         break;
     }
   }

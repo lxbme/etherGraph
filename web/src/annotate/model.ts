@@ -24,6 +24,9 @@ export const LINE_HEIGHT = 1.3;
 export const FONT_FAMILY =
   "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif";
 
+/** The CSS `font` of annotation text at `size` px. */
+export const fontOf = (size: number): string => `${size}px ${FONT_FAMILY}`;
+
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
 /** Validation for deserialize: a known kind and colour, an id and finite coordinates (text only for strings). */

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { FONT_FAMILY, FONT_SIZE, LINE_HEIGHT, STROKE_WIDTH, type Annotation } from "./model";
+import { FONT_FAMILY, FONT_SIZE, LINE_HEIGHT, STROKE_WIDTH, fontOf, type Annotation } from "./model";
 import { paintAnnotations } from "./paint";
 
 const COLORS = { red: "#r", amber: "#a", blue: "#b", ink: "#i" };
@@ -42,12 +42,20 @@ describe("paintAnnotations", () => {
     expect(t.map(([, args]) => args[0])).toEqual(["a", "b", "c"]);
     expect(t.map(([, args]) => args[2])).toEqual([7, 7 + FONT_SIZE * LINE_HEIGHT, 7 + 2 * FONT_SIZE * LINE_HEIGHT]);
     expect(log).toContain("fillStyle=#i");
-    expect(log).toContain("textBaseline=top");
+    expect(log).toContain("textBaseline=hanging"); // as the overlay's dominant-baseline; svgcanvas keeps "hanging"
   });
 
   test("text uses the page font stack, as the overlay does", () => {
     const { ctx, log } = fakeCtx();
     paintAnnotations(ctx, [a({ kind: "text", text: "x" })], COLORS);
     expect(log).toContain(`font=${FONT_SIZE}px ${FONT_FAMILY}`);
+    expect(fontOf(FONT_SIZE)).toBe(`${FONT_SIZE}px ${FONT_FAMILY}`);
+  });
+
+  test("text keeps leading, trailing and repeated spaces (an SVG collapses plain ones); single inner spaces stay plain", () => {
+    const { ctx, calls } = fakeCtx();
+    paintAnnotations(ctx, [a({ kind: "text", text: "  a  b c \nx" })], COLORS);
+    const t = calls.filter(([n]) => n === "fillText").map(([, args]) => args[0]);
+    expect(t).toEqual(["\u00a0 a\u00a0 b c\u00a0", "x"]);
   });
 });

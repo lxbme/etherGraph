@@ -161,6 +161,21 @@ describe("export menu", () => {
     expect(download).not.toHaveBeenCalled();
   });
 
+  test("an asynchronous export whose download throws toasts the error", async () => {
+    vi.mocked(exportImage).mockReturnValue(Promise.resolve(new Blob(["x"])));
+    vi.mocked(download).mockImplementationOnce(() => {
+      throw new Error("download blocked");
+    });
+    render(
+      <>
+        <CanvasTools selectMode={false} onSelectModeChange={vi.fn()} exporter={exporter({ cy: () => fakeCy() })} />
+        <Toasts />
+      </>,
+    );
+    await userEvent.click(within(await openMenu()).getByRole("menuitem", { name: "PNG" }));
+    expect(await screen.findByText(/download blocked/)).toBeInTheDocument();
+  });
+
   test("closes on Escape and on an outside press", async () => {
     render(
       <>

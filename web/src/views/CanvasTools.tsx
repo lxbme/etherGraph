@@ -121,7 +121,7 @@ function ExportMenu({ exporter }: { exporter: CanvasExport }) {
       return void fail(e);
     }
     // Only a PNG with annotations is composed asynchronously.
-    if (out instanceof Promise) out.then(save, fail);
+    if (out instanceof Promise) out.then(save).catch(fail);
     else save(out);
   };
 

@@ -16,6 +16,7 @@ import {
   bounds,
   FONT_FAMILY,
   FONT_SIZE,
+  fontOf,
   LINE_HEIGHT,
   STROKE_WIDTH,
   translate,
@@ -23,7 +24,7 @@ import {
   type AnnotationColor,
   type ViewId,
 } from "./model";
-import { useAnnotations } from "./store";
+import { registerTextEditor, useAnnotations } from "./store";
 import { useAnnotateKeys } from "./useAnnotateKeys";
 
 const NO_NOTES: Annotation[] = []; // stable, so an untouched view does not re-render on every store change
@@ -163,6 +164,9 @@ export function AnnotationLayer({ view, cy }: { view: ViewId; cy: cytoscape.Core
   };
   const commitTextRef = useRef(commitText);
   commitTextRef.current = commitText;
+  // A save commits the text being written first (commitOpenText), so it is not left out.
+  const editing = editor !== null;
+  useEffect(() => (editing ? registerTextEditor(() => commitTextRef.current()) : undefined), [editing]);
 
   // Leaving the mode ends any gesture and commits the text being written.
   useEffect(() => {
@@ -291,8 +295,7 @@ export function AnnotationLayer({ view, cy }: { view: ViewId; cy: cytoscape.Core
   // The editor is as wide as its longest line in the annotation font, plus 1em to type into:
   // a `cols` width counts average characters and is about half the width of a CJK or "WWW" line.
   const editorSize = FONT_SIZE * vp.zoom;
-  const editorFont = `${editorSize}px ${FONT_FAMILY}`;
-  const editorWidth = Math.max(...editorLines.map((l) => textWidth(l, editorFont, editorSize)), 0) + editorSize;
+  const editorWidth = Math.max(...editorLines.map((l) => textWidth(l, fontOf(editorSize), editorSize)), 0) + editorSize;
 
   return (
     <>
@@ -305,6 +308,7 @@ export function AnnotationLayer({ view, cy }: { view: ViewId; cy: cytoscape.Core
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
         onDoubleClick={onDoubleClick}
+        onContextMenu={(e) => on && e.preventDefault()}
       >
         <g transform={`translate(${vp.pan.x} ${vp.pan.y}) scale(${vp.zoom})`}>
           {shown.map((a) => (

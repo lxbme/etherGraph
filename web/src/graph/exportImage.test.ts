@@ -5,18 +5,23 @@ import { canvasColor, graphStylesheet, txFlowStylesheet } from "./styles";
 import type { Annotation } from "../annotate/model";
 import { IMAGE_EXT, TRANSIENT_CLASSES, exportImage, withCleanCanvas } from "./exportImage";
 
-// jsdom has no DOMMatrix (svgcanvas needs it): a recording stand-in that serialises its size and filled texts.
+// jsdom has no DOMMatrix (svgcanvas needs it): a recording stand-in that serialises its size, its groups (svgcanvas
+// appends a <g> on every save()) and its filled texts.
 vi.mock("svgcanvas", () => ({
   Context: class {
     texts: string[] = [];
+    groups: string[] = []; // mutated, not assigned: the proxy drops property writes
     constructor(private size: { width: number; height: number }) {
       return new Proxy(this, { get: (t, k: string) => (k in t ? (t as never)[k] : () => {}), set: () => true });
+    }
+    save() {
+      this.groups.push("<g/>");
     }
     fillText(t: string) {
       this.texts.push(t);
     }
     getSerializedSvg() {
-      return `<svg width="${this.size.width}" height="${this.size.height}">${this.texts.map((t) => `<text>${t}</text>`).join("")}</svg>`;
+      return `<svg width="${this.size.width}" height="${this.size.height}">${this.groups.join("")}${this.texts.map((t) => `<text>${t}</text>`).join("")}</svg>`;
     }
     // Every other drawing call is a no-op (the proxy above).
   },
@@ -88,8 +93,45 @@ describe("withCleanCanvas", () => {
   });
 });
 
+/** A renderer stand-in for the SVG pass: no elements are drawn. */
+function stubRenderer(cy: cytoscape.Core) {
+  (cy as unknown as { renderer: () => unknown }).renderer = () => ({
+    getCachedZSortedEles: () => [],
+    drawElements: vi.fn(),
+    path2dEnabled: () => false,
+    notify: () => {},
+    recalculateRenderedStyle: () => {},
+  });
+}
+
+/**
+ * Stubs the PNG composite's inputs: `cy.png`, a decoded bitmap `scale` times the elements' (rounded-up) box, as
+ * Cytoscape renders it (its scale times the device pixel ratio), and a recording canvas.
+ */
+function stubComposite(cy: cytoscape.Core, scale: number) {
+  const bb = cy.elements().boundingBox();
+  const png = vi.fn(() => new Blob(["png"], { type: "image/png" }));
+  (cy as unknown as { png: typeof png }).png = png;
+  vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ width: Math.ceil(bb.w) * scale, height: Math.ceil(bb.h) * scale, close: vi.fn() })));
+  const drawImage = vi.fn();
+  const ctxScale = vi.fn();
+  const fakeCtx = new Proxy({ drawImage, scale: ctxScale } as Record<string, unknown>, {
+    get: (t, k: string) => (k in t ? t[k] : vi.fn()),
+    set: () => true,
+  });
+  const out = new Blob(["out"], { type: "image/png" });
+  const canvas = { width: 0, height: 0, getContext: () => fakeCtx, toBlob: (cb: (b: Blob) => void) => cb(out) };
+  const create = document.createElement.bind(document);
+  vi.spyOn(document, "createElement").mockImplementation(((tag: string) => (tag === "canvas" ? canvas : create(tag))) as typeof document.createElement);
+  return { bb, canvas, drawImage, ctxScale, out };
+}
+
 describe("exportImage", () => {
-  afterEach(() => useTheme.setState({ resolved: "light" }));
+  afterEach(() => {
+    useTheme.setState({ resolved: "light" });
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   test("PNG: the full graph at scale 2 on the theme's canvas colour, rendered from a clean canvas", () => {
     useTheme.setState({ resolved: "dark" });
@@ -127,14 +169,7 @@ describe("exportImage", () => {
   test("svg grows to include an annotation outside the elements", async () => {
     const cy = makeCy();
     const bb = cy.elements().boundingBox();
-    const drawElements = vi.fn();
-    (cy as unknown as { renderer: () => unknown }).renderer = () => ({
-      getCachedZSortedEles: () => [],
-      drawElements,
-      path2dEnabled: () => false,
-      notify: () => {},
-      recalculateRenderedStyle: () => {},
-    });
+    stubRenderer(cy);
     const note: Annotation = { id: "n", kind: "text", color: "ink", x1: bb.x2 + 500, y1: bb.y1, x2: bb.x2 + 500, y2: bb.y1, text: "look here" };
     const svg = await (await exportImage(cy, "svg", [note])).text();
     const width = Number(/<svg[^>]*\swidth="([\d.]+)"/.exec(svg)![1]);
@@ -144,31 +179,52 @@ describe("exportImage", () => {
     expect(Number(/<svg[^>]*\swidth="([\d.]+)"/.exec(plain)![1])).toBeLessThan(width);
   });
 
+  test("svg without annotations paints none: no extra group", async () => {
+    const cy = makeCy();
+    stubRenderer(cy);
+    const plain = await (await exportImage(cy, "svg")).text();
+    expect(plain).not.toContain("<g");
+    const note: Annotation = { id: "n", kind: "rect", color: "red", x1: 0, y1: 0, x2: 10, y2: 10 };
+    expect(await (await exportImage(cy, "svg", [note])).text()).toContain("<g/>");
+  });
+
   test("png composite is sized to the union box", async () => {
     const cy = makeCy();
-    const bb = cy.elements().boundingBox();
-    const png = vi.fn(() => new Blob(["png"], { type: "image/png" }));
-    (cy as unknown as { png: typeof png }).png = png;
-    vi.stubGlobal("createImageBitmap", vi.fn(async () => ({ width: bb.w * 2, height: bb.h * 2, close: vi.fn() })));
-    const drawImage = vi.fn();
-    const fakeCtx = new Proxy({ drawImage } as Record<string, unknown>, {
-      get: (t, k: string) => (k in t ? t[k] : vi.fn()),
-      set: () => true,
-    });
-    const out = new Blob(["out"], { type: "image/png" });
-    const canvas = { width: 0, height: 0, getContext: () => fakeCtx, toBlob: (cb: (b: Blob) => void) => cb(out) };
-    const create = document.createElement.bind(document);
-    vi.spyOn(document, "createElement").mockImplementation(((tag: string) => (tag === "canvas" ? canvas : create(tag))) as typeof document.createElement);
+    const { bb, canvas, drawImage, ctxScale, out } = stubComposite(cy, 2);
     // A rectangle left of and above the elements.
     const rect: Annotation = { id: "r", kind: "rect", color: "red", x1: bb.x1 - 100, y1: bb.y1 - 50, x2: bb.x1 - 20, y2: bb.y1 - 10 };
     const blob = await exportImage(cy, "png", [rect]);
     expect(blob).toBe(out);
-    const u = { x1: bb.x1 - 100 - 16, y1: bb.y1 - 50 - 16, x2: bb.x2, y2: bb.y2 };
+    const u = { x1: bb.x1 - 100 - 16, y1: bb.y1 - 50 - 16, x2: bb.x1 + Math.ceil(bb.w), y2: bb.y1 + Math.ceil(bb.h) }; // the render's extent
     expect(canvas.width).toBe(Math.ceil((u.x2 - u.x1) * 2));
     expect(canvas.height).toBe(Math.ceil((u.y2 - u.y1) * 2));
-    expect(drawImage).toHaveBeenCalledWith(expect.anything(), (bb.x1 - u.x1) * 2, (bb.y1 - u.y1) * 2);
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
+    expect(drawImage).toHaveBeenCalledWith(expect.anything(), Math.round((bb.x1 - u.x1) * 2), Math.round((bb.y1 - u.y1) * 2));
+    expect(ctxScale).toHaveBeenCalledWith(2, 2);
+  });
+
+  test("png composite follows the bitmap's scale: at a device pixel ratio of 2 Cytoscape renders 4x", async () => {
+    const cy = makeCy();
+    const { bb, canvas, drawImage, ctxScale } = stubComposite(cy, 4);
+    const rect: Annotation = { id: "r", kind: "rect", color: "red", x1: bb.x1 - 100, y1: bb.y1 - 50, x2: bb.x1 - 20, y2: bb.y1 - 10 };
+    await exportImage(cy, "png", [rect]);
+    const u = { x1: bb.x1 - 100 - 16, y1: bb.y1 - 50 - 16, x2: bb.x1 + Math.ceil(bb.w), y2: bb.y1 + Math.ceil(bb.h) }; // the render's extent
+    // As large as the 4x render plus the annotations' margin, the render drawn at its own size on whole pixels.
+    expect(canvas.width).toBe(Math.ceil((u.x2 - u.x1) * 4));
+    expect(canvas.height).toBe(Math.ceil((u.y2 - u.y1) * 4));
+    expect(canvas.width).toBeGreaterThanOrEqual(Math.ceil(bb.w) * 4);
+    const [, dx, dy] = drawImage.mock.calls[0]!;
+    expect([dx, dy]).toEqual([Math.round((bb.x1 - u.x1) * 4), Math.round((bb.y1 - u.y1) * 4)]);
+    expect(Number.isInteger(dx) && Number.isInteger(dy)).toBe(true);
+    expect(ctxScale).toHaveBeenCalledWith(4, 4);
+  });
+
+  test("png composite with annotations inside the elements is exactly the render's size", async () => {
+    const cy = makeCy();
+    const { bb, canvas, drawImage } = stubComposite(cy, 4);
+    const inside: Annotation = { id: "r", kind: "rect", color: "red", x1: bb.x1 + 20, y1: bb.y1 + 20, x2: bb.x1 + 22, y2: bb.y1 + 22 };
+    await exportImage(cy, "png", [inside]);
+    expect([canvas.width, canvas.height]).toEqual([Math.ceil(bb.w) * 4, Math.ceil(bb.h) * 4]);
+    expect(drawImage).toHaveBeenCalledWith(expect.anything(), 0, 0);
   });
 
   test("file extensions per format", () => {

@@ -38,6 +38,20 @@ interface AnnotationsState {
 const histories = new Map<string, History>();
 const historyOf = (view: string): History => histories.get(view) ?? { undo: [], redo: [] };
 
+// The commit of each overlay's open text editor: a text being written is the overlay's own until committed.
+const openEditors = new Set<() => void>();
+
+/** Registers an open text editor's commit (see commitOpenText); returns the unregister. */
+export function registerTextEditor(commit: () => void): () => void {
+  openEditors.add(commit);
+  return () => void openEditors.delete(commit);
+}
+
+/** Commits every text being written, so a save that captures the annotations next includes it. */
+export function commitOpenText(): void {
+  for (const commit of [...openEditors]) commit();
+}
+
 const initial = { byView: {}, active: null, tool: "select", color: "red", selected: null } as const;
 
 export const useAnnotations = create<AnnotationsState>()((set, get) => {
