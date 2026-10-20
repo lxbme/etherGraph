@@ -18,6 +18,7 @@ import { ContextMenu } from "../panels/ContextMenu";
 import { ExpandDialog } from "../panels/expand/ExpandDialog";
 import { InteractionsDialog } from "../panels/expand/InteractionsDialog";
 import { usePick } from "../panels/pick/pickStore";
+import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { useGraph, type Pos } from "../graph/store";
@@ -49,13 +50,16 @@ const lc = (s: string) => s.toLowerCase();
 
 /** The address relationship canvas: store + graph data → Cytoscape, and interactions back into the store/API. */
 export function AddressGraph() {
-  const { data: fresh, isFetching, error, isPlaceholderData } = useGraphData();
+  const { data: fresh, visibleEdges, isFetching, error, isPlaceholderData } = useGraphData();
   const centers = useGraph((s) => s.centers);
   // A failed query (e.g. after a filter change) keeps showing the last good result; the error is shown inline.
-  const lastGood = useRef<GraphResponseDto | undefined>(undefined);
-  if (fresh) lastGood.current = fresh;
+  const lastGood = useRef<{ data: GraphResponseDto; edges: EdgeDto[] } | undefined>(undefined);
+  if (fresh) lastGood.current = { data: fresh, edges: visibleEdges };
   else if (centers.length === 0) lastGood.current = undefined;
-  const data = fresh ?? (error != null ? lastGood.current : undefined);
+  const shown = fresh || error != null ? lastGood.current : undefined;
+  const data = shown?.data;
+  /** The result's edges without the transfers hidden on the Data tab. */
+  const edges = shown?.edges;
   /**
    * The canvas shows the current result (or, with no centers, nothing at all): not a pending query, the previous
    * key's result while the current one loads, or the last good one after an error.
@@ -90,8 +94,8 @@ export function AddressGraph() {
   const shownNodes = useMemo(() => (data ? data.nodes.filter((n) => !hidden.has(lc(n.address))) : NO_NODES), [data, hidden]);
   // `locale` is a dependency only because the edge badges are translated when derived.
   const visual = useMemo(
-    () => (data ? deriveVisualEdges(data.edges, expandedPairs, hidden) : []),
-    [data, expandedPairs, hidden, locale],
+    () => (edges ? deriveVisualEdges(edges, expandedPairs, hidden) : []),
+    [edges, expandedPairs, hidden, locale],
   );
   const elements = useMemo(
     () =>

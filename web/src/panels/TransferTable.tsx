@@ -8,6 +8,7 @@ import type { TransferDto } from "../api/generated/TransferDto";
 import { qk } from "../api/queryClient";
 import { useT } from "../i18n";
 import { graphSelection, useGraph } from "../graph/store";
+import { transferKey } from "../graph/hiddenTransfers";
 import { useGraphData } from "../graph/useGraphData";
 import { shortAddr } from "../lib/address";
 import { formatFixed } from "../lib/amount";
@@ -43,6 +44,7 @@ function AmountCell({ row }: { row: TransferDto }) {
 
 function TransferRows({ params, selected }: { params: TransfersParams; selected: string }) {
   const highlight = useGraph((s) => s.highlightTransfer);
+  const hiddenTransfers = useGraph((s) => s.hiddenTransfers);
   const setHighlight = useGraph((s) => s.setHighlightTransfer);
   const openTx = useTabs((s) => s.openTx);
   const t = useT();
@@ -110,10 +112,14 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
             const dir = from === sel && to === sel ? "self" : to === sel ? "in" : "out";
             const other = from === sel ? row.to : row.from;
             const active = !!highlight && highlight.from === from && highlight.to === to && highlight.asset === asset;
+            // Hidden on the Data tab: muted here (and still clickable), left out of the canvas edges.
+            const hidden = transferKey(row) in hiddenTransfers;
+            const className = ["transfers__row", active && "transfers__row--active", hidden && "transfers__row--hidden"].filter(Boolean).join(" ");
             return (
               <tr
                 key={`${row.tx_hash}:${row.sub_id}:${row.kind}`}
-                className={active ? "transfers__row transfers__row--active" : "transfers__row"}
+                className={className}
+                title={hidden ? t("transfers.hiddenRow") : undefined}
                 data-testid="transfer-row"
                 onClick={() => onRow(row)}
               >

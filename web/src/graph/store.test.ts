@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { useCanvasMetrics } from "./canvasMetrics";
 import { setHistoryEffectHandler, type ExpandEffect } from "./historyEffects";
+import { transferKey, type HiddenTransfer } from "./hiddenTransfers";
 import { firstBatch, firstBatchFor, ownNeighbours, pairKey, useGraph } from "./store";
 
 const A = "0x" + "a".repeat(40);
@@ -199,6 +200,46 @@ describe("graph store", () => {
     expect(g().hiddenProxies).toEqual([]);
     g().loadSnapshot({ centers: [A], filter: {}, expandedPairs: [], ui: {}, hiddenProxies: [A, C] });
     expect(g().hiddenProxies).toEqual([A]);
+  });
+
+  test("setTransfersHidden is one undo step and redo re-hides", () => {
+    const h = (sub_id: string): HiddenTransfer => ({
+      tx_hash: "0x" + "1".repeat(64), sub_id, from: A, to: B, asset: null, amount: "10", ts: "2024-01-01T00:00:00Z", kind: "native",
+    });
+    g().setCenters([A]);
+    const steps = g()._past.length;
+    g().setTransfersHidden([h("0"), h("1"), h("2")], true);
+    expect(Object.keys(g().hiddenTransfers).sort()).toEqual([transferKey(h("0")), transferKey(h("1")), transferKey(h("2"))]);
+    expect(g()._past.length).toBe(steps + 1);
+    // Nothing changes: no step.
+    g().setTransfersHidden([h("1")], true);
+    expect(g()._past.length).toBe(steps + 1);
+    g().setTransfersHidden([h("0"), h("1")], false);
+    expect(Object.keys(g().hiddenTransfers)).toEqual([transferKey(h("2"))]);
+    g().undo();
+    expect(Object.keys(g().hiddenTransfers)).toHaveLength(3);
+    g().undo();
+    expect(g().hiddenTransfers).toEqual({});
+    expect(g().centers).toEqual([A]);
+    g().redo();
+    expect(g().hiddenTransfers[transferKey(h("1"))]).toEqual(h("1"));
+    expect(Object.keys(g().hiddenTransfers)).toHaveLength(3);
+    g().reset();
+    expect(g().hiddenTransfers).toEqual({});
+    g().loadSnapshot({ centers: [A], filter: {}, expandedPairs: [], ui: {}, hiddenTransfers: [h("0")] });
+    expect(g().hiddenTransfers).toEqual({ [transferKey(h("0"))]: h("0") });
+  });
+
+  test("hiding transfers on a snapshot never asks to refresh, nor does undoing it", () => {
+    const h: HiddenTransfer = {
+      tx_hash: "0x" + "1".repeat(64), sub_id: "0", from: A, to: B, asset: null, amount: "10", ts: "2024-01-01T00:00:00Z", kind: "native",
+    };
+    g().setCenters([A]);
+    g().freeze({ exported_at: "2024-01-01T00:00:00Z", includes: { labels: true, notes: true }, data: { nodes: [], edges: [], omitted: {}, coverage: {} } } as never);
+    g().setTransfersHidden([h], true);
+    g().undo();
+    expect(g().hiddenTransfers).toEqual({});
+    expect(g().pendingLive).toBeNull();
   });
 
   test("removing a center drops its hidden proxy", () => {

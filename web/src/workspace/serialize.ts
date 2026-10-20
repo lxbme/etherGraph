@@ -1,5 +1,6 @@
 import { t } from "../i18n";
 import type { EdgeFilterDto } from "../api/generated/EdgeFilterDto";
+import type { HiddenTransfer } from "../graph/hiddenTransfers";
 import { withFirstBatch, type GraphState, type Pos, type SortKey } from "../graph/store";
 import type { TxDetailTab, TxView } from "../shell/tabs";
 import { isGraphSnapshot, isTxSnapshot, type GraphSnapshot, type TxSnapshot } from "./snapshot";
@@ -19,6 +20,8 @@ export interface WorkspaceStateV1 {
   picks?: Record<string, string[]>;
   /** Centers whose "+N more" is hidden. Absent when none is, and in older states. */
   hidden_proxies?: string[];
+  /** Transfers hidden on the Data tab. Absent when none is, and in older states. */
+  hidden_transfers?: HiddenTransfer[];
   viewport: { zoom: number; pan: { x: number; y: number } };
 }
 
@@ -57,7 +60,7 @@ export interface SerializeOpts {
 const lc = (s: string) => s.toLowerCase();
 
 export function serialize(
-  state: Pick<GraphState, "centers" | "filter" | "sort" | "expandedPairs" | "ui" | "limits" | "picks" | "proxyPos" | "hiddenProxies">,
+  state: Pick<GraphState, "centers" | "filter" | "sort" | "expandedPairs" | "ui" | "limits" | "picks" | "proxyPos" | "hiddenProxies" | "hiddenTransfers">,
   viewport: WorkspaceStateV1["viewport"],
   opts: SerializeOpts = {},
 ): WorkspaceStateV1 {
@@ -83,6 +86,7 @@ export function serialize(
     }),
   );
   const hiddenProxies = state.hiddenProxies.filter((c) => state.centers.includes(c));
+  const hiddenTransfers = Object.values(state.hiddenTransfers).map((h) => ({ ...h }));
   return {
     nodes: addrs.map((address) => {
       const u = state.ui[address];
@@ -108,6 +112,7 @@ export function serialize(
     ...(Object.keys(picks).length > 0 ? { picks } : {}),
     ...(Object.keys(proxies).length > 0 ? { proxies } : {}),
     ...(hiddenProxies.length > 0 ? { hidden_proxies: hiddenProxies } : {}),
+    ...(hiddenTransfers.length > 0 ? { hidden_transfers: hiddenTransfers } : {}),
     viewport: { zoom: viewport.zoom, pan: { ...viewport.pan } },
   };
 }
@@ -130,6 +135,18 @@ const isViewport = (v: unknown): v is Viewport =>
   isObj(v) && isNum(v.zoom) && v.zoom > 0 && isObj(v.pan) && isNum(v.pan.x) && isNum(v.pan.y);
 const isPositions = (v: unknown): v is Record<string, Pos> =>
   isObj(v) && Object.values(v).every((p) => isObj(p) && isNum(p.x) && isNum(p.y));
+const TRANSFER_KINDS: readonly string[] = ["native", "internal", "erc20", "erc721", "erc1155"];
+/** A saved hidden transfer: a tx hash, addresses, a raw integer amount and a known kind. */
+const isHiddenTransfer = (v: unknown): v is HiddenTransfer =>
+  isObj(v) &&
+  isStr(v.tx_hash) && TX_HASH.test(v.tx_hash) &&
+  isStr(v.sub_id) &&
+  isStr(v.from) && ADDRESS.test(v.from) &&
+  isStr(v.to) && ADDRESS.test(v.to) &&
+  (v.asset === null || (isStr(v.asset) && ADDRESS.test(v.asset))) &&
+  isStr(v.amount) && /^\d+$/.test(v.amount) &&
+  isStr(v.ts) &&
+  isStr(v.kind) && TRANSFER_KINDS.includes(v.kind);
 
 type Parsed<T> = { ok: true; state: T } | { ok: false; reason: string };
 const bad = (reason: string) => ({ ok: false as const, reason });
@@ -198,6 +215,9 @@ function deserializeGraph(v: unknown): Parsed<WorkspaceStateV1 & { snapshot?: Gr
   if (v.picks !== undefined && !isPicks(v.picks)) return bad(t("ws.err.field", { field: "picks" }));
   if (v.proxies !== undefined && !isPositions(v.proxies)) return bad(t("ws.err.field", { field: "proxies" }));
   if (v.hidden_proxies !== undefined && !isStrArr(v.hidden_proxies)) return bad(t("ws.err.field", { field: "hidden_proxies" }));
+  if (v.hidden_transfers !== undefined && !(Array.isArray(v.hidden_transfers) && v.hidden_transfers.every(isHiddenTransfer))) {
+    return bad(t("ws.err.field", { field: "hidden_transfers" }));
+  }
   if (v.snapshot !== undefined && !isGraphSnapshot(v.snapshot)) return bad(t("ws.err.field", { field: "snapshot" }));
   // Centers saved without a limit (older states) get the first batch of a new center.
   const stored: Record<string, number> = {};

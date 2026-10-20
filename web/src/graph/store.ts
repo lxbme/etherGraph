@@ -4,6 +4,7 @@ import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import { useAssetRegistry } from "./assetRegistry";
 import { nodeBudget, nodeCapacity, perCenterBatch } from "./budget";
 import { useCanvasMetrics } from "./canvasMetrics";
+import { transferKey, type HiddenTransfer } from "./hiddenTransfers";
 import { runRedoEffect, runUndoEffect, type ExpandEffect } from "./historyEffects";
 import { MORE_PREFIX } from "./moreId";
 import { pairKey } from "./pairKey";
@@ -55,6 +56,11 @@ export interface GraphState {
    * that is removed or hidden leaves it (so it comes back with its proxy).
    */
   hiddenProxies: string[];
+  /**
+   * Transfers hidden on the Data tab, keyed by `transferKey`: taken out of the canvas edges, muted in the transfer
+   * table. History-tracked and saved with the workspace; never part of the graph query.
+   */
+  hiddenTransfers: Record<string, HiddenTransfer>;
   selection: Selection;
   highlightTransfer: { from: string; to: string; asset: string | null } | null;
   /** Bumped by `reset` and `loadSnapshot`: a new canvas whose nodes have nothing to do with earlier ones. */
@@ -119,6 +125,8 @@ export interface GraphState {
   setNote(a: string, note: string): void;
   /** Hides (or shows again) the "+N more" proxies of `centers`, as one history step; no-op when nothing changes. */
   setProxiesHidden(centers: string[], hidden: boolean): void;
+  /** Hides (or shows again) `list`, as one history step however many it holds; no-op when nothing changes. */
+  setTransfersHidden(list: HiddenTransfer[], hidden: boolean): void;
   /** Not history-tracked. */
   /** Keys are node ids: addresses, or "+N more" proxy ids (`more:<center>`), whose positions go to `proxyPos`. */
   setPositions(p: Record<string, Pos>): void;
@@ -152,6 +160,8 @@ export interface GraphState {
     proxyPos?: Record<string, Pos>;
     /** Centers whose "+N more" is hidden; entries of other addresses are dropped. */
     hiddenProxies?: string[];
+    /** Transfers hidden on the Data tab. Absent in older workspaces: none. */
+    hiddenTransfers?: HiddenTransfer[];
   }): void;
   /** Internal history stacks. */
   _past: HistoryEntry[];
@@ -168,6 +178,7 @@ interface Snapshot {
   limits: Record<string, number>;
   picks: Record<string, string[]>;
   hiddenProxies: string[];
+  hiddenTransfers: Record<string, HiddenTransfer>;
 }
 /**
  * A snapshot step, or (when `positions` is set) a position-move step; `effect` runs after it is undone/redone.
@@ -328,6 +339,7 @@ function snapshot(s: GraphState): Snapshot {
     limits: { ...s.limits },
     picks: { ...s.picks },
     hiddenProxies: [...s.hiddenProxies],
+    hiddenTransfers: s.hiddenTransfers,
   };
 }
 
@@ -361,6 +373,7 @@ const initial = () => ({
   limits: {} as Record<string, number>,
   picks: {} as Record<string, string[]>,
   hiddenProxies: [] as string[],
+  hiddenTransfers: {} as Record<string, HiddenTransfer>,
   selection: null as Selection,
   highlightTransfer: null as GraphState["highlightTransfer"],
   frozen: null as GraphSnapshot | null,
@@ -410,6 +423,7 @@ export const useGraph = create<GraphState>()((set, get) => {
         limits: { ...snap.limits },
         picks: { ...snap.picks },
         hiddenProxies: [...snap.hiddenProxies],
+        hiddenTransfers: snap.hiddenTransfers,
       },
       entry.effect ? { snap: snapshot(s), effect: entry.effect } : { snap: snapshot(s) },
     ];
@@ -566,6 +580,18 @@ export const useGraph = create<GraphState>()((set, get) => {
       if (next.length === cur.length) return;
       tracked(() => ({ hiddenProxies: next }));
     },
+    setTransfersHidden: (list, hidden) => {
+      const cur = get().hiddenTransfers;
+      const keys = list.map(transferKey);
+      const change = hidden ? keys.some((k) => !(k in cur)) : keys.some((k) => k in cur);
+      if (!change) return;
+      const next = { ...cur };
+      list.forEach((h, i) => {
+        if (hidden) next[keys[i]!] ??= h;
+        else delete next[keys[i]!];
+      });
+      tracked(() => ({ hiddenTransfers: next }));
+    },
     setPositions: (p) =>
       set((s) => {
         const ui = Object.keys(p).some((k) => !lc(k).startsWith(MORE_PREFIX)) ? { ...s.ui } : s.ui;
@@ -657,12 +683,23 @@ export const useGraph = create<GraphState>()((set, get) => {
       const proxyPos: Record<string, Pos> = {};
       for (const [k, p] of Object.entries(v.proxyPos ?? {})) if (centers.includes(lc(k))) proxyPos[lc(k)] = p;
       const hiddenProxies = cleanList(v.hiddenProxies ?? []).filter((c) => centers.includes(c));
+      const hiddenTransfers: Record<string, HiddenTransfer> = {};
+      for (const h of v.hiddenTransfers ?? []) {
+        hiddenTransfers[transferKey(h)] = {
+          ...h,
+          tx_hash: lc(h.tx_hash),
+          from: lc(h.from),
+          to: lc(h.to),
+          asset: h.asset === null ? null : lc(h.asset),
+        };
+      }
       set({
         ...initial(),
         epoch: get().epoch + 1,
         centers,
         proxyPos,
         hiddenProxies,
+        hiddenTransfers,
         // Top-k centers without a limit (older states) get a first batch; picked ones need none.
         limits: withFirstBatch(limits, centers.filter((c) => picks[c] === undefined), { fresh: true }),
         picks,

@@ -4,6 +4,7 @@ import { ApiError } from "../api/errors";
 import type { WorkspaceDto } from "../api/generated/WorkspaceDto";
 import { useCanvasMetrics } from "../graph/canvasMetrics";
 import { getMainCy } from "../graph/cyRegistry";
+import { transferKey, type HiddenTransfer } from "../graph/hiddenTransfers";
 import { useGraph } from "../graph/store";
 import { graphQueryKey } from "../graph/useGraphData";
 import { useInfo } from "../panels/info/infoStore";
@@ -563,6 +564,50 @@ describe("hidden proxies", () => {
     await saveNew("w");
     expect(useWorkspace.getState().dirty).toBe(false);
     g().setProxiesHidden([A], true);
+    expect(useWorkspace.getState().dirty).toBe(true);
+  });
+});
+
+describe("hidden transfers", () => {
+  const TX = "0x" + "1".repeat(64);
+  const h = (sub_id: string): HiddenTransfer => ({
+    tx_hash: TX, sub_id, from: A, to: B, asset: null, amount: "10", ts: "2024-01-01T00:00:00Z", kind: "native",
+  });
+
+  test("hidden_transfers round-trips; an older workspace loads with none", async () => {
+    g().setCenters([A]);
+    expect("hidden_transfers" in serialize(g(), VP)).toBe(false);
+    g().setTransfersHidden([h("0"), h("1")], true);
+    const s = serialize(g(), VP);
+    expect(s.hidden_transfers).toEqual([h("0"), h("1")]);
+    expect(deserialize(JSON.parse(JSON.stringify(s)), 1)).toEqual({ ok: true, state: { graph: s, tabs: [], active: "graph" } });
+
+    // Saved in mixed case: loaded lowercase, keyed by transfer.
+    const upper = (x: string) => x.toUpperCase().replace("0X", "0x");
+    const saved = { ...s, hidden_transfers: [{ ...h("0"), tx_hash: upper(TX), from: upper(A) }] };
+    g().reset();
+    m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(saved)) }));
+    await expect(loadWorkspace(7)).resolves.toBe(true);
+    expect(g().hiddenTransfers).toEqual({ [transferKey(h("0"))]: h("0") });
+
+    const older = { ...s };
+    delete older.hidden_transfers;
+    m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(older)) }));
+    await expect(loadWorkspace(7)).resolves.toBe(true);
+    expect(g().hiddenTransfers).toEqual({});
+
+    for (const bad of [{ ...h("0"), amount: "1.5" }, { ...h("0"), tx_hash: "0x12" }, { ...h("0"), kind: "nft" }, { ...h("0"), from: "x" }, "x"]) {
+      const r = deserialize({ ...s, hidden_transfers: [bad] }, 1);
+      expect(!r.ok && r.reason).toContain("hidden_transfers");
+    }
+  });
+
+  test("hiding a transfer marks the workspace dirty", async () => {
+    g().setCenters([A]);
+    m.createWorkspace.mockResolvedValue(dto());
+    await saveNew("w");
+    expect(useWorkspace.getState().dirty).toBe(false);
+    g().setTransfersHidden([h("0")], true);
     expect(useWorkspace.getState().dirty).toBe(true);
   });
 });

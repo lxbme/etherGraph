@@ -227,6 +227,34 @@ test("edge detail toggles the pair expansion", async () => {
   expect(useGraph.getState().expandedPairs.size).toBe(0);
 });
 
+test("edge detail counts from visible edges", async () => {
+  const trust = { level: "listed", impersonates: null, reason: null } as const;
+  const usdc = "0x" + "cc".repeat(20);
+  const data: GraphResponseDto = {
+    nodes: [],
+    edges: [
+      { from: A, to: B, asset: null, asset_kind: "native", count: 3, sum: "3000000000000000000", first_ts: "", last_ts: "", decimals: 18, symbol: "ETH", trust },
+      { from: B, to: A, asset: usdc, asset_kind: "erc20", count: 1, sum: "2000000", first_ts: "", last_ts: "", decimals: 6, symbol: "USDC", trust },
+    ],
+    omitted: {}, coverage: {},
+  };
+  vi.spyOn(api, "graphEdges").mockResolvedValue(data);
+  const hidden = (sub_id: string, from: string, to: string, asset: string | null, amount: string) => ({
+    tx_hash: "0x" + "1".repeat(64), sub_id, from, to, asset, amount, ts: "2024-01-01T00:00:00Z", kind: asset ? "erc20" as const : "native" as const,
+  });
+  act(() => {
+    useGraph.getState().addCenter(A);
+    useGraph.getState().select({ kind: "pair", a: A, b: B });
+    useGraph.getState().setTransfersHidden([hidden("0", A, B, null, "1000000000000000000"), hidden("1", B, A, usdc, "2000000")], true);
+  });
+  renderPanel();
+  const eth = (await screen.findByText("ETH")).closest("tr")!;
+  expect(within(eth).getByText("2")).toBeInTheDocument();
+  expect(within(eth).getByText("2.000000")).toHaveAttribute("title", "2");
+  // Every USDC transfer is hidden: the row is gone.
+  expect(screen.queryByText("USDC")).toBeNull();
+});
+
 test("on a snapshot, the file's labels show as 'From file' with no delete or edit, and never reach the label API", async () => {
   vi.spyOn(api, "address").mockResolvedValue(profile([{ id: 2, text: "mine", category: "other", source: "user" }]));
   vi.spyOn(api, "nodes").mockResolvedValue([]);

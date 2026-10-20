@@ -10,11 +10,12 @@ import { groupsForPair } from "./transferGroups";
 import { pairKey } from "../graph/pairKey";
 
 export function EdgeDetail({ a, b }: { a: string; b: string }) {
-  const { data } = useGraphData();
+  // The pair's edges without the transfers hidden on the Data tab, as the canvas draws them.
+  const { visibleEdges } = useGraphData();
   const t = useT();
   const expanded = useGraph((s) => s.expandedPairs.has(pairKey(a, b)));
   const togglePair = useGraph((s) => s.togglePair);
-  const groups = groupsForPair(data?.edges ?? [], a, b);
+  const groups = groupsForPair(visibleEdges, a, b);
   // The two ends are named A and B once; each row then reads "A → B" or "B → A".
   const side = (addr: string) => (addr === a ? "A" : "B");
 

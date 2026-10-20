@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "../api/endpoints";
+import type { EdgeDto } from "../api/generated/EdgeDto";
 import type { GraphResponseDto } from "../api/generated/GraphResponseDto";
 import { qk } from "../api/queryClient";
 import { overlayNodes, useLiveIdentities } from "../workspace/snapshot";
 import { useAssetRegistry } from "./assetRegistry";
+import { subtractHidden } from "./hiddenTransfers";
 import { useGraph, type GraphState } from "./store";
 
 /** Most `prefer` addresses the server accepts. */
@@ -52,19 +54,29 @@ export function preferFor(shown: GraphResponseDto | undefined): string[] {
 }
 
 const NO_ADDRS: string[] = [];
+const NO_EDGES: EdgeDto[] = [];
 
 /**
  * Edges around the current centers. No request while there are no centers; keeps the previous result while a new key loads.
  * A snapshot (frozen) graph is the file's data with no graph request, its nodes carrying the receiver's live identities.
  * `isPlaceholderData`: `data` is the previous key's result standing in while the current key loads.
+ * `visibleEdges`: `data`'s edges with the transfers hidden on the Data tab taken out, for the canvas and the edge
+ * detail; `data.edges` stays raw (asset registry, filter panel, pick dialog, snapshot export).
  */
-export function useGraphData(): { data?: GraphResponseDto; isFetching: boolean; error: unknown; isPlaceholderData: boolean } {
+export function useGraphData(): {
+  data?: GraphResponseDto;
+  visibleEdges: EdgeDto[];
+  isFetching: boolean;
+  error: unknown;
+  isPlaceholderData: boolean;
+} {
   const centers = useGraph((s) => s.centers);
   const filter = useGraph((s) => s.filter);
   const sort = useGraph((s) => s.sort);
   const limits = useGraph((s) => s.limits);
   const picks = useGraph((s) => s.picks);
   const frozen = useGraph((s) => s.frozen);
+  const hiddenTransfers = useGraph((s) => s.hiddenTransfers);
   const frozenAddrs = useMemo(() => (frozen ? frozen.data.nodes.map((n) => n.address) : NO_ADDRS), [frozen]);
   const live = useLiveIdentities(frozenAddrs);
   const frozenData = useMemo(
@@ -98,6 +110,12 @@ export function useGraphData(): { data?: GraphResponseDto; isFetching: boolean; 
     if (frozen) merge(frozen.data.edges);
     else if (q.data) merge(q.data.edges);
   }, [frozen, q.data, merge]);
-  if (frozenData) return { data: frozenData, isFetching: false, error: null, isPlaceholderData: false };
-  return { data: enabled ? q.data : undefined, isFetching: q.isFetching, error: q.error, isPlaceholderData: enabled && q.isPlaceholderData };
+  const data = frozenData ?? (enabled ? q.data : undefined);
+  // A snapshot's edges were drawn under the store's filter too: changing it goes live first.
+  const visibleEdges = useMemo(
+    () => (data ? subtractHidden(data.edges, hiddenTransfers, filter) : NO_EDGES),
+    [data, hiddenTransfers, filter],
+  );
+  if (frozenData) return { data: frozenData, visibleEdges, isFetching: false, error: null, isPlaceholderData: false };
+  return { data, visibleEdges, isFetching: q.isFetching, error: q.error, isPlaceholderData: enabled && q.isPlaceholderData };
 }

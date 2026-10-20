@@ -10,7 +10,9 @@ import type { NodeSummaryDto } from "../api/generated/NodeSummaryDto";
 import { openFakePopover, pressEscape } from "../graph/fakePopover.testutil";
 import { useBoxSelection } from "../graph/boxSelection";
 import type { CytoscapeViewProps } from "../graph/CytoscapeView";
+import { type HiddenTransfer } from "../graph/hiddenTransfers";
 import { pairKey, setUnfreezeHandler, useGraph } from "../graph/store";
+import { edgeWidth } from "../graph/visualEdges";
 import { Toasts } from "../shell/Toasts";
 import { DetailPanel } from "../panels/DetailPanel";
 import { useInfo } from "../panels/info/infoStore";
@@ -152,6 +154,29 @@ test("the expanded legend's width is kept clear on the left of every fit", async
   expect(props().fitInsetLeft).toBe(192);
   act(() => screen.getByRole("button", { name: "Collapse legend" }).click());
   expect(props().fitInsetLeft).toBe(0);
+});
+
+test("a collapsed pair's count drops by the hidden number", async () => {
+  const USDC = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
+  const usdc: EdgeDto = { ...edge, asset: USDC, asset_kind: "erc20", count: 2, sum: "3000000", decimals: 6, symbol: "USDC" };
+  vi.mocked(api.graphEdges).mockResolvedValue({ ...data, edges: [edge, usdc] });
+  await mountWithData();
+  const pair = () => props().elements.find((e) => e.data.id === `c:${A}>${B}`)!;
+  expect(pair().data).toMatchObject({ width: edgeWidth(5), badge: "×2" });
+  const hide = (sub_id: string, asset: string | null, amount: string): HiddenTransfer => ({
+    tx_hash: "0x" + "1".repeat(64), sub_id, from: A, to: B, asset, amount, ts: "2024-01-01T00:00:00Z", kind: asset ? "erc20" : "native",
+  });
+  act(() => useGraph.getState().setTransfersHidden([hide("0", null, "100")], true));
+  expect(pair().data.width).toBe(edgeWidth(4));
+  act(() => props().onHover?.({ kind: "edge", id: `c:${A}>${B}`, pos: { x: 10, y: 10 } }));
+  expect(screen.getByTestId("graph-tooltip")).toHaveTextContent("ETH2 transfers");
+  // Both USDC transfers hidden: the pair carries ETH alone.
+  act(() => useGraph.getState().setTransfersHidden([hide("1", USDC, "1000000"), hide("2", USDC, "2000000")], true));
+  expect(pair().data.width).toBe(edgeWidth(2));
+  expect(pair().data.badge).toBeUndefined();
+  expect(screen.getByTestId("graph-tooltip")).not.toHaveTextContent("USDC");
+  act(() => useGraph.getState().undo());
+  expect(pair().data.width).toBe(edgeWidth(4));
 });
 
 test("hidden nodes and their edges are left out", async () => {

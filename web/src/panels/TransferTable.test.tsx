@@ -8,6 +8,7 @@ import type { TransferDto } from "../api/generated/TransferDto";
 import { ApiError } from "../api/errors";
 import { qk } from "../api/queryClient";
 import { graphQueryKey } from "../graph/useGraphData";
+import { hiddenFromTransfer } from "../graph/hiddenTransfers";
 import { useGraph } from "../graph/store";
 import { useTabs } from "../shell/tabs";
 import { useLocale } from "../i18n";
@@ -367,6 +368,36 @@ test("clicking a row sets highlightTransfer and clicking again clears it", async
   expect(useGraph.getState().highlightTransfer).toEqual({ from: A, to: B, asset: USDC });
   fireEvent.click(row);
   expect(useGraph.getState().highlightTransfer).toBeNull();
+});
+
+test("a hidden transfer's row is muted with the hidden title", async () => {
+  const shown = tr({ sub_id: "1" });
+  const gone = tr({ sub_id: "2", tx_hash: "0x" + "22".repeat(32) });
+  vi.spyOn(api, "transfers").mockResolvedValue({ items: [shown, gone], next_cursor: null });
+  act(() => {
+    useGraph.getState().setTransfersHidden([hiddenFromTransfer({ ...gone, tx_hash: gone.tx_hash.toUpperCase().replace("0X", "0x") })], true);
+    useGraph.getState().select({ kind: "node", address: A });
+  });
+  const view = renderTable();
+  const check = async () => {
+    const [first, second] = await screen.findAllByTestId("transfer-row");
+    expect(first).not.toHaveClass("transfers__row--hidden");
+    expect(first).not.toHaveAttribute("title");
+    expect(second).toHaveClass("transfers__row", "transfers__row--hidden");
+    expect(second).toHaveAttribute("title", "Hidden on the Data tab");
+    // Still clickable.
+    fireEvent.click(second!);
+    expect(useGraph.getState().highlightTransfer).toEqual({ from: A, to: B, asset: null });
+  };
+  await check();
+  view.unmount();
+
+  // Pair scope: the group header keeps its stored totals; only the row is muted.
+  act(() => useGraph.getState().select({ kind: "pair", a: A, b: B }));
+  serveAssets([edge({ count: 2, sum: "2000000000000000000" })], true);
+  renderTable();
+  expect(await screen.findByRole("button", { name: /ETH · 0xaaaa…aaaa→0xbbbb…bbbb · 2 transfers · Σ 2/ })).toBeInTheDocument();
+  await check();
 });
 
 test("unknown decimals show the raw value with a warning", async () => {

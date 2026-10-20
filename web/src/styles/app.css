@@ -819,6 +819,9 @@ a.btn { text-decoration: none; }
 .transfers__row:hover { background: var(--bg-subtle); }
 .transfers__row--active,
 .transfers__row--active:hover { background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
+/* Hidden on the Data tab: muted, the amount struck through. */
+.transfers__row--hidden { color: var(--fg-muted); }
+.transfers__row--hidden .table__num { text-decoration: line-through; }
 .transfers__dir--in { color: var(--pos); }
 .transfers__dir--out { color: var(--neg); }
 .transfers__muted { color: var(--fg-muted); }
