@@ -961,7 +961,8 @@ a.btn { text-decoration: none; }
 .pick__tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
 .pick__search { flex: 1 1 100%; }
 .pick__tools select { flex: 1 1 0; min-width: 0; }
-.pick__k { display: flex; flex: 1 1 100%; align-items: center; gap: var(--sp-2); color: var(--fg-muted); font-size: var(--fs-12); }
+.pick__k-row { display: flex; flex: 1 1 100%; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.pick__k { display: flex; align-items: center; gap: var(--sp-2); color: var(--fg-muted); font-size: var(--fs-12); }
 .pick__k-input { width: 6em; }
 .pick__notes { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3); color: var(--fg-muted); font-size: var(--fs-12); }
 .pick__notes:empty { display: none; }

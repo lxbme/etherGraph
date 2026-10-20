@@ -240,6 +240,7 @@ test("unsynced_target_makes_no_requests", async () => {
     {
       center: addr(T),
       summary: canvas.nodes[3],
+      known: true,
       synced: false,
       syncing: true,
       lastSynced: null,
@@ -267,4 +268,34 @@ test("60 synced targets are listed in two dry runs of 50 and 10 centers, one gro
   // The other targets are centers to be: never rows of each other.
   expect(groups.every((g) => g.rows.length === 1 && g.rows[0]!.address === addr(parseInt(g.center, 16) + 1000))).toBe(true);
   expect(groups.every((g) => g.defaults.length === 1)).toBe(true);
+});
+
+test("a target the canvas does not show yet, or shows only in a previous request's result, is loading — not unsynced", async () => {
+  useGraph.getState().loadSnapshot({ centers: [addr(C9)], filter: {}, expandedPairs: [], ui: {}, picks: { [addr(C9)]: [addr(X)] } });
+  canvas = { nodes: [node(C9), node(X)], edges: [edge(C9, X)], omitted: {}, coverage: {} };
+  const { result } = renderHook(() => usePickData([addr(C0)]), { wrapper });
+  // The canvas answered without C0: nothing is known about it.
+  await waitFor(() => expect(edges).toHaveBeenCalled());
+  await new Promise((r) => setTimeout(r, 50));
+  expect(result.current.loading).toBe(true);
+  expect(result.current.groups[0]).toMatchObject({ center: addr(C0), known: false, synced: false, rows: [] });
+  // C0 becomes a center: the canvas request with it answers only when released; the previous result stands in.
+  let release!: () => void;
+  edges.mockImplementation(async (req) => {
+    if (req.dry_run) return dryRun(req);
+    if (!req.addresses.includes(addr(C0))) return canvas;
+    await new Promise<void>((r) => (release = r));
+    return canvas;
+  });
+  act(() => useGraph.getState().revealCenter(addr(C0)));
+  await waitFor(() => expect(release).toBeTypeOf("function"));
+  // The stand-in result lacks C0: still loading, and no dry run for a target not known to be synced.
+  expect(result.current.loading).toBe(true);
+  expect(result.current.groups[0]).toMatchObject({ known: false, synced: false });
+  expect(dryRuns()).toHaveLength(0);
+  canvas = { ...canvas, nodes: [...canvas.nodes, node(C0)] };
+  await act(async () => release());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.groups[0]).toMatchObject({ known: true, synced: true });
+  expect(result.current.groups[0]!.rows.map((r) => r.address)).toEqual(RANKED.map(addr));
 });

@@ -10,7 +10,7 @@ import { useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
 import { newBatchId } from "../../lib/batchId";
 import { formatTime } from "../../lib/format";
-import { useQuota } from "../../shell/statusStore";
+import { useJobProgress, useQuota } from "../../shell/statusStore";
 import { toast } from "../../shell/Toasts";
 import { offerUndo } from "../expand/expansion";
 import { TrustBadge } from "../info/TrustBadge";
@@ -62,6 +62,15 @@ function matches(r: NeighbourRow, q: string): boolean {
   return [r.address, n.display_name, n.ens, n.contract_name].some((s) => s != null && lc(s).includes(q));
 }
 
+/** Job statuses that end a sync without its data: "Syncing…" stops and Sync is offered again. */
+const ENDED_UNDONE: ReadonlySet<string> = new Set(["failed", "cancelled"]);
+
+/** A sync asked for in the dialog: the group's `lastSynced` then, and the jobs queued for it (null until answered). */
+interface Requested {
+  lastSynced: string | null;
+  jobs: number[] | null;
+}
+
 /** Where the list is scrolled to and how tall it is. */
 interface View {
   top: number;
@@ -102,11 +111,20 @@ export function PickNeighboursDialog({
   /** Each group's checks when it was first listed: what "Restore default checks" goes back to. */
   const [initial, setInitial] = useState<Record<string, string[]>>({});
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
-  /** Syncs asked for here, with the group's `lastSynced` then: "Syncing…" until the summary takes over. */
-  const [requested, setRequested] = useState<Record<string, string | null>>({});
+  /** Per center, the row focused last: the group's one Tab stop while it is rendered (roving tabindex). */
+  const [active, setActive] = useState<Record<string, string>>({});
+  /**
+   * Syncs asked for here, with the group's `lastSynced` then and the jobs the server queued (null until it answers):
+   * "Syncing…" until the summary takes over.
+   */
+  const [requested, setRequested] = useState<Record<string, Requested>>({});
+  /** The checks and k right before the last change of k: what "Undo" next to k goes back to (once). */
+  const [kUndo, setKUndo] = useState<{ k: number; checked: Record<string, Set<string>> } | null>(null);
   const [view, setView] = useState<View>({ top: 0, height: 0 });
   const dialogRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  /** The list element while it is mounted (not while the dialog is loading or the sync question). */
+  const [listEl, setListEl] = useState<HTMLDivElement | null>(null);
+  const jobs = useJobProgress((s) => s.byId);
 
   useEffect(() => {
     dialogRef.current?.focus();
@@ -118,12 +136,14 @@ export function PickNeighboursDialog({
 
   const many = groups.length > 1;
   const first = groups[0];
-  /** One target that is not synced: the dialog is the sync question alone. */
-  const confirmOnly = !many && !!first && !!data && !first.synced;
+  /** One target known not to be synced: the dialog is the sync question alone. */
+  const confirmOnly = !many && !!first && !!data && first.known && !first.synced;
+  /** One target the canvas does not show yet (or shows only in a stand-in result): nothing is known about it. */
+  const waiting = !data || (!many && !!first && !first.known);
 
-  // The list's height, for windowing (the list is not there while the dialog is the sync question).
+  // The list's height, for windowing, measured whenever the list mounts (it is not there while loading or asking to sync).
   useEffect(() => {
-    const el = listRef.current;
+    const el = listEl;
     if (!el) return;
     const measure = () => setView((v) => (v.height === el.clientHeight ? v : { top: el.scrollTop, height: el.clientHeight }));
     measure();
@@ -131,7 +151,7 @@ export function PickNeighboursDialog({
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [confirmOnly]);
+  }, [listEl]);
 
   // A group listed for the first time: remember its default checks.
   useEffect(() => {
@@ -140,18 +160,23 @@ export function PickNeighboursDialog({
     if (fresh.length > 0) setInitial((prev) => ({ ...prev, ...Object.fromEntries(fresh.map((g) => [g.center, g.defaults])) }));
   }, [loading, groups, initial]);
 
-  // A requested sync shows as the summary's own flag once it is set, or is over once the sync time moved.
+  // A requested sync shows as the summary's own flag once it is set (so "Syncing…" ends when that flag clears again,
+  // done or failed), is over once the sync time moved, and ends when its jobs failed or were cancelled before the
+  // canvas ever showed it syncing.
   useEffect(() => {
     setRequested((prev) => {
-      let next: Record<string, string | null> | null = null;
+      let next: Record<string, Requested> | null = null;
       for (const g of groups) {
-        if (!(g.center in prev) || (!g.syncing && g.lastSynced === prev[g.center])) continue;
+        const r = prev[g.center];
+        if (!r) continue;
+        const failed = !!r.jobs && r.jobs.every((id) => jobs[id] && ENDED_UNDONE.has(jobs[id].status));
+        if (!g.syncing && g.lastSynced === r.lastSynced && !failed) continue;
         next ??= { ...prev };
         delete next[g.center];
       }
       return next ?? prev;
     });
-  }, [groups]);
+  }, [groups, jobs]);
 
   const synced = groups.filter((g) => g.synced);
   const selection = (g: PickGroup): Set<string> => checked[g.center] ?? new Set(g.defaults);
@@ -184,8 +209,12 @@ export function PickNeighboursDialog({
   const tooMany = centerCount > MAX_CENTERS;
   const capacity = nodeCapacity(metrics);
   const overCanvas = metrics.visible + newNodes.size > capacity;
+  // An errored list or top-k run lists nothing to keep: confirming could clear a center showing neighbours to none.
   const canConfirm =
-    !loading && !tooMany && synced.some((g) => resultOf(g).length > 0 || shownNow(g.center).length > 0);
+    !loading &&
+    error == null &&
+    !tooMany &&
+    synced.some((g) => resultOf(g).length > 0 || shownNow(g.center).length > 0);
   const quotaLeft = quota ? Math.max(quota.limit - quota.used, 0) : null;
 
   const assets = useMemo(() => {
@@ -211,17 +240,21 @@ export function PickNeighboursDialog({
     return [...rows].sort((x, y) => key(y) - key(x) || index.get(x.address)! - index.get(y.address)!);
   };
 
-  const toggle = (g: PickGroup, address: string) =>
+  const toggle = (g: PickGroup, address: string) => {
+    setKUndo(null);
     setChecked((prev) => {
       const next = new Set(prev[g.center] ?? g.defaults);
       if (!next.delete(address)) next.add(address);
       return { ...prev, [g.center]: next };
     });
+  };
 
   const onK = (v: string) => {
     setDraft(v);
     const n = parseK(v);
     if (n === null) return;
+    // Consecutive changes (typing "1" then "12") are one change: the offer keeps the checks from before the first.
+    setKUndo((prev) => prev ?? { k, checked: Object.fromEntries(synced.map((g) => [g.center, new Set(selection(g))])) });
     setK(n);
     // k replaces the checks: a top-k group follows its defaults (the new top-k run); a picked one takes its first k.
     setChecked((prev) => {
@@ -234,25 +267,48 @@ export function PickNeighboursDialog({
     });
   };
 
+  /** Back to the checks and k right before the change of k; the checks stay put when the old k's run answers. */
+  const undoK = () => {
+    if (!kUndo) return;
+    setK(kUndo.k);
+    setDraft(String(kUndo.k));
+    setChecked(kUndo.checked);
+    setKUndo(null);
+  };
+
   const restore = () => {
+    setKUndo(null);
     setK(openedK);
     setDraft(String(openedK));
     setChecked(Object.fromEntries(Object.entries(initial).map(([c, l]) => [c, new Set(l)])));
   };
 
-  const selectNone = () => setChecked(Object.fromEntries(synced.map((g) => [g.center, new Set<string>()])));
+  const selectNone = () => {
+    setKUndo(null);
+    setChecked(Object.fromEntries(synced.map((g) => [g.center, new Set<string>()])));
+  };
 
   const startSync = (g: PickGroup) => {
     const c = g.center;
-    setRequested((prev) => ({ ...prev, [c]: g.lastSynced }));
-    api.sync({ addresses: [c], depth: "shallow", batch: newBatchId() }).catch((err) => {
-      toast(messageFor(err), "error");
+    const drop = () =>
       setRequested((prev) => {
         const next = { ...prev };
         delete next[c];
         return next;
       });
-    });
+    setRequested((prev) => ({ ...prev, [c]: { lastSynced: g.lastSynced, jobs: null } }));
+    api
+      .sync({ addresses: [c], depth: "shallow", batch: newBatchId() })
+      .then((res) => {
+        // Nothing queued: nothing will report back, so Sync is offered again.
+        if (!res.jobs?.length) return drop();
+        const queued = res.jobs;
+        setRequested((prev) => (prev[c] ? { ...prev, [c]: { ...prev[c], jobs: queued } } : prev));
+      })
+      .catch((err) => {
+        toast(messageFor(err), "error");
+        drop();
+      });
   };
 
   const confirm = () => {
@@ -269,7 +325,7 @@ export function PickNeighboursDialog({
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     const target = e.target as HTMLElement;
     if (!(target instanceof HTMLInputElement) || !target.dataset.pickRow) return;
-    const boxes = [...(listRef.current?.querySelectorAll<HTMLInputElement>("input[data-pick-row]:not(:disabled)") ?? [])];
+    const boxes = [...(listEl?.querySelectorAll<HTMLInputElement>("input[data-pick-row]:not(:disabled)") ?? [])];
     const to = boxes[boxes.indexOf(target) + (e.key === "ArrowDown" ? 1 : -1)];
     if (!to) return;
     e.preventDefault();
@@ -286,8 +342,8 @@ export function PickNeighboursDialog({
     </div>
   );
 
-  // The canvas is not there yet: nothing is known about the targets.
-  if (!data) {
+  // The canvas is not there yet, or not with the target: nothing is known about it (no sync question).
+  if (waiting) {
     return backdrop(
       <>
         <h3 className="dialog__title">{title}</h3>
@@ -328,6 +384,13 @@ export function PickNeighboursDialog({
   }
 
   const notes = (g: PickGroup) => {
+    if (!g.known) {
+      return (
+        <div className="pick__notes" aria-live="polite">
+          <span>{t("common.loading")}</span>
+        </div>
+      );
+    }
     if (!g.synced) {
       return (
         <div className="pick__notes" aria-live="polite">
@@ -393,20 +456,25 @@ export function PickNeighboursDialog({
           <option value="recent">{t("filter.sort.recent")}</option>
           {graphSort === "amount" && <option value="amount">{t("filter.sort.amount")}</option>}
         </select>
-        <label className="pick__k">
-          {before}
-          <input
-            className="input input--compact num pick__k-input"
-            type="number"
-            min={1}
-            max={MAX_NEIGHBOUR_LIMIT}
-            step={1}
-            value={draft}
-            aria-invalid={parseK(draft) === null}
-            onChange={(e) => onK(e.target.value)}
-          />
-          {after}
-        </label>
+        <div className="pick__k-row">
+          <label className="pick__k">
+            {before}
+            <input
+              className="input input--compact num pick__k-input"
+              type="number"
+              min={1}
+              max={MAX_NEIGHBOUR_LIMIT}
+              step={1}
+              value={draft}
+              aria-invalid={parseK(draft) === null}
+              onChange={(e) => onK(e.target.value)}
+            />
+            {after}
+          </label>
+          {kUndo && (
+            <button type="button" className="btn btn--compact" onClick={undoK}>{t("pick.undoK")}</button>
+          )}
+        </div>
       </div>
       {!many && first && notes(first)}
       {error != null && !loading && <div className="dialog__error" role="alert">{messageFor(error)}</div>}
@@ -415,7 +483,7 @@ export function PickNeighboursDialog({
         role="group"
         aria-label={t("pick.list")}
         aria-busy={loading}
-        ref={listRef}
+        ref={setListEl}
         onScroll={(e) => setView({ top: e.currentTarget.scrollTop, height: e.currentTarget.clientHeight })}
         onKeyDown={onListKey}
       >
@@ -451,6 +519,8 @@ export function PickNeighboursDialog({
                   view={view}
                   isChecked={(r) => isChecked(r, sel)}
                   onToggle={(r) => toggle(g, r.address)}
+                  active={active[g.center]}
+                  onFocusRow={(r) => setActive((prev) => (prev[g.center] === r.address ? prev : { ...prev, [g.center]: r.address }))}
                   t={t}
                 />
               )}
@@ -480,19 +550,25 @@ export function PickNeighboursDialog({
 
 /**
  * One group's rows, windowed: a block as tall as all its rows, with only those near the list's visible part rendered
- * (absolutely placed at a fixed height), so a thousand rows stay smooth.
+ * (absolutely placed at a fixed height), so a thousand rows stay smooth. The group is one Tab stop (roving tabindex):
+ * the row focused last (`active`) while it is rendered, else the first rendered row that can take focus; the arrow
+ * keys move between rows.
  */
 function Rows({
   rows,
   view,
   isChecked,
   onToggle,
+  active,
+  onFocusRow,
   t,
 }: {
   rows: NeighbourRow[];
   view: View;
   isChecked(r: NeighbourRow): boolean;
   onToggle(r: NeighbourRow): void;
+  active: string | undefined;
+  onFocusRow(r: NeighbourRow): void;
   t: T;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -506,9 +582,12 @@ function Rows({
   const from = Math.max(0, Math.floor((view.top - offset) / PICK_ROW_HEIGHT) - OVERSCAN);
   const to = Math.min(rows.length, Math.ceil((view.top + height - offset) / PICK_ROW_HEIGHT) + OVERSCAN);
   const now = Date.now();
+  const rendered = rows.slice(from, Math.max(from, to));
+  const stop =
+    rendered.find((r) => r.address === active && !r.locked)?.address ?? rendered.find((r) => !r.locked)?.address;
   return (
     <div className="pick__rows" ref={ref} style={{ height: rows.length * PICK_ROW_HEIGHT }}>
-      {rows.slice(from, Math.max(from, to)).map((r, i) => (
+      {rendered.map((r, i) => (
         <label
           key={r.address}
           className={r.locked ? "pick__row pick__row--locked" : "pick__row"}
@@ -519,8 +598,10 @@ function Rows({
             data-pick-row="1"
             checked={isChecked(r)}
             disabled={r.locked}
+            tabIndex={r.address === stop ? 0 : -1}
             title={r.locked ? t("pick.lockedHint") : undefined}
             onChange={() => onToggle(r)}
+            onFocus={() => onFocusRow(r)}
           />
           <span className="pick__who">
             <span className="pick__name">

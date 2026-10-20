@@ -20,6 +20,12 @@ export interface PickGroup {
   center: string;
   /** From the canvas; undefined when the canvas does not show the target. */
   summary: NodeSummaryDto | undefined;
+  /**
+   * The canvas's current result shows the target, so `synced` and `syncing` are its own. False while the canvas does
+   * not show it yet, or shows a previous request's result standing in while the current one loads: not "unsynced".
+   */
+  known: boolean;
+  /** Known to be synced. */
   synced: boolean;
   syncing: boolean;
   /** Latest `last_synced_at` of the center's coverage; null when never synced (or unknown). */
@@ -110,12 +116,14 @@ function neighbourCount(result: GraphResponseDto, center: string): number {
  * (limit 1000, the store's filter and sort, the canvas `prefer`) ranked like the graph; its default selection is
  * what "top k" would add — the neighbours in a top-`k` dry run with the same filter, sort and prefer — or, for a
  * center whose picks are not empty, those picks plus the rows on the canvas for another reason. Targets that are not
- * synced get an empty group and no requests; so does a snapshot (no dry runs while frozen).
+ * synced get an empty group and no requests; so does a snapshot (no dry runs while frozen). A target the canvas does
+ * not show yet, or shows only in a previous request's result standing in (`isPlaceholderData`), is not known to be
+ * synced or not: it is loading, never "needs a sync" (which would offer a costed sync for a synced address).
  *
  * A center picked with none (every new center) has nothing chosen yet, so it defaults to the top k like a top-k one.
  */
 export function usePickData(targets: string[]): PickData {
-  const { data } = useGraphData();
+  const { data, isPlaceholderData } = useGraphData();
   const filter = useGraph((s) => s.filter);
   const sort = useGraph((s) => s.sort);
   const ui = useGraph((s) => s.ui);
@@ -132,7 +140,12 @@ export function usePickData(targets: string[]): PickData {
   const settledK = useDebounced(k, DEBOUNCE_MS);
 
   const summaries = useMemo(() => new Map((data?.nodes ?? []).map((n) => [lc(n.address), n])), [data]);
-  const synced = useMemo(() => addresses.filter((a) => summaries.get(a)?.synced), [addresses, summaries]);
+  /** Whether the canvas's own result (not a stand-in) shows `a`: only then is its synced flag known. */
+  const isKnown = useCallback((a: string) => !isPlaceholderData && summaries.has(a), [isPlaceholderData, summaries]);
+  const synced = useMemo(
+    () => addresses.filter((a) => isKnown(a) && summaries.get(a)?.synced),
+    [addresses, summaries, isKnown],
+  );
   /** Synced targets with no picks chosen yet: their default is the top k. */
   const topK = useMemo(() => synced.filter((a) => !(picks[a]?.length)), [synced, picks]);
   /** The synced targets' flags: a sync or refresh brings neighbours an earlier dry run did not see. */
@@ -184,12 +197,14 @@ export function usePickData(targets: string[]): PickData {
     const topResult = top.data?.result;
     return addresses.map((center): PickGroup => {
       const summary = summaries.get(center);
-      const ok = !!summary?.synced;
+      const known = isKnown(center);
+      const ok = known && !!summary?.synced;
       const base: PickGroup = {
         center,
         summary,
+        known,
         synced: ok,
-        syncing: !!summary?.syncing,
+        syncing: known && !!summary?.syncing,
         lastSynced: latestSync(listed, center) ?? latestSync(data, center),
         rows: [],
         defaults: [],
@@ -218,11 +233,12 @@ export function usePickData(targets: string[]): PickData {
         hiddenByFilter: total === undefined ? 0 : Math.max(0, total - (neighbourCount(listed, center) + omitted)),
       };
     });
-  }, [addresses, summaries, synced, list.data, top.data, totals.totals, ui, data, centers, picks, sort, prefer]);
+  }, [addresses, summaries, isKnown, synced, list.data, top.data, totals.totals, ui, data, centers, picks, sort, prefer]);
 
   const loading =
     !!frozen ||
     !data ||
+    addresses.some((a) => !isKnown(a)) ||
     (synced.length > 0 && (list.isPending || list.isPlaceholderData)) ||
     (topK.length > 0 && (settledK !== k || top.isPending || top.isPlaceholderData)) ||
     (synced.length > 0 && totals.pending);

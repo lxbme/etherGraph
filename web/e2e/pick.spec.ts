@@ -255,8 +255,11 @@ test("saved_picks_survive_reload: a saved workspace reopens with the same picked
   expect(mock.unhandled).toEqual([]);
 });
 
-/** The picker's controls as Tab reaches them: each must be visible, and a row inside the list's visible part. */
-async function tabThrough(page: Page, dialog: Locator, presses: number) {
+/**
+ * The picker's controls as Tab reaches them (`presses` times, or until `until` matches one): each must be visible, and
+ * a row inside the list's visible part.
+ */
+async function tabThrough(page: Page, dialog: Locator, presses: number, until?: (tag: string) => boolean) {
   const list = dialog.getByRole("group", { name: "Neighbours" });
   const reached: string[] = [];
   for (let i = 0; i < presses; i++) {
@@ -286,9 +289,14 @@ async function tabThrough(page: Page, dialog: Locator, presses: number) {
       expect(info!.box.bottom, "row inside the list").toBeLessThanOrEqual(l.y + l.height + 1);
     }
     reached.push(info!.tag);
+    if (until?.(info!.tag)) break;
   }
   return reached;
 }
+
+const isConfirm = (tag: string) => /^BUTTON:button:Expand \d+ checked/.test(tag);
+/** The footer's buttons in Tab order. */
+const FOOTER = ["BUTTON:button:Select none", "BUTTON:button:Restore default chec", "BUTTON:button:Cancel"];
 
 test.describe("narrow", () => {
   test.use({ viewport: { width: 360, height: 740 } });
@@ -319,12 +327,15 @@ test.describe("narrow", () => {
       await expect(dialog.getByRole("button", { name })).toBeInViewport({ ratio: 1 });
     }
 
-    // Tab walks the tools, then the rows; every focus is visible and every row in the list's visible part.
-    const reached = await tabThrough(page, dialog, 12);
+    // Tab walks the tools, then the list (one stop for its 30 rows), then the footer up to the confirm button; every
+    // focus is visible and every row in the list's visible part.
+    const reached = await tabThrough(page, dialog, 20, isConfirm);
     expect(reached.some((t) => t.startsWith("INPUT:search"))).toBe(true);
     expect(reached.some((t) => t.startsWith("SELECT"))).toBe(true);
     expect(reached.some((t) => t.startsWith("INPUT:number"))).toBe(true);
-    expect(reached.some((t) => t.startsWith("INPUT:checkbox"))).toBe(true);
+    expect(reached.filter((t) => t.startsWith("INPUT:checkbox"))).toHaveLength(1);
+    expect(reached.slice(-4, -1)).toEqual(FOOTER);
+    expect(isConfirm(reached.at(-1)!)).toBe(true);
 
     // Space toggles the focused row.
     await dialog.getByRole("checkbox").first().focus();
@@ -351,6 +362,27 @@ test.describe("narrow", () => {
     await page.keyboard.press("Space");
     await expect(dialog.getByRole("checkbox", { name: new RegExp(peerName(20)) })).toBeChecked();
     await expect(confirm).toBeInViewport({ ratio: 1 });
+
+    // From a row deep in the list, Tab leaves it for the footer at once; Shift+Tab comes back to that row.
+    const out = await tabThrough(page, dialog, 4);
+    expect(out.slice(0, 3)).toEqual(FOOTER);
+    expect(isConfirm(out[3]!)).toBe(true);
+    for (let i = 0; i < 4; i++) await page.keyboard.press("Shift+Tab");
+    expect(await page.evaluate(() => document.activeElement?.closest("label")?.textContent ?? "")).toContain(peerName(20));
+    expect(mock.unhandled).toEqual([]);
+  });
+
+  test("the sync question's buttons are reached by Tab and work from the keyboard", async ({ page, mock }) => {
+    installWorld(mock, makeWorld());
+    await search(page, X);
+    const dialog = page.getByRole("dialog", { name: "Expand Xavier" });
+    await expect(dialog.getByText("Sync first to list its neighbours (about 6 calls)")).toBeVisible();
+    await expect(dialog).toBeFocused();
+    const reached = await tabThrough(page, dialog, 2);
+    expect(reached).toEqual(["BUTTON:button:Not now", "BUTTON:button:Sync"]);
+    await page.keyboard.press("Enter");
+    await expect.poll(() => mock.count(SYNC)).toBe(1);
+    await expect(dialog.getByText("Syncing…")).toBeVisible();
     expect(mock.unhandled).toEqual([]);
   });
 });

@@ -11,8 +11,8 @@ import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import { useCanvasMetrics } from "../../graph/canvasMetrics";
 import { firstBatchFor, useGraph } from "../../graph/store";
 import { useGraphData } from "../../graph/useGraphData";
-import { useQuota } from "../../shell/statusStore";
 import { clearToasts, Toasts } from "../../shell/Toasts";
+import { useJobProgress, useQuota } from "../../shell/statusStore";
 import { PickHost } from "./PickHost";
 import { usePick } from "./pickStore";
 
@@ -116,7 +116,7 @@ test("default_checks_are_the_top_k", async () => {
   mount([C0]);
   await waitFor(() => expect(box(100).checked).toBe(true));
   for (let i = 0; i < K + 3; i++) expect(box(100 + i).checked).toBe(i < K);
-  expect(screen.getByText(`${K} checked · about +${K} nodes`)).toBeInTheDocument();
+  expect(screen.getByText(`${K} checked · about +${K} nodes · 0 calls`)).toBeInTheDocument();
   expect(screen.getByText(`${K + 3} neighbours · 0 on the canvas`)).toBeInTheDocument();
   expect(confirmBtn()).toHaveTextContent(`Expand ${K} checked`);
 });
@@ -178,7 +178,7 @@ test("locked_rows_are_checked_and_disabled", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Select none" }));
   expect(box(100)).not.toBeChecked();
   expect(box(X)).toBeChecked();
-  expect(screen.getByText("1 checked · about +0 nodes")).toBeInTheDocument();
+  expect(screen.getByText("1 checked · about +0 nodes · 0 calls")).toBeInTheDocument();
   fireEvent.click(confirmBtn());
   expect(useGraph.getState().picks[addr(C0)]).toEqual([addr(X)]);
 });
@@ -216,7 +216,7 @@ test("search_and_asset_filter_narrow_rows_without_unchecking", async () => {
   expect(within(box(104).closest("label") as HTMLElement).getByText("USDT")).toBeInTheDocument();
   expect(within(box(104).closest("label") as HTMLElement).getByText("Known scam")).toBeInTheDocument();
   // The hidden rows keep their checks.
-  expect(screen.getByText("4 checked · about +4 nodes")).toBeInTheDocument();
+  expect(screen.getByText("4 checked · about +4 nodes · 0 calls")).toBeInTheDocument();
   fireEvent.change(assets, { target: { value: "" } });
   expect(screen.getAllByRole("checkbox")).toHaveLength(5);
   expect(box(100)).toBeChecked();
@@ -297,12 +297,12 @@ test("summary_counts_new_nodes_once_across_groups", async () => {
   world[C0] = [{ n: X }, { n: S }, { n: 201 }];
   world[C1] = [{ n: S }, { n: 202 }];
   mount([C0, C1]);
-  await waitFor(() => expect(screen.getByText("5 checked · about +3 nodes")).toBeInTheDocument());
+  await waitFor(() => expect(screen.getByText("5 checked · about +3 nodes · 0 calls")).toBeInTheDocument());
   expect(screen.getByRole("heading", { name: "Expand 2 addresses" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: `${addr(C0).slice(0, 6)}…${addr(C0).slice(-4)} · 3 total · 3 checked` })).toBeInTheDocument();
   // S in one group only: still a new node.
   fireEvent.click(screen.getAllByTitle(addr(S))[1]!.closest("label")!.querySelector("input")!);
-  expect(screen.getByText("4 checked · about +3 nodes")).toBeInTheDocument();
+  expect(screen.getByText("4 checked · about +3 nodes · 0 calls")).toBeInTheDocument();
   fireEvent.click(confirmBtn());
   expect(useGraph.getState().picks).toMatchObject({ [addr(C0)]: [X, S, 201].map(addr), [addr(C1)]: [addr(202)] });
 });
@@ -315,7 +315,7 @@ test("thousand_rows_render_windowed_with_cap_note", async () => {
   await waitFor(() => expect(box(1000).checked).toBe(true));
   expect(screen.getAllByRole("checkbox").length).toBeLessThan(300);
   expect(screen.getByText("1,000 neighbours · 0 on the canvas")).toBeInTheDocument();
-  expect(screen.getByText(`${K} checked · about +${K} nodes`)).toBeInTheDocument();
+  expect(screen.getByText(`${K} checked · about +${K} nodes · 0 calls`)).toBeInTheDocument();
   expect(confirmBtn()).toBeEnabled();
   // Scrolled to the end: the last rows are rendered.
   const list = screen.getByRole("group", { name: "Neighbours" });
@@ -498,4 +498,203 @@ test("a target just put on the graph: the picker waits for the canvas to show it
   await waitFor(() => expect(box(100)).toBeInTheDocument());
   expect(screen.queryByText("Sync first to list its neighbours (about 6 calls)")).toBeNull();
   expect(sync).not.toHaveBeenCalled();
+});
+
+test("the previous canvas standing in while the target's request loads shows loading, never the sync question", async () => {
+  newCenter(C1);
+  world[C0] = nbs(100, 3);
+  mount([C0]);
+  // The canvas answered without C0 (not a center yet): loading, no sync question, no Sync button.
+  const dialog = await screen.findByRole("dialog");
+  await new Promise((r) => setTimeout(r, 50));
+  expect(within(dialog).getByText("Loading…")).toBeInTheDocument();
+  expect(screen.queryByText("Sync first to list its neighbours (about 6 calls)")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Sync" })).toBeNull();
+  // C0 becomes a center: its canvas request answers only when released, the previous result standing in meanwhile.
+  let release!: () => void;
+  vi.mocked(api.graphEdges).mockImplementation(async (req) => {
+    if (req.dry_run) return dryRun(req);
+    if (!req.addresses.includes(addr(C0))) return canvas;
+    await new Promise<void>((r) => (release = r));
+    return canvas;
+  });
+  act(() => useGraph.getState().revealCenter(addr(C0)));
+  await waitFor(() => expect(release).toBeTypeOf("function"));
+  expect(within(dialog).getByText("Loading…")).toBeInTheDocument();
+  expect(screen.queryByText("Sync first to list its neighbours (about 6 calls)")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Sync" })).toBeNull();
+  canvas = { ...canvas, nodes: [...canvas.nodes, node(C0)] };
+  await act(async () => release());
+  await waitFor(() => expect(box(102).checked).toBe(true));
+  expect(screen.queryByText("Sync first to list its neighbours (about 6 calls)")).toBeNull();
+  expect(sync).not.toHaveBeenCalled();
+});
+
+test("each group's rows are one Tab stop that follows the arrow keys; Tab leaves the list for the footer", async () => {
+  const user = userEvent.setup();
+  newCenter(C0);
+  newCenter(C1);
+  world[C0] = nbs(100, 5);
+  world[C1] = nbs(200, 5);
+  mount([C0, C1]);
+  await waitFor(() => expect(box(204).checked).toBe(true));
+  const stops = () => screen.getAllByRole("checkbox").filter((b) => b.tabIndex === 0);
+  // The first rendered row of each group, the others out of the Tab order.
+  expect(stops()).toEqual([box(100), box(200)]);
+  expect(screen.getAllByRole("checkbox").filter((b) => b.tabIndex === -1)).toHaveLength(8);
+  box(100).focus();
+  await user.keyboard("{ArrowDown}{ArrowDown}");
+  expect(document.activeElement).toBe(box(102));
+  expect(stops()).toEqual([box(102), box(200)]);
+  await user.tab();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: /^0x0000…0002 ·/ }));
+  await user.tab();
+  expect(document.activeElement).toBe(box(200));
+  await user.tab();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Select none" }));
+  await user.tab();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Restore default checks" }));
+  await user.tab();
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
+  await user.tab();
+  expect(document.activeElement).toBe(confirmBtn());
+  // Back into the first group: its stop is the row focused last.
+  await user.tab({ shift: true });
+  await user.tab({ shift: true });
+  await user.tab({ shift: true });
+  await user.tab({ shift: true });
+  await user.tab({ shift: true });
+  await user.tab({ shift: true });
+  expect(document.activeElement).toBe(box(102));
+});
+
+test("a locked first row is not the group's Tab stop: the first row that can take focus is", async () => {
+  useGraph.getState().loadSnapshot({
+    centers: [addr(C0), addr(C9)],
+    filter: {},
+    expandedPairs: [],
+    ui: {},
+    picks: { [addr(C0)]: [], [addr(C9)]: [addr(X)] },
+  });
+  canvas = { nodes: [node(C0), node(C9), node(X)], edges: [edge(C9, X)], omitted: {}, coverage: {} };
+  world[C0] = [{ n: X }, { n: 100 }, { n: 101 }];
+  mount([C0]);
+  await waitFor(() => expect(box(101).checked).toBe(true));
+  expect(box(X)).toBeDisabled();
+  expect(screen.getAllByRole("checkbox").filter((b) => b.tabIndex === 0)).toEqual([box(100)]);
+});
+
+test("the footer says the picker itself spends no call", async () => {
+  newCenter(C0);
+  world[C0] = nbs(100, 2);
+  mount([C0]);
+  expect(await screen.findByText("2 checked · about +2 nodes · 0 calls")).toBeInTheDocument();
+});
+
+test("an errored list allows no confirm: a center showing neighbours is not cleared to none", async () => {
+  useGraph.getState().loadSnapshot({ centers: [addr(C0)], filter: {}, expandedPairs: [], ui: {}, limits: { [addr(C0)]: 3 } });
+  canvas = { nodes: [node(C0), node(100)], edges: [edge(C0, 100)], omitted: {}, coverage: {} };
+  world[C0] = nbs(100, 2);
+  vi.mocked(api.graphEdges).mockImplementation(async (req) => {
+    if (req.dry_run && Object.values(req.limits ?? {}).includes(1000)) throw new Error("list failed");
+    return req.dry_run ? dryRun(req) : canvas;
+  });
+  mount([C0]);
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(confirmBtn()).toBeDisabled();
+  fireEvent.click(confirmBtn());
+  expect(useGraph.getState().picks[addr(C0)]).toBeUndefined();
+});
+
+test("an errored top-k run allows no confirm either", async () => {
+  useGraph.getState().loadSnapshot({ centers: [addr(C0)], filter: {}, expandedPairs: [], ui: {}, limits: { [addr(C0)]: 3 } });
+  canvas = { nodes: [node(C0), node(100)], edges: [edge(C0, 100)], omitted: {}, coverage: {} };
+  world[C0] = nbs(100, 2);
+  vi.mocked(api.graphEdges).mockImplementation(async (req) => {
+    if (req.dry_run && !Object.values(req.limits ?? {}).includes(1000)) throw new Error("top-k failed");
+    return req.dry_run ? dryRun(req) : canvas;
+  });
+  mount([C0]);
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(confirmBtn()).toBeDisabled();
+});
+
+test("a sync answered with no job offers Sync again", async () => {
+  newCenter(C0, { synced: false });
+  sync.mockResolvedValue({ estimated_calls: null, estimated_seconds: null, per_address: null, jobs: [] });
+  mount([C0]);
+  fireEvent.click(await screen.findByRole("button", { name: "Sync" }));
+  expect(sync).toHaveBeenCalledTimes(1);
+  expect(await screen.findByRole("button", { name: "Sync" })).toBeInTheDocument();
+  expect(screen.queryByText("Syncing…")).toBeNull();
+});
+
+test("a sync whose job fails before the canvas saw it syncing offers Sync again", async () => {
+  newCenter(C0, { synced: false });
+  sync.mockResolvedValue({ estimated_calls: null, estimated_seconds: null, per_address: null, jobs: [7] });
+  mount([C0]);
+  fireEvent.click(await screen.findByRole("button", { name: "Sync" }));
+  expect(await screen.findByText("Syncing…")).toBeInTheDocument();
+  // Another job's progress changes nothing.
+  act(() => useJobProgress.getState().upsert({ type: "JobProgress", job_id: 8, kind: "sync_address", fetched: 0, cursor_block: null, status: "failed", error: "x" }));
+  expect(screen.getByText("Syncing…")).toBeInTheDocument();
+  act(() => useJobProgress.getState().upsert({ type: "JobProgress", job_id: 7, kind: "sync_address", fetched: 0, cursor_block: null, status: "failed", error: "x" }));
+  expect(await screen.findByRole("button", { name: "Sync" })).toBeInTheDocument();
+  expect(screen.queryByText("Syncing…")).toBeNull();
+});
+
+test("a sync seen running that ends without a new sync time offers Sync again", async () => {
+  newCenter(C0, { synced: false });
+  mount([C0]);
+  fireEvent.click(await screen.findByRole("button", { name: "Sync" }));
+  canvas = { ...canvas, nodes: [node(C0, { synced: false, syncing: true })] };
+  await act(() => qc.invalidateQueries());
+  expect(await screen.findByText("Syncing…")).toBeInTheDocument();
+  canvas = { ...canvas, nodes: [node(C0, { synced: false })] };
+  await act(() => qc.invalidateQueries());
+  expect(await screen.findByRole("button", { name: "Sync" })).toBeInTheDocument();
+  expect(screen.queryByText("Syncing…")).toBeNull();
+});
+
+test("the list is measured once it replaces the loading text: only the rows near its height render", async () => {
+  const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
+    return this.classList.contains("pick__list") ? 220 : 0;
+  });
+  newCenter(C0);
+  world[C0] = nbs(100, 100);
+  mount([C0]);
+  await waitFor(() => expect(box(100).checked).toBe(true));
+  // 220 px of 44 px rows and 10 overscan below: 15 rows, not the 600 px fallback's 24.
+  expect(screen.getAllByRole("checkbox")).toHaveLength(15);
+  height.mockRestore();
+});
+
+test("a change of k can be undone back to the checks right before it, once", async () => {
+  newCenter(C0);
+  world[C0] = nbs(100, 8);
+  mount([C0]);
+  await waitFor(() => expect(box(107).checked).toBe(true));
+  expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  fireEvent.click(box(100));
+  fireEvent.click(box(105));
+  const before = [false, true, true, true, true, false, true, true];
+  const k = screen.getByRole("spinbutton", { name: /Check the top/ }) as HTMLInputElement;
+  // Typing "2" then "3": one change of k, undone in one step.
+  fireEvent.change(k, { target: { value: "2" } });
+  fireEvent.change(k, { target: { value: "3" } });
+  await waitFor(() => expect(box(103).checked).toBe(false));
+  expect([...Array(8).keys()].map((i) => box(100 + i).checked)).toEqual([true, true, true, false, false, false, false, false]);
+  fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+  expect(k.value).toBe(String(K));
+  expect([...Array(8).keys()].map((i) => box(100 + i).checked)).toEqual(before);
+  expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  // The undone k's run answering later changes nothing.
+  await new Promise((r) => setTimeout(r, 300));
+  expect([...Array(8).keys()].map((i) => box(100 + i).checked)).toEqual(before);
+
+  // A check made after the change ends the offer: Undo would drop it.
+  fireEvent.change(k, { target: { value: "2" } });
+  expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+  fireEvent.click(box(107));
+  expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
 });
