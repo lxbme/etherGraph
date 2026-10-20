@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expectLaidOut, tapNode } from "./cy";
-import { A, B, C, D, TX, expect, fixtures, type MockApi, test } from "./mockApi";
+import { A, B, C, D, TX, expect, fixtures, type MockApi, test, confirmPicker, pickerDialog } from "./mockApi";
 
 const THEMES = ["light", "dark"] as const;
 const LOCALES = ["en", "zh"] as const;
@@ -97,6 +97,10 @@ for (const theme of THEMES) {
         const search = page.getByRole("searchbox");
         await search.fill(A);
         await search.press("Enter");
+        // The neighbour picker in this theme and language: nothing overflows; its defaults bring A's neighbours.
+        await expect(pickerDialog(page).getByRole("checkbox")).toHaveCount(3);
+        await expectNoOverflow(page, "neighbour picker");
+        await confirmPicker(page);
         await expectLaidOut(page, "main", 4);
         const right = page.locator(".main__right");
 

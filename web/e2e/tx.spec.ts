@@ -1,12 +1,8 @@
 import { expectLaidOut, snapshot, tapBackground, tapEdge, tapNode } from "./cy";
-import { A, B, C, TX, TX7702, expect, test } from "./mockApi";
-
-const GRAPH = "POST /api/graph/edges";
+import { A, B, C, TX, TX7702, expect, test, searchAndPick, D, fixtures, installWorld, transfer, confirmPicker, liveGraphRequests } from "./mockApi";
 
 test("a tx tab whose data arrives while the graph tab is shown lays out when opened", async ({ page, mock }) => {
-  await page.goto("/?e2e=1");
-  await page.getByRole("searchbox", { name: "Search" }).fill(A);
-  await page.getByRole("searchbox", { name: "Search" }).press("Enter");
+  await searchAndPick(page, A);
   await expectLaidOut(page, "main", 4);
 
   const release = mock.hold("GET /api/tx/*");
@@ -29,6 +25,9 @@ test("a tx tab whose data arrives while the graph tab is shown lays out when ope
 });
 
 test("tx search → add a node to the graph → the graph built while hidden fits when shown", async ({ page, mock }) => {
+  // C (the router) is synced, with three stored counterparties: the picker offers them.
+  const nodes = new Map(fixtures.graph.nodes.map((n) => [n.address, n.address === C ? { ...n, synced: true } : n]));
+  installWorld(mock, { nodes, edges: [...fixtures.graph.edges, transfer(C, B, 2), transfer(D, C, 1)], filtered: {} });
   await page.goto("/?e2e=1");
   // Start with the right panel closed, so the flow is first laid out at the full width.
   await page.getByRole("button", { name: "Toggle details" }).click();
@@ -69,9 +68,13 @@ test("tx search → add a node to the graph → the graph built while hidden fit
   await expect(page.getByText(C, { exact: true })).toBeVisible();
 
   // Add it to the (hidden) address graph.
+  // "Add to graph" puts C there alone and offers the picker over the tx tab; its default checks bring C's neighbours.
   await add.click();
-  await expect.poll(() => mock.count(GRAPH)).toBe(1);
-  expect(mock.requests(GRAPH)[0]!.postDataJSON()).toMatchObject({ addresses: [C] });
+  await expect.poll(() => liveGraphRequests(mock).length).toBe(1);
+  expect(liveGraphRequests(mock)[0]!.postDataJSON()).toMatchObject({ addresses: [C], picks: { [C]: [] } });
+  await expect(page.getByRole("tab", { name: /^Tx 0x7e57/ })).toHaveAttribute("aria-selected", "true");
+  await confirmPicker(page);
+  await expect.poll(() => liveGraphRequests(mock).length).toBe(2);
   await expect.poll(async () => (await snapshot(page, "main"))?.nodes.length).toBe(4);
   expect((await snapshot(page, "main"))!.containerWidth).toBe(0);
 
@@ -92,9 +95,7 @@ test("tx search → add a node to the graph → the graph built while hidden fit
 });
 
 test("transfer row → summary card → Open transaction → every detail tab shows its content", async ({ page, mock }) => {
-  await page.goto("/?e2e=1");
-  await page.getByRole("searchbox", { name: "Search" }).fill(A);
-  await page.getByRole("searchbox", { name: "Search" }).press("Enter");
+  await searchAndPick(page, A);
   await expectLaidOut(page, "main", 4);
   await tapEdge(page, A, B);
 

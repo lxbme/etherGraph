@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expectLaidOut, nodeScreenPos } from "./cy";
-import { A, B, expect, fixtures, test } from "./mockApi";
+import { A, B, expect, fixtures, test, searchAndPick } from "./mockApi";
 
 type Pos = { x: number; y: number };
 const positions = (page: Page) =>
@@ -10,9 +10,7 @@ const positions = (page: Page) =>
   });
 
 test("Re-layout untangles the address graph, keeps a pinned node in place, and Ctrl+Z undoes it", async ({ page, mock }) => {
-  await page.goto("/?e2e=1");
-  await page.getByRole("searchbox", { name: "Search" }).fill(A);
-  await page.getByRole("searchbox", { name: "Search" }).press("Enter");
+  await searchAndPick(page, A);
   await expect.poll(() => mock.count("POST /api/graph/edges")).toBeGreaterThan(0);
   await expectLaidOut(page, "main", 4);
   await page.waitForTimeout(600); // the first layout's glide
@@ -74,9 +72,7 @@ test("Re-layout keeps several busy centers' neighbours apart: labels rarely over
   const graph = busyGraph(3, 60, 6);
   mock.on("POST /api/graph/edges", () => ({ json: graph }));
   await page.setViewportSize({ width: 1600, height: 950 });
-  await page.goto("/?e2e=1");
-  await page.getByRole("searchbox", { name: "Search" }).fill(A);
-  await page.getByRole("searchbox", { name: "Search" }).press("Enter");
+  await searchAndPick(page, A);
   await expect.poll(() => mock.count("POST /api/graph/edges")).toBeGreaterThan(0);
   await expect
     .poll(() => page.evaluate(() => (window as unknown as { __etherGraphCy?: import("cytoscape").Core }).__etherGraphCy?.nodes().length))

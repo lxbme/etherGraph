@@ -3,8 +3,8 @@ import type { EdgeDto } from "../src/api/generated/EdgeDto";
 import type { GraphRequestDto } from "../src/api/generated/GraphRequestDto";
 import type { GraphResponseDto } from "../src/api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../src/api/generated/NodeSummaryDto";
-import { nodeScreenPos, snapshot, tapNode } from "./cy";
-import { A, C, expect, fixtures, test, type MockApi } from "./mockApi";
+import { expectLaidOut, nodeScreenPos, snapshot, tapNode } from "./cy";
+import { A, C, expect, fixtures, test, type MockApi, confirmPicker, liveGraphRequests, pickerDialog, searchAndPick } from "./mockApi";
 
 /** A wallet with 120 stored neighbours (fixtures/counterparties.json). */
 const W = "0xb16000000000000000000000000000000000beef";
@@ -21,10 +21,14 @@ const neighbours = fixtures.counterparties.items;
 
 function summary(address: string): NodeSummaryDto {
   const known = neighbours.find((i) => i.node.address === address)?.node ?? fixtures.graph.nodes.find((n) => n.address === address);
-  return known ?? { ...fixtures.address.node, address, synced: false };
+  // The big wallet is synced (its neighbours are stored); every other unknown address is not.
+  return known ?? { ...fixtures.address.node, address, synced: address === W };
 }
 
-/** The big wallet's graph, honouring the per-center limit like the server (highest count first). */
+/**
+ * The big wallet's graph like the server builds it: a picked center (`picks`) shows exactly its picks plus `prefer`,
+ * any other the top `limits[c]` by count; the rest is counted in `omitted`.
+ */
 function mockBigWallet(mock: MockApi) {
   mock.on("GET /api/address/*", (_req, url) => {
     const addr = decodeURIComponent(url.pathname.split("/").pop() ?? "").toLowerCase();
@@ -49,7 +53,10 @@ function mockBigWallet(mock: MockApi) {
       if (center !== W) continue;
       const limit = body.limits?.[center] ?? body.limit_per_address ?? 200;
       const sorted = [...neighbours].sort((a, b) => b.count - a.count);
-      for (const n of sorted.slice(0, limit)) {
+      const picked = body.picks?.[center];
+      const keep = picked ? new Set([...picked, ...(body.prefer ?? [])].map((a) => a.toLowerCase())) : null;
+      const shown = keep ? sorted.filter((n) => keep.has(n.node.address)) : sorted.slice(0, limit);
+      for (const n of shown) {
         nodes.set(n.node.address, n.node);
         edges.push({
           from: center, to: n.node.address, asset: null, asset_kind: "native", count: n.count,
@@ -57,7 +64,7 @@ function mockBigWallet(mock: MockApi) {
           trust: { level: "listed", impersonates: null, reason: null },
         });
       }
-      if (sorted.length > limit) omitted[center] = sorted.length - limit;
+      if (sorted.length > shown.length) omitted[center] = sorted.length - shown.length;
     }
     return { json: { nodes: [...nodes.values()], edges, omitted, coverage: {} } satisfies GraphResponseDto };
   });
@@ -82,12 +89,10 @@ async function canvas(page: Page) {
   return { real, more, capacity };
 }
 
+/** The big wallet searched and expanded with the picker's default checks (its top k). */
 async function openBig(page: Page, mock: MockApi) {
   mockBigWallet(mock);
-  await page.goto("/?e2e=1");
-  await page.getByRole("searchbox", { name: "Search" }).fill(W);
-  await page.getByRole("searchbox", { name: "Search" }).press("Enter");
-  await expect.poll(() => mock.count(GRAPH)).toBeGreaterThan(0);
+  await searchAndPick(page, W);
   await expect.poll(async () => (await canvas(page)).real.length).toBeGreaterThan(1);
 }
 
@@ -110,8 +115,12 @@ test("a wallet with 120 neighbours opens within the canvas capacity, with +N mor
   const n = Number(/\d+/.exec(more[0]!)![0]);
   // Every neighbour is either on the canvas or counted in "+N more".
   expect(real.length - 1 + n).toBe(120);
-  const req = mock.requests(GRAPH)[0]!.postDataJSON() as GraphRequestDto;
-  expect(req.limits?.[W]).toBeGreaterThan(0);
+  // The first neighbours of the lone center are fitted like a first load: every node, "+N more" too, is in view.
+  await expectLaidOut(page, "main", real.length + 1);
+  // The picker's default checks were the top k, sized to the canvas: the canvas shows exactly those.
+  const req = liveGraphRequests(mock).at(-1)!.postDataJSON() as GraphRequestDto;
+  expect(req.picks?.[W]?.length).toBe(real.length - 1);
+  expect(req.limits?.[W]).toBeUndefined();
   expect(mock.unhandled).toEqual([]);
 });
 
@@ -152,9 +161,7 @@ test("expand: contracts and Heavy start unchecked; Undo restores the canvas and 
 test("contract: Browse interactions…, pick 2 counterparties and expand them", async ({ page, mock }) => {
   mockBigWallet(mock);
   mock.on(GRAPH, () => ({ json: fixtures.graph }));
-  await page.goto("/?e2e=1");
-  await page.getByRole("searchbox", { name: "Search" }).fill(A);
-  await page.getByRole("searchbox", { name: "Search" }).press("Enter");
+  await searchAndPick(page, A);
   await expect.poll(async () => (await canvas(page)).real.includes(C)).toBe(true);
 
   await tapNode(page, "main", C);
@@ -207,8 +214,14 @@ test("the +N more node can be dragged without revealing, and stays where it was 
   expect(mock.count(GRAPH)).toBe(requests);
   expect((await canvas(page)).real.length).toBe(realBefore);
 
+  // A click opens the picker for W (spec §4), its picks checked and listed first; k one higher adds the next one.
   await tapNode(page, "main", proxy);
-  await expect.poll(async () => (await canvas(page)).real.length).toBeGreaterThan(realBefore);
+  const picker = pickerDialog(page);
+  await expect(picker.locator(".dialog__summary")).toHaveText(new RegExp(`^${realBefore - 1} checked`));
+  await picker.getByRole("spinbutton").fill(String(realBefore));
+  await expect(picker.locator(".dialog__summary")).toHaveText(new RegExp(`^${realBefore} checked`));
+  await confirmPicker(page);
+  await expect.poll(async () => (await canvas(page)).real.length).toBe(realBefore + 1);
   await page.waitForTimeout(700);
   expect(await modelPos(page, proxy)).toEqual(dropped);
   expect(mock.unhandled).toEqual([]);

@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expectLaidOut, tapEdge, tapNode, type Which } from "./cy";
-import { A, B, D, TX, expect, fixtures, test } from "./mockApi";
+import { A, B, D, TX, expect, fixtures, test, searchAndPick } from "./mockApi";
 
 /**
  * Picks `item` in the Export menu of the canvas tools inside `scope`; returns the download's name, the downloaded
@@ -71,9 +71,7 @@ test("the address graph exports a clean PNG, transparent PNG and SVG with nodes,
   mock.on("POST /api/graph/edges", () => ({
     json: { ...fixtures.graph, nodes: fixtures.graph.nodes.map((n) => (n.address === D ? { ...n, partial: true } : n)) },
   }));
-  await page.goto("/?e2e=1");
-  await page.getByRole("searchbox", { name: "Search" }).fill(A);
-  await page.getByRole("searchbox", { name: "Search" }).press("Enter");
+  await searchAndPick(page, A);
   await expectLaidOut(page, "main", 4);
   const counts = await edgeCounts(page, "main");
   expect(counts).toEqual({ edges: 4, arrows: 4 });

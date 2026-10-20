@@ -1,15 +1,12 @@
 import { expectLaidOut, nodeScreenPos, snapshot } from "./cy";
-import { A, B, C, D, expect, fixtures, test } from "./mockApi";
+import { A, B, C, D, expect, fixtures, test, searchAndPick, liveGraphRequests } from "./mockApi";
 import graphFiltered from "./fixtures/graph-filtered.json" with { type: "json" };
 
 const GRAPH = "POST /api/graph/edges";
 const NFT = { from: C, to: D, asset: "0x5eed000000000000000000000000000000000009", asset_kind: "erc721", count: 1, sum: "1", first_ts: "2024-01-10T08:00:00Z", last_ts: "2024-03-02T12:30:00Z", decimals: null, symbol: "PUNK", trust: { level: "unknown", impersonates: null, reason: null } };
 
 async function openGraph(page: import("@playwright/test").Page) {
-  await page.goto("/?e2e=1");
-  const search = page.getByRole("searchbox", { name: "Search" });
-  await search.fill(A);
-  await search.press("Enter");
+  await searchAndPick(page, A);
   await expectLaidOut(page, "main", 4);
 }
 
@@ -39,8 +36,9 @@ test("legend lists what is on the canvas; excluding NFT removes its row", async 
   const dialog = page.getByRole("dialog", { name: "Filter" });
   await dialog.getByLabel("ETH", { exact: true }).check();
   mock.on(GRAPH, () => ({ json: graphFiltered }));
+  const before = liveGraphRequests(mock).length;
   await dialog.getByRole("button", { name: "Apply" }).click();
-  await expect.poll(() => mock.count(GRAPH)).toBe(2);
+  await expect.poll(() => liveGraphRequests(mock).length).toBe(before + 1);
   await expect(legend.getByText("NFT", { exact: true })).toHaveCount(0);
   await expect(legend.getByText("ETH", { exact: true })).toBeVisible();
   expect(mock.unhandled).toEqual([]);

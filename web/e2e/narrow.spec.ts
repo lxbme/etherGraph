@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expectLaidOut, tapNode } from "./cy";
-import { A, D, expect, test } from "./mockApi";
+import { A, D, expect, test, confirmPicker, pickerDialog } from "./mockApi";
 
 /** No horizontal page scroll, and the element is fully inside the viewport. */
 async function expectFits(page: Page, what: string, box: { x: number; width: number } | null) {
@@ -27,6 +27,9 @@ test("at 380px the top bar fits and selecting a node opens the detail overlay", 
 
   await page.getByRole("searchbox", { name: "Search" }).fill(A);
   await page.getByRole("searchbox", { name: "Search" }).press("Enter");
+  // The neighbour picker fits too; confirming its default checks brings A's neighbours.
+  await expectFits(page, "neighbour picker", await pickerDialog(page).boundingBox());
+  await confirmPicker(page);
   // Searching selects the address: the overlay opens with its detail.
   await expect(page.locator(".main__right")).toBeVisible();
   await page.getByRole("button", { name: "Toggle details" }).click();

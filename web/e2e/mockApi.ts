@@ -1,14 +1,17 @@
-import { test as base, type Page, type Request, type Route } from "@playwright/test";
+import { test as base, expect, type Page, type Request, type Route } from "@playwright/test";
 import type { AddressProfileDto } from "../src/api/generated/AddressProfileDto";
 import type { CallTraceResponseDto } from "../src/api/generated/CallTraceResponseDto";
 import type { CancelledDto } from "../src/api/generated/CancelledDto";
 import type { CounterpartyPageDto } from "../src/api/generated/CounterpartyPageDto";
+import type { EdgeDto } from "../src/api/generated/EdgeDto";
 import type { Event } from "../src/api/generated/Event";
+import type { GraphRequestDto } from "../src/api/generated/GraphRequestDto";
 import type { GraphResponseDto } from "../src/api/generated/GraphResponseDto";
 import type { IdentifyRequestDto } from "../src/api/generated/IdentifyRequestDto";
 import type { IdentifyResponseDto } from "../src/api/generated/IdentifyResponseDto";
 import type { JobDto } from "../src/api/generated/JobDto";
 import type { MeDto } from "../src/api/generated/MeDto";
+import type { NodeSummaryDto } from "../src/api/generated/NodeSummaryDto";
 import type { NodesRequestDto } from "../src/api/generated/NodesRequestDto";
 import type { ProbeItemDto } from "../src/api/generated/ProbeItemDto";
 import type { ProbeRequestDto } from "../src/api/generated/ProbeRequestDto";
@@ -349,3 +352,127 @@ export const test = base.extend<{ mock: MockApi; tourDone: boolean }>({
   },
 });
 export { expect } from "@playwright/test";
+
+const lc = (s: string) => s.toLowerCase();
+
+/**
+ * A backend with stored transfers, for the specs that need the server's neighbour rules (spec §4): the graph
+ * endpoint answers from `edges` the way the server does, so what the canvas shows depends on the request.
+ */
+export interface World {
+  /** Node summaries by lowercase address; flip `synced` (and add `edges`) to model a finished sync. */
+  nodes: Map<string, NodeSummaryDto>;
+  /** Every stored transfer aggregate (lowercase addresses). */
+  edges: EdgeDto[];
+  /** Counterparties of a center that the graph's filter hides (added to its counterparties total). */
+  filtered: Record<string, number>;
+}
+
+/** A node summary for `address` (an unknown EOA unless `over` says otherwise). */
+export function summary(address: string, over: Partial<NodeSummaryDto> = {}): NodeSummaryDto {
+  return {
+    address: lc(address), kind: "eoa", display_name: null, ens: null, contract_name: null, labels: [],
+    partial: false, syncing: false, synced: false, hot: false, identified: true, nonce: null, balance: null,
+    ...over,
+  };
+}
+
+/** One ETH transfer aggregate `from → to` with `count` transfers (the latest at `last`). */
+export function transfer(from: string, to: string, count: number, last = "2024-03-02T12:30:00Z"): EdgeDto {
+  return {
+    from: lc(from), to: lc(to), asset: null, asset_kind: "native", count, sum: `${count}000000000000000000`,
+    first_ts: "2024-01-10T08:00:00Z", last_ts: last, decimals: 18, symbol: null,
+    trust: { level: "listed", impersonates: null, reason: null },
+  };
+}
+
+/** Distinct neighbours of `center` in `edges`, ranked like the server: transfer count descending, then address. */
+export function rankedNeighbours(edges: EdgeDto[], center: string): string[] {
+  const c = lc(center);
+  const count = new Map<string, number>();
+  for (const e of edges) {
+    const other = e.from === c ? e.to : e.to === c ? e.from : null;
+    if (other === null || other === c) continue;
+    count.set(other, (count.get(other) ?? 0) + e.count);
+  }
+  return [...count].sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1)).map(([a]) => a);
+}
+
+/**
+ * Answers `POST /api/graph/edges`, `POST /api/nodes`, the address profile and the counterparties total from `world`.
+ * The graph follows the server's rules: a picked center (`picks`, even empty) shows exactly its picked neighbours
+ * plus `prefer` and the other centers; any other center its top `limits[c]` (default `limit_per_address`, else 200)
+ * with `prefer` ranked first; `omitted` counts the rest. Only edges at a center are returned.
+ */
+export function installWorld(mock: MockApi, world: World): void {
+  const node = (a: string) => world.nodes.get(a) ?? summary(a);
+  mock.on("POST /api/graph/edges", (req) => {
+    const body = req.postDataJSON() as GraphRequestDto;
+    const centers = [...new Set(body.addresses.map(lc))];
+    const isCenter = new Set(centers);
+    const prefer = new Set((body.prefer ?? []).map(lc));
+    const picks = new Map(Object.entries(body.picks ?? {}).map(([k, v]) => [lc(k), new Set(v.map(lc))]));
+    const limits = new Map(Object.entries(body.limits ?? {}).map(([k, v]) => [lc(k), v]));
+    const shown = new Set(centers);
+    const omitted: Record<string, number> = {};
+    for (const c of centers) {
+      const others = rankedNeighbours(world.edges, c).filter((a) => !isCenter.has(a));
+      const picked = picks.get(c);
+      const take = picked
+        ? others.filter((a) => picked.has(a) || prefer.has(a))
+        : [...others.filter((a) => prefer.has(a)), ...others.filter((a) => !prefer.has(a))].slice(
+            0,
+            limits.get(c) ?? body.limit_per_address ?? 200,
+          );
+      for (const a of take) shown.add(a);
+      if (others.length > take.length) omitted[c] = others.length - take.length;
+    }
+    const edges = world.edges.filter((e) => (isCenter.has(e.from) && shown.has(e.to)) || (isCenter.has(e.to) && shown.has(e.from)));
+    const coverage = Object.fromEntries(centers.filter((c) => node(c).synced).map((c) => [c, fixtures.address.coverage]));
+    return { json: { nodes: [...shown].map(node), edges, omitted, coverage } satisfies GraphResponseDto };
+  });
+  mock.on("POST /api/nodes", (req) => {
+    const body = req.postDataJSON() as NodesRequestDto;
+    return { json: body.addresses.flatMap((a) => world.nodes.get(lc(a)) ?? []) };
+  });
+  mock.on("GET /api/address/*", (_req, url) => {
+    const a = lc(decodeURIComponent(url.pathname.split("/").pop() ?? ""));
+    const n = world.nodes.get(a);
+    if (!n) return notFound("unknown address");
+    return { json: { ...fixtures.address, node: n, coverage: n.synced ? fixtures.address.coverage : [] } satisfies AddressProfileDto };
+  });
+  mock.on("GET /api/address/*/counterparties", (_req, url) => {
+    const a = lc(url.pathname.split("/").at(-2) ?? "");
+    const total = rankedNeighbours(world.edges, a).length + (world.filtered[a] ?? 0);
+    return { json: { items: [], total } satisfies CounterpartyPageDto };
+  });
+}
+
+/**
+ * Searches `addr` from the top bar and confirms the neighbour picker that opens with its default checks (the top k):
+ * how a user puts an address on the graph with its first neighbours now (a search alone shows the address only).
+ * Selectors are language-neutral, so it works in either locale. `url` is the page to start from.
+ */
+export async function searchAndPick(page: Page, addr: string, url = "/?e2e=1"): Promise<void> {
+  await page.goto(url);
+  const search = page.getByRole("searchbox").first();
+  await search.fill(addr);
+  await search.press("Enter");
+  await confirmPicker(page);
+}
+
+/** Confirms the open neighbour picker with its current checks, once it has listed them. */
+export async function confirmPicker(page: Page): Promise<void> {
+  const dialog = pickerDialog(page);
+  const confirm = dialog.locator(".pick__actions .btn--primary");
+  await expect(confirm).toBeEnabled();
+  await confirm.click();
+  await expect(dialog).toHaveCount(0);
+}
+
+/** The neighbour picker (either language). */
+export const pickerDialog = (page: Page) => page.locator('.dialog.pick[role="dialog"]');
+
+/** The graph requests of the canvas itself (the picker's and the expand dialogs' dry runs left out). */
+export const liveGraphRequests = (mock: MockApi): Request[] =>
+  mock.requests("POST /api/graph/edges").filter((r) => !(r.postDataJSON() as GraphRequestDto).dry_run);

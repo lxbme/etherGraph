@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expectLaidOut, snapshot, type CySnapshot } from "./cy";
-import { A, expect, test, type MockApi } from "./mockApi";
+import { A, expect, test, type MockApi, searchAndPick } from "./mockApi";
 
 const GRAPH = "POST /api/graph/edges";
 type Box = { x1: number; y1: number; x2: number; y2: number };
@@ -77,9 +77,7 @@ const selectedIds = (page: Page) =>
 
 /** Opens the mocked graph of A and waits until its layout settled. */
 async function openGraph(page: Page, mock: MockApi): Promise<Record<string, Pt>> {
-  await page.goto("/?e2e=1");
-  await page.getByRole("searchbox", { name: "Search" }).fill(A);
-  await page.getByRole("searchbox", { name: "Search" }).press("Enter");
+  await searchAndPick(page, A);
   await expect.poll(() => mock.count(GRAPH)).toBeGreaterThan(0);
   await expectLaidOut(page, "main", 4);
   return settled(page);
