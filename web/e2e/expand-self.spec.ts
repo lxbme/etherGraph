@@ -105,7 +105,7 @@ test("Expand as centers opens the picker grouped by address; an unsynced one ask
   await expect(bar).toBeHidden();
   await expect(dialog.getByRole("button", { name: /Binance 14 · 3 total · 3 checked$/ })).toBeVisible();
   // D is not synced: its group offers the sync instead of a list.
-  await expect(dialog.getByText("Sync first to list its neighbours (about 6 calls)")).toBeVisible();
+  await expect(dialog.getByText("Sync first to list its neighbours (about 6–26 calls)")).toBeVisible();
   // Only the synced target is dry-run; nothing is a center until the dialog is confirmed.
   const dry = bodies(mock).slice(seen).filter((b) => b.dry_run);
   expect(dry.length).toBeGreaterThan(0);
@@ -126,7 +126,7 @@ test("Expand… on an unsynced node asks first, syncs just it (shallow), then li
   await rightClick(page, B);
   await page.getByRole("menuitem", { name: "Expand…", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Expand Binance 14" });
-  await expect(dialog.getByText("Sync first to list its neighbours (about 6 calls)")).toBeVisible();
+  await expect(dialog.getByText("Sync first to list its neighbours (about 6–26 calls)")).toBeVisible();
   expect(mock.count(SYNC)).toBe(0);
 
   await dialog.getByRole("button", { name: "Sync", exact: true }).click();

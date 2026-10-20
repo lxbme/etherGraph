@@ -915,6 +915,15 @@ a.btn { text-decoration: none; }
 .dialog__summary { font-size: var(--fs-12); color: var(--fg-muted); }
 .dialog__check { display: flex; align-items: center; gap: var(--sp-2); cursor: pointer; }
 .dialog__check input { margin: 0; }
+.trunc-banner {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-12);
+  color: color-mix(in srgb, var(--warn) 70%, var(--fg));
+  background: color-mix(in srgb, var(--warn) 14%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--bg));
+  border-radius: var(--radius);
+}
 .dialog__warn { font-size: var(--fs-12); color: color-mix(in srgb, var(--warn) 70%, var(--fg)); }
 
 /* Expansion dialog: budget meters, candidate tables, probe footer (spec §5.3–5.5). */

@@ -314,7 +314,7 @@ test("k_rechecks_and_reset_restores", async () => {
 test("unsynced_single_target_is_a_sync_confirm", async () => {
   newCenter(C0, { synced: false });
   mount([C0]);
-  expect(await screen.findByText("Sync first to list its neighbours (about 6 calls)")).toBeInTheDocument();
+  expect(await screen.findByText("Sync first to list its neighbours (about 6–26 calls)")).toBeInTheDocument();
   expect(screen.getByText("4,900 calls left today")).toBeInTheDocument();
   expect(screen.queryByRole("checkbox")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Not now" }));
@@ -488,6 +488,18 @@ test("a snapshot asks to go live before the picker opens", () => {
   expect(usePick.getState().targets).toEqual([addr(C0)]);
 });
 
+test("a synced target whose sync was truncated shows the banner", async () => {
+  newCenter(C0);
+  world[C0] = nbs(100, 1);
+  canvas = {
+    ...canvas,
+    coverage: { [addr(C0)]: [{ kind: "erc20", from_block: 5, to_block: 9, truncated: true, state: "ok", last_synced_at: "2024-01-01T00:00:00Z", oldest_ts: "2022-03-31T05:00:00Z" }] },
+  };
+  mount([C0]);
+  expect(await screen.findByText(/older records are missing/)).toBeInTheDocument();
+  expect(screen.getByText(/ERC20 only back to 2022-03-31/)).toBeInTheDocument();
+});
+
 test("a synced target shows when it was last synced and refreshes on a click", async () => {
   newCenter(C0);
   world[C0] = nbs(100, 1);
@@ -495,7 +507,7 @@ test("a synced target shows when it was last synced and refreshes on a click", a
   canvas = { ...canvas, coverage: { [addr(C0)]: [{ kind: "native", from_block: null, to_block: null, truncated: false, state: "ok", last_synced_at: at, oldest_ts: null }] } };
   mount([C0]);
   expect(await screen.findByText("Last synced: 3 days ago")).toBeInTheDocument();
-  expect(screen.getByText("about 6 calls · 4,900 calls left today")).toBeInTheDocument();
+  expect(screen.getByText("about 6–26 calls · 4,900 calls left today")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
   expect(sync).toHaveBeenCalledWith({ addresses: [addr(C0)], depth: "shallow", batch: expect.any(String) });
   expect(await screen.findByText("Syncing…")).toBeInTheDocument();
@@ -553,11 +565,11 @@ test("a target just put on the graph: the picker waits for the canvas to show it
   const dialog = await screen.findByRole("dialog");
   expect(within(dialog).getByText("Loading…")).toBeInTheDocument();
   await waitFor(() => expect(release).toBeTypeOf("function"));
-  expect(screen.queryByText("Sync first to list its neighbours (about 6 calls)")).toBeNull();
+  expect(screen.queryByText("Sync first to list its neighbours (about 6–26 calls)")).toBeNull();
   canvas = { ...canvas, nodes: [...canvas.nodes, node(C0)] };
   await act(async () => release());
   await waitFor(() => expect(box(100)).toBeInTheDocument());
-  expect(screen.queryByText("Sync first to list its neighbours (about 6 calls)")).toBeNull();
+  expect(screen.queryByText("Sync first to list its neighbours (about 6–26 calls)")).toBeNull();
   expect(sync).not.toHaveBeenCalled();
 });
 
@@ -569,7 +581,7 @@ test("the previous canvas standing in while the target's request loads shows loa
   const dialog = await screen.findByRole("dialog");
   await new Promise((r) => setTimeout(r, 50));
   expect(within(dialog).getByText("Loading…")).toBeInTheDocument();
-  expect(screen.queryByText("Sync first to list its neighbours (about 6 calls)")).toBeNull();
+  expect(screen.queryByText("Sync first to list its neighbours (about 6–26 calls)")).toBeNull();
   expect(screen.queryByRole("button", { name: "Sync" })).toBeNull();
   // C0 becomes a center: its canvas request answers only when released, the previous result standing in meanwhile.
   let release!: () => void;
@@ -582,12 +594,12 @@ test("the previous canvas standing in while the target's request loads shows loa
   act(() => useGraph.getState().revealCenter(addr(C0)));
   await waitFor(() => expect(release).toBeTypeOf("function"));
   expect(within(dialog).getByText("Loading…")).toBeInTheDocument();
-  expect(screen.queryByText("Sync first to list its neighbours (about 6 calls)")).toBeNull();
+  expect(screen.queryByText("Sync first to list its neighbours (about 6–26 calls)")).toBeNull();
   expect(screen.queryByRole("button", { name: "Sync" })).toBeNull();
   canvas = { ...canvas, nodes: [...canvas.nodes, node(C0)] };
   await act(async () => release());
   await waitFor(() => expect(box(102).checked).toBe(true));
-  expect(screen.queryByText("Sync first to list its neighbours (about 6 calls)")).toBeNull();
+  expect(screen.queryByText("Sync first to list its neighbours (about 6–26 calls)")).toBeNull();
   expect(sync).not.toHaveBeenCalled();
 });
 

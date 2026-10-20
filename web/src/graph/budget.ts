@@ -7,6 +7,8 @@ export const K_MIN = 5;
 export const K_FLOOR = 3;
 /** Calls of a shallow sync: head + 5 transfer kinds. */
 export const SHALLOW_CALLS = 6;
+/** Most calls of a shallow sync: head + 5 kinds × 5 pages, matching the server default `sync.shallow_pages`. */
+export const SHALLOW_MAX_CALLS = 26;
 
 export type Weight = { value: number; estimated: boolean };
 

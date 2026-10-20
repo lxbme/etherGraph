@@ -21,6 +21,7 @@ import { CopyButton } from "../shell/CopyButton";
 import { toast } from "../shell/Toasts";
 import { useTabs } from "../shell/tabs";
 import { HUED_CATEGORIES, LabelEditor, categoryName, labelProvenance } from "./LabelEditor";
+import { TruncationBanner } from "./TruncationBanner";
 import { useUi } from "./uiStore";
 
 const KINDS = TRANSFER_KINDS;
@@ -111,7 +112,7 @@ export function NodeDetail({
   const q = useQuery({ queryKey: qk.address(address), queryFn: () => api.address(address) });
 
   const sync = useMutation({
-    mutationFn: (direction?: "older") => api.sync(direction ? { addresses: [address], direction } : { addresses: [address] }),
+    mutationFn: () => api.sync({ addresses: [address] }),
     onSuccess: () => toast(t("node.syncStarted")),
     onError: (e) => toast(messageFor(e), "error"),
   });
@@ -125,8 +126,8 @@ export function NodeDetail({
       ]),
   });
 
-  const startSync = (direction?: "older") => {
-    const run = () => sync.mutate(direction);
+  const startSync = () => {
+    const run = () => sync.mutate();
     if (forGraph) useGraph.getState().guardLive(run);
     else run();
   };
@@ -136,11 +137,9 @@ export function NodeDetail({
   const p = q.data;
   const n = p.node;
   const coverage = new Map(p.coverage.map((c) => [c.kind, c]));
-  const anyTruncated = p.coverage.some((c) => c.truncated);
   // Why a category is partial: coverage carries no record count, only where the sync stopped.
   const partialReason = (c: SyncStatusDto) =>
     t("node.partialReason", { kind: transferKindName(c.kind, t), block: c.from_block === null ? "—" : String(c.from_block) });
-  const partialTitle = p.coverage.filter((c) => c.truncated).map(partialReason).join("\n");
   const covered = KINDS.filter((k) => coverage.get(k.value)?.to_block != null).length;
   const stats = canvasStats(address, graph?.edges ?? []);
   const balance = n.balance != null ? formatFixed(n.balance, 18, "eth") : null;
@@ -171,7 +170,6 @@ export function NodeDetail({
           <span key={`cat:${c}`} className={`tag tag--${HUED_CATEGORIES.includes(c) ? c : "neutral"}`}>{categoryName(c)}</span>
         ))}
         <span className="tag tag--neutral">{t(syncKey)}</span>
-        {n.partial && <span className="tag tag--neutral" title={partialTitle || undefined}>{t("node.partialSync")}</span>}
         {labels.map((l, i) => {
           const provenance = labelProvenance(l.source);
           return (
@@ -196,6 +194,7 @@ export function NodeDetail({
           </button>
         )}
       </div>
+      <TruncationBanner address={address} coverage={p.coverage} forGraph={forGraph} />
       {del.isError && <div className="detail__error" role="alert">{messageFor(del.error)}</div>}
       {editorFor === address && <LabelEditor addresses={[address]} onClose={closeEditor} />}
 
@@ -256,8 +255,7 @@ export function NodeDetail({
             {t("pick.open")}
           </button>
         )}
-        <button className={ready ? "btn" : "btn btn--primary"} onClick={() => startSync(undefined)}>{t("node.syncRefresh")}</button>
-        {anyTruncated && <button className="btn" onClick={() => startSync("older")}>{t("node.fetchOlder")}</button>}
+        <button className={ready ? "btn" : "btn btn--primary"} onClick={startSync}>{t("node.syncRefresh")}</button>
       </div>
 
       <h4 className="overline">{t("node.coverage")}</h4>

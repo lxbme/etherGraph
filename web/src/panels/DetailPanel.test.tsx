@@ -55,10 +55,7 @@ test("node detail shows coverage per kind with a neutral partial-sync marker", a
   expect(await screen.findByText("FooPool")).toBeInTheDocument();
   expect(spy).toHaveBeenCalledWith(A);
   const why = "Too many records: Native transfers only synced from block 100";
-  const top = within(screen.getByTestId("node-tags")).getByText("Partial sync");
-  expect(top).toHaveClass("tag", "tag--neutral");
-  expect(top).not.toHaveClass("tag--warn");
-  expect(top).toHaveAttribute("title", why);
+  expect(within(screen.getByTestId("node-tags")).queryByText("Partial sync")).toBeNull();
   const native = screen.getByText("Native transfers").closest("li")!;
   expect(within(native).getByText("100 – 200")).toBeInTheDocument();
   const tag = within(native).getByText("Partial sync");
@@ -70,7 +67,9 @@ test("node detail shows coverage per kind with a neutral partial-sync marker", a
   expect(within(erc20).queryByText("Partial sync")).toBeNull();
   expect(screen.queryByText("Truncated")).toBeNull();
   expect(within(screen.getByText("ERC721").closest("li")!).getByText("Not synced")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Fetch older records" })).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("Native transfers only back to block 100 · older records are missing");
+  // ERC20 is still syncing, so the backfill waits.
+  expect(screen.getByRole("button", { name: "Fetching…" })).toBeDisabled();
 });
 
 test("the partial-sync marker and its reason are translated", async () => {
@@ -81,7 +80,7 @@ test("the partial-sync marker and its reason are translated", async () => {
     renderPanel();
     await screen.findByText("FooPool");
     const tags = screen.getAllByText("部分同步");
-    expect(tags).toHaveLength(2);
+    expect(tags).toHaveLength(1);
     for (const tag of tags) expect(tag).toHaveAttribute("title", "记录过多：普通转账 只同步了区块 100 之后的部分");
   } finally {
     act(() => useLocale.getState().setLocale("en"));
@@ -89,7 +88,8 @@ test("the partial-sync marker and its reason are translated", async () => {
 });
 
 test("sync buttons call api.sync", async () => {
-  vi.spyOn(api, "address").mockResolvedValue(profile());
+  const done = profile().coverage.map((c) => ({ ...c, state: "ok" as const }));
+  vi.spyOn(api, "address").mockResolvedValue(profile([], { coverage: done }));
   const sync = vi.spyOn(api, "sync").mockResolvedValue({
     estimated_calls: null, estimated_seconds: null, per_address: null, jobs: [1],
   });
@@ -97,7 +97,7 @@ test("sync buttons call api.sync", async () => {
   renderPanel();
   fireEvent.click(await screen.findByRole("button", { name: "Sync / refresh" }));
   await waitFor(() => expect(sync).toHaveBeenCalledWith({ addresses: [A] }));
-  fireEvent.click(screen.getByRole("button", { name: "Fetch older records" }));
+  fireEvent.click(screen.getByRole("button", { name: "Fetch older" }));
   await waitFor(() => expect(sync).toHaveBeenLastCalledWith({ addresses: [A], direction: "older" }));
 });
 
@@ -260,7 +260,8 @@ test("a `file` label is never deletable, even if it reached the live list", asyn
 });
 
 test("on a snapshot graph, Sync / refresh and Fetch older ask to refresh from the chain first", async () => {
-  vi.spyOn(api, "address").mockResolvedValue(profile());
+  const done = profile().coverage.map((c) => ({ ...c, state: "ok" as const }));
+  vi.spyOn(api, "address").mockResolvedValue(profile([], { coverage: done }));
   vi.spyOn(api, "nodes").mockResolvedValue([]);
   const sync = vi.spyOn(api, "sync").mockResolvedValue({ jobs: [] } as never);
   act(() => {
@@ -275,7 +276,7 @@ test("on a snapshot graph, Sync / refresh and Fetch older ask to refresh from th
   fireEvent.click(await screen.findByRole("button", { name: "Sync / refresh" }));
   expect(useGraph.getState().pendingLive).not.toBeNull();
   act(() => useGraph.getState().resolveLive(false));
-  fireEvent.click(screen.getByRole("button", { name: "Fetch older records" }));
+  fireEvent.click(screen.getByRole("button", { name: "Fetch older" }));
   expect(useGraph.getState().pendingLive).not.toBeNull();
   expect(sync).not.toHaveBeenCalled();
   act(() => useGraph.getState().resolveLive(true));

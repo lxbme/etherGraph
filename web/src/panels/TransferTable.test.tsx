@@ -63,6 +63,19 @@ test("groupsForPair returns both directions sorted by count", () => {
   expect(g[0]).toMatchObject({ from: B, to: A, asset: USDC });
 });
 
+test("a node whose sync was truncated shows the banner above the rows, matching the address case-insensitively", async () => {
+  act(() => useGraph.getState().setCenters([A]));
+  const s = useGraph.getState();
+  qc.setQueryData(graphQueryKey(s), {
+    nodes: [], edges: [], omitted: {},
+    coverage: { [A.toUpperCase().replace("0X", "0x")]: [{ kind: "erc20", from_block: 5, to_block: 9, truncated: true, state: "ok", last_synced_at: null, oldest_ts: "2022-03-31T05:00:00Z" }] },
+  } satisfies GraphResponseDto);
+  vi.spyOn(api, "transfers").mockResolvedValue({ items: [], next_cursor: null } as never);
+  act(() => useGraph.getState().select({ kind: "node", address: A }));
+  renderTable();
+  expect(await screen.findByRole("status")).toHaveTextContent("ERC20 only back to 2022-03-31 · older records are missing");
+});
+
 test("shows empty hint when nothing is selected", () => {
   renderTable();
   expect(screen.getByText("Select a node or edge to see transfers")).toBeInTheDocument();

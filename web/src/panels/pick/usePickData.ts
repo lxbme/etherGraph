@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api/endpoints";
 import type { GraphRequestDto } from "../../api/generated/GraphRequestDto";
 import type { GraphResponseDto } from "../../api/generated/GraphResponseDto";
+import type { SyncStatusDto } from "../../api/generated/SyncStatusDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import { mergeResults } from "../../graph/estimate";
 import { firstBatchFor, MAX_CENTERS, MAX_NEIGHBOUR_LIMIT, ownNeighbours, useGraph } from "../../graph/store";
@@ -30,6 +31,8 @@ export interface PickGroup {
   syncing: boolean;
   /** Latest `last_synced_at` of the center's coverage; null when never synced (or unknown). */
   lastSynced: string | null;
+  /** The center's coverage rows, from the same result as `lastSynced`; empty when unknown. */
+  coverage: SyncStatusDto[];
   /** The listed neighbours (up to 1000, under the graph's filter, in the graph's order); empty while not synced. */
   rows: NeighbourRow[];
   /** Checked when the dialog opens (lowercase). */
@@ -80,10 +83,14 @@ async function dryRuns(
   return mergeResults(parts);
 }
 
-/** Latest `last_synced_at` of `center`'s coverage in `result`, if any. */
-function latestSync(result: GraphResponseDto | undefined, center: string): string | null {
-  if (!result) return null;
-  const list = result.coverage[center] ?? Object.entries(result.coverage).find(([a]) => lc(a) === center)?.[1] ?? [];
+/** `center`'s coverage rows in `result`, matched case-insensitively. */
+function coverageOf(result: GraphResponseDto | undefined, center: string): SyncStatusDto[] {
+  if (!result) return [];
+  return result.coverage[center] ?? Object.entries(result.coverage).find(([a]) => lc(a) === center)?.[1] ?? [];
+}
+
+/** Latest `last_synced_at` of `list`, if any. */
+function latestSync(list: SyncStatusDto[]): string | null {
   let best: string | null = null;
   for (const c of list) {
     if (c.last_synced_at && (best === null || Date.parse(c.last_synced_at) > Date.parse(best))) best = c.last_synced_at;
@@ -199,13 +206,15 @@ export function usePickData(targets: string[]): PickData {
       const summary = summaries.get(center);
       const known = isKnown(center);
       const ok = known && !!summary?.synced;
+      const fromListed = coverageOf(listed, center);
       const base: PickGroup = {
         center,
         summary,
         known,
         synced: ok,
         syncing: known && !!summary?.syncing,
-        lastSynced: latestSync(listed, center) ?? latestSync(data, center),
+        coverage: fromListed.length > 0 ? fromListed : coverageOf(data, center),
+        lastSynced: latestSync(fromListed) ?? latestSync(coverageOf(data, center)),
         rows: [],
         defaults: [],
         listedCap: false,

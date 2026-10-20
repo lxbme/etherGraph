@@ -243,6 +243,7 @@ test("unsynced_target_makes_no_requests", async () => {
       known: true,
       synced: false,
       syncing: true,
+      coverage: [],
       lastSynced: null,
       rows: [],
       defaults: [],

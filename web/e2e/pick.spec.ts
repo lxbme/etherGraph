@@ -87,7 +87,7 @@ test("search_new_address_confirm_sync_pick_two: an unsynced address alone, sync 
   await expectLaidOut(page, "main", 1);
   expect(await real(page)).toEqual([X]);
   const dialog = page.getByRole("dialog", { name: "Expand Xavier" });
-  await expect(dialog.getByText("Sync first to list its neighbours (about 6 calls)")).toBeVisible();
+  await expect(dialog.getByText("Sync first to list its neighbours (about 6–26 calls)")).toBeVisible();
   await expect(dialog.getByText(/99,?880 calls left today/)).toBeVisible();
   expect(mock.count(SYNC)).toBe(0);
 
@@ -376,7 +376,7 @@ test.describe("narrow", () => {
     installWorld(mock, makeWorld());
     await search(page, X);
     const dialog = page.getByRole("dialog", { name: "Expand Xavier" });
-    await expect(dialog.getByText("Sync first to list its neighbours (about 6 calls)")).toBeVisible();
+    await expect(dialog.getByText("Sync first to list its neighbours (about 6–26 calls)")).toBeVisible();
     await expect(dialog).toBeFocused();
     const reached = await tabThrough(page, dialog, 2);
     expect(reached).toEqual(["BUTTON:button:Not now", "BUTTON:button:Sync"]);

@@ -19,6 +19,7 @@ import { transferKindName } from "../lib/transferKinds";
 import { useTabs } from "../shell/tabs";
 import { AssetButton } from "./info/AssetButton";
 import { TrustBadge } from "./info/TrustBadge";
+import { TruncationBanner } from "./TruncationBanner";
 import { groupsForPair, type TransferGroup } from "./transferGroups";
 import { useRefreshFromChain } from "../workspace/snapshot";
 
@@ -327,6 +328,7 @@ export function TransferTable() {
   const t = useT();
 
   let body;
+  let banner = null;
   if (!selection) {
     body = <div className="transfers__msg">{t("transfers.select")}</div>;
   } else if (frozen) {
@@ -340,6 +342,9 @@ export function TransferTable() {
       </div>
     );
   } else if (selection.kind === "node") {
+    const sel = selection.address.toLowerCase();
+    const coverage = Object.entries(data?.coverage ?? {}).find(([a]) => a.toLowerCase() === sel)?.[1] ?? [];
+    banner = <TruncationBanner address={selection.address} coverage={coverage} forGraph />;
     const n = filter.assets?.length ?? 0;
     const direction = nodeDirection(filter.direction, selection.address, centers, data?.edges ?? []);
     if (n >= 2) {
@@ -363,5 +368,5 @@ export function TransferTable() {
   } else {
     body = <PairGroups key={`${selection.a}|${selection.b}`} a={selection.a} b={selection.b} />;
   }
-  return <div className="transfers">{body}</div>;
+  return <div className="transfers">{banner}{body}</div>;
 }

@@ -4,7 +4,7 @@ import { messageFor } from "../../api/errors";
 import type { GraphResponseDto } from "../../api/generated/GraphResponseDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import type { TrustDto } from "../../api/generated/TrustDto";
-import { nodeCapacity, SHALLOW_CALLS } from "../../graph/budget";
+import { nodeCapacity, SHALLOW_CALLS, SHALLOW_MAX_CALLS } from "../../graph/budget";
 import { useCanvasMetrics } from "../../graph/canvasMetrics";
 import { MAX_CENTERS, MAX_NEIGHBOUR_LIMIT, ownNeighbours, useGraph, type SortKey } from "../../graph/store";
 import { useT } from "../../i18n";
@@ -16,6 +16,7 @@ import { useJobProgress, useQuota } from "../../shell/statusStore";
 import { toast } from "../../shell/Toasts";
 import { offerUndo } from "../expand/expansion";
 import { TrustBadge } from "../info/TrustBadge";
+import { TruncationBanner } from "../TruncationBanner";
 import type { NeighbourRow } from "./neighbours";
 import { usePickData, type PickGroup } from "./usePickData";
 
@@ -386,7 +387,7 @@ export function PickNeighboursDialog({
       <>
         <h3 className="dialog__title">{title}</h3>
         <div className="pick__confirm" aria-live="polite">
-          <p>{t("pick.needSync", { calls: SHALLOW_CALLS })}</p>
+          <p>{t("pick.needSync", { min: SHALLOW_CALLS, max: SHALLOW_MAX_CALLS })}</p>
           {quotaLeft != null && <p className="dialog__summary">{t("expandSelf.quotaLeft", { count: quotaLeft })}</p>}
           {quotaLeft != null && SHALLOW_CALLS > quotaLeft && <p className="dialog__warn">{t("expandSelf.overQuota")}</p>}
           {busy && <p className="pick__syncing">{t("pick.syncing")}</p>}
@@ -421,7 +422,7 @@ export function PickNeighboursDialog({
             <span className="pick__syncing">{t("pick.syncing")}</span>
           ) : (
             <>
-              <span>{t("pick.needSync", { calls: SHALLOW_CALLS })}</span>
+              <span>{t("pick.needSync", { min: SHALLOW_CALLS, max: SHALLOW_MAX_CALLS })}</span>
               {quotaLeft != null && <span>{t("expandSelf.quotaLeft", { count: quotaLeft })}</span>}
               <button type="button" className="btn btn--compact" onClick={() => startSync(g)}>{t("pick.sync")}</button>
             </>
@@ -431,6 +432,7 @@ export function PickNeighboursDialog({
     }
     return (
       <div className="pick__notes" aria-live="polite">
+        <TruncationBanner address={g.center} coverage={g.coverage} forGraph />
         {g.listedCap && <span>{t("pick.cap")}</span>}
         {g.hiddenByFilter > 0 && <span>{t("pick.filtered", { count: g.hiddenByFilter })}</span>}
         {g.lastSynced && (
@@ -441,7 +443,7 @@ export function PickNeighboursDialog({
             ) : (
               <>
                 <span>
-                  {t("pick.calls", { calls: SHALLOW_CALLS })}
+                  {t("pick.calls", { min: SHALLOW_CALLS, max: SHALLOW_MAX_CALLS })}
                   {quotaLeft != null && ` · ${t("expandSelf.quotaLeft", { count: quotaLeft })}`}
                 </span>
                 <button type="button" className="btn btn--compact" onClick={() => startSync(g)}>{t("pick.refresh")}</button>
