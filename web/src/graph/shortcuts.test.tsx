@@ -178,6 +178,27 @@ describe("useShortcuts stays out of the way", () => {
     expect(useBoxSelection.getState().ids).toEqual([A]);
   });
 
+  test("in annotate mode the node keys are suspended and Save still works", async () => {
+    const { actions } = await setup();
+    const { useAnnotations } = await import("../annotate/store");
+    const { useSaveRequest } = await import("../workspace/saveRequest");
+    useSaveRequest.setState({ pending: null });
+    act(() => useAnnotations.setState({ active: "graph" }));
+    for (const id of ["hide", "pin", "sync", "focus"] as const) {
+      fireEvent.keyDown(document.body, eventFor(SHORTCUTS.find((s) => s.id === id)!.keys[0]!));
+    }
+    expect(actions.hideNode).not.toHaveBeenCalled();
+    expect(actions.togglePin).not.toHaveBeenCalled();
+    expect(actions.syncNode).not.toHaveBeenCalled();
+    expect(actions.focusNode).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: "s", ctrlKey: true });
+    expect(useSaveRequest.getState().pending).not.toBeNull();
+    // Out of the mode the node keys are back.
+    act(() => useAnnotations.setState({ active: null }));
+    fireEvent.keyDown(document.body, eventFor(SHORTCUTS.find((s) => s.id === "hide")!.keys[0]!));
+    expect(actions.hideNode).toHaveBeenCalledWith(A);
+  });
+
   test("while the admin page covers the graph (Save included)", async () => {
     const { actions } = await setup();
     const { useAdminRoute } = await import("../shell/hashRoute");

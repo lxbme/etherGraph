@@ -63,10 +63,12 @@ test("annotations stay put when nodes move and come back after reload", async ({
   await page.mouse.click(at(0.6, 0.7).x, at(0.6, 0.7).y);
   const editor = graph.locator("textarea.annotate-editor");
   await expect(editor).toBeFocused();
-  await page.keyboard.type("hello there");
+  await page.keyboard.type("hello 中文标注测试 WWWW");
+  // The editor is wide enough for what was typed: nothing scrolled out of view.
+  expect(await editor.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
   await page.keyboard.press("Enter");
   await expect(editor).toHaveCount(0);
-  await expect(shapes(graph, "text")).toHaveText("hello there");
+  await expect(shapes(graph, "text")).toHaveText("hello 中文标注测试 WWWW");
 
   // The wheel still zooms the canvas under the overlay; the annotation keeps its model box.
   const drawn = (await rectProbe(page))!;
@@ -118,7 +120,7 @@ test("annotations stay put when nodes move and come back after reload", async ({
   await page.getByRole("menuitem", { name: "Open…" }).click();
   await page.getByRole("dialog", { name: "Open workspace" }).getByRole("button", { name: "with notes", exact: true }).click();
   await expect(shapes(graph, "rect")).toHaveCount(1);
-  await expect(shapes(graph, "text")).toHaveText("hello there");
+  await expect(shapes(graph, "text")).toHaveText("hello 中文标注测试 WWWW");
   expect((await rectProbe(page))!.model).toEqual(drawn.model);
 
   expect(mock.unhandled).toEqual([]);

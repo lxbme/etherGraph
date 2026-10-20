@@ -78,7 +78,8 @@ const HANDLERS: Record<Exclude<ShortcutId, "search">, (c: Ctx) => void | false> 
 
 /**
  * Keyboard shortcuts from the SHORTCUTS table: save / save as (any tab), undo/redo, Escape (clears the box selection), and node keys
- * on the selected node. Undo, redo and Escape are left to the annotate keys while a canvas is in annotate mode.
+ * on the selected node. While a canvas is in annotate mode only save / save as act here (undo, redo and Escape are the
+ * annotate keys').
  * Inactive while typing or while a dialog / popover / menu is open (listenShortcutKeys), and while a tx tab is
  * shown (the address graph they act on is hidden then).
  */
@@ -88,9 +89,9 @@ export function useShortcuts(getData: () => GraphResponseDto | undefined): void 
       listenShortcutKeys((e) => {
         const hit = shortcutFor(e);
         if (!hit || hit.id === "search") return;
-        // In annotate mode the annotate keys (useAnnotateKeys) own undo, redo and Escape.
-        const annotating = useAnnotations.getState().active !== null;
-        if (annotating && (hit.id === "undo" || hit.id === "redo" || hit.id === "clearSelection")) return;
+        // In annotate mode only Save / Save as stay: the annotate keys (useAnnotateKeys) own undo, redo and Escape,
+        // and the graph's other keys are suspended.
+        if (useAnnotations.getState().active !== null && hit.id !== "save" && hit.id !== "saveAs") return;
         // Save works on any tab; undo and redo also on the Data tab (hiding transfers there is undoable); the rest only on the graph.
         const active = useTabs.getState().active;
         const anyTab = hit.id === "save" || hit.id === "saveAs" || (active === "data" && (hit.id === "undo" || hit.id === "redo"));

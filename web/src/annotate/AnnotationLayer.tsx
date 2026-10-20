@@ -11,6 +11,7 @@ import {
 } from "react";
 import { newBatchId as newId } from "../lib/batchId";
 import { arrowHead, ellipseOf, hitTest, rectOf, textLines } from "./geometry";
+import { textWidth } from "./measure";
 import {
   bounds,
   FONT_SIZE,
@@ -286,6 +287,11 @@ export function AnnotationLayer({ view, cy }: { view: ViewId; cy: cytoscape.Core
   const selBox = sel ? bounds([sel], measure) : null;
   const pad = 4 / vp.zoom;
   const editorLines = editor ? editor.text.split("\n") : [];
+  // The editor is as wide as its longest line in its own font (it inherits the overlay's), plus 1em to type into:
+  // a `cols` width counts average characters and is about half the width of a CJK or "WWW" line.
+  const editorSize = FONT_SIZE * vp.zoom;
+  const editorFont = `${editorSize}px ${(svgRef.current && getComputedStyle(svgRef.current).fontFamily) || "sans-serif"}`;
+  const editorWidth = Math.max(...editorLines.map((l) => textWidth(l, editorFont, editorSize)), 0) + editorSize;
 
   return (
     <>
@@ -326,12 +332,12 @@ export function AnnotationLayer({ view, cy }: { view: ViewId; cy: cytoscape.Core
           spellCheck={false}
           value={editor.text}
           rows={editorLines.length}
-          cols={Math.max(...editorLines.map((l) => l.length), 1) + 1}
           style={{
             left: editor.x * vp.zoom + vp.pan.x,
             // The first line's box starts half a leading above the text's top, as the overlay draws it.
             top: (editor.y - ((LINE_HEIGHT - 1) / 2) * FONT_SIZE) * vp.zoom + vp.pan.y,
-            fontSize: FONT_SIZE * vp.zoom,
+            width: editorWidth,
+            fontSize: editorSize,
             lineHeight: LINE_HEIGHT,
             color: `var(--note-${editor.color})`,
           }}

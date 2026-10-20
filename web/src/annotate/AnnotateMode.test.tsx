@@ -42,6 +42,20 @@ function drag(el: Element, from: [number, number], to: [number, number]) {
 const key = (target: EventTarget, init: KeyboardEventInit) =>
   act(() => void target.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init })));
 
+/** jsdom has no canvas: a 2D context whose text is 1em per CJK glyph and 0.6em per other character. */
+const fontSizeOf = (font: string) => parseFloat(/([\d.]+)px/.exec(font)?.[1] ?? "10");
+const fakeCtx = {
+  font: "10px sans-serif",
+  measureText(t: string) {
+    const em = fontSizeOf(this.font);
+    return { width: [...t].reduce((w, ch) => w + (/[\u3000-\u9fff]/.test(ch) ? em : 0.6 * em), 0) };
+  },
+};
+beforeAll(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation((() => fakeCtx) as never);
+});
+afterAll(() => vi.restoreAllMocks());
+
 beforeEach(() => {
   s().reset();
   useTabs.setState({ tabs: [{ id: "graph" }], active: "graph" });
@@ -130,6 +144,22 @@ describe("annotate mode", () => {
     s().undo("graph");
     expect(notes()).toEqual([]);
     expect(s().canUndo("graph")).toBe(false);
+  });
+
+  test("text: the editor is as wide as its longest line measured in its font, CJK included, and grows while typing", () => {
+    act(() => {
+      s().setMode("graph");
+      s().setTool("text");
+    });
+    const { svg, container } = renderLayer();
+    drag(svg(), [300, 250], [300, 250]);
+    const box = container.querySelector("textarea")!;
+    fireEvent.change(box, { target: { value: "中文" } });
+    const narrow = parseFloat(box.style.width);
+    fireEvent.change(box, { target: { value: "ab\n中文标注测试文字" } });
+    const wide = parseFloat(box.style.width);
+    expect(wide).toBeGreaterThanOrEqual(8 * 28 * 0.9); // 8 glyphs at font size 14 × zoom 2
+    expect(wide).toBeGreaterThan(narrow);
   });
 
   test("text: blur commits; editing a text to empty removes it as one step", () => {
