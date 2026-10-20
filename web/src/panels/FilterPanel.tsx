@@ -282,7 +282,10 @@ function FilterForm({ onClose }: { onClose: () => void }) {
               aria-label={t("filter.searchAssets")}
               placeholder={t("filter.searchPlaceholder")}
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                if (e.target.value.trim()) setGroupOpen(true);
+              }}
             />
           )}
           {options.length > 0 && shown.length === 0 && <span className="filter__hint">{t("filter.noMatch")}</span>}

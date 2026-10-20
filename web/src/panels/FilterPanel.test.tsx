@@ -331,8 +331,39 @@ test("asset search over more than 8 options matches symbol or address, case-inse
 test("search narrows both groups and their counts", () => {
   setup([...many(), ...trustEdges()]);
   fireEvent.change(screen.getByRole("searchbox", { name: "Search assets" }), { target: { value: "usdt" } });
-  expect(rowSymbols()).toEqual(["USDT"]);
-  expect(screen.getByText("On token lists (1)")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Other tokens (1)" }));
   expect(rowSymbols()).toEqual(["USDT", "USDT"]);
+  expect(screen.getByText("On token lists (1)")).toBeInTheDocument();
+  const group = screen.getByRole("button", { name: "Other tokens (1)" });
+  expect(group).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(group);
+  expect(rowSymbols()).toEqual(["USDT"]);
+});
+
+test("typing a search opens the other-tokens group; the user can still close it", () => {
+  setup([...many(), ...trustEdges()]);
+  const search = screen.getByRole("searchbox", { name: "Search assets" });
+  expect(screen.getByRole("button", { name: "Other tokens (13)" })).toHaveAttribute("aria-expanded", "false");
+  fireEvent.change(search, { target: { value: "tok" } });
+  const group = screen.getByRole("button", { name: "Other tokens (10)" });
+  expect(group).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(group);
+  expect(group).toHaveAttribute("aria-expanded", "false");
+  // Clearing the search leaves the state as it is.
+  fireEvent.change(search, { target: { value: "" } });
+  expect(screen.getByRole("button", { name: "Other tokens (13)" })).toHaveAttribute("aria-expanded", "false");
+  // Whitespace alone is not a search.
+  fireEvent.change(search, { target: { value: "  " } });
+  expect(screen.getByRole("button", { name: "Other tokens (13)" })).toHaveAttribute("aria-expanded", "false");
+});
+
+test("tokens with the same symbol and trust level are ordered by contract address", () => {
+  const hi = "0x" + "02".repeat(20);
+  const lo = "0x" + "01".repeat(20);
+  setup([
+    edge({ asset: hi, asset_kind: "erc20", decimals: 18, symbol: "ZZZ", trust: unknown }),
+    edge({ asset: lo, asset_kind: "erc20", decimals: 18, symbol: "ZZZ", trust: unknown }),
+  ]);
+  fireEvent.click(screen.getByRole("button", { name: "Other tokens (2)" }));
+  const addrs = [...document.querySelectorAll(".filter__asset .filter__addr")].map((e) => e.textContent);
+  expect(addrs).toEqual(["0x0101…0101", "0x0202…0202"]);
 });
