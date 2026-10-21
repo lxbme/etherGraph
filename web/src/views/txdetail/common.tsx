@@ -3,6 +3,7 @@ import type { DecodedArgDto } from "../../api/generated/DecodedArgDto";
 import type { FlowDto } from "../../api/generated/FlowDto";
 import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import { useT } from "../../i18n";
+import { shortAddr } from "../../lib/address";
 import { formatFull } from "../../lib/amount";
 import { argAmounts, type ArgAmount, type ArgToken } from "../../lib/tokenArgs";
 import { trustFlag, trustReason, trustText } from "../../lib/trust";
@@ -10,6 +11,17 @@ import { useUi } from "../../panels/uiStore";
 import { AddressCell } from "../../shell/AddressCell";
 import { CopyButton } from "../../shell/CopyButton";
 import { useTabs } from "../../shell/tabs";
+
+/**
+ * The note on a call decoded with the ABI of its callee's EIP-7702 delegate `via`; `current` when that delegation was
+ * read from the callee's code today rather than from the transaction (it may have differed at the transaction).
+ * `inline` renders a span (for a line of items) instead of a block.
+ */
+export function ViaDelegateNote({ via, current, inline = false }: { via: string; current: boolean; inline?: boolean }) {
+  const t = useT();
+  const text = t(current ? "tx.calls.viaCurrentDelegate" : "tx.calls.viaDelegate", { address: shortAddr(via) });
+  return inline ? <span className="detail__muted">{text}</span> : <div className="detail__muted">{text}</div>;
+}
 
 /** Values longer than this are folded until expanded. */
 export const LONG_VALUE = 120;

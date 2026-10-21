@@ -330,8 +330,9 @@ async fn second_tx_in_a_stored_block_skips_the_block_call(pool: PgPool) {
         .add_tx(raw_tx(None), receipt(true, 7, vec![]), vec![], ts());
     e.fake.add_block(header());
     run(&e, &format!("{HASH:#x}")).await.unwrap();
-    // tx, receipt, block, internal transfers.
-    assert_eq!(e.fake.calls(), 4);
+    // tx, receipt, block, internal transfers, and TO's code (its call does
+    // not decode: TO may have delegated before the tx).
+    assert_eq!(e.fake.calls(), 5);
 
     let other = B256::repeat_byte(0x22);
     let mut tx = raw_tx(None);
@@ -339,8 +340,8 @@ async fn second_tx_in_a_stored_block_skips_the_block_call(pool: PgPool) {
     tx.json["hash"] = json!(format!("{other:#x}"));
     e.fake.add_tx(tx, receipt(true, 7, vec![]), vec![], ts());
     run(&e, &format!("{other:#x}")).await.unwrap();
-    // Same block 100: tx, receipt, internal transfers only.
-    assert_eq!(e.fake.calls(), 4 + 3);
+    // Same block 100: tx, receipt, internal transfers and TO's code only.
+    assert_eq!(e.fake.calls(), 5 + 4);
     let row = e.ctx.store.transaction(other).await.unwrap().unwrap();
     assert_eq!(row.ts, header().ts);
 }
@@ -649,4 +650,67 @@ async fn delegate_abi_decodes_the_call_once_stored(pool: PgPool) {
     let flow = load_tx_flow(&e.ctx.store, HASH).await.unwrap().unwrap();
     assert_eq!(flow.call.unwrap().name, "foo");
     assert_eq!(flow.call_via_delegate, Some(DELEGATE));
+}
+
+/// A call of `foo(42)` from FROM to TO, with no authorization list.
+fn foo_call() -> (RawTx, String) {
+    let abi = alloy_json_abi::JsonAbi::parse(["function foo(uint256 x)"]).unwrap();
+    let sel = abi.functions().next().unwrap().selector();
+    let input = format!("0x{}{:064x}", alloy_primitives::hex::encode(sel), 42);
+    let mut tx = raw_tx(None);
+    tx.json["type"] = json!("0x2");
+    tx.json["input"] = json!(input);
+    tx.input = input.parse().unwrap();
+    (tx, serde_json::to_string(&abi).unwrap())
+}
+
+/// The code of an account delegating to `d` (EIP-7702 designator).
+fn designator(d: Address) -> Bytes {
+    let mut code = vec![0xef, 0x01, 0x00];
+    code.extend_from_slice(d.as_slice());
+    Bytes::from(code)
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_fetched_call_that_does_not_decode_uses_the_recipients_current_delegate(pool: PgPool) {
+    let e = env(pool);
+    let current = Address::repeat_byte(0x7c);
+    let (tx, abi) = foo_call();
+    e.fake.add_tx(tx, receipt(true, 7, vec![]), vec![], ts());
+    e.fake.add_block(header());
+    e.fake.set_code(TO, designator(current));
+    run(&e, &format!("{HASH:#x}")).await.unwrap();
+    // tx, receipt, block, internal transfers, then TO's code.
+    assert_eq!(e.fake.calls(), 5);
+    assert_eq!(
+        e.ctx.store.to_current_delegate(HASH).await.unwrap(),
+        Some(Some(current))
+    );
+    // The current delegate is identified like the tx's own delegates.
+    let jobs = meta_params(&e).await;
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0]["addresses"], sorted_hex(&[FROM, TO, current]));
+
+    let flow = load_tx_flow(&e.ctx.store, HASH).await.unwrap().unwrap();
+    assert!(flow.call.is_none());
+    assert!(!flow.delegate_lookup_due);
+    e.ctx.store.upsert_abi(current, Some(&abi)).await.unwrap();
+    let flow = load_tx_flow(&e.ctx.store, HASH).await.unwrap().unwrap();
+    assert_eq!(flow.call.unwrap().name, "foo");
+    assert_eq!(flow.call_via_delegate, Some(current));
+    assert!(flow.call_via_delegate_current);
+    assert!(!flow.participants.contains(&current));
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_call_that_decodes_with_the_recipients_abi_looks_nothing_up(pool: PgPool) {
+    let e = env(pool);
+    let (tx, abi) = foo_call();
+    e.fake.add_tx(tx, receipt(true, 7, vec![]), vec![], ts());
+    e.fake.add_block(header());
+    e.ctx.store.upsert_abi(TO, Some(&abi)).await.unwrap();
+    run(&e, &format!("{HASH:#x}")).await.unwrap();
+    // tx, receipt, block, internal transfers: no code lookup.
+    assert_eq!(e.fake.calls(), 4);
+    assert_eq!(e.ctx.store.to_current_delegate(HASH).await.unwrap(), None);
 }

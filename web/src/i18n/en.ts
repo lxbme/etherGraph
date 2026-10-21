@@ -794,7 +794,6 @@ export const en = {
   "tooltip.width": "Line width = transfers (log)",
   "tooltip.call": "Call: sender → recipient. ETH value, if any, is its own flow edge",
   "tooltip.method": "Method",
-  "tooltip.viaDelegate": "Decoded with the delegate's ABI ({address})",
   "tooltip.assetContract": "Token contract of these transfers — it emitted the Transfer events but did not send or receive funds itself.",
   "tooltip.delegation": "EIP-7702 delegation: the signer's account runs the delegate's code",
   "tooltip.state": "State",

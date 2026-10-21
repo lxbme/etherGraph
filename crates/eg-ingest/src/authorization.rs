@@ -196,6 +196,17 @@ pub fn effective_delegations(
         .collect()
 }
 
+/// EIP-7702 delegation designator: the code of a delegated account is this
+/// prefix followed by the delegate's address.
+const DESIGNATOR: [u8; 3] = [0xef, 0x01, 0x00];
+
+/// The delegate an account's `code` designates: exactly [`DESIGNATOR`] and
+/// 20 address bytes; anything else designates none.
+pub fn designated(code: &[u8]) -> Option<Address> {
+    let rest = code.strip_prefix(&DESIGNATOR)?;
+    (rest.len() == 20).then(|| Address::from_slice(rest))
+}
+
 /// The distinct delegates of `delegations`, in order.
 pub fn delegates(delegations: &[Delegation]) -> Vec<Address> {
     let mut seen = HashSet::new();
@@ -499,6 +510,25 @@ pub(crate) mod tests {
     fn delegates_are_distinct_in_order() {
         let ds = [d(K, Y), d(J, X), d(Address::repeat_byte(9), Y)];
         assert_eq!(delegates(&ds), vec![Y, X]);
+    }
+
+    #[test]
+    fn a_designator_is_the_prefix_and_twenty_bytes() {
+        let d = Address::repeat_byte(0xde);
+        let mut code = vec![0xef, 0x01, 0x00];
+        code.extend_from_slice(d.as_slice());
+        assert_eq!(designated(&code), Some(d));
+        // 22 and 24 bytes.
+        assert_eq!(designated(&code[..22]), None);
+        let mut long = code.clone();
+        long.push(0);
+        assert_eq!(designated(&long), None);
+        // 23 bytes under another prefix.
+        let mut other = code.clone();
+        other[2] = 0x01;
+        assert_eq!(designated(&other), None);
+        assert_eq!(designated(&[0x60, 0x80]), None);
+        assert_eq!(designated(&[]), None);
     }
 
     #[test]

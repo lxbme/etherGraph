@@ -206,7 +206,7 @@ const txFlow = shape({
     authorizations: arr(shape({ chain_id: str, delegate: address, nonce: str, authority: opt(address) })),
     delegations: arr(shape({ authority: address, delegate: address })),
   }),
-  call: opt(shape({ signature: str, name: str, args: arr(arg), via_delegate: opt(address) })),
+  call: opt(shape({ signature: str, name: str, args: arr(arg), via_delegate: opt(address), via_delegate_current: optField(bool) })),
   nodes: arr(nodeSummary),
   flows: arr(
     shape({
@@ -221,7 +221,7 @@ const txFlow = shape({
 /** Decimal wei: the call graph sums frame values as bigints. */
 const wei = re(/^[0-9]+$/);
 const hex = re(/^0x[0-9a-fA-F]*$/);
-const decodedCall = shape({ signature: str, name: str, args: arr(arg), via_delegate: opt(address) });
+const decodedCall = shape({ signature: str, name: str, args: arr(arg), via_delegate: opt(address), via_delegate_current: optField(bool) });
 const callFrame = shape({
   path: arr((v) => int(v) && (v as number) >= 0),
   kind: oneOf("call", "staticcall", "delegatecall", "callcode", "create", "create2", "selfdestruct"),

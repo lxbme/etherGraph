@@ -11,7 +11,7 @@ import { TrustBadge } from "../../panels/info/TrustBadge";
 import { TxStatusTag } from "../../panels/TxSummaryCard";
 import { AddressCell } from "../../shell/AddressCell";
 import { useTabs } from "../../shell/tabs";
-import { nodeOf } from "./common";
+import { nodeOf, ViaDelegateNote } from "./common";
 
 const TOKEN_KINDS: ReadonlySet<FlowDto["kind"]> = new Set(["erc20", "erc721", "erc1155"]);
 /** Transfer lines shown before the rest collapse into "+N more". */
@@ -98,6 +98,7 @@ export function TxSummaryBar({ flow }: { flow: TxFlowDto }) {
       ) : (
         <span className="txbar__method">{tx.to ? t("tx.transfer") : t("tx.contractCreation")}</span>
       )}
+      {call?.via_delegate && <ViaDelegateNote via={call.via_delegate} current={call.via_delegate_current} inline />}
       <span className="txbar__parties">
         <AddressCell address={tx.from} node={nodeOf(flow, tx.from)} />
         <ArrowRight size={14} className="txbar__arrow" />

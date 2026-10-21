@@ -230,6 +230,21 @@ test("MetaUpdated for an EIP-7702 delegate refetches the tx, so the call is re-d
   expect(qc.getQueryState(qk.tx("0x1"))?.isInvalidated).toBe(true);
 });
 
+test("MetaUpdated refetches a tx whose call is still undecoded: the ABI may be its recipient's current EIP-7702 delegate's, no node", () => {
+  mount();
+  const tx = (selector: string | null, call: unknown) => ({
+    status: "ready", job_id: null, flow: { nodes: [node(A)], tx: { selector }, call },
+  });
+  qc.setQueryData(qk.tx("0x1"), tx("0x99e1d016", null));
+  qc.setQueryData(qk.tx("0x2"), tx("0x99e1d016", { name: "execute" }));
+  qc.setQueryData(qk.tx("0x3"), tx(null, null));
+  send({ type: "MetaUpdated", addresses: [C] });
+  advance(500);
+  expect(qc.getQueryState(qk.tx("0x1"))?.isInvalidated).toBe(true);
+  expect(qc.getQueryState(qk.tx("0x2"))?.isInvalidated).toBe(false);
+  expect(qc.getQueryState(qk.tx("0x3"))?.isInvalidated).toBe(false);
+});
+
 test("TxReady invalidates that tx", () => {
   mount();
   const spy = vi.spyOn(qc, "invalidateQueries");

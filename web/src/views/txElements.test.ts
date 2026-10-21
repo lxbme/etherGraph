@@ -27,7 +27,7 @@ const dto = (over: Partial<TxFlowDto> = {}): TxFlowDto => ({
     burnt_fee: null, savings: null, blob_gas_used: null, blob_gas_price: null, blob_fee: null, access_list_len: null,
     contract_created: null, revert_reason: null, input: "0x", authorizations: [], delegations: [],
   },
-  call: { signature: "swap(uint256)", name: "swap", args: [], via_delegate: null },
+  call: { signature: "swap(uint256)", name: "swap", args: [], via_delegate: null, via_delegate_current: false },
   nodes: [node(A), node(B)], flows: [flow()], events: [], completeness: "fund_flow", ...over,
 });
 
@@ -234,7 +234,7 @@ describe("self-calls and EIP-7702 delegations", () => {
   test("each effective delegation from the server draws a dashed delegates-to edge from signer to delegate", () => {
     const f = dto({
       tx: { ...dto().tx, from: A, to: A },
-      call: { signature: "execute(bytes)", name: "execute", args: [], via_delegate: D },
+      call: { signature: "execute(bytes)", name: "execute", args: [], via_delegate: D, via_delegate_current: false },
       detail: {
         ...dto().detail,
         tx_type: 4,

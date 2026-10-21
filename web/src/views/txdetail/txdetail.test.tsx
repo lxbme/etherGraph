@@ -11,6 +11,7 @@ import { useInfo } from "../../panels/info/infoStore";
 import { useUi } from "../../panels/uiStore";
 import { useTabs } from "../../shell/tabs";
 import { TxDetailTabs } from "./TxDetailTabs";
+import { TxSummaryBar } from "./TxSummaryBar";
 
 const ALICE = "0xa11ce00000000000000000000000000000000001";
 const BOB = "0xb0b0000000000000000000000000000000000002";
@@ -30,6 +31,7 @@ function base(): TxFlowDto {
       { name: "deadline", ty: "uint256", value: "1709382600" },
     ],
     via_delegate: null,
+    via_delegate_current: false,
   };
   f.detail.input = "0x7ff36ab5" + "00".repeat(128);
   f.events = [
@@ -444,7 +446,7 @@ describe("ERC-20 amounts in arguments", () => {
     const f = base();
     f.tx.to = USDC;
     f.nodes.push({ ...f.nodes[0]!, address: USDC, kind: "contract", display_name: "USD Coin", is_proxy: true, token });
-    f.call = { signature, name: signature.slice(0, signature.indexOf("(")), args, via_delegate: null };
+    f.call = { signature, name: signature.slice(0, signature.indexOf("(")), args, via_delegate: null, via_delegate_current: false };
     return f;
   }
   const usdc = { standard: "erc20" as const, symbol: "USDC", decimals: 6 };
@@ -531,5 +533,52 @@ describe("ERC-20 amounts in arguments", () => {
     expect(cell).toHaveTextContent("6,400 USDT");
     expect(within(cell).queryByText("Known scam")).toBeNull();
     expect(within(cell).queryByText("Possible impersonation")).toBeNull();
+  });
+});
+
+describe("a call decoded through an EIP-7702 delegate", () => {
+  const D = "0x" + "7c".repeat(20);
+  const CURRENT_TEXT = "Decoded with the ABI of its current EIP-7702 delegate 0x7c7c…7c7c; the delegation at this transaction may have differed";
+  const TX_TEXT = "Decoded with the ABI of its EIP-7702 delegate 0x7c7c…7c7c";
+  /** Shaped like a type-2 call from an account to itself, delegated by an earlier type-4 tx. */
+  function delegated(current: boolean): TxFlowDto {
+    const f = base();
+    f.call = { signature: "execute(((address,uint256,bytes)[],bool))", name: "execute", args: [], via_delegate: D, via_delegate_current: current };
+    f.tx = { ...f.tx, to: f.tx.from, method: "execute", selector: "0x99e1d016" };
+    f.detail.input = "0x99e1d016" + "00".repeat(128);
+    return f;
+  }
+  function renderBar(flow: TxFlowDto) {
+    render(
+      <QueryClientProvider client={qc}>
+        <TxSummaryBar flow={flow} />
+      </QueryClientProvider>,
+    );
+    return screen.getByTestId("tx-summary-bar");
+  }
+
+  test("the summary bar names a call decoded through the current delegate", () => {
+    const bar = renderBar(delegated(true));
+    expect(within(bar).getByText("execute")).toBeInTheDocument();
+    expect(within(bar).getByText(CURRENT_TEXT)).toBeInTheDocument();
+  });
+
+  test("the summary bar names the tx's own delegate without the current-delegate caveat; a call decoded with to's ABI names none", () => {
+    const { unmount } = render(
+      <QueryClientProvider client={qc}>
+        <TxSummaryBar flow={delegated(false)} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText(TX_TEXT)).toBeInTheDocument();
+    unmount();
+    const bar = renderBar(base());
+    expect(within(bar).queryByText(/EIP-7702 delegate/)).toBeNull();
+  });
+
+  test("Input names the delegate whose ABI decoded the call", () => {
+    renderTabs(delegated(true));
+    fireEvent.click(tab("Input"));
+    expect(screen.getByText("execute(((address,uint256,bytes)[],bool))")).toBeInTheDocument();
+    expect(screen.getByText(CURRENT_TEXT)).toBeInTheDocument();
   });
 });

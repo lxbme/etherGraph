@@ -88,6 +88,21 @@ test("a failed, undecoded call: red Failed badge, the selector with an Undecoded
   expect(within(card).getByText("Undecoded")).toBeInTheDocument();
 });
 
+test("a call decoded through the recipient's current EIP-7702 delegate names that delegate", async () => {
+  const D = "0x" + "7c".repeat(20);
+  const f = flow();
+  f.tx.method = "execute";
+  f.call = { signature: "execute(((address,uint256,bytes)[],bool))", name: "execute", args: [], via_delegate: D, via_delegate_current: true };
+  vi.spyOn(api, "tx").mockResolvedValue({ status: "ready", flow: f, job_id: null });
+  renderAll();
+  fireEvent.click(await screen.findByTestId("transfer-row"));
+  const card = await screen.findByTestId("tx-summary");
+  expect(within(card).getByText("execute")).toBeInTheDocument();
+  expect(
+    within(card).getByText("Decoded with the ABI of its current EIP-7702 delegate 0x7c7c…7c7c; the delegation at this transaction may have differed"),
+  ).toBeInTheDocument();
+});
+
 test("a contract creation shows the created contract; a reverted one does not", async () => {
   const C = "0x" + "cc".repeat(20);
   const f = flow();

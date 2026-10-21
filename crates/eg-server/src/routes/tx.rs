@@ -9,8 +9,9 @@ use axum::extract::State;
 use eg_core::source::Priority;
 use eg_core::types::{Address, TransferKind};
 use eg_ingest::{
-    MAX_AUTO_META, auto_meta_parties, auto_meta_targets, decode_trace, enqueue_fetch_block,
-    enqueue_fetch_trace, enqueue_fetch_tx, enqueue_meta_owned, load_tx_flow, trace_delegates,
+    MAX_AUTO_META, auto_meta_parties, auto_meta_targets, decode_trace,
+    enqueue_current_delegate_lookup, enqueue_fetch_block, enqueue_fetch_trace, enqueue_fetch_tx,
+    enqueue_meta_owned, load_tx_flow, trace_delegates,
 };
 
 use crate::auth::extract::{CurrentUser, MayStartWork};
@@ -66,14 +67,22 @@ pub async fn tx(
     .await?
     .nodes;
     // Only the tx's own parties are identified automatically: the sender, the
-    // recipient (or the contract the tx created) and its first EIP-7702
-    // delegates.
+    // recipient (or the contract the tx created), its first EIP-7702
+    // delegates and the recipient's current delegate.
     let created = f.tx.raw_receipt["contractAddress"]
         .as_str()
         .and_then(|a| a.parse::<Address>().ok());
-    let parties = auto_meta_parties(f.tx.from, f.tx.to.or(created), &f.delegations);
+    let mut parties = auto_meta_parties(f.tx.from, f.tx.to.or(created), &f.delegations);
+    parties.extend(f.to_current_delegate);
     if may_start {
         enqueue_missing_meta(&s, user.id, &parties, &f.participants, &token_addrs).await;
+    }
+    if f.delegate_lookup_due && may_start {
+        // Fetched before the recipient's current delegate was looked up; the
+        // job key dedupes repeat views and the recorded lookup ends them.
+        if let Err(e) = enqueue_current_delegate_lookup(&s.ctx, Some(user.id), hash).await {
+            tracing::warn!(error = %e, "enqueueing current delegate lookup failed");
+        }
     }
     let block = s.store.block(f.tx.block_number).await?;
     if block.is_none() && may_start {
@@ -114,7 +123,7 @@ pub async fn tx(
             call: f
                 .call
                 .as_ref()
-                .map(|c| DecodedCallDto::new(c, f.call_via_delegate)),
+                .map(|c| DecodedCallDto::new(c, f.call_via_delegate, f.call_via_delegate_current)),
             nodes,
             flows: f
                 .flows

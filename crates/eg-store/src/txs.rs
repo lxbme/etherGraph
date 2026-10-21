@@ -94,6 +94,38 @@ impl Store {
         r.as_ref().map(tx_from_row).transpose()
     }
 
+    /// The recorded lookup of the tx recipient's current EIP-7702 delegate:
+    /// `None` when not looked up (or no such tx), `Some(None)` when looked
+    /// up and none was found.
+    pub async fn to_current_delegate(&self, hash: TxHash) -> Result<Option<Option<Address>>> {
+        let delegate: Option<Option<Vec<u8>>> = sqlx::query_scalar(
+            "SELECT to_current_delegate FROM transactions \
+             WHERE hash = $1 AND to_delegate_checked_at IS NOT NULL",
+        )
+        .bind(hash.as_slice().to_vec())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(delegate.map(|d| d.map(|b| bytes_to_addr(&b))))
+    }
+
+    /// Records the lookup of the tx recipient's current EIP-7702 delegate
+    /// (`None`: none found), replacing an earlier one.
+    pub async fn set_to_current_delegate(
+        &self,
+        hash: TxHash,
+        delegate: Option<Address>,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE transactions SET to_current_delegate = $2, to_delegate_checked_at = now() \
+             WHERE hash = $1",
+        )
+        .bind(hash.as_slice().to_vec())
+        .bind(delegate.map(addr_to_bytes))
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Hashes of the stored transactions mined in block `number`.
     pub async fn tx_hashes_in_block(&self, number: u64) -> Result<Vec<TxHash>> {
         let rows: Vec<Vec<u8>> = sqlx::query_scalar(
@@ -155,6 +187,51 @@ mod tests {
         store.upsert_transaction(&row).await.unwrap();
         assert_eq!(store.transaction(row.hash).await.unwrap().unwrap(), row);
         assert!(store.transfers_of_tx(row.hash).await.unwrap().is_empty());
+    }
+
+    #[sqlx::test]
+    async fn to_current_delegate_records_the_lookup(pool: PgPool) {
+        let store = Store::from_pool(pool);
+        let row = TxRow {
+            hash: B256::repeat_byte(1),
+            block_number: 1,
+            ts: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            from: Address::repeat_byte(2),
+            to: Some(Address::repeat_byte(2)),
+            value: U256::ZERO,
+            selector: None,
+            success: true,
+            gas_used: U256::from(21000),
+            fee: U256::ZERO,
+            raw_tx: json!({}),
+            raw_receipt: json!({}),
+            revert_reason: None,
+        };
+        // No such tx, then a tx not looked up yet.
+        assert_eq!(store.to_current_delegate(row.hash).await.unwrap(), None);
+        store.upsert_transaction(&row).await.unwrap();
+        assert_eq!(store.to_current_delegate(row.hash).await.unwrap(), None);
+        // Looked up, none found.
+        store.set_to_current_delegate(row.hash, None).await.unwrap();
+        assert_eq!(
+            store.to_current_delegate(row.hash).await.unwrap(),
+            Some(None)
+        );
+        let d = Address::repeat_byte(3);
+        store
+            .set_to_current_delegate(row.hash, Some(d))
+            .await
+            .unwrap();
+        assert_eq!(
+            store.to_current_delegate(row.hash).await.unwrap(),
+            Some(Some(d))
+        );
+        // Storing the tx again keeps the lookup.
+        store.upsert_transaction(&row).await.unwrap();
+        assert_eq!(
+            store.to_current_delegate(row.hash).await.unwrap(),
+            Some(Some(d))
+        );
     }
 
     #[sqlx::test]

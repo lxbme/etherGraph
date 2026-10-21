@@ -11,16 +11,13 @@ use eg_core::types::{AccountKind, Address, TxHash};
 use eg_store::{CallTraceRow, JobRow, TxRow};
 use serde::Deserialize;
 
+use crate::authorization::designated;
 use crate::events::{Audience, Event};
 use crate::runner::{JobCtx, JobError, JobHandler};
 use crate::trace::{tx_delegations, validate_trace};
 
 /// Callees probed for an EIP-7702 delegation designator per transaction.
 pub(crate) const MAX_DELEGATE_LOOKUPS: usize = 5;
-
-/// EIP-7702 delegation designator: the code of a delegated account is this
-/// prefix followed by the delegate's address.
-const DESIGNATOR: [u8; 3] = [0xef, 0x01, 0x00];
 
 #[derive(Deserialize)]
 struct Params {
@@ -29,9 +26,24 @@ struct Params {
 
 pub struct FetchTraceHandler;
 
-fn designated(code: &[u8]) -> Option<Address> {
-    let rest = code.strip_prefix(&DESIGNATOR)?;
-    (rest.len() == 20).then(|| Address::from_slice(rest))
+/// The EIP-7702 delegate `addr`'s code designates today (`latest`), billed
+/// to the job's user. A lookup that fails for that account logs and gives
+/// `None`; retryable errors, quota exhaustion and a rejected key propagate.
+pub(crate) async fn current_delegate(
+    ctx: &JobCtx,
+    p: Priority,
+    addr: Address,
+) -> Result<Option<Address>, JobError> {
+    match ctx.source.code(p, addr).await {
+        Ok(code) => Ok(designated(&code)),
+        Err(e) if e.is_retryable() || e.is_quota() || matches!(e, SourceError::InvalidKey) => {
+            Err(e.into())
+        }
+        Err(e) => {
+            tracing::warn!(account = %addr, error = %e, "code lookup failed");
+            Ok(None)
+        }
+    }
 }
 
 /// Distinct callees, in first-appearance order, of the calls that run the
@@ -60,9 +72,8 @@ fn code_callees(frames: &[CallFrame]) -> Vec<Address> {
 /// The code is today's (`latest`), not the code at the transaction: Etherscan
 /// serves state only for the last ~128 blocks ("historical state … is not
 /// available"), so a delegation changed since then is not seen; the stored
-/// delegates are shown as current ones. A lookup that fails for that account
-/// is skipped; retryable errors, quota exhaustion and a rejected key
-/// propagate.
+/// delegates are shown as current ones. See [`current_delegate`] for
+/// failures.
 async fn delegates(
     ctx: &JobCtx,
     tx: &TxRow,
@@ -87,16 +98,8 @@ async fn delegates(
         .filter(|a| !contracts.contains(a))
         .take(MAX_DELEGATE_LOOKUPS)
     {
-        match ctx.source.code(Priority::Interactive, addr).await {
-            Ok(code) => {
-                if let Some(d) = designated(&code) {
-                    found.insert(addr, d);
-                }
-            }
-            Err(e) if e.is_retryable() || e.is_quota() || matches!(e, SourceError::InvalidKey) => {
-                return Err(e.into());
-            }
-            Err(e) => tracing::warn!(account = %addr, error = %e, "code lookup failed"),
+        if let Some(d) = current_delegate(ctx, Priority::Interactive, addr).await? {
+            found.insert(addr, d);
         }
     }
     Ok(found)
@@ -162,19 +165,6 @@ impl JobHandler for FetchTraceHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn designator_is_prefix_and_twenty_bytes() {
-        let d = Address::repeat_byte(0xde);
-        let mut code = DESIGNATOR.to_vec();
-        code.extend_from_slice(d.as_slice());
-        assert_eq!(designated(&code), Some(d));
-        assert_eq!(designated(&code[..22]), None);
-        code.push(0);
-        assert_eq!(designated(&code), None);
-        assert_eq!(designated(&[0x60, 0x80]), None);
-        assert_eq!(designated(&[]), None);
-    }
 
     #[test]
     fn code_callees_skip_creations_and_static_calls() {

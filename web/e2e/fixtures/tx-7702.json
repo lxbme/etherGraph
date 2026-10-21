@@ -55,7 +55,8 @@
       "signature": "execute(bytes32,bytes)",
       "name": "execute",
       "args": [],
-      "via_delegate": "0xde1e000000000000000000000000000000000010"
+      "via_delegate": "0xde1e000000000000000000000000000000000010",
+      "via_delegate_current": false
     },
     "nodes": [
       {

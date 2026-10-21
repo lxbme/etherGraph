@@ -73,7 +73,7 @@ const ready = (over: Partial<TxFlowDto> = {}): TxResponseDto => ({
       burnt_fee: null, savings: null, blob_gas_used: null, blob_gas_price: null, blob_fee: null, access_list_len: null,
       contract_created: null, revert_reason: null, input: "0x", authorizations: [], delegations: [],
     },
-    call: { signature: "swap(uint256,address)", name: "swap", args: [{ name: "amount", ty: "uint256", value: "5" }], via_delegate: null },
+    call: { signature: "swap(uint256,address)", name: "swap", args: [{ name: "amount", ty: "uint256", value: "5" }], via_delegate: null, via_delegate_current: false },
     nodes: [node(A), node(B, { contract_name: "Router", kind: "contract" })],
     flows: [flow],
     events: [
@@ -568,7 +568,7 @@ describe("token-contract nodes and EIP-7702", () => {
         ],
         delegations: [{ authority: A, delegate: D }],
       },
-      call: { signature: "execute(bytes)", name: "execute", args: [], via_delegate: D },
+      call: { signature: "execute(bytes)", name: "execute", args: [], via_delegate: D, via_delegate_current: false },
       nodes: [node(A, { display_name: "alice.eth" }), node(B), node(D, { kind: "contract" }), node(USDT, { kind: "contract", display_name: "Tether" })],
       flows: [{ ...flow, from: B, to: A }],
     });
@@ -597,7 +597,7 @@ describe("token-contract nodes and EIP-7702", () => {
     expect(screen.getByTestId("graph-tooltip")).toHaveTextContent("EIP-7702 delegation");
     expect(screen.getByTestId("graph-tooltip")).toHaveTextContent("alice.eth → 0xdddd…dddd");
     act(() => h.props!.onHover?.({ kind: "edge", id: "call", pos: { x: 5, y: 5 } }));
-    expect(screen.getByTestId("graph-tooltip")).toHaveTextContent("Decoded with the delegate's ABI (0xdddd…dddd)");
+    expect(screen.getByTestId("graph-tooltip")).toHaveTextContent("Decoded with the ABI of its EIP-7702 delegate 0xdddd…dddd");
   });
 
   test("the legend lists the token-contract and delegation rows only when they are drawn", async () => {

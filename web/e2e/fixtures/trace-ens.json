@@ -57,7 +57,8 @@
             "value": "0"
           }
         ],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -86,7 +87,8 @@
             "value": "5466356099744330407408046096627520179522763224253656880693801540125696178447"
           }
         ],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -125,7 +127,8 @@
             "value": "2678400"
           }
         ],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -149,7 +152,8 @@
         "signature": "latestAnswer()",
         "name": "latestAnswer",
         "args": [],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -174,7 +178,8 @@
         "signature": "latestAnswer()",
         "name": "latestAnswer",
         "args": [],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -198,7 +203,8 @@
         "signature": "latestAnswer()",
         "name": "latestAnswer",
         "args": [],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -223,7 +229,8 @@
         "signature": "latestAnswer()",
         "name": "latestAnswer",
         "args": [],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -252,7 +259,8 @@
             "value": "5466356099744330407408046096627520179522763224253656880693801540125696178447"
           }
         ],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -301,7 +309,8 @@
             "value": "0"
           }
         ],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -341,7 +350,8 @@
             "value": "2678400"
           }
         ],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -372,7 +382,8 @@
             "value": "0x93cdeb708b7545dc668eb9280176169d1c33cfd8ed6f04690a0bcc88a93fc4ae"
           }
         ],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -413,7 +424,8 @@
             "value": "0xd4416b13d2b3a9abae7acd5d6c2bbdbe25686401"
           }
         ],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -463,7 +475,8 @@
             "value": "0x"
           }
         ],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -498,7 +511,8 @@
             "value": "0x231b0ee14048e9dccd1d247744d114a4eb5e8e63"
           }
         ],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -532,7 +546,8 @@
             "value": "[0x8b95dd716847c36dc83a6d818fbf341144fecd6fddc634916430fef36ed8693ce9c1321d000000000000000000000000000000000000000000000000000000000000003c0000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000001482eb45562f991329ed2867f43fc60f0ba52c3dab000000000000000000000000]"
           }
         ],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,
@@ -572,7 +587,8 @@
             "value": "0x82eb45562f991329ed2867f43fc60f0ba52c3dab"
           }
         ],
-        "via_delegate": null
+        "via_delegate": null,
+        "via_delegate_current": false
       },
       "revert": null,
       "via_delegate": null,

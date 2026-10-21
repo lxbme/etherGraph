@@ -6,14 +6,15 @@ use std::str::FromStr;
 use alloy_json_abi::JsonAbi;
 use eg_core::rpc_json::parse_receipt;
 use eg_core::source::{RawLog, RawReceipt};
-use eg_core::types::{Address, Bytes, Transfer, TransferKind, TxHash, U256};
+use eg_core::types::{AccountKind, Address, Bytes, Transfer, TransferKind, TxHash, U256};
 use eg_decode::{DecodedCall, DecodedEvent, decode_call, decode_event};
 use eg_store::{AccountRow, Store, StoreError, TxRow};
 use serde::{Serialize, Serializer};
 
 use crate::authorization::{
-    Authorization, Delegation, MAX_DELEGATIONS, authorizations, effective_delegations, tx_nonce,
+    Authorization, Delegation, MAX_DELEGATIONS, applied_delegations, authorizations, tx_nonce,
 };
+use crate::trace::FrameDelegate;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -52,9 +53,23 @@ pub struct Flow {
 pub struct TxFlow {
     pub tx: TxRow,
     pub call: Option<DecodedCall>,
-    /// Set when `call` was decoded with the ABI of `to`'s effective delegate
-    /// in this transaction (EIP-7702), not with `to`'s own.
+    /// Set when `call` was decoded with the ABI of `to`'s EIP-7702 delegate,
+    /// not with `to`'s own: its effective delegate in this transaction, or
+    /// else its current one ([`TxFlow::call_via_delegate_current`]).
     pub call_via_delegate: Option<Address>,
+    /// `call_via_delegate` is `to`'s current delegate (`to_current_delegate`,
+    /// today's delegation), not one from this transaction's authorization
+    /// list: the delegation at the transaction may have differed.
+    pub call_via_delegate_current: bool,
+    /// `to`'s EIP-7702 delegate read from its code (today's) when the tx was
+    /// fetched, while the tx's own authorization list leaves `to` alone. Not
+    /// part of the transaction, so no participant.
+    pub to_current_delegate: Option<Address>,
+    /// `to`'s current delegate is to be looked up (one `code` call): the
+    /// call has calldata and decodes no other way, the tx's own
+    /// authorization list leaves `to` alone, `to` is not a known contract and
+    /// no lookup is on record.
+    pub delegate_lookup_due: bool,
     /// The EIP-7702 authorization list; empty for other tx types.
     pub authorizations: Vec<Authorization>,
     /// The first [`MAX_DELEGATIONS`] effective delegations (see
@@ -185,16 +200,30 @@ fn input_of(tx: &TxRow) -> Option<Bytes> {
     Bytes::from_str(tx.raw_tx.get("input")?.as_str()?).ok()
 }
 
-/// The tx's drawn effective delegations (the first [`MAX_DELEGATIONS`]) and
-/// the delegate of its recipient, looked up among all of them.
-fn delegations_of(tx: &TxRow, auths: &[Authorization]) -> (Vec<Delegation>, Option<Address>) {
-    let mut all = effective_delegations(auths, tx.from, tx_nonce(&tx.raw_tx));
-    let to_delegate = tx
+/// The tx's drawn effective delegations (the first [`MAX_DELEGATIONS`], see
+/// [`crate::authorization::effective_delegations`]) and what its own list
+/// does to its recipient's delegation, looked up among all entries: `None`
+/// when the list leaves it alone, `Some(None)` when the list clears it,
+/// `Some(Some(delegate))` when the list sets it.
+fn delegations_of(
+    tx: &TxRow,
+    auths: &[Authorization],
+) -> (Vec<Delegation>, Option<Option<Address>>) {
+    let applied = applied_delegations(auths, tx.from, tx_nonce(&tx.raw_tx));
+    let to_own = tx
         .to
-        .and_then(|to| all.iter().find(|d| d.authority == to))
-        .map(|d| d.delegate);
-    all.truncate(MAX_DELEGATIONS);
-    (all, to_delegate)
+        .and_then(|to| applied.iter().find(|(authority, _)| *authority == to))
+        .map(|(_, d)| (!d.is_zero()).then_some(*d));
+    let drawn = applied
+        .into_iter()
+        .filter(|(_, delegate)| !delegate.is_zero())
+        .map(|(authority, delegate)| Delegation {
+            authority,
+            delegate,
+        })
+        .take(MAX_DELEGATIONS)
+        .collect();
+    (drawn, to_own)
 }
 
 /// Every address a transaction touches, deduplicated in this order: sender,
@@ -226,24 +255,55 @@ fn participants<'a>(
     .collect()
 }
 
-/// The top-level call decoded with `to`'s ABIs ([`abis_for`]) or, failing
-/// that, with those of `to`'s effective delegate in this tx (`to_delegate`);
-/// the delegate is returned in the second case.
+/// The top-level call decoded with the first of these that decodes it:
+/// `to`'s ABIs ([`abis_for`]), those of `to`'s effective delegate in this tx
+/// (`to_own`, see [`delegations_of`]), then those of its current delegate
+/// (`current`, given only when the tx's own list leaves `to` alone). The
+/// delegate is returned when one decoded it.
 fn top_call(
     tx: &TxRow,
-    to_delegate: Option<Address>,
+    to_own: Option<Option<Address>>,
+    current: Option<Address>,
     abis: &HashMap<Address, JsonAbi>,
     accounts: &HashMap<Address, AccountRow>,
     implemented: &HashSet<Address>,
-) -> Option<(DecodedCall, Option<Address>)> {
+) -> Option<(DecodedCall, Option<FrameDelegate>)> {
     let to = tx.to?;
     let input = input_of(tx)?;
-    if let Some(call) = decode_call_for(to, &input, abis, accounts, implemented) {
-        return Some((call, None));
-    }
-    let delegate = to_delegate?;
-    let call = decode_call_for(delegate, &input, abis, accounts, implemented)?;
-    Some((call, Some(delegate)))
+    let delegate = |address, current| FrameDelegate { address, current };
+    let tx_delegate = to_own.flatten().map(|d| delegate(d, false));
+    let current_delegate = current.map(|d| delegate(d, true));
+    std::iter::once((to, None))
+        .chain(tx_delegate.map(|d| (d.address, Some(d))))
+        .chain(current_delegate.map(|d| (d.address, Some(d))))
+        .find_map(|(addr, via)| {
+            Some((
+                decode_call_for(addr, &input, abis, accounts, implemented)?,
+                via,
+            ))
+        })
+}
+
+/// Whether `to`'s current delegate is to be looked up: see
+/// [`TxFlow::delegate_lookup_due`]. `looked_up`: a lookup is on record.
+fn delegate_lookup_due(
+    tx: &TxRow,
+    decoded: bool,
+    to_own: Option<Option<Address>>,
+    looked_up: bool,
+    accounts: &HashMap<Address, AccountRow>,
+) -> bool {
+    let Some(to) = tx.to else {
+        return false;
+    };
+    let contract = accounts
+        .get(&to)
+        .is_some_and(|a| a.kind == AccountKind::Contract);
+    !decoded
+        && !looked_up
+        && to_own.is_none()
+        && !contract
+        && input_of(tx).is_some_and(|i| !i.is_empty())
 }
 
 pub fn build_tx_flow(
@@ -252,22 +312,41 @@ pub fn build_tx_flow(
     abis: &HashMap<Address, JsonAbi>,
     accounts: &HashMap<Address, AccountRow>,
 ) -> TxFlow {
-    build(tx, transfers, authorizations(&tx.raw_tx), abis, accounts)
+    build(
+        tx,
+        transfers,
+        authorizations(&tx.raw_tx),
+        None,
+        abis,
+        accounts,
+    )
 }
 
+/// `current`: the recorded lookup of `to`'s current delegate (see
+/// [`Store::to_current_delegate`]); `None` when not looked up.
 fn build(
     tx: &TxRow,
     transfers: &[Transfer],
     auths: Vec<Authorization>,
+    current: Option<Option<Address>>,
     abis: &HashMap<Address, JsonAbi>,
     accounts: &HashMap<Address, AccountRow>,
 ) -> TxFlow {
-    let (delegations, to_delegate) = delegations_of(tx, &auths);
+    let (delegations, to_own) = delegations_of(tx, &auths);
+    let to_current_delegate = current.flatten().filter(|_| to_own.is_none());
     let implemented = implementations(accounts.values());
-    let (call, call_via_delegate) = match top_call(tx, to_delegate, abis, accounts, &implemented) {
-        Some((call, via)) => (Some(call), via),
-        None => (None, None),
-    };
+    let top = top_call(
+        tx,
+        to_own,
+        to_current_delegate,
+        abis,
+        accounts,
+        &implemented,
+    );
+    let delegate_lookup_due =
+        delegate_lookup_due(tx, top.is_some(), to_own, current.is_some(), accounts);
+    let (call, via) = top.unzip();
+    let via = via.flatten();
 
     let top = transfers
         .iter()
@@ -321,7 +400,10 @@ fn build(
     TxFlow {
         tx: tx.clone(),
         call,
-        call_via_delegate,
+        call_via_delegate: via.map(|v| v.address),
+        call_via_delegate_current: via.is_some_and(|v| v.current),
+        to_current_delegate,
+        delegate_lookup_due,
         authorizations: auths,
         delegations,
         participants,
@@ -336,19 +418,24 @@ pub async fn load_tx_flow(store: &Store, hash: TxHash) -> Result<Option<TxFlow>,
         return Ok(None);
     };
     let transfers = store.transfers_of_tx(hash).await?;
-    // A superset of the flow's participants (it includes zero-value transfers
-    // and `to`'s delegate even past the drawn delegations), used to load the
-    // accounts and ABIs the flow decodes with.
+    let current = store.to_current_delegate(hash).await?;
+    // A superset of the flow's participants (it includes zero-value transfers,
+    // `to`'s delegate even past the drawn delegations and its current
+    // delegate), used to load the accounts and ABIs the flow decodes with.
     let receipt = parse_receipt(&tx.raw_receipt).ok();
     let auths = authorizations(&tx.raw_tx);
-    let (delegations, to_delegate) = delegations_of(&tx, &auths);
+    let (delegations, to_own) = delegations_of(&tx, &auths);
     let mut participants = participants(
         &tx,
         receipt.as_ref(),
         transfers.iter().map(|t| (&t.from, &t.to)),
         &delegations,
     );
-    participants.extend(to_delegate.filter(|d| !participants.contains(d)));
+    for d in [to_own.flatten(), current.flatten()].into_iter().flatten() {
+        if !participants.contains(&d) {
+            participants.push(d);
+        }
+    }
     let accounts = accounts_with_proxies(store, &participants).await?;
     let mut needed = participants;
     needed.extend(accounts.values().filter_map(|a| a.implementation));
@@ -360,7 +447,9 @@ pub async fn load_tx_flow(store: &Store, hash: TxHash) -> Result<Option<TxFlow>,
         .into_iter()
         .filter_map(|(a, json)| Some((a, serde_json::from_str(&json?).ok()?)))
         .collect();
-    Ok(Some(build(&tx, &transfers, auths, &abis, &accounts)))
+    Ok(Some(build(
+        &tx, &transfers, auths, current, &abis, &accounts,
+    )))
 }
 
 #[cfg(test)]
@@ -370,7 +459,6 @@ mod tests {
     use crate::authorization::{Delegation, MAX_DELEGATIONS};
     use alloy_primitives::address;
     use chrono::{DateTime, Utc};
-    use eg_core::types::AccountKind;
     use serde_json::json;
 
     const H: TxHash = TxHash::repeat_byte(9);
@@ -732,6 +820,126 @@ mod tests {
         assert!(!f.participants.contains(&DELEGATE));
         assert_eq!(f.call.unwrap().name, "foo");
         assert_eq!(f.call_via_delegate, Some(DELEGATE));
+    }
+
+    /// An account that delegated before the transaction (an earlier type-4
+    /// tx), and its delegate today.
+    const ACCOUNT: Address = Address::repeat_byte(0x7a);
+    const CURRENT: Address = Address::repeat_byte(0x7c);
+
+    /// A type-2 self-call from ACCOUNT with calldata `foo(42)`: no
+    /// authorization list.
+    fn delegated_call() -> (TxRow, JsonAbi) {
+        let (mut t, abi) = self_call(vec![]);
+        t.from = ACCOUNT;
+        t.to = Some(ACCOUNT);
+        t.raw_tx = json!({"type": "0x2", "input": t.raw_tx["input"]});
+        (t, abi)
+    }
+
+    /// The flow of `t` with `current` the recorded lookup of `to`'s current
+    /// delegate (`None`: not looked up).
+    fn with_current(
+        t: &TxRow,
+        current: Option<Option<Address>>,
+        abis: &HashMap<Address, JsonAbi>,
+        accounts: &HashMap<Address, AccountRow>,
+    ) -> TxFlow {
+        super::build(t, &[], authorizations(&t.raw_tx), current, abis, accounts)
+    }
+
+    #[test]
+    fn a_call_to_an_account_delegated_before_this_tx_decodes_with_its_current_delegate() {
+        let (t, abi) = delegated_call();
+        let abis = HashMap::from([(CURRENT, abi)]);
+        let none = HashMap::new();
+        // Not looked up yet: undecoded, and the lookup is due.
+        let f = with_current(&t, None, &abis, &none);
+        assert!(f.call.is_none());
+        assert!(f.delegate_lookup_due);
+        // Looked up, none found: nothing more to look up.
+        let f = with_current(&t, Some(None), &abis, &none);
+        assert!(f.call.is_none());
+        assert!(!f.delegate_lookup_due);
+
+        let f = with_current(&t, Some(Some(CURRENT)), &abis, &none);
+        let call = f.call.unwrap();
+        assert_eq!(call.name, "foo");
+        assert_eq!(call.args[0].value, "42");
+        assert_eq!(f.call_via_delegate, Some(CURRENT));
+        assert!(f.call_via_delegate_current);
+        assert!(!f.delegate_lookup_due);
+        assert_eq!(f.to_current_delegate, Some(CURRENT));
+        // Not part of the transaction: no node of its flow.
+        assert_eq!(f.participants, vec![ACCOUNT]);
+    }
+
+    #[test]
+    fn the_current_delegate_is_looked_up_only_for_an_undecoded_call_to_an_account() {
+        let (t, _) = delegated_call();
+        let (none, no_rows) = (HashMap::new(), HashMap::new());
+        // No calldata: no call to decode.
+        let mut plain = t.clone();
+        plain.raw_tx["input"] = json!("0x");
+        assert!(!with_current(&plain, None, &none, &no_rows).delegate_lookup_due);
+        // A known contract has no delegation.
+        let contract = AccountRow {
+            is_proxy: false,
+            implementation: None,
+            ..proxy_row(ACCOUNT, ACCOUNT)
+        };
+        let accounts = HashMap::from([(ACCOUNT, contract)]);
+        assert!(!with_current(&t, None, &none, &accounts).delegate_lookup_due);
+        // A contract creation has no recipient.
+        let mut create = t.clone();
+        create.to = None;
+        assert!(!with_current(&create, None, &none, &no_rows).delegate_lookup_due);
+    }
+
+    #[test]
+    fn the_txs_own_authorization_wins_over_the_current_delegate() {
+        let k = key(5);
+        let me = Address::from_private_key(&k);
+        let own = Address::repeat_byte(0x7b);
+        let abi = JsonAbi::parse(["function foo(uint256 x)"]).unwrap();
+        let both = HashMap::from([(own, abi.clone()), (CURRENT, abi.clone())]);
+        let current_only = HashMap::from([(CURRENT, abi)]);
+        let flow = |auths: Vec<serde_json::Value>, abis: &HashMap<Address, JsonAbi>| {
+            let (mut t, _) = self_call(auths);
+            t.from = me;
+            t.to = Some(me);
+            with_current(&t, Some(Some(CURRENT)), abis, &HashMap::new())
+        };
+        let f = flow(vec![signed(&k, 1, own, 0)], &both);
+        assert_eq!(f.call.unwrap().name, "foo");
+        assert_eq!(f.call_via_delegate, Some(own));
+        assert!(!f.call_via_delegate_current);
+        // The tx decides `to`'s delegate even before that delegate's ABI is
+        // known: today's delegation is not used.
+        let f = flow(vec![signed(&k, 1, own, 0)], &current_only);
+        assert!(f.call.is_none());
+        assert_eq!(f.call_via_delegate, None);
+        // A list clearing `to`'s delegation runs no code: nothing to decode.
+        let f = flow(vec![signed(&k, 1, Address::ZERO, 0)], &current_only);
+        assert!(f.call.is_none());
+        assert!(!f.delegate_lookup_due);
+        // Nor is a lookup due when the tx decides the delegate.
+        let (mut t, _) = self_call(vec![signed(&k, 1, own, 0)]);
+        t.from = me;
+        t.to = Some(me);
+        assert!(!with_current(&t, None, &current_only, &HashMap::new()).delegate_lookup_due);
+    }
+
+    #[test]
+    fn tos_own_abi_wins_over_any_delegate() {
+        let (t, abi) = delegated_call();
+        let abis = HashMap::from([(ACCOUNT, abi.clone()), (CURRENT, abi)]);
+        let f = with_current(&t, Some(Some(CURRENT)), &abis, &HashMap::new());
+        assert_eq!(f.call.unwrap().name, "foo");
+        assert_eq!(f.call_via_delegate, None);
+        assert!(!f.call_via_delegate_current);
+        // A call that decodes needs no lookup.
+        assert!(!with_current(&t, None, &abis, &HashMap::new()).delegate_lookup_due);
     }
 
     #[test]

@@ -92,7 +92,7 @@ const flow = (hash: string): TxFlowDto => ({
 const RAW = { tx: { nonce: "0x1" }, receipt: { status: "0x1" } };
 const frame = (path: number[], over: Partial<CallFrameDto> = {}): CallFrameDto => ({
   path, kind: "call", from: A, to: B, value: "0", input: "0xa9059cbb", output: "0x", gas: 100, gas_used: 50, error: null,
-  call: { signature: "transfer(address,uint256)", name: "transfer", args: [{ name: "to", ty: "address", value: C }], via_delegate: null },
+  call: { signature: "transfer(address,uint256)", name: "transfer", args: [{ name: "to", ty: "address", value: C }], via_delegate: null, via_delegate_current: false },
   revert: null, via_delegate: null, via_delegate_current: false, ...over,
 });
 /** A decoded trace: the root call, a failed static call under it with its revert reason, a plain ETH transfer. */

@@ -1,10 +1,9 @@
 import type { CallFrameDto } from "../../api/generated/CallFrameDto";
 import { useT } from "../../i18n";
-import { shortAddr } from "../../lib/address";
 import { formatFixed } from "../../lib/amount";
 import { formatCount } from "../../lib/format";
 import { AddressCell } from "../../shell/AddressCell";
-import { ArgsTable, erc20Of, nodeOf, RawHex, useFlowLink, type FlowNodes } from "../txdetail/common";
+import { ArgsTable, erc20Of, nodeOf, RawHex, useFlowLink, ViaDelegateNote, type FlowNodes } from "../txdetail/common";
 import { KIND_TEXT } from "./CallTreeList";
 import { contextOf } from "./model";
 
@@ -40,11 +39,7 @@ export function CallFrameDetail({ frame, flow }: { frame: CallFrameDto; flow: Fl
           </div>
         )
       )}
-      {via && (
-        <div className="detail__muted">
-          {t(frame.via_delegate_current ? "tx.calls.viaCurrentDelegate" : "tx.calls.viaDelegate", { address: shortAddr(via) })}
-        </div>
-      )}
+      {via && <ViaDelegateNote via={via} current={frame.via_delegate_current} />}
       <dl className="kv">
         <dt>{t(valueLabel)}</dt>
         <dd className="num" title={value.full}>{value.text} ETH</dd>

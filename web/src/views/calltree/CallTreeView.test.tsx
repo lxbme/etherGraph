@@ -344,7 +344,7 @@ test("a_delegatecall_shows_its_value_as_inherited_not_sent", async () => {
 
 test("a_current_delegate_is_said_to_be_todays", async () => {
   const D = "0x" + "dd".repeat(20);
-  const call = { signature: "ping()", name: "ping", args: [], via_delegate: D };
+  const call = { signature: "ping()", name: "ping", args: [], via_delegate: D, via_delegate_current: false };
   const frames = [
     synth([], { from: A, to: B, input: "0x5c36b186", call, via_delegate: D, via_delegate_current: true }),
     synth([0], { from: B, to: A, input: "0x5c36b186", call, via_delegate: D, via_delegate_current: false }),
@@ -530,7 +530,7 @@ test("a_tokens_transfer_frames_show_its_amount_in_its_decimals", async () => {
   const TO = "0xae39efdbb5d8a50e7031b6f9f957d43cdfbae72b";
   const input = "0xa9059cbb000000000000000000000000ae39efdbb5d8a50e7031b6f9f957d43cdfbae72b00000000000000000000000000000000000000000000000000000001181c28e0";
   const call = {
-    signature: "transfer(address,uint256)", name: "transfer", via_delegate: null,
+    signature: "transfer(address,uint256)", name: "transfer", via_delegate: null, via_delegate_current: false,
     args: [{ name: "to", ty: "address", value: TO }, { name: "value", ty: "uint256", value: "4699465952" }],
   };
   const frames = [

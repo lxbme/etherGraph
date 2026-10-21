@@ -154,11 +154,17 @@ export function edgeTooltip(v: VisualEdge, names: Map<string, string> = new Map(
   return lines;
 }
 
-/** The tx call edge, with the decoded method name when known and the delegate whose ABI decoded it (EIP-7702). */
-export function callTooltip(method?: string | null, viaDelegate?: string | null): TooltipLine[] {
+/**
+ * The tx call edge, with the decoded method name when known and the delegate whose ABI decoded it (EIP-7702);
+ * `current` when that delegate was read from the recipient's code today, not from the tx.
+ */
+export function callTooltip(method?: string | null, viaDelegate?: string | null, current = false): TooltipLine[] {
   const lines: TooltipLine[] = [{ value: t("tooltip.call") }];
   if (method) lines.push({ label: t("tooltip.method"), value: method, mono: true });
-  if (viaDelegate) lines.push({ value: t("tooltip.viaDelegate", { address: shortAddr(viaDelegate.toLowerCase()) }) });
+  if (viaDelegate) {
+    const key = current ? "tx.calls.viaCurrentDelegate" : "tx.calls.viaDelegate";
+    lines.push({ value: t(key, { address: shortAddr(viaDelegate.toLowerCase()) }) });
+  }
   return lines;
 }
 

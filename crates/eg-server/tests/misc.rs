@@ -385,6 +385,157 @@ async fn a_third_party_signer_and_its_delegate_are_nodes(pool: PgPool) {
     );
 }
 
+/// An account that delegated in an earlier type-4 tx, and its delegate today.
+const ACCOUNT: Address = Address::repeat_byte(0x7a);
+const CURRENT: Address = Address::repeat_byte(0x7c);
+
+const EXECUTE_ABI: &str = r#"[{"type":"function","name":"execute","stateMutability":"payable",
+  "inputs":[{"name":"executionData","type":"tuple","components":[
+    {"name":"calls","type":"tuple[]","components":[
+      {"name":"target","type":"address"},{"name":"value","type":"uint256"},{"name":"data","type":"bytes"}]},
+    {"name":"revertOnFailure","type":"bool"}]}],
+  "outputs":[]}]"#;
+
+/// Shaped like mainnet tx 0xf2f8…d9d7: a type-2 call from ACCOUNT to itself,
+/// no authorization list, calling its delegate's
+/// `execute(((address,uint256,bytes)[],bool))` with no calls.
+fn delegated_call_row() -> TxRow {
+    let sel: [u8; 4] = alloy_primitives::keccak256("execute(((address,uint256,bytes)[],bool))")
+        [..4]
+        .try_into()
+        .unwrap();
+    assert_eq!(sel, [0x99, 0xe1, 0xd0, 0x16]);
+    let input = format!(
+        "0x{}{:064x}{:064x}{:064x}{:064x}",
+        alloy_primitives::hex::encode(sel),
+        0x20,
+        0x40,
+        0,
+        0
+    );
+    let mut row = stored_row();
+    row.from = ACCOUNT;
+    row.to = Some(ACCOUNT);
+    row.value = U256::ZERO;
+    row.selector = Some(sel);
+    row.success = true;
+    row.revert_reason = None;
+    row.raw_tx =
+        json!({"hash": format!("{HASH:#x}"), "type": "0x2", "nonce": "0x5", "input": input});
+    row.raw_receipt = json!({"status": "0x1", "gasUsed": "0x5208", "logs": []});
+    row
+}
+
+/// The params of the `fetch_tx` jobs, in order.
+async fn fetch_tx_jobs(state: &eg_server::state::AppState) -> Vec<Value> {
+    sqlx::query_scalar("SELECT params FROM jobs WHERE kind = 'fetch_tx' ORDER BY id")
+        .fetch_all(state.store.pool())
+        .await
+        .unwrap()
+}
+
+/// Claims the next job, a `fetch_tx`, and runs it.
+async fn run_fetch_tx(state: &eg_server::state::AppState) {
+    let job = state.store.claim_next().await.unwrap().unwrap();
+    assert_eq!(job.kind, eg_store::JobKind::FetchTx);
+    FetchTxHandler.run(&job, &state.ctx).await.unwrap();
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_call_to_an_account_delegated_before_the_tx_decodes_with_its_current_delegate(
+    pool: PgPool,
+) {
+    let (app, state, fake) = test_app(pool).await;
+    state
+        .store
+        .upsert_transaction(&delegated_call_row())
+        .await
+        .unwrap();
+    let uri = format!("/api/tx/{HASH:#x}");
+    let (st, v) = get(&app, &uri).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(v["status"], "ready");
+    assert!(v["flow"]["call"].is_null());
+    // Fetched before the current delegate was looked up: the lookup is queued.
+    assert_eq!(
+        fetch_tx_jobs(&state).await,
+        vec![json!({"hash": format!("{HASH:#x}"), "current_delegate_only": true})]
+    );
+    let mut code = vec![0xef, 0x01, 0x00];
+    code.extend_from_slice(CURRENT.as_slice());
+    fake.set_code(ACCOUNT, Bytes::from(code));
+    run_fetch_tx(&state).await;
+
+    // Its delegate is identified; once its ABI arrives the call decodes.
+    let (_, v) = get(&app, &uri).await;
+    assert!(v["flow"]["call"].is_null());
+    let meta: Vec<Value> =
+        sqlx::query_scalar("SELECT params FROM jobs WHERE kind = 'contract_meta'")
+            .fetch_all(state.store.pool())
+            .await
+            .unwrap();
+    let current = json!(format!("{CURRENT:#x}"));
+    assert!(
+        meta.iter()
+            .any(|p| p["addresses"].as_array().unwrap().contains(&current)),
+        "{meta:?}"
+    );
+    // The current delegate is no node of the tx.
+    let nodes: Vec<&str> = v["flow"]["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| n["address"].as_str().unwrap())
+        .collect();
+    assert_eq!(nodes, vec![format!("{ACCOUNT:#x}")]);
+
+    state
+        .store
+        .upsert_abi(CURRENT, Some(EXECUTE_ABI))
+        .await
+        .unwrap();
+    let (_, v) = get(&app, &uri).await;
+    let f = &v["flow"];
+    assert_eq!(f["tx"]["method"], "execute");
+    assert_eq!(f["tx"]["selector"], "0x99e1d016");
+    assert_eq!(f["call"]["name"], "execute");
+    assert_eq!(f["call"]["via_delegate"], format!("{CURRENT:#x}"));
+    assert_eq!(f["call"]["via_delegate_current"], true);
+    assert_eq!(fetch_tx_jobs(&state).await.len(), 1);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn an_old_tx_with_an_undecoded_call_queues_one_lookup_and_never_repeats_it_after_none_is_found(
+    pool: PgPool,
+) {
+    let (app, state, _fake) = test_app(pool).await;
+    state
+        .store
+        .upsert_transaction(&delegated_call_row())
+        .await
+        .unwrap();
+    let uri = format!("/api/tx/{HASH:#x}");
+    for _ in 0..2 {
+        let (st, v) = get(&app, &uri).await;
+        assert_eq!(st, StatusCode::OK);
+        assert_eq!(v["status"], "ready");
+    }
+    // A repeat view joins the queued lookup.
+    assert_eq!(fetch_tx_jobs(&state).await.len(), 1);
+    // ACCOUNT has no code: no delegate.
+    run_fetch_tx(&state).await;
+    assert_eq!(
+        state.store.to_current_delegate(HASH).await.unwrap(),
+        Some(None)
+    );
+    for _ in 0..2 {
+        let (_, v) = get(&app, &uri).await;
+        assert_eq!(v["status"], "ready");
+        assert!(v["flow"]["call"].is_null());
+    }
+    assert_eq!(fetch_tx_jobs(&state).await.len(), 1);
+}
+
 /// Repeats `GET uri` until `detail.confirmations` is set.
 async fn confirmations_eventually(app: &axum::Router, uri: &str) -> u64 {
     for _ in 0..200 {

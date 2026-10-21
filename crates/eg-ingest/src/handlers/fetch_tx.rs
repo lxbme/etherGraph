@@ -1,6 +1,9 @@
 //! `FetchTx`: fetches one transaction with its receipt, block time and
-//! internal transfers, stores it, and queues metadata for its own parties
-//! (sender, recipient, EIP-7702 delegates) and its tokens.
+//! internal transfers, stores it, looks up its recipient's current EIP-7702
+//! delegate when its call decodes no other way, and queues metadata for its
+//! own parties (sender, recipient, EIP-7702 delegates) and its tokens. With
+//! `current_delegate_only`, it only does that lookup for a stored tx (one
+//! fetched before lookups were made).
 
 use std::collections::HashSet;
 
@@ -14,11 +17,15 @@ use serde::Deserialize;
 use crate::authorization::{authorizations, auto_meta_parties, effective_delegations, tx_nonce};
 use crate::enqueue::{enqueue_meta, enqueue_tokens};
 use crate::events::{Audience, Event};
+use crate::handlers::fetch_trace::current_delegate;
 use crate::runner::{JobCtx, JobError, JobHandler};
+use crate::txflow::{TxFlow, load_tx_flow};
 
 #[derive(Deserialize)]
 struct Params {
     hash: TxHash,
+    #[serde(default)]
+    current_delegate_only: bool,
 }
 
 pub struct FetchTxHandler;
@@ -52,12 +59,57 @@ async fn revert_reason(
     }
 }
 
+/// Looks up the current EIP-7702 delegate of `flow`'s recipient when it is
+/// due ([`TxFlow::delegate_lookup_due`]) and records it, returning it. A
+/// lookup that fails for that account (see [`current_delegate`]) is recorded
+/// as none found, so it is not repeated.
+async fn lookup_current_delegate(
+    ctx: &JobCtx,
+    p: Priority,
+    flow: &TxFlow,
+) -> Result<Option<Address>, JobError> {
+    let Some(to) = flow.tx.to.filter(|_| flow.delegate_lookup_due) else {
+        return Ok(None);
+    };
+    let found = current_delegate(ctx, p, to).await?;
+    ctx.store
+        .set_to_current_delegate(flow.tx.hash, found)
+        .await?;
+    Ok(found)
+}
+
+/// The `current_delegate_only` job: the lookup for a stored tx, metadata for
+/// the delegate found, and `TxReady` so views reload it.
+async fn current_delegate_only(
+    job: &JobRow,
+    ctx: &JobCtx,
+    p: Priority,
+    hash: TxHash,
+) -> Result<(), JobError> {
+    let flow = load_tx_flow(&ctx.store, hash)
+        .await?
+        .ok_or_else(|| JobError::Invalid("transaction not fetched".into()))?;
+    if let Some(d) = lookup_current_delegate(ctx, p, &flow).await? {
+        let stale = ctx.store.addrs_needing_meta(&[d], ctx.cfg.meta_ttl).await?;
+        enqueue_meta(ctx, job.user_id, &stale).await?;
+    }
+    ctx.bus
+        .publish(Audience::of(job.user_id), Event::TxReady { hash });
+    Ok(())
+}
+
 #[async_trait]
 impl JobHandler for FetchTxHandler {
     async fn run(&self, job: &JobRow, ctx: &JobCtx) -> Result<(), JobError> {
-        let Params { hash } = serde_json::from_value(job.params.clone())
+        let Params {
+            hash,
+            current_delegate_only: only,
+        } = serde_json::from_value(job.params.clone())
             .map_err(|e| JobError::Invalid(format!("bad fetch_tx params: {e}")))?;
         let p = Priority::Interactive;
+        if only {
+            return current_delegate_only(job, ctx, p, hash).await;
+        }
         let tx = ctx
             .source
             .tx(p, hash)
@@ -143,10 +195,17 @@ impl JobHandler for FetchTxHandler {
             })
             .await?;
 
+        let flow = load_tx_flow(&ctx.store, hash)
+            .await?
+            .ok_or_else(|| JobError::Invalid("transaction not stored".into()))?;
+        let current = lookup_current_delegate(ctx, p, &flow).await?;
+
         // The rest are identified on demand (`POST /api/identify`).
         let delegations =
             effective_delegations(&authorizations(&tx.json), tx.from, tx_nonce(&tx.json));
-        let parties = auto_meta_parties(tx.from, tx.to.or(receipt.contract_address), &delegations);
+        let mut parties =
+            auto_meta_parties(tx.from, tx.to.or(receipt.contract_address), &delegations);
+        parties.extend(current);
         let stale = ctx
             .store
             .addrs_needing_meta(&parties, ctx.cfg.meta_ttl)

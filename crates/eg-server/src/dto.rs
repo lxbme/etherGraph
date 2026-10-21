@@ -1197,6 +1197,7 @@ impl CallFrameDto {
     pub fn new(d: &eg_ingest::DecodedFrame) -> Self {
         let f = &d.frame;
         let via_delegate = d.via_delegate.map(|v| v.address);
+        let via_delegate_current = d.via_delegate.is_some_and(|v| v.current);
         Self {
             path: f.path.clone(),
             kind: call_kind(f.kind).to_owned(),
@@ -1211,13 +1212,13 @@ impl CallFrameDto {
             call: d
                 .call
                 .as_ref()
-                .map(|c| DecodedCallDto::new(c, via_delegate)),
+                .map(|c| DecodedCallDto::new(c, via_delegate, via_delegate_current)),
             revert: d.revert.as_ref().map(|e| DecodedErrorDto {
                 name: e.name.clone(),
                 args: e.args.iter().map(DecodedArgDto::from).collect(),
             }),
             via_delegate: via_delegate.map(hex_addr),
-            via_delegate_current: d.via_delegate.is_some_and(|v| v.current),
+            via_delegate_current,
         }
     }
 }
@@ -1257,9 +1258,13 @@ pub struct DecodedCallDto {
     pub signature: String,
     pub name: String,
     pub args: Vec<DecodedArgDto>,
-    /// The EIP-7702 delegate whose ABI decoded the call, when `to` delegated
-    /// to it in this tx and has no ABI of its own that decodes it.
+    /// The EIP-7702 delegate whose ABI decoded the call, when `to` has no
+    /// ABI of its own that decodes it.
     pub via_delegate: Option<String>,
+    /// `via_delegate` is the delegation read from `to`'s code (today's), not
+    /// one from this transaction's authorization list: the delegation at the
+    /// transaction may have differed.
+    pub via_delegate_current: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -1286,12 +1291,17 @@ impl From<&eg_decode::DecodedArg> for DecodedArgDto {
 }
 
 impl DecodedCallDto {
-    pub fn new(c: &eg_decode::DecodedCall, via_delegate: Option<Address>) -> Self {
+    pub fn new(
+        c: &eg_decode::DecodedCall,
+        via_delegate: Option<Address>,
+        via_delegate_current: bool,
+    ) -> Self {
         Self {
             signature: c.signature.clone(),
             name: c.name.clone(),
             args: c.args.iter().map(DecodedArgDto::from).collect(),
             via_delegate: via_delegate.map(hex_addr),
+            via_delegate_current: via_delegate.is_some() && via_delegate_current,
         }
     }
 }

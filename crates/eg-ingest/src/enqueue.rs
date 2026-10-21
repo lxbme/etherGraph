@@ -132,6 +132,27 @@ pub async fn enqueue_fetch_tx(
     .await
 }
 
+/// The user's job looking up the current EIP-7702 delegate of a stored
+/// transaction's recipient (a `FetchTx` with `current_delegate_only`), for a
+/// tx fetched before such lookups were made.
+pub async fn enqueue_current_delegate_lookup(
+    ctx: &JobCtx,
+    user: Option<i64>,
+    hash: TxHash,
+) -> Result<i64, StoreError> {
+    enqueue_one(
+        ctx,
+        NewJob {
+            key: format!("tx-delegate:{hash:#x}"),
+            kind: JobKind::FetchTx,
+            params: json!({"hash": format!("{hash:#x}"), "current_delegate_only": true}),
+            priority: Priority::Interactive,
+            user_id: user,
+        },
+    )
+    .await
+}
+
 /// The user's job fetching the call trace of a stored transaction.
 pub async fn enqueue_fetch_trace(
     ctx: &JobCtx,

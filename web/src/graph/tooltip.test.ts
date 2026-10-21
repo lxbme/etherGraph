@@ -141,8 +141,15 @@ test("call and more tooltips", () => {
 test("a call decoded with the delegate's ABI says so, naming the delegate", () => {
   const ls = callTooltip("execute", "0x612373d7003d694220f7800eeaf8e3924c0951d3");
   expect(text(ls)).toContain("Method execute");
-  expect(ls.at(-1)).toEqual({ value: "Decoded with the delegate's ABI (0x6123…51d3)" });
+  expect(ls.at(-1)).toEqual({ value: "Decoded with the ABI of its EIP-7702 delegate 0x6123…51d3" });
   expect(text(callTooltip("execute", null))).not.toContain("delegate");
+});
+
+test("a call decoded with the current delegate's ABI says the delegation at the tx may have differed", () => {
+  const ls = callTooltip("execute", "0x7C7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c7c", true);
+  expect(ls.at(-1)).toEqual({
+    value: "Decoded with the ABI of its current EIP-7702 delegate 0x7c7c…7c7c; the delegation at this transaction may have differed",
+  });
 });
 
 test("a token-contract node's tooltip explains why it has no flow edges", () => {

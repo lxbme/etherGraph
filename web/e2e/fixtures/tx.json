@@ -43,7 +43,8 @@
       "signature": "swapExactETHForTokens(uint256,address[],address,uint256)",
       "name": "swapExactETHForTokens",
       "args": [],
-      "via_delegate": null
+      "via_delegate": null,
+      "via_delegate_current": false
     },
     "nodes": [
       {

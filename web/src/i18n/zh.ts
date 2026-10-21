@@ -793,7 +793,6 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "tooltip.width": "线宽 = 转账次数（对数）",
   "tooltip.call": "调用：发送方 → 接收方。若附带 ETH，另有一条资金流边表示",
   "tooltip.method": "方法",
-  "tooltip.viaDelegate": "使用委托目标的 ABI 解码（{address}）",
   "tooltip.assetContract": "这些转账的代币合约——它发出了 Transfer 事件，但自身没有发送或接收资金。",
   "tooltip.delegation": "EIP-7702 委托：签名者的账户运行委托目标的代码",
   "tooltip.state": "状态",

@@ -3,7 +3,13 @@ import type { DecodedArgDto } from "./DecodedArgDto";
 
 export type DecodedCallDto = { signature: string, name: string, args: Array<DecodedArgDto>, 
 /**
- * The EIP-7702 delegate whose ABI decoded the call, when `to` delegated
- * to it in this tx and has no ABI of its own that decodes it.
+ * The EIP-7702 delegate whose ABI decoded the call, when `to` has no
+ * ABI of its own that decodes it.
  */
-via_delegate: string | null, };
+via_delegate: string | null, 
+/**
+ * `via_delegate` is the delegation read from `to`'s code (today's), not
+ * one from this transaction's authorization list: the delegation at the
+ * transaction may have differed.
+ */
+via_delegate_current: boolean, };
