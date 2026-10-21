@@ -66,9 +66,10 @@ pub struct TxFlow {
     pub call_guessed: bool,
     /// The other candidates of a guessed `call`.
     pub call_alternatives: Vec<String>,
-    /// `to`'s EIP-7702 delegate read from its code (today's) when the tx was
-    /// fetched, while the tx's own authorization list leaves `to` alone. Not
-    /// part of the transaction, so no participant.
+    /// `to`'s EIP-7702 delegate read from its code (as of the lookup: when the
+    /// tx was fetched, or later when a view of it queued the lookup), while
+    /// the tx's own authorization list leaves `to` alone. Not part of the
+    /// transaction, so no participant.
     pub to_current_delegate: Option<Address>,
     /// `to`'s current delegate is to be looked up (one `code` call): the
     /// call has calldata and decodes no other way, the tx's own
@@ -301,6 +302,8 @@ fn delegate_lookup_due(
     let Some(to) = tx.to else {
         return false;
     };
+    // The kind probe marks a delegated EOA (non-empty designator code) as
+    // Contract until contract_meta corrects it, so the lookup may wait for that.
     let contract = accounts
         .get(&to)
         .is_some_and(|a| a.kind == AccountKind::Contract);
