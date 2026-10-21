@@ -11,7 +11,7 @@ import { TrustBadge } from "../../panels/info/TrustBadge";
 import { TxStatusTag } from "../../panels/TxSummaryCard";
 import { AddressCell } from "../../shell/AddressCell";
 import { useTabs } from "../../shell/tabs";
-import { nodeOf, ViaDelegateNote } from "./common";
+import { GuessedTag, nodeOf, ViaDelegateNote } from "./common";
 
 const TOKEN_KINDS: ReadonlySet<FlowDto["kind"]> = new Set(["erc20", "erc721", "erc1155"]);
 /** Transfer lines shown before the rest collapse into "+N more". */
@@ -90,7 +90,10 @@ export function TxSummaryBar({ flow }: { flow: TxFlowDto }) {
     <div className="txbar" data-testid="tx-summary-bar">
       <TxStatusTag success={tx.success} />
       {name ? (
-        <span className="txbar__method" title={call?.signature}>{name}</span>
+        <span className="txbar__method" title={call?.signature}>
+          {name}
+          {call?.guessed && <> <GuessedTag alternatives={call.alternatives} /></>}
+        </span>
       ) : tx.to && tx.selector ? (
         <span className="txbar__method">
           <span className="detail__mono">{tx.selector}</span> <span className="txview__tag">{t("tx.undecoded")}</span>

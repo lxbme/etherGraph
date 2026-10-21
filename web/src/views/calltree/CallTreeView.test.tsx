@@ -344,7 +344,7 @@ test("a_delegatecall_shows_its_value_as_inherited_not_sent", async () => {
 
 test("a_current_delegate_is_said_to_be_todays", async () => {
   const D = "0x" + "dd".repeat(20);
-  const call = { signature: "ping()", name: "ping", args: [], via_delegate: D, via_delegate_current: false };
+  const call = { signature: "ping()", name: "ping", args: [], via_delegate: D, via_delegate_current: false, guessed: false, alternatives: [] };
   const frames = [
     synth([], { from: A, to: B, input: "0x5c36b186", call, via_delegate: D, via_delegate_current: true }),
     synth([0], { from: B, to: A, input: "0x5c36b186", call, via_delegate: D, via_delegate_current: false }),
@@ -358,6 +358,31 @@ test("a_current_delegate_is_said_to_be_todays", async () => {
   fireEvent.click(inner!);
   expect(screen.getByTestId("call-detail")).toHaveTextContent("Decoded with the ABI of its EIP-7702 delegate 0xdddd…dddd");
   expect(screen.getByTestId("call-detail")).not.toHaveTextContent("current");
+});
+
+test("a_guessed_call_is_tagged_in_the_tree_the_detail_and_the_graph", async () => {
+  const call = {
+    signature: "transfer(address,uint256)", name: "transfer",
+    args: [{ name: "", ty: "address", value: X }, { name: "", ty: "uint256", value: "1000" }],
+    via_delegate: null, via_delegate_current: false, guessed: true, alternatives: ["transfer_x(address,uint256)"],
+  };
+  const frames = [
+    synth([], { from: A, to: B, input: "0xa9059cbb", call }),
+    synth([0], { from: B, to: X, input: "0xa9059cbb", call: { ...call, guessed: false, alternatives: [] } }),
+  ];
+  vi.spyOn(api, "txTrace").mockResolvedValue(ready(frames));
+  renderCalls();
+  await screen.findByRole("tree");
+  const [root, inner] = screen.getAllByRole("treeitem");
+  const TITLE = "Other candidates: transfer_x(address,uint256)";
+  expect(within(root!).getByText("Guessed")).toHaveAttribute("title", TITLE);
+  expect(within(inner!).queryByText("Guessed")).toBeNull();
+  expect(String(edgeById(`${A}>${B}`).data.label)).toContain("transfer (Guessed)");
+  expect(String(edgeById(`${B}>${X}`).data.label)).not.toContain("Guessed");
+  fireEvent.click(root!);
+  const detail = within(screen.getByTestId("call-detail"));
+  expect(detail.getByText("Guessed")).toHaveAttribute("title", TITLE);
+  expect(detail.getByRole("cell", { name: "#1" }).nextElementSibling).toHaveTextContent("uint256");
 });
 
 test("snapshot_without_trace_says_the_file_has_none", () => {
@@ -532,6 +557,7 @@ test("a_tokens_transfer_frames_show_its_amount_in_its_decimals", async () => {
   const call = {
     signature: "transfer(address,uint256)", name: "transfer", via_delegate: null, via_delegate_current: false,
     args: [{ name: "to", ty: "address", value: TO }, { name: "value", ty: "uint256", value: "4699465952" }],
+    guessed: false, alternatives: [],
   };
   const frames = [
     synth([], { from: A, to: USDC, input, call }),

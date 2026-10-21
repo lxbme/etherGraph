@@ -13,6 +13,7 @@ import { nodeTooltip, type TooltipLine } from "../../graph/tooltip";
 import { t, useLocale } from "../../i18n";
 import { formatAmount } from "../../lib/amount";
 import { ellipsize } from "../../lib/format";
+import { guessedName } from "../../lib/guessed";
 import { useUi } from "../../panels/uiStore";
 import { useTabs } from "../../shell/tabs";
 import { useTheme } from "../../shell/theme";
@@ -65,7 +66,8 @@ export function callElements(
     return el;
   });
   for (const e of edges) {
-    let label = isCreate(e) ? `${t("tx.calls.create")} ${e.label}` : e.label;
+    const named = guessedName(e.label, e.guessed);
+    let label = isCreate(e) ? `${t("tx.calls.create")} ${named}` : named;
     if (e.valueWei > 0n) label += ` · ${ethText(e.valueWei)}`;
     out.push({
       group: "edges",
@@ -77,7 +79,7 @@ export function callElements(
 }
 
 function edgeTooltip(e: CallEdge): TooltipLine[] {
-  const lines: TooltipLine[] = [{ value: e.label }, { label: t("tx.calls.kinds"), value: [...e.kinds].join(", "), mono: true }];
+  const lines: TooltipLine[] = [{ value: guessedName(e.label, e.guessed) }, { label: t("tx.calls.kinds"), value: [...e.kinds].join(", "), mono: true }];
   if (e.valueWei > 0n) lines.push({ label: t("tx.value"), value: ethText(e.valueWei) });
   if (e.failed) lines.push({ value: t("tx.calls.failedMark") });
   if (e.kinds.has("delegatecall")) lines.push({ value: t("tx.calls.delegateNote") });

@@ -27,10 +27,10 @@ pub use events::{Audience, Event, EventBus, Listener, NameItem, UserEvents};
 pub use handlers::default_handlers;
 pub use runner::{JobCtx, JobError, JobHandler, Runner};
 pub use trace::{
-    DecodedFrame, FrameDelegate, MAX_AUTO_META, auto_meta_targets, decode_frames, decode_trace,
-    trace_delegates, tx_delegations, validate_trace,
+    DecodedFrame, FrameDelegate, MAX_AUTO_META, apply_frame_guesses, auto_meta_targets,
+    decode_frames, decode_trace, guess_frames, trace_delegates, tx_delegations, validate_trace,
 };
 pub use txflow::{
-    Completeness, Flow, TxFlow, build_tx_flow, implementation_among, implementation_of,
-    implementations, load_tx_flow,
+    Completeness, Flow, SignatureCandidates, TxFlow, apply_flow_guesses, build_tx_flow, guess_flow,
+    implementation_among, implementation_of, implementations, load_tx_flow,
 };

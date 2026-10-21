@@ -30,6 +30,8 @@ export interface CallEdge {
   kinds: Set<CallFrameDto["kind"]>;
   /** "①register" or "①register ×3". */
   label: string;
+  /** The first call's name was guessed from the signature database (see `guessedName`). */
+  guessed: boolean;
   /** ETH sent by its frames (see `sendsEth`). */
   valueWei: bigint;
   failed: boolean;
@@ -138,7 +140,7 @@ export function buildCallGraph(frames: CallFrameDto[], f: TreeFilter): { nodes: 
     if (!e) {
       e = {
         id, from, to, frameIds: [], kinds: new Set(), label: `${circled(seqOf.get(fr)!)}${callName(fr)}`,
-        valueWei: 0n, failed: false, selfLoop: from === to,
+        guessed: fr.call?.guessed === true, valueWei: 0n, failed: false, selfLoop: from === to,
       };
       edges.set(id, e);
     }

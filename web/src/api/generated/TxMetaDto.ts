@@ -10,7 +10,8 @@ value: string, success: boolean, gas_used: string,
  */
 fee: string, 
 /**
- * Decoded function name; null when the call is undecodable.
+ * Decoded function name; null when no ABI decodes the call (a name
+ * guessed from the signature database is only in `call`).
  */
 method: string | null, 
 /**

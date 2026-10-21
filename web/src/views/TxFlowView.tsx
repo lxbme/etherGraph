@@ -172,7 +172,10 @@ export function TxFlowView({ hash }: { hash: string }) {
   const tooltipLines = useMemo((): TooltipLine[] | null => {
     if (!hover || !flow) return null;
     if (hover.kind === "edge") {
-      if (hover.id === "call") return callTooltip(flow.call?.name, flow.call?.via_delegate, flow.call?.via_delegate_current);
+      if (hover.id === "call") {
+        const c = flow.call;
+        return callTooltip(c?.name, c?.via_delegate, c?.via_delegate_current, c?.guessed, c?.alternatives);
+      }
       const names = new Map(flow.nodes.flatMap((n) => (n.display_name ? [[n.address.toLowerCase(), n.display_name] as const] : [])));
       const d = /^delegation-(\d+)$/.exec(hover.id);
       const del = d ? delegationsOf(flow)[Number(d[1])] : undefined;

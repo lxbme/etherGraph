@@ -193,6 +193,11 @@ const syncStatus = shape({
 });
 const graphData = shape({ nodes: arr(nodeSummary), edges: arr(edge), omitted: rec(int), coverage: rec(arr(syncStatus)) });
 const arg = shape({ name: str, ty: str, value: str });
+/** A decoded (or guessed) call; older files lack the later fields. */
+const decodedCall = shape({
+  signature: str, name: str, args: arr(arg), via_delegate: opt(address), via_delegate_current: optField(bool),
+  guessed: optField(bool), alternatives: optField(arr(str)),
+});
 const txFlow = shape({
   tx: shape({
     hash: str, block_number: int, ts: str, from: address, to: opt(address), value: str, success: bool,
@@ -206,7 +211,7 @@ const txFlow = shape({
     authorizations: arr(shape({ chain_id: str, delegate: address, nonce: str, authority: opt(address) })),
     delegations: arr(shape({ authority: address, delegate: address })),
   }),
-  call: opt(shape({ signature: str, name: str, args: arr(arg), via_delegate: opt(address), via_delegate_current: optField(bool) })),
+  call: opt(decodedCall),
   nodes: arr(nodeSummary),
   flows: arr(
     shape({
@@ -215,13 +220,17 @@ const txFlow = shape({
       decimals, symbol: opt(str), trust,
     }),
   ),
-  events: arr(shape({ address, log_index: int, name: opt(str), args: arr(arg), topics: arr(str), data: str })),
+  events: arr(
+    shape({
+      address, log_index: int, name: opt(str), args: arr(arg), topics: arr(str), data: str,
+      guessed: optField(bool), signature: optField(opt(str)),
+    }),
+  ),
   completeness: oneOf("fund_flow", "full_trace"),
 });
 /** Decimal wei: the call graph sums frame values as bigints. */
 const wei = re(/^[0-9]+$/);
 const hex = re(/^0x[0-9a-fA-F]*$/);
-const decodedCall = shape({ signature: str, name: str, args: arr(arg), via_delegate: opt(address), via_delegate_current: optField(bool) });
 const callFrame = shape({
   path: arr((v) => int(v) && (v as number) >= 0),
   kind: oneOf("call", "staticcall", "delegatecall", "callcode", "create", "create2", "selfdestruct"),

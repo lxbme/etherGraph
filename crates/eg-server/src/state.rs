@@ -1,6 +1,7 @@
 //! Shared application state handed to every route.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use eg_blockscout::{
     BlockscoutTraceSource, FixturePathTransport, HttpPathTransport, PathTransport,
@@ -31,6 +32,11 @@ pub struct AppState {
     pub head: Arc<HeadCache>,
     pub trust: Arc<TrustCache>,
     pub auth: Arc<AuthState>,
+    /// Calls and events no ABI decodes are named from the signature
+    /// database (marked guessed) while this is on. Starts from
+    /// `[signatures] enabled`; shared by every clone, so it can be flipped at
+    /// runtime.
+    pub signatures: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -70,6 +76,7 @@ impl AppState {
         };
         Self {
             auth: Arc::new(AuthState::new(&cfg)),
+            signatures: Arc::new(AtomicBool::new(cfg.signatures.enabled)),
             store,
             source,
             gate,
@@ -80,6 +87,18 @@ impl AppState {
             head: Arc::new(HeadCache::default()),
             trust: Arc::new(TrustCache::default()),
         }
+    }
+}
+
+impl AppState {
+    /// Whether views guess undecoded calls and events from the signature
+    /// database (see [`AppState::signatures`]).
+    pub fn signatures_enabled(&self) -> bool {
+        self.signatures.load(Ordering::Relaxed)
+    }
+
+    pub fn set_signatures_enabled(&self, on: bool) {
+        self.signatures.store(on, Ordering::Relaxed);
     }
 }
 

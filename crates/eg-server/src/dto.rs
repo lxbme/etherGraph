@@ -1011,7 +1011,8 @@ pub struct TxMetaDto {
     pub gas_used: String,
     /// Wei, decimal string.
     pub fee: String,
-    /// Decoded function name; null when the call is undecodable.
+    /// Decoded function name; null when no ABI decodes the call (a name
+    /// guessed from the signature database is only in `call`).
     pub method: Option<String>,
     /// First 4 calldata bytes as `0x` + 8 hex digits; null for a plain transfer.
     pub selector: Option<String>,
@@ -1209,10 +1210,15 @@ impl CallFrameDto {
             gas: f.gas,
             gas_used: f.gas_used,
             error: f.error.clone(),
-            call: d
-                .call
-                .as_ref()
-                .map(|c| DecodedCallDto::new(c, via_delegate, via_delegate_current)),
+            // A guessed call was decoded by no ABI, the delegate's included
+            // (it may still have decoded the revert).
+            call: d.call.as_ref().map(|c| {
+                if d.guessed {
+                    DecodedCallDto::guessed(c, &d.alternatives)
+                } else {
+                    DecodedCallDto::new(c, via_delegate, via_delegate_current)
+                }
+            }),
             revert: d.revert.as_ref().map(|e| DecodedErrorDto {
                 name: e.name.clone(),
                 args: e.args.iter().map(DecodedArgDto::from).collect(),
@@ -1265,6 +1271,13 @@ pub struct DecodedCallDto {
     /// one from this transaction's authorization list: the delegation at the
     /// transaction may have differed.
     pub via_delegate_current: bool,
+    /// Named from the local signature database, not decoded with an ABI:
+    /// the arguments are unnamed and another function may share the
+    /// selector.
+    pub guessed: bool,
+    /// The other signatures that decode the calldata as cleanly (at most 5,
+    /// shortest first); empty unless `guessed`.
+    pub alternatives: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
@@ -1278,6 +1291,11 @@ pub struct DecodedEventDto {
     pub topics: Vec<String>,
     /// Lowercase 0x hex.
     pub data: String,
+    /// `name` comes from the local signature database (topic0 is the hash of
+    /// `signature`): the arguments are not decoded.
+    pub guessed: bool,
+    /// The text signature a guessed `name` comes from; null otherwise.
+    pub signature: Option<String>,
 }
 
 impl From<&eg_decode::DecodedArg> for DecodedArgDto {
@@ -1302,6 +1320,17 @@ impl DecodedCallDto {
             args: c.args.iter().map(DecodedArgDto::from).collect(),
             via_delegate: via_delegate.map(hex_addr),
             via_delegate_current: via_delegate.is_some() && via_delegate_current,
+            guessed: false,
+            alternatives: Vec::new(),
+        }
+    }
+
+    /// A call guessed from the signature database, with its `alternatives`.
+    pub fn guessed(c: &eg_decode::DecodedCall, alternatives: &[String]) -> Self {
+        Self {
+            guessed: true,
+            alternatives: alternatives.to_vec(),
+            ..Self::new(c, None, false)
         }
     }
 }
@@ -1315,6 +1344,8 @@ impl From<&eg_decode::DecodedEvent> for DecodedEventDto {
             args: e.args.iter().map(DecodedArgDto::from).collect(),
             topics: e.topics.iter().map(|t| format!("{t:#x}")).collect(),
             data: format!("{:#x}", e.data),
+            guessed: e.guessed,
+            signature: e.signature.clone(),
         }
     }
 }

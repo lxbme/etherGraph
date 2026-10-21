@@ -5,4 +5,13 @@ export type DecodedEventDto = { address: string, log_index: number, name: string
 /**
  * Lowercase 0x hex.
  */
-data: string, };
+data: string, 
+/**
+ * `name` comes from the local signature database (topic0 is the hash of
+ * `signature`): the arguments are not decoded.
+ */
+guessed: boolean, 
+/**
+ * The text signature a guessed `name` comes from; null otherwise.
+ */
+signature: string | null, };

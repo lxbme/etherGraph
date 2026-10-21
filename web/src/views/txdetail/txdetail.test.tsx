@@ -32,6 +32,8 @@ function base(): TxFlowDto {
     ],
     via_delegate: null,
     via_delegate_current: false,
+    guessed: false,
+    alternatives: [],
   };
   f.detail.input = "0x7ff36ab5" + "00".repeat(128);
   f.events = [
@@ -44,6 +46,8 @@ function base(): TxFlowDto {
       ],
       topics: ["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],
       data: "0x" + "00".repeat(28) + "17d78400",
+      guessed: false,
+      signature: null,
     },
   ];
   return f;
@@ -446,7 +450,7 @@ describe("ERC-20 amounts in arguments", () => {
     const f = base();
     f.tx.to = USDC;
     f.nodes.push({ ...f.nodes[0]!, address: USDC, kind: "contract", display_name: "USD Coin", is_proxy: true, token });
-    f.call = { signature, name: signature.slice(0, signature.indexOf("(")), args, via_delegate: null, via_delegate_current: false };
+    f.call = { signature, name: signature.slice(0, signature.indexOf("(")), args, via_delegate: null, via_delegate_current: false, guessed: false, alternatives: [] };
     return f;
   }
   const usdc = { standard: "erc20" as const, symbol: "USDC", decimals: 6 };
@@ -543,7 +547,7 @@ describe("a call decoded through an EIP-7702 delegate", () => {
   /** Shaped like a type-2 call from an account to itself, delegated by an earlier type-4 tx. */
   function delegated(current: boolean): TxFlowDto {
     const f = base();
-    f.call = { signature: "execute(((address,uint256,bytes)[],bool))", name: "execute", args: [], via_delegate: D, via_delegate_current: current };
+    f.call = { signature: "execute(((address,uint256,bytes)[],bool))", name: "execute", args: [], via_delegate: D, via_delegate_current: current, guessed: false, alternatives: [] };
     f.tx = { ...f.tx, to: f.tx.from, method: "execute", selector: "0x99e1d016" };
     f.detail.input = "0x99e1d016" + "00".repeat(128);
     return f;
@@ -580,5 +584,76 @@ describe("a call decoded through an EIP-7702 delegate", () => {
     fireEvent.click(tab("Input"));
     expect(screen.getByText("execute(((address,uint256,bytes)[],bool))")).toBeInTheDocument();
     expect(screen.getByText(CURRENT_TEXT)).toBeInTheDocument();
+  });
+});
+
+describe("names guessed from the signature database", () => {
+  const ALTS = ["foo_abc(address,uint256)", "transfer_x(address,uint256)"];
+  function guessedCall(): TxFlowDto {
+    const f = base();
+    f.call = {
+      signature: "transfer(address,uint256)", name: "transfer",
+      args: [{ name: "", ty: "address", value: BOB }, { name: "", ty: "uint256", value: "1000" }],
+      via_delegate: null, via_delegate_current: false, guessed: true, alternatives: ALTS,
+    };
+    f.tx = { ...f.tx, method: null, selector: "0xa9059cbb" };
+    f.detail.input = "0xa9059cbb" + "00".repeat(64);
+    return f;
+  }
+
+  test("a guessed call shows the 推测 tag with alternatives in its title", () => {
+    act(() => useLocale.getState().setLocale("zh"));
+    const { unmount } = render(
+      <QueryClientProvider client={qc}>
+        <TxSummaryBar flow={guessedCall()} />
+      </QueryClientProvider>,
+    );
+    const bar = screen.getByTestId("tx-summary-bar");
+    expect(within(bar).getByText("transfer")).toBeInTheDocument();
+    expect(within(bar).getByText("推测")).toHaveAttribute("title", `其他候选：${ALTS.join(", ")}`);
+    unmount();
+
+    act(() => useLocale.getState().setLocale("en"));
+    renderTabs(guessedCall());
+    fireEvent.click(tab("Input"));
+    expect(screen.getByText("transfer(address,uint256)")).toBeInTheDocument();
+    expect(screen.getByText("Guessed")).toHaveAttribute("title", `Other candidates: ${ALTS.join(", ")}`);
+    // Unnamed arguments read by position, their types beside them.
+    expect(screen.getByRole("cell", { name: "#0" }).nextElementSibling).toHaveTextContent("address");
+  });
+
+  test("a guessed call without alternatives has a tag without a title; an ABI-decoded one has none", () => {
+    const f = guessedCall();
+    f.call!.alternatives = [];
+    const { unmount } = render(
+      <QueryClientProvider client={qc}>
+        <TxSummaryBar flow={f} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("Guessed")).not.toHaveAttribute("title");
+    unmount();
+    render(
+      <QueryClientProvider client={qc}>
+        <TxSummaryBar flow={base()} />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByText("Guessed")).toBeNull();
+  });
+
+  test("a guessed event shows its name and signature with the tag", () => {
+    const f = base();
+    const topic = "0x" + "4b".repeat(32);
+    f.events = [
+      { address: BOB, log_index: 3, name: "Ping", args: [], topics: [topic], data: "0x" + "00".repeat(31) + "09", guessed: true, signature: "Ping(uint256)" },
+    ];
+    renderTabs(f);
+    fireEvent.click(tab("Logs"));
+    const card = screen.getByTestId("tx-log");
+    expect(within(card).getByText("Ping")).toBeInTheDocument();
+    expect(within(card).getByText("Ping(uint256)")).toBeInTheDocument();
+    expect(within(card).getByText("Guessed")).toBeInTheDocument();
+    // Its arguments are not decoded: topics and data show raw.
+    expect(within(card).getByText(topic)).toBeInTheDocument();
+    expect(within(card).queryByText("Undecoded")).toBeNull();
   });
 });

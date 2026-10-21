@@ -548,6 +548,8 @@ export const en = {
   "tx.contractCreation": "Contract creation",
   "tx.undecoded": "Undecoded",
   "tx.undecodedSelector": "{selector} (undecoded)",
+  "tx.guessed": "Guessed",
+  "tx.guessedAlternatives": "Other candidates: {list}",
   "tx.call": "Call",
   "tx.delegatesTo": "delegates to",
   "tx.transfer": "Transfer",

@@ -20,6 +20,17 @@ pub struct Config {
     pub source: SourceCfg,
     pub auth: AuthCfg,
     pub blockscout: BlockscoutCfg,
+    pub signatures: SignaturesCfg,
+}
+
+/// The local signature database (`import-signatures`).
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SignaturesCfg {
+    /// Name calls and events no ABI decodes from it, marked as guessed. Only
+    /// the starting value: the server's switch
+    /// ([`crate::state::AppState::signatures_enabled`]) can change at runtime.
+    pub enabled: bool,
 }
 
 /// `Debug` prints the API key as `***`.
@@ -453,6 +464,18 @@ mod tests {
         let env = |k: &str| (k == "DATABASE_URL").then(|| "postgres://x".to_owned());
         let err = Config::parse(text, env).unwrap_err().to_string();
         assert!(err.contains("sync.shallow_pages"), "{err}");
+    }
+
+    #[test]
+    fn signatures_absent_means_disabled() {
+        let env = |k: &str| (k == "DATABASE_URL").then(|| "postgres://x".to_owned());
+        let cfg = Config::parse("[source]\nmode = \"fixture\"\n", env).unwrap();
+        assert!(!cfg.signatures.enabled);
+        let text = "[source]\nmode = \"fixture\"\n[signatures]\nenabled = true\n";
+        assert!(Config::parse(text, env).unwrap().signatures.enabled);
+        // The section's other fields keep their defaults.
+        let text = "[source]\nmode = \"fixture\"\n[signatures]\n";
+        assert!(!Config::parse(text, env).unwrap().signatures.enabled);
     }
 
     #[test]

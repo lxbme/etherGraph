@@ -92,7 +92,7 @@ test("a call decoded through the recipient's current EIP-7702 delegate names tha
   const D = "0x" + "7c".repeat(20);
   const f = flow();
   f.tx.method = "execute";
-  f.call = { signature: "execute(((address,uint256,bytes)[],bool))", name: "execute", args: [], via_delegate: D, via_delegate_current: true };
+  f.call = { signature: "execute(((address,uint256,bytes)[],bool))", name: "execute", args: [], via_delegate: D, via_delegate_current: true, guessed: false, alternatives: [] };
   vi.spyOn(api, "tx").mockResolvedValue({ status: "ready", flow: f, job_id: null });
   renderAll();
   fireEvent.click(await screen.findByTestId("transfer-row"));

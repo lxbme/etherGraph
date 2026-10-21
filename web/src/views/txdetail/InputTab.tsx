@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { TxFlowDto } from "../../api/generated/TxFlowDto";
 import { useT } from "../../i18n";
 import { CopyButton } from "../../shell/CopyButton";
-import { ArgsTable, erc20Of, hexBytes, RawHex, ViaDelegateNote } from "./common";
+import { ArgsTable, erc20Of, GuessedTag, hexBytes, RawHex, ViaDelegateNote } from "./common";
 
 /**
  * Calldata: the decoded signature and arguments with a "Raw hex" toggle; undecodable calls show their selector and
@@ -39,6 +39,7 @@ export function InputTab({ flow }: { flow: TxFlowDto }) {
       <div className="txdetail__line">
         <span className="detail__mono">{call.signature}</span>
         <CopyButton value={call.signature} />
+        {call.guessed && <GuessedTag alternatives={call.alternatives} />}
         <div className="seg txdetail__toggle" role="group" aria-label={t("tx.input.view")}>
           <button type="button" className="seg__item" aria-pressed={showHex} onClick={() => setShowHex(!showHex)}>
             {t("tx.input.rawHex")}

@@ -5,6 +5,7 @@ import type { NodeSummaryDto } from "../../api/generated/NodeSummaryDto";
 import { useT } from "../../i18n";
 import { shortAddr } from "../../lib/address";
 import { formatFull } from "../../lib/amount";
+import { alternativesText } from "../../lib/guessed";
 import { argAmounts, type ArgAmount, type ArgToken } from "../../lib/tokenArgs";
 import { trustFlag, trustReason, trustText } from "../../lib/trust";
 import { useUi } from "../../panels/uiStore";
@@ -21,6 +22,15 @@ export function ViaDelegateNote({ via, current, inline = false }: { via: string;
   const t = useT();
   const text = t(current ? "tx.calls.viaCurrentDelegate" : "tx.calls.viaDelegate", { address: shortAddr(via) });
   return inline ? <span className="detail__muted">{text}</span> : <div className="detail__muted">{text}</div>;
+}
+
+/**
+ * The tag on a call or event name guessed from the local signature database rather than decoded with an ABI; its title
+ * lists the other candidates, if any.
+ */
+export function GuessedTag({ alternatives = [] }: { alternatives?: readonly string[] }) {
+  const t = useT();
+  return <span className="txview__tag" title={alternativesText(alternatives)}>{t("tx.guessed")}</span>;
 }
 
 /** Values longer than this are folded until expanded. */

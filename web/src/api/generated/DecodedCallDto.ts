@@ -12,4 +12,15 @@ via_delegate: string | null,
  * one from this transaction's authorization list: the delegation at the
  * transaction may have differed.
  */
-via_delegate_current: boolean, };
+via_delegate_current: boolean, 
+/**
+ * Named from the local signature database, not decoded with an ABI:
+ * the arguments are unnamed and another function may share the
+ * selector.
+ */
+guessed: boolean, 
+/**
+ * The other signatures that decode the calldata as cleanly (at most 5,
+ * shortest first); empty unless `guessed`.
+ */
+alternatives: Array<string>, };

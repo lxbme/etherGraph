@@ -105,7 +105,7 @@ describe("call-tree model", () => {
     expect(f.call).toBeNull();
     expect(callName(f)).toBe("0xa4014982");
     expect(callName(ensFrames.find((x) => x.path.join(".") === "5")!)).toBe("");
-    expect(callName({ ...f, call: { signature: "register()", name: "register", args: [], via_delegate: null, via_delegate_current: false } })).toBe("register");
+    expect(callName({ ...f, call: { signature: "register()", name: "register", args: [], via_delegate: null, via_delegate_current: false, guessed: false, alternatives: [] } })).toBe("register");
   });
 
   it("default_collapse_depth_3_on_2000_frames", () => {

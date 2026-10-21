@@ -11,7 +11,7 @@ use eg_core::types::{Address, TransferKind};
 use eg_ingest::{
     MAX_AUTO_META, auto_meta_parties, auto_meta_targets, decode_trace,
     enqueue_current_delegate_lookup, enqueue_fetch_block, enqueue_fetch_trace, enqueue_fetch_tx,
-    enqueue_meta_owned, load_tx_flow, trace_delegates,
+    enqueue_meta_owned, guess_flow, guess_frames, load_tx_flow, trace_delegates,
 };
 
 use crate::auth::extract::{CurrentUser, MayStartWork};
@@ -35,7 +35,7 @@ pub async fn tx(
     ApiPath(raw): ApiPath<String>,
 ) -> Result<Json<TxResponseDto>, ApiError> {
     let hash = parse_tx_hash(&raw)?;
-    let Some(f) = load_tx_flow(&s.store, hash).await? else {
+    let Some(mut f) = load_tx_flow(&s.store, hash).await? else {
         if !may_start {
             return Err(ApiError::not_found("transaction not fetched"));
         }
@@ -46,6 +46,10 @@ pub async fn tx(
             job_id: Some(job_id),
         }));
     };
+
+    if s.signatures_enabled() {
+        guess_flow(&s.store, &mut f).await?;
+    }
 
     let mut token_addrs: Vec<Address> = f
         .flows
@@ -110,7 +114,11 @@ pub async fn tx(
                 success: f.tx.success,
                 gas_used: f.tx.gas_used.to_string(),
                 fee: f.tx.fee.to_string(),
-                method: f.call.as_ref().map(|c| c.name.clone()),
+                method: f
+                    .call
+                    .as_ref()
+                    .filter(|_| !f.call_guessed)
+                    .map(|c| c.name.clone()),
                 selector: f.tx.selector.map(alloy_primitives::hex::encode_prefixed),
             },
             detail: tx_detail(
@@ -120,10 +128,13 @@ pub async fn tx(
                 &f.authorizations,
                 &f.delegations,
             ),
-            call: f
-                .call
-                .as_ref()
-                .map(|c| DecodedCallDto::new(c, f.call_via_delegate, f.call_via_delegate_current)),
+            call: f.call.as_ref().map(|c| {
+                if f.call_guessed {
+                    DecodedCallDto::guessed(c, &f.call_alternatives)
+                } else {
+                    DecodedCallDto::new(c, f.call_via_delegate, f.call_via_delegate_current)
+                }
+            }),
             nodes,
             flows: f
                 .flows
@@ -201,7 +212,10 @@ pub async fn trace(
         tracing::warn!(error = %e, "enqueueing trace metadata jobs failed");
     }
 
-    let frames = decode_trace(&s.store, &row, &delegates).await?;
+    let mut frames = decode_trace(&s.store, &row, &delegates).await?;
+    if s.signatures_enabled() {
+        guess_frames(&s.store, &mut frames).await?;
+    }
     Ok(Json(CallTraceResponseDto {
         status: "ready".into(),
         frames: Some(frames.iter().map(CallFrameDto::new).collect()),

@@ -6,6 +6,7 @@ import { formatAmount } from "../../lib/amount";
 import { ellipsize } from "../../lib/format";
 import { argAmounts, type ArgAmount, type ArgToken } from "../../lib/tokenArgs";
 import { flaggedLabel, trustFlag } from "../../lib/trust";
+import { GuessedTag } from "../txdetail/common";
 import { callName, sendsEth, type TreeRow } from "./model";
 
 /** Every row is this tall (--h-compact in tokens.css), so the window of rows in view is plain arithmetic. */
@@ -163,6 +164,7 @@ export function CallTreeList({
               <span className={`calltree__kind calltree__kind--${f.kind}`}>{KIND_TEXT[f.kind]}</span>
               <span className="calltree__callee" title={f.to ?? undefined}>{f.to ? nameOf(f.to) : "—"}</span>
               <span className="calltree__call detail__mono" title={f.call?.signature}>{callSummary(f, tokenOf?.(f), t("tx.args.unlimited"))}</span>
+              {f.call?.guessed && <GuessedTag alternatives={f.call.alternatives} />}
               {value > 0n && <span className="calltree__value num">{formatAmount(f.value, 18, { maxFrac: 4 }).text} ETH</span>}
               {r.failed && <span className="tag tag--neg calltree__failed">{t("tx.calls.failedMark")}</span>}
             </div>

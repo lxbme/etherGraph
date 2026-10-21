@@ -6,9 +6,9 @@ use std::str::FromStr;
 use alloy_json_abi::JsonAbi;
 use eg_core::rpc_json::parse_receipt;
 use eg_core::source::{RawLog, RawReceipt};
-use eg_core::types::{AccountKind, Address, Bytes, Transfer, TransferKind, TxHash, U256};
-use eg_decode::{DecodedCall, DecodedEvent, decode_call, decode_event};
-use eg_store::{AccountRow, Store, StoreError, TxRow};
+use eg_core::types::{AccountKind, Address, B256, Bytes, Transfer, TransferKind, TxHash, U256};
+use eg_decode::{DecodedCall, DecodedEvent, decode_call, decode_event, guess_call, guess_event};
+use eg_store::{AccountRow, Store, StoreError, TxRow, signatures_by_hash, signatures_by_selector};
 use serde::{Serialize, Serializer};
 
 use crate::authorization::{
@@ -61,6 +61,11 @@ pub struct TxFlow {
     /// today's delegation), not one from this transaction's authorization
     /// list: the delegation at the transaction may have differed.
     pub call_via_delegate_current: bool,
+    /// `call` was guessed from the signature database (see
+    /// [`apply_flow_guesses`]): no ABI decoded it.
+    pub call_guessed: bool,
+    /// The other candidates of a guessed `call`.
+    pub call_alternatives: Vec<String>,
     /// `to`'s EIP-7702 delegate read from its code (today's) when the tx was
     /// fetched, while the tx's own authorization list leaves `to` alone. Not
     /// part of the transaction, so no participant.
@@ -402,6 +407,8 @@ fn build(
         call,
         call_via_delegate: via.map(|v| v.address),
         call_via_delegate_current: via.is_some_and(|v| v.current),
+        call_guessed: false,
+        call_alternatives: Vec::new(),
         to_current_delegate,
         delegate_lookup_due,
         authorizations: auths,
@@ -411,6 +418,94 @@ fn build(
         events,
         completeness: Completeness::FundFlow,
     }
+}
+
+/// Candidate texts from the signature database for the selectors and
+/// topics no ABI decoded.
+#[derive(Clone, Debug, Default)]
+pub struct SignatureCandidates {
+    /// Function texts by selector (see [`eg_store::signatures_by_selector`]).
+    pub by_selector: HashMap<[u8; 4], Vec<String>>,
+    /// Event texts by topic0 (see [`eg_store::signatures_by_hash`]).
+    pub by_hash: HashMap<B256, String>,
+}
+
+/// The selector of a top-level call no ABI decoded (a creation's input is
+/// init code, not a call).
+fn undecoded_selector(flow: &TxFlow) -> Option<[u8; 4]> {
+    if flow.call.is_some() || flow.tx.to.is_none() {
+        return None;
+    }
+    input_of(&flow.tx)?.get(..4)?.try_into().ok()
+}
+
+/// The topic0 of each log no ABI nor built-in event named, deduplicated.
+fn undecoded_topics(events: &[DecodedEvent]) -> Vec<B256> {
+    let mut topics: Vec<B256> = events
+        .iter()
+        .filter(|e| e.name.is_none())
+        .filter_map(|e| e.topics.first().copied())
+        .collect();
+    topics.sort();
+    topics.dedup();
+    topics
+}
+
+/// What the signature database is asked for `flow`: the selector of its
+/// undecoded top-level call, and the topics of its unnamed events.
+pub fn flow_guess_keys(flow: &TxFlow) -> (Vec<[u8; 4]>, Vec<B256>) {
+    (
+        undecoded_selector(flow).into_iter().collect(),
+        undecoded_topics(&flow.events),
+    )
+}
+
+/// Names each unnamed event whose topic0 is in `by_hash` (see
+/// [`eg_decode::guess_event`]), marked guessed; its args stay empty.
+fn apply_event_guesses(events: &mut [DecodedEvent], by_hash: &HashMap<B256, String>) {
+    for e in events.iter_mut().filter(|e| e.name.is_none()) {
+        let Some((name, text)) = e
+            .topics
+            .first()
+            .and_then(|t| by_hash.get(t))
+            .and_then(|text| guess_event(text))
+        else {
+            continue;
+        };
+        e.name = Some(name);
+        e.signature = Some(text);
+        e.guessed = true;
+    }
+}
+
+/// Fills what no ABI decoded from the signature database: the top-level
+/// call (see [`eg_decode::guess_call`]) and unnamed events. Every ABI path
+/// ([`top_call`], [`event_abi`], the built-in events) has run by now, so a
+/// decoded call or named event is never replaced.
+pub fn apply_flow_guesses(flow: &mut TxFlow, sigs: &SignatureCandidates) {
+    if let Some(sel) = undecoded_selector(flow)
+        && let Some(candidates) = sigs.by_selector.get(&sel)
+        && let Some(input) = input_of(&flow.tx)
+        && let Some(g) = guess_call(&input, candidates)
+    {
+        flow.call = Some(g.call);
+        flow.call_guessed = true;
+        flow.call_alternatives = g.alternatives;
+    }
+    apply_event_guesses(&mut flow.events, &sigs.by_hash);
+}
+
+/// [`apply_flow_guesses`] with the candidates looked up in the signature
+/// database: one query by selector, one by hash, none when nothing is
+/// undecoded.
+pub async fn guess_flow(store: &Store, flow: &mut TxFlow) -> Result<(), StoreError> {
+    let (selectors, topics) = flow_guess_keys(flow);
+    let sigs = SignatureCandidates {
+        by_selector: signatures_by_selector(store.pool(), &selectors).await?,
+        by_hash: signatures_by_hash(store.pool(), &topics).await?,
+    };
+    apply_flow_guesses(flow, &sigs);
+    Ok(())
 }
 
 pub async fn load_tx_flow(store: &Store, hash: TxHash) -> Result<Option<TxFlow>, StoreError> {
@@ -1045,5 +1140,120 @@ mod tests {
         let call = build_tx_flow(&t, &[], &abis, &accounts).call.unwrap();
         assert_eq!(call.name, "foo");
         assert_eq!(call.args[0].name, "x");
+    }
+
+    /// `transfer(0x11…11, 1000)` calldata.
+    fn transfer_calldata() -> String {
+        format!(
+            "0xa9059cbb{:0>64}{:064x}",
+            hex::encode(Address::repeat_byte(0x11)),
+            1000
+        )
+    }
+
+    /// A receipt with one log of `topic0` (and a word of data) from TOKEN.
+    fn receipt_with_log(topic0: B256) -> serde_json::Value {
+        json!({"status": "0x1", "gasUsed": "0x5208", "logs": [{
+            "address": format!("{TOKEN:#x}"),
+            "topics": [format!("{topic0:#x}")],
+            "data": format!("0x{:064x}", 9), "logIndex": "0x3"
+        }]})
+    }
+
+    /// Candidates for the transfer selector and the `Ping(uint256)` topic.
+    fn candidates() -> SignatureCandidates {
+        SignatureCandidates {
+            by_selector: HashMap::from([(
+                [0xa9, 0x05, 0x9c, 0xbb],
+                vec![
+                    "many_msg_babbage(bytes1)".to_owned(),
+                    "transfer(address,uint256)".to_owned(),
+                ],
+            )]),
+            by_hash: HashMap::from([(
+                alloy_primitives::keccak256("Ping(uint256)"),
+                "Ping(uint256)".to_owned(),
+            )]),
+        }
+    }
+
+    #[test]
+    fn an_abi_decode_is_never_replaced_by_a_guess() {
+        // The ABI names the arguments; a guess would leave them unnamed.
+        let abi = JsonAbi::parse([
+            "function transfer(address dst, uint256 wad)",
+            "event Ping(uint256 n)",
+        ])
+        .unwrap();
+        let ping = abi.events().next().unwrap().selector();
+        let t = tx(Some(TOKEN), &transfer_calldata(), receipt_with_log(ping));
+        let abis = HashMap::from([(TOKEN, abi)]);
+        let mut f = build_tx_flow(&t, &[], &abis, &HashMap::new());
+        assert_eq!(flow_guess_keys(&f), (vec![], vec![]));
+        apply_flow_guesses(&mut f, &candidates());
+        let call = f.call.as_ref().unwrap();
+        assert_eq!(
+            (call.name.as_str(), call.args[0].name.as_str()),
+            ("transfer", "dst")
+        );
+        assert!(!f.call_guessed && f.call_alternatives.is_empty());
+        let e = &f.events[0];
+        assert_eq!(e.name.as_deref(), Some("Ping"));
+        assert_eq!(e.args[0].name, "n");
+        assert!(!e.guessed && e.signature.is_none());
+    }
+
+    #[test]
+    fn an_undecoded_call_takes_the_guess_and_is_marked_guessed() {
+        let t = tx(Some(B), &transfer_calldata(), json!({}));
+        let mut f = build_tx_flow(&t, &[], &HashMap::new(), &HashMap::new());
+        assert_eq!(
+            flow_guess_keys(&f),
+            (vec![[0xa9, 0x05, 0x9c, 0xbb]], vec![])
+        );
+        apply_flow_guesses(&mut f, &candidates());
+        let call = f.call.as_ref().expect("guessed");
+        assert_eq!(call.signature, "transfer(address,uint256)");
+        assert_eq!(call.args[1].value, "1000");
+        assert!(f.call_guessed);
+        assert!(f.call_alternatives.is_empty());
+        assert_eq!(f.call_via_delegate, None);
+        // A creation's input is init code, never guessed.
+        let mut c = build_tx_flow(
+            &tx(None, &transfer_calldata(), json!({})),
+            &[],
+            &HashMap::new(),
+            &HashMap::new(),
+        );
+        assert_eq!(flow_guess_keys(&c), (vec![], vec![]));
+        apply_flow_guesses(&mut c, &candidates());
+        assert!(c.call.is_none() && !c.call_guessed);
+    }
+
+    #[test]
+    fn an_unknown_event_takes_its_name_from_the_topic_hash() {
+        let topic = alloy_primitives::keccak256("Ping(uint256)");
+        let t = tx(Some(B), "0x", receipt_with_log(topic));
+        let mut f = build_tx_flow(&t, &[], &HashMap::new(), &HashMap::new());
+        assert_eq!(flow_guess_keys(&f), (vec![], vec![topic]));
+        let before = f.events[0].clone();
+        apply_flow_guesses(&mut f, &candidates());
+        let e = &f.events[0];
+        assert_eq!(e.name.as_deref(), Some("Ping"));
+        assert_eq!(e.signature.as_deref(), Some("Ping(uint256)"));
+        assert!(e.guessed);
+        assert!(e.args.is_empty());
+        assert_eq!((&e.topics, &e.data), (&before.topics, &before.data));
+    }
+
+    #[test]
+    fn without_signatures_nothing_changes() {
+        let topic = alloy_primitives::keccak256("Ping(uint256)");
+        let t = tx(Some(B), &transfer_calldata(), receipt_with_log(topic));
+        let mut f = build_tx_flow(&t, &[], &HashMap::new(), &HashMap::new());
+        let before = format!("{f:?}");
+        apply_flow_guesses(&mut f, &SignatureCandidates::default());
+        assert_eq!(format!("{f:?}"), before);
+        assert!(f.call.is_none() && f.events[0].name.is_none());
     }
 }

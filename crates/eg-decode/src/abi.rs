@@ -35,11 +35,17 @@ pub struct DecodedEvent {
     pub args: Vec<DecodedArg>,
     pub topics: Vec<B256>,
     pub data: Bytes,
+    /// The text signature `name` was guessed from (see
+    /// [`crate::guess::guess_event`]); `None` when an ABI or a built-in event
+    /// decoded the log, or nothing did.
+    pub signature: Option<String>,
+    /// `name` was guessed from the signature database, not decoded.
+    pub guessed: bool,
 }
 
 /// Stable textual form: lowercase hex addresses, decimal integers, 0x-hex bytes,
 /// `[a, b]` arrays, `(a, b)` tuples.
-fn fmt_value(v: &DynSolValue) -> String {
+pub(crate) fn fmt_value(v: &DynSolValue) -> String {
     match v {
         DynSolValue::Bool(b) => b.to_string(),
         DynSolValue::Int(i, _) => i.to_string(),
@@ -254,6 +260,8 @@ pub fn decode_event(abi: Option<&JsonAbi>, log: &RawLog) -> DecodedEvent {
         args,
         topics: log.topics.clone(),
         data: log.data.clone(),
+        signature: None,
+        guessed: false,
     }
 }
 

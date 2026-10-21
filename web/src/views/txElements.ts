@@ -7,6 +7,7 @@ import { shortAddr } from "../lib/address";
 import { assetClass } from "../lib/assets";
 import { formatAmount } from "../lib/amount";
 import { circled, ellipsize, shortTokenId } from "../lib/format";
+import { guessedName } from "../lib/guessed";
 import { flaggedLabel, trustFlag } from "../lib/trust";
 import { tokenKindOf, type InfoView } from "../panels/info/infoStore";
 
@@ -51,7 +52,7 @@ export function flowLabel(f: FlowDto): string {
 }
 
 export function callLabel(flow: TxFlowDto): string {
-  const label = flow.call?.name ?? (flow.tx.selector ? t("tx.undecodedSelector", { selector: flow.tx.selector }) : t("tx.call"));
+  const label = flow.call ? guessedName(flow.call.name, flow.call.guessed) : (flow.tx.selector ? t("tx.undecodedSelector", { selector: flow.tx.selector }) : t("tx.call"));
   return ellipsize(label, EDGE_LABEL_MAX);
 }
 

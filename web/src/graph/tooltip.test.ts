@@ -152,6 +152,14 @@ test("a call decoded with the current delegate's ABI says the delegation at the 
   });
 });
 
+test("a guessed method is marked, with its other candidates", () => {
+  const ls = callTooltip("transfer", null, false, true, ["foo(address,uint256)"]);
+  expect(text(ls)).toContain("Method transfer (Guessed)");
+  expect(ls.at(-1)).toEqual({ value: "Other candidates: foo(address,uint256)" });
+  expect(callTooltip("transfer", null, false, true, [])).toHaveLength(2);
+  expect(text(callTooltip("transfer", null, false, false, ["x()"]))).not.toContain("Guessed");
+});
+
 test("a token-contract node's tooltip explains why it has no flow edges", () => {
   const note = "Token contract of these transfers — it emitted the Transfer events but did not send or receive funds itself.";
   expect(nodeTooltip(node(), { assetContract: true }).at(-1)).toEqual({ value: note });

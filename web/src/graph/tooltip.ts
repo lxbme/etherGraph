@@ -5,6 +5,7 @@ import type { TrustDto } from "../api/generated/TrustDto";
 import { t, type MsgKey } from "../i18n";
 import { shortAddr } from "../lib/address";
 import { formatFixed } from "../lib/amount";
+import { alternativesText, guessedName } from "../lib/guessed";
 import { nodeTags, shownCategories } from "../lib/nodeTags";
 import { assetClass, NATIVE_SYMBOL } from "../lib/assets";
 import { circled, formatCount, formatLocalTime, formatTime } from "../lib/format";
@@ -156,11 +157,20 @@ export function edgeTooltip(v: VisualEdge, names: Map<string, string> = new Map(
 
 /**
  * The tx call edge, with the decoded method name when known and the delegate whose ABI decoded it (EIP-7702);
- * `current` when that delegate was read from the recipient's code today, not from the tx.
+ * `current` when that delegate was read from the recipient's code today, not from the tx. A method `guessed` from the
+ * signature database is marked so, with its other candidates (`alternatives`).
  */
-export function callTooltip(method?: string | null, viaDelegate?: string | null, current = false): TooltipLine[] {
+export function callTooltip(
+  method?: string | null,
+  viaDelegate?: string | null,
+  current = false,
+  guessed = false,
+  alternatives: readonly string[] = [],
+): TooltipLine[] {
   const lines: TooltipLine[] = [{ value: t("tooltip.call") }];
-  if (method) lines.push({ label: t("tooltip.method"), value: method, mono: true });
+  if (method) lines.push({ label: t("tooltip.method"), value: guessedName(method, guessed), mono: true });
+  const others = guessed ? alternativesText(alternatives) : undefined;
+  if (others) lines.push({ value: others });
   if (viaDelegate) {
     const key = current ? "tx.calls.viaCurrentDelegate" : "tx.calls.viaDelegate";
     lines.push({ value: t(key, { address: shortAddr(viaDelegate.toLowerCase()) }) });

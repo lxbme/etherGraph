@@ -3,7 +3,7 @@ import { useT } from "../../i18n";
 import { formatFixed } from "../../lib/amount";
 import { formatCount } from "../../lib/format";
 import { AddressCell } from "../../shell/AddressCell";
-import { ArgsTable, erc20Of, nodeOf, RawHex, useFlowLink, ViaDelegateNote, type FlowNodes } from "../txdetail/common";
+import { ArgsTable, erc20Of, GuessedTag, nodeOf, RawHex, useFlowLink, ViaDelegateNote, type FlowNodes } from "../txdetail/common";
 import { KIND_TEXT } from "./CallTreeList";
 import { contextOf } from "./model";
 
@@ -30,7 +30,14 @@ export function CallFrameDetail({ frame, flow }: { frame: CallFrameDto; flow: Fl
         {frame.to ? <AddressCell address={frame.to} node={nodeOf(flow, frame.to)} onSelect={select} /> : <span>—</span>}
       </div>
       {frame.call ? (
-        <div className="detail__mono">{frame.call.signature}</div>
+        frame.call.guessed ? (
+          <div className="txdetail__line">
+            <span className="detail__mono">{frame.call.signature}</span>
+            <GuessedTag alternatives={frame.call.alternatives} />
+          </div>
+        ) : (
+          <div className="detail__mono">{frame.call.signature}</div>
+        )
       ) : (
         !creation && frame.input.length >= 10 && (
           <div className="txdetail__line">

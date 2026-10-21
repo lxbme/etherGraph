@@ -8,7 +8,7 @@ import { formatFixed } from "../lib/amount";
 import { formatLocalTime, formatTime } from "../lib/format";
 import { AddressCell } from "../shell/AddressCell";
 import { useTabs } from "../shell/tabs";
-import { ViaDelegateNote } from "../views/txdetail/common";
+import { GuessedTag, ViaDelegateNote } from "../views/txdetail/common";
 
 /** Success / Failed badge of a transaction. */
 export function TxStatusTag({ success }: { success: boolean }) {
@@ -53,16 +53,20 @@ export function TxSummaryCard({ hash }: { hash: string }) {
     <div className="detail__section" data-testid="tx-summary">
       <h3 className="detail__title">
         <TxStatusTag success={tx.success} />{" "}
-        {name ??
-          (tx.to && tx.selector ? (
-            <>
-              <span className="detail__mono">{tx.selector}</span> <span className="txview__tag">{t("tx.undecoded")}</span>
-            </>
-          ) : tx.to ? (
-            t("tx.transfer")
-          ) : (
-            t("tx.contractCreation")
-          ))}
+        {name !== null ? (
+          <>
+            {name}
+            {flow.call?.guessed && <> <GuessedTag alternatives={flow.call.alternatives} /></>}
+          </>
+        ) : tx.to && tx.selector ? (
+          <>
+            <span className="detail__mono">{tx.selector}</span> <span className="txview__tag">{t("tx.undecoded")}</span>
+          </>
+        ) : tx.to ? (
+          t("tx.transfer")
+        ) : (
+          t("tx.contractCreation")
+        )}
       </h3>
       {flow.call?.via_delegate && <ViaDelegateNote via={flow.call.via_delegate} current={flow.call.via_delegate_current} />}
       <dl className="kv">

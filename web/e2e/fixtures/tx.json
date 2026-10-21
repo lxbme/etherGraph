@@ -44,7 +44,9 @@
       "name": "swapExactETHForTokens",
       "args": [],
       "via_delegate": null,
-      "via_delegate_current": false
+      "via_delegate_current": false,
+      "guessed": false,
+      "alternatives": []
     },
     "nodes": [
       {

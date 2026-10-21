@@ -58,7 +58,9 @@
           }
         ],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -88,7 +90,9 @@
           }
         ],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -128,7 +132,9 @@
           }
         ],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -153,7 +159,9 @@
         "name": "latestAnswer",
         "args": [],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -179,7 +187,9 @@
         "name": "latestAnswer",
         "args": [],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -204,7 +214,9 @@
         "name": "latestAnswer",
         "args": [],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -230,7 +242,9 @@
         "name": "latestAnswer",
         "args": [],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -260,7 +274,9 @@
           }
         ],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -310,7 +326,9 @@
           }
         ],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -351,7 +369,9 @@
           }
         ],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -383,7 +403,9 @@
           }
         ],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -425,7 +447,9 @@
           }
         ],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -476,7 +500,9 @@
           }
         ],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -512,7 +538,9 @@
           }
         ],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -547,7 +575,9 @@
           }
         ],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,
@@ -588,7 +618,9 @@
           }
         ],
         "via_delegate": null,
-        "via_delegate_current": false
+        "via_delegate_current": false,
+        "guessed": false,
+        "alternatives": []
       },
       "revert": null,
       "via_delegate": null,

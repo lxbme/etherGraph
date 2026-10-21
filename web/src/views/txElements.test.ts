@@ -27,7 +27,7 @@ const dto = (over: Partial<TxFlowDto> = {}): TxFlowDto => ({
     burnt_fee: null, savings: null, blob_gas_used: null, blob_gas_price: null, blob_fee: null, access_list_len: null,
     contract_created: null, revert_reason: null, input: "0x", authorizations: [], delegations: [],
   },
-  call: { signature: "swap(uint256)", name: "swap", args: [], via_delegate: null, via_delegate_current: false },
+  call: { signature: "swap(uint256)", name: "swap", args: [], via_delegate: null, via_delegate_current: false, guessed: false, alternatives: [] },
   nodes: [node(A), node(B)], flows: [flow()], events: [], completeness: "fund_flow", ...over,
 });
 
@@ -117,6 +117,11 @@ test("a long call label is cut to 48 characters", () => {
   const label = callLabel(dto({ call: { name } } as Partial<TxFlowDto>));
   expect([...label]).toHaveLength(48);
   expect(label.endsWith("…")).toBe(true);
+});
+
+test("a guessed call's label is marked as guessed", () => {
+  expect(callLabel(dto({ call: { name: "transfer", guessed: true } } as Partial<TxFlowDto>))).toBe("transfer (Guessed)");
+  expect(callLabel(dto({ call: { name: "transfer", guessed: false } } as Partial<TxFlowDto>))).toBe("transfer");
 });
 
 test("tapping a flow edge resolves its asset (NFTs with their token id); the call edge resolves to nothing", () => {
@@ -234,7 +239,7 @@ describe("self-calls and EIP-7702 delegations", () => {
   test("each effective delegation from the server draws a dashed delegates-to edge from signer to delegate", () => {
     const f = dto({
       tx: { ...dto().tx, from: A, to: A },
-      call: { signature: "execute(bytes)", name: "execute", args: [], via_delegate: D, via_delegate_current: false },
+      call: { signature: "execute(bytes)", name: "execute", args: [], via_delegate: D, via_delegate_current: false, guessed: false, alternatives: [] },
       detail: {
         ...dto().detail,
         tx_type: 4,

@@ -7,8 +7,8 @@ use std::collections::{HashMap, HashSet};
 use alloy_json_abi::JsonAbi;
 use eg_core::source::{CallFrame, CallKind};
 use eg_core::types::Address;
-use eg_decode::{DecodedCall, DecodedError, decode_call, decode_error};
-use eg_store::{AccountRow, CallTraceRow, Store, StoreError, TxRow};
+use eg_decode::{DecodedCall, DecodedError, decode_call, decode_error, guess_call};
+use eg_store::{AccountRow, CallTraceRow, Store, StoreError, TxRow, signatures_by_selector};
 
 use crate::authorization::{applied_delegations, authorizations, tx_nonce};
 use crate::txflow::{abis_for, accounts_with_proxies, implementations};
@@ -173,6 +173,11 @@ pub struct DecodedFrame {
     /// The callee's delegate, when its ABI decoded the call (or, with no call
     /// decoded, the revert).
     pub via_delegate: Option<FrameDelegate>,
+    /// `call` was guessed from the signature database (see
+    /// [`apply_frame_guesses`]): no ABI decoded it.
+    pub guessed: bool,
+    /// The other candidates of a guessed `call`.
+    pub alternatives: Vec<String>,
 }
 
 /// `input` decoded with the first of `candidates` that decodes it, and that
@@ -242,9 +247,63 @@ pub fn decode_frames(
                 call: decoded.map(|(call, _)| call),
                 revert,
                 via_delegate,
+                guessed: false,
+                alternatives: Vec::new(),
             }
         })
         .collect()
+}
+
+/// The selector of a frame's call no ABI decoded; `None` for a create or
+/// self-destruct (their input is not calldata) and a decoded call.
+fn undecoded_selector(d: &DecodedFrame) -> Option<[u8; 4]> {
+    let f = &d.frame;
+    let creates = matches!(
+        f.kind,
+        CallKind::Create | CallKind::Create2 | CallKind::SelfDestruct
+    );
+    if d.call.is_some() || creates || f.to.is_none() {
+        return None;
+    }
+    f.input.get(..4)?.try_into().ok()
+}
+
+/// The distinct selectors of the frames' calls no ABI decoded.
+pub fn frame_guess_selectors(frames: &[DecodedFrame]) -> Vec<[u8; 4]> {
+    let mut out: Vec<[u8; 4]> = frames.iter().filter_map(undecoded_selector).collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Guesses each call no ABI decoded from its selector's candidates (see
+/// [`eg_decode::guess_call`]), marked guessed. Runs after [`decode_frames`]
+/// has tried every ABI, so a decoded call is never replaced; the revert and
+/// `via_delegate` are left as decoded.
+pub fn apply_frame_guesses(
+    frames: &mut [DecodedFrame],
+    by_selector: &HashMap<[u8; 4], Vec<String>>,
+) {
+    for d in frames.iter_mut() {
+        let Some(g) = undecoded_selector(d)
+            .and_then(|sel| by_selector.get(&sel))
+            .and_then(|candidates| guess_call(&d.frame.input, candidates))
+        else {
+            continue;
+        };
+        d.call = Some(g.call);
+        d.guessed = true;
+        d.alternatives = g.alternatives;
+    }
+}
+
+/// [`apply_frame_guesses`] with the candidates looked up in the signature
+/// database in one query (none when every call decoded).
+pub async fn guess_frames(store: &Store, frames: &mut [DecodedFrame]) -> Result<(), StoreError> {
+    let selectors = frame_guess_selectors(frames);
+    let by_selector = signatures_by_selector(store.pool(), &selectors).await?;
+    apply_frame_guesses(frames, &by_selector);
+    Ok(())
 }
 
 /// Whether each frame is shown under the default filter: neither it nor an
@@ -699,5 +758,97 @@ mod tests {
             ("foo", "42")
         );
         assert_eq!(decoded[1].via_delegate, None);
+    }
+
+    /// `transfer(0x11…11, 1000)` calldata.
+    fn transfer_calldata() -> Bytes {
+        let mut input = vec![0xa9, 0x05, 0x9c, 0xbb];
+        input.extend_from_slice(Address::repeat_byte(0x11).into_word().as_slice());
+        input.extend_from_slice(&U256::from(1000u32).to_be_bytes::<32>());
+        Bytes::from(input)
+    }
+
+    fn transfer_candidates() -> HashMap<[u8; 4], Vec<String>> {
+        HashMap::from([(
+            [0xa9, 0x05, 0x9c, 0xbb],
+            vec![
+                "many_msg_babbage(bytes1)".to_owned(),
+                "transfer(address,uint256)".to_owned(),
+            ],
+        )])
+    }
+
+    /// A root into `abi_callee` and three children with transfer calldata:
+    /// a call to `bare` (no ABI), a create and a call to `bare` that reverts
+    /// with the custom error of its delegate's ABI.
+    fn guess_trace() -> (
+        CallTraceRow,
+        HashMap<Address, FrameDelegate>,
+        HashMap<Address, JsonAbi>,
+    ) {
+        let (abi_callee, bare, delegate) = (
+            Address::repeat_byte(0x10),
+            Address::repeat_byte(0x20),
+            Address::repeat_byte(0xde),
+        );
+        let with_input = |path: &[u32], kind, to, subtraces| {
+            let mut f = frame(path, kind, Some(to), subtraces);
+            f.input = transfer_calldata();
+            f
+        };
+        let root = with_input(&[], CallKind::Call, abi_callee, 3);
+        let call = with_input(&[0], CallKind::Call, bare, 0);
+        let create = with_input(&[1], CallKind::Create, Address::repeat_byte(0x30), 0);
+        let mut failed = with_input(&[2], CallKind::Call, bare, 0);
+        let del_abi = abi(PONG);
+        let mut out = del_abi.errors().next().unwrap().selector().to_vec();
+        out.extend_from_slice(&U256::from(7u8).to_be_bytes::<32>());
+        failed.error = Some("Reverted".into());
+        failed.output = Some(Bytes::from(out));
+        let own = JsonAbi::parse(["function transfer(address dst, uint256 wad)"]).unwrap();
+        let abis = HashMap::from([(abi_callee, own), (delegate, del_abi)]);
+        let r = row(vec![root, call, create, failed], &[]);
+        (r, looked_up(bare, delegate), abis)
+    }
+
+    #[test]
+    fn an_abi_decode_is_never_replaced_by_a_guess() {
+        let (r, delegates, abis) = guess_trace();
+        let mut d = decode_frames(&r, &delegates, &abis, &HashMap::new());
+        apply_frame_guesses(&mut d, &transfer_candidates());
+        let call = d[0].call.as_ref().unwrap();
+        assert_eq!(call.args[0].name, "dst");
+        assert!(!d[0].guessed && d[0].alternatives.is_empty());
+    }
+
+    #[test]
+    fn an_undecoded_frame_takes_the_guess_and_is_marked_guessed() {
+        let (r, delegates, abis) = guess_trace();
+        let mut d = decode_frames(&r, &delegates, &abis, &HashMap::new());
+        // Only the undecoded calls ask: the root has an ABI, a create's input
+        // is init code.
+        assert_eq!(frame_guess_selectors(&d), vec![[0xa9, 0x05, 0x9c, 0xbb]]);
+        apply_frame_guesses(&mut d, &transfer_candidates());
+        for i in [1, 3] {
+            let call = d[i].call.as_ref().expect("guessed");
+            assert_eq!(call.signature, "transfer(address,uint256)");
+            assert_eq!(call.args[0].name, "");
+            assert!(d[i].guessed);
+            assert!(d[i].alternatives.is_empty());
+        }
+        assert_eq!(d[1].via_delegate, None);
+        // The revert still decodes with the delegate's ABI, and says so.
+        assert_eq!(d[3].revert.as_ref().map(|e| e.name.as_str()), Some("Nope"));
+        assert_eq!(d[3].via_delegate, delegates.values().next().copied());
+        assert!(d[2].call.is_none() && !d[2].guessed);
+    }
+
+    #[test]
+    fn without_signatures_frames_do_not_change() {
+        let (r, delegates, abis) = guess_trace();
+        let mut d = decode_frames(&r, &delegates, &abis, &HashMap::new());
+        let before = format!("{d:?}");
+        apply_frame_guesses(&mut d, &HashMap::new());
+        assert_eq!(format!("{d:?}"), before);
     }
 }

@@ -4,14 +4,15 @@ import type { TxFlowDto } from "../../api/generated/TxFlowDto";
 import { useT } from "../../i18n";
 import { AddressCell } from "../../shell/AddressCell";
 import { eventSignature } from "../../lib/tokenArgs";
-import { ArgsTable, erc20Of, nodeOf, RawHex, useFlowLink } from "./common";
+import { ArgsTable, erc20Of, GuessedTag, nodeOf, RawHex, useFlowLink } from "./common";
 
 /** Cards rendered before "Show all". */
 export const LOG_LIMIT = 200;
 
 function LogCard({ event: e, flow }: { event: DecodedEventDto; flow: TxFlowDto }) {
   const t = useT();
-  const decoded = e.name !== null;
+  // A name guessed from the signature database comes without decoded arguments: such a log stays on its raw view.
+  const decoded = e.name !== null && !e.guessed;
   const [raw, setRaw] = useState(!decoded);
   const { select } = useFlowLink(flow.tx.hash);
   return (
@@ -19,7 +20,17 @@ function LogCard({ event: e, flow }: { event: DecodedEventDto; flow: TxFlowDto }
       <header className="txlog__head">
         <span className="num detail__muted">{t("tx.logs.index", { index: String(e.log_index) })}</span>
         <AddressCell address={e.address} node={nodeOf(flow, e.address)} onSelect={select} />
-        {decoded ? <b>{e.name}</b> : <span className="txview__tag">{t("tx.undecoded")}</span>}
+        {e.name === null ? (
+          <span className="txview__tag">{t("tx.undecoded")}</span>
+        ) : e.guessed ? (
+          <>
+            <b>{e.name}</b>
+            {e.signature && <span className="detail__mono detail__muted">{e.signature}</span>}
+            <GuessedTag />
+          </>
+        ) : (
+          <b>{e.name}</b>
+        )}
         <div className="seg txlog__toggle" role="group" aria-label={t("tx.logs.view")}>
           <button type="button" className="seg__item" aria-pressed={!raw} disabled={!decoded} onClick={() => setRaw(false)}>
             {t("tx.logs.decoded")}
