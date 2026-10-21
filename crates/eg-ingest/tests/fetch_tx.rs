@@ -714,3 +714,44 @@ async fn a_call_that_decodes_with_the_recipients_abi_looks_nothing_up(pool: PgPo
     assert_eq!(e.fake.calls(), 4);
     assert_eq!(e.ctx.store.to_current_delegate(HASH).await.unwrap(), None);
 }
+
+/// The current-delegate lookup is best-effort in a full fetch: when TO's code
+/// lookup fails, the tx is still announced and its parties identified, and
+/// nothing is recorded, so the lookup stays due for the lazy path.
+async fn a_failed_delegate_lookup_still_completes_the_fetch(pool: PgPool, err: SourceError) {
+    let e = env(pool);
+    let (tx, _) = foo_call();
+    e.fake.add_tx(tx, receipt(true, 7, vec![]), vec![], ts());
+    e.fake.add_block(header());
+    // tx, receipt, block, internal transfers, then TO's code (the 5th call).
+    e.fake.fail_at(5, err);
+    let mut rx = e.ctx.bus.subscribe();
+    run(&e, &format!("{HASH:#x}")).await.unwrap();
+    assert_eq!(e.fake.calls(), 5);
+    let mut ready = false;
+    while let Ok((_, ev)) = rx.try_recv() {
+        ready |= matches!(ev, Event::TxReady { hash } if hash == HASH);
+    }
+    assert!(ready);
+    let jobs = meta_params(&e).await;
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0]["addresses"], sorted_hex(&[FROM, TO]));
+    assert_eq!(e.ctx.store.to_current_delegate(HASH).await.unwrap(), None);
+    let flow = load_tx_flow(&e.ctx.store, HASH).await.unwrap().unwrap();
+    assert!(flow.delegate_lookup_due);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_retryable_delegate_lookup_error_still_completes_the_fetch(pool: PgPool) {
+    a_failed_delegate_lookup_still_completes_the_fetch(pool, SourceError::Timeout).await;
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn an_exhausted_quota_on_the_delegate_lookup_still_completes_the_fetch(pool: PgPool) {
+    a_failed_delegate_lookup_still_completes_the_fetch(pool, SourceError::QuotaExhausted).await;
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_rejected_key_on_the_delegate_lookup_still_completes_the_fetch(pool: PgPool) {
+    a_failed_delegate_lookup_still_completes_the_fetch(pool, SourceError::InvalidKey).await;
+}

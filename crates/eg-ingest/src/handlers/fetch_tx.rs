@@ -198,7 +198,15 @@ impl JobHandler for FetchTxHandler {
         let flow = load_tx_flow(&ctx.store, hash)
             .await?
             .ok_or_else(|| JobError::Invalid("transaction not stored".into()))?;
-        let current = lookup_current_delegate(ctx, p, &flow).await?;
+        // Best-effort here: a failed lookup records nothing, so it stays due
+        // and the tx's view queues a `current_delegate_only` job for it later.
+        let current = match lookup_current_delegate(ctx, p, &flow).await {
+            Ok(found) => found,
+            Err(e) => {
+                tracing::warn!(tx = %hash, error = %e, "current delegate lookup failed");
+                None
+            }
+        };
 
         // The rest are identified on demand (`POST /api/identify`).
         let delegations =
