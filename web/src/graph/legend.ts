@@ -112,8 +112,8 @@ function present(els: cytoscape.ElementDefinition[]): Set<string> {
       for (const c of cls) {
         if (c.startsWith("kind-")) out.add(`shape/${c.slice(5)}`);
         if (STATES.includes(c as never)) out.add(`state/${c}`);
-        // The center is drawn in the accent whatever its category; one the stylesheet does not tint ("other", …) is plain.
-        if (c.startsWith("cat-") && !cls.has("center")) categories.add(legendCategory(c.slice(4)));
+        // A labelled center keeps its category colour; one the stylesheet does not tint ("other", …) is plain.
+        if (c.startsWith("cat-")) categories.add(legendCategory(c.slice(4)));
       }
     } else if (cls.has("asset-link")) {
       out.add("tx/asset-link");

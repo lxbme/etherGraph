@@ -58,21 +58,20 @@ function withCy(style: cytoscape.StylesheetJson, elements: cytoscape.ElementDefi
 }
 
 describe("graphStylesheet", () => {
-  test.each(["light", "dark"] as const)("a sanctioned center keeps the scam fill with the center ring and size (%s)", (theme) => {
+  test.each(["light", "dark"] as const)("a sanctioned center keeps the scam fill with its category stroke, the center size and width (%s)", (theme) => {
     const cat = categoryColors(theme);
-    const ring = stateColors(theme).center;
     withCy(sheet(theme) as never, [{ group: "nodes", data: { id: "a", text: "a" }, classes: "center cat-sanctioned" }], (cy) => {
       const n = cy.getElementById("a") as never;
       expect(styleFill(n, "background-color")).toBe(styleFill(cat.scam.fill));
-      expect(styleFill(n, "border-color")).toBe(styleFill(ring.stroke));
+      expect(styleFill(n, "border-color")).toBe(styleFill(cat.scam.stroke));
       expect(ps(n, "border-width").pfValue).toBe(3);
       expect(ps(n, "width").pfValue).toBe(38);
     });
   });
 
-  test("an uncategorised center keeps the accent fill", () => {
-    const ring = stateColors("light").center;
-    withCy(sheet() as never, [{ group: "nodes", data: { id: "a", text: "a" }, classes: "center" }], (cy) => {
+  test.each(["light", "dark"] as const)("an uncategorised center keeps the accent fill and the white ring (%s)", (theme) => {
+    const ring = stateColors(theme).center;
+    withCy(sheet(theme) as never, [{ group: "nodes", data: { id: "a", text: "a" }, classes: "center" }], (cy) => {
       const n = cy.getElementById("a") as never;
       expect(styleFill(n, "background-color")).toBe(styleFill(ring.fill));
       expect(styleFill(n, "border-color")).toBe(styleFill(ring.stroke));
@@ -151,14 +150,15 @@ describe("graphStylesheet", () => {
     expect(dark["text-outline-color"]).toBe("#10141a");
   });
 
-  test("the center node is an accent fill (before the categories) with a 3px white border and a 600 label (after them)", () => {
+  test("the center node is an accent fill and ring (before the categories) with a 3px border and a 600 label (after them)", () => {
     const s = sheet();
     const idx = (sel: string) => s.findIndex((b) => b.selector === sel);
     const c = s[s.map((b) => b.selector).lastIndexOf("node.center")]!.style;
     expect(styleOf(s, "node.center")["background-color"]).toBe("#1f5eff");
     expect(idx("node.center")).toBeLessThan(idx("node.cat-cex"));
+    expect(styleOf(s, "node.center")["border-color"]).toBe("#ffffff");
     expect(c["background-color"]).toBeUndefined();
-    expect(c["border-color"]).toBe("#ffffff");
+    expect(c["border-color"]).toBeUndefined();
     expect(c["border-width"]).toBe(3);
     expect(c["font-weight"]).toBe(600);
   });
@@ -422,7 +422,7 @@ describe("graphStylesheet", () => {
         const c = cy.getElementById("c");
         expect(c.style("background-color")).toBe("rgb(222,232,247)"); // the category tint beats the center accent
         expect(c.style("border-width")).toBe("3px");
-        expect(c.style("border-color")).toBe("rgb(255,255,255)"); // selection does not repaint the center's ring
+        expect(c.style("border-color")).toBe("rgb(37,99,201)"); // the category stroke; selection does not repaint it
         expect(cy.getElementById("ab").style("label")).toBe("×2");
       },
     );

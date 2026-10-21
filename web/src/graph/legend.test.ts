@@ -46,9 +46,9 @@ describe("legendFor", () => {
     expect(ids(g).category).toEqual(["mixer", "none"]);
   });
 
-  test("categories count only non-center nodes; sanctioned shows as scam", () => {
+  test("a center's category counts like any node's; sanctioned shows as scam", () => {
     const g = legendFor([node("c", "kind-eoa cat-cex center"), node("s", "kind-eoa cat-sanctioned")], "light");
-    expect(ids(g).category).toEqual(["scam"]);
+    expect(ids(g).category).toEqual(["cex", "scam"]);
   });
 
   test("a more node lists +N more in the state group", () => {
