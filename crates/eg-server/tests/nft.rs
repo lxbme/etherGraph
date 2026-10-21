@@ -6,12 +6,14 @@ mod common;
 use alloy_primitives::{Address, U256};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use chrono::{Duration, Utc};
 use common::{default_user_id, get, send, test_app_traced};
 use eg_core::source::{NftAttribute, NftMetadata, SourceError};
 use eg_ingest::JobHandler;
 use eg_ingest::events::{Audience, Event};
 use eg_ingest::handlers::FetchNftHandler;
 use eg_server::state::AppState;
+use eg_store::NftMetaRow;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 
@@ -167,7 +169,8 @@ async fn capped_fields(pool: PgPool) {
     let len = |f: &str| v[f].as_str().unwrap().chars().count();
     assert_eq!(len("name"), 200);
     assert_eq!(len("description"), 2_000);
-    assert_eq!(len("image"), 2_048);
+    // A cut URL would be broken: one over the cap is not stored.
+    assert!(v["image"].is_null(), "{v}");
     assert_eq!(v["attributes"].as_array().unwrap().len(), 50);
 }
 
@@ -239,4 +242,76 @@ async fn cross_site_get_starts_nothing(pool: PgPool) {
     let (st, v) = send(&app, cross()).await;
     assert_eq!(st, StatusCode::OK, "{v}");
     assert_eq!(v["status"], "ready");
+}
+
+/// Caches `meta` for TOKEN #ID as fetched `hours` ago.
+async fn cache(state: &AppState, meta: Option<NftMetadata>, hours: i64) {
+    state
+        .store
+        .upsert_nft_meta(&NftMetaRow {
+            token: TOKEN,
+            token_id: id(),
+            meta,
+            fetched_at: Utc::now() - Duration::hours(hours),
+        })
+        .await
+        .unwrap();
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn empty_results_younger_than_a_day_are_served(pool: PgPool) {
+    let (app, state, _, trace) = test_app_traced(pool).await;
+    cache(&state, None, 23).await;
+    let (st, v) = get(&app, &uri(ID)).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert_eq!(v["status"], "not_found");
+
+    cache(&state, Some(NftMetadata::default()), 23).await;
+    let (_, v) = get(&app, &uri(ID)).await;
+    assert_eq!(v["status"], "ready");
+    assert_eq!(v["name"], Value::Null);
+    assert_eq!(job_count(&state).await, 0);
+    assert_eq!(trace.calls(), 0);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn empty_results_older_than_a_day_are_fetched_again(pool: PgPool) {
+    let (app, state, _, trace) = test_app_traced(pool).await;
+    for (n, empty) in [None, Some(NftMetadata::default())].into_iter().enumerate() {
+        cache(&state, empty, 25).await;
+        let (st, v) = get(&app, &uri(ID)).await;
+        assert_eq!(st, StatusCode::OK, "{v}");
+        assert_eq!(v["status"], "pending", "{v}");
+        // The job fetches again although a row is cached.
+        trace.set_nft(TOKEN, id(), meta());
+        run_fetch(&state, v["job_id"].as_i64().unwrap())
+            .await
+            .unwrap();
+        assert_eq!(trace.calls(), n + 1);
+        let (_, v) = get(&app, &uri(ID)).await;
+        assert_eq!(v["status"], "ready");
+        assert_eq!(v["name"], "Synthetic #1");
+    }
+    // A cross-site view is served the stale row and starts nothing.
+    cache(&state, None, 25).await;
+    let req = Request::get(uri(ID))
+        .header("sec-fetch-site", "cross-site")
+        .body(Body::empty())
+        .unwrap();
+    let (st, v) = send(&app, req).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert_eq!(v["status"], "not_found");
+    assert_eq!(job_count(&state).await, 2);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_non_empty_old_row_is_served(pool: PgPool) {
+    let (app, state, _, trace) = test_app_traced(pool).await;
+    cache(&state, Some(meta()), 24 * 365).await;
+    let (st, v) = get(&app, &uri(ID)).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert_eq!(v["status"], "ready");
+    assert_eq!(v["name"], "Synthetic #1");
+    assert_eq!(job_count(&state).await, 0);
+    assert_eq!(trace.calls(), 0);
 }

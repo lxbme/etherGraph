@@ -11,8 +11,12 @@ use crate::{Result, Store, StoreError};
 /// `trait_type` and `value`.
 pub const NFT_NAME_MAX: usize = 200;
 pub const NFT_DESCRIPTION_MAX: usize = 2_000;
+/// Longest image URL kept; a longer one is not stored (a cut URL is broken).
 pub const NFT_IMAGE_MAX: usize = 2_048;
 pub const NFT_ATTRIBUTES_MAX: usize = 50;
+/// Hours after which an empty result (see [`NftMetaRow::is_stale`]) is
+/// fetched again.
+pub const NFT_EMPTY_TTL_HOURS: i64 = 24;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NftMetaRow {
@@ -21,6 +25,22 @@ pub struct NftMetaRow {
     /// `None`: the source knows no such token instance.
     pub meta: Option<NftMetadata>,
     pub fetched_at: DateTime<Utc>,
+}
+
+impl NftMetaRow {
+    /// Whether the row is empty (not found, or found with no name,
+    /// description, image or attribute) and older than
+    /// [`NFT_EMPTY_TTL_HOURS`] at `now`: such a row is fetched again. A row
+    /// with anything to show is kept for good.
+    pub fn is_stale(&self, now: DateTime<Utc>) -> bool {
+        let empty = self.meta.as_ref().is_none_or(|m| {
+            m.name.is_none()
+                && m.description.is_none()
+                && m.image.is_none()
+                && m.attributes.is_empty()
+        });
+        empty && now - self.fetched_at > chrono::Duration::hours(NFT_EMPTY_TTL_HOURS)
+    }
 }
 
 /// The first `max` characters of `s`.
@@ -35,7 +55,10 @@ fn capped(m: &NftMetadata) -> NftMetadata {
             .description
             .as_deref()
             .map(|s| cap(s, NFT_DESCRIPTION_MAX)),
-        image: m.image.as_deref().map(|s| cap(s, NFT_IMAGE_MAX)),
+        image: m
+            .image
+            .clone()
+            .filter(|s| s.chars().count() <= NFT_IMAGE_MAX),
         attributes: m
             .attributes
             .iter()
@@ -88,7 +111,8 @@ impl Store {
         }))
     }
 
-    /// Stores `row` with its strings and attribute list cut to the caps above.
+    /// Stores `row` with its strings and attribute list cut to the caps above
+    /// (an image URL over its cap is dropped).
     pub async fn upsert_nft_meta(&self, row: &NftMetaRow) -> Result<()> {
         let meta = row.meta.as_ref().map(capped);
         let attributes = meta
@@ -201,9 +225,8 @@ mod tests {
             got.description.unwrap().chars().count(),
             NFT_DESCRIPTION_MAX
         );
-        let image = got.image.unwrap();
-        assert_eq!(image.chars().count(), NFT_IMAGE_MAX);
-        assert!(image.starts_with("https://example.org/iii"));
+        // A cut URL would be broken: an image URL over the cap is dropped.
+        assert_eq!(got.image, None);
         assert_eq!(got.attributes.len(), NFT_ATTRIBUTES_MAX);
         assert_eq!(
             got.attributes[0],
@@ -212,5 +235,56 @@ mod tests {
                 value: long('v', NFT_NAME_MAX),
             }
         );
+    }
+
+    #[sqlx::test]
+    async fn an_image_url_at_the_cap_is_kept(pool: PgPool) {
+        let s = Store::from_pool(pool);
+        let url = format!("https://example.org/{}", "i".repeat(NFT_IMAGE_MAX - 20));
+        assert_eq!(url.chars().count(), NFT_IMAGE_MAX);
+        let r = row(Some(NftMetadata {
+            image: Some(url.clone()),
+            ..meta()
+        }));
+        s.upsert_nft_meta(&r).await.unwrap();
+        let got = s.nft_meta(r.token, r.token_id).await.unwrap().unwrap();
+        assert_eq!(got.meta.unwrap().image, Some(url));
+    }
+
+    #[test]
+    fn only_empty_rows_older_than_a_day_are_stale() {
+        let now = DateTime::from_timestamp(1_760_000_000, 0).unwrap();
+        let at = |hours: i64, meta: Option<NftMetadata>| NftMetaRow {
+            fetched_at: now - chrono::Duration::hours(hours),
+            ..row(meta)
+        };
+        let empty = || Some(NftMetadata::default());
+        // Not found, or found with nothing to show: fetched again after 24 h.
+        assert!(!at(23, None).is_stale(now));
+        assert!(at(25, None).is_stale(now));
+        assert!(!at(23, empty()).is_stale(now));
+        assert!(at(25, empty()).is_stale(now));
+        // Anything to show is kept for good.
+        assert!(!at(24 * 365, Some(meta())).is_stale(now));
+        for one in [
+            NftMetadata {
+                name: Some("n".into()),
+                ..Default::default()
+            },
+            NftMetadata {
+                description: Some("d".into()),
+                ..Default::default()
+            },
+            NftMetadata {
+                image: Some("https://example.org/1.png".into()),
+                ..Default::default()
+            },
+            NftMetadata {
+                attributes: meta().attributes,
+                ..Default::default()
+            },
+        ] {
+            assert!(!at(25, Some(one)).is_stale(now));
+        }
     }
 }

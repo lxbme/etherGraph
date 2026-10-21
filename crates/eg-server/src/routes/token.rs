@@ -4,6 +4,7 @@
 
 use axum::Json;
 use axum::extract::State;
+use chrono::Utc;
 use eg_core::types::TransferKind;
 use eg_ingest::{enqueue_fetch_nft, enqueue_tokens};
 use serde::Deserialize;
@@ -101,10 +102,11 @@ pub async fn detail(
 }
 
 /// The cached metadata of NFT `addr` #`id` (a decimal uint256), shared by
-/// all users. Without a cached row the viewer's fetch job is started (billed
-/// to them) and `pending` returned; its end is announced by `NftReady`. A
-/// cross-site request (see [`MayStartWork`]) is served from the cache and
-/// starts nothing.
+/// all users. Without a cached row, or with an empty one past its TTL (see
+/// [`eg_store::NftMetaRow::is_stale`]), the viewer's fetch job is started
+/// (billed to them) and `pending` returned; its end is announced by
+/// `NftReady`. A cross-site request (see [`MayStartWork`]) is served from the
+/// cache, stale or not, and starts nothing.
 pub async fn nft(
     State(s): State<AppState>,
     user: CurrentUser,
@@ -113,11 +115,12 @@ pub async fn nft(
 ) -> Result<Json<NftMetaDto>, ApiError> {
     let token = parse_address(&raw_addr)?;
     let id = parse_token_id(&raw_id)?;
-    if let Some(row) = s.store.nft_meta(token, id).await? {
-        return Ok(Json(NftMetaDto::cached(row.meta)));
-    }
-    if !may_start {
-        return Err(ApiError::not_found("nft metadata not fetched"));
+    match s.store.nft_meta(token, id).await? {
+        Some(row) if !may_start || !row.is_stale(Utc::now()) => {
+            return Ok(Json(NftMetaDto::cached(row.meta)));
+        }
+        None if !may_start => return Err(ApiError::not_found("nft metadata not fetched")),
+        _ => {}
     }
     let job_id = enqueue_fetch_nft(&s.ctx, Some(user.id), token, id).await?;
     Ok(Json(NftMetaDto::pending(job_id)))

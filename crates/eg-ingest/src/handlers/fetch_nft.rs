@@ -1,6 +1,7 @@
 //! `FetchNft`: fetches an NFT's metadata from the trace provider and caches
 //! it for everyone. A provider 404 is cached as "not found"; any other error
-//! fails the job and caches nothing, so a later view retries.
+//! fails the job and caches nothing, so a later view retries. An empty row
+//! past its TTL ([`NftMetaRow::is_stale`]) is fetched again.
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -38,7 +39,12 @@ impl JobHandler for FetchNftHandler {
             )
         };
         // Cached by another user's job meanwhile: nothing to fetch.
-        if ctx.store.nft_meta(token, id).await?.is_some() {
+        if ctx
+            .store
+            .nft_meta(token, id)
+            .await?
+            .is_some_and(|row| !row.is_stale(Utc::now()))
+        {
             ready();
             return Ok(());
         }

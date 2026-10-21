@@ -20,14 +20,19 @@ const empty = (status: NftMetaDto["status"], job_id: number | null = null): NftM
 
 function renderPreview(tokenId = "1") {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const ui = (id: string) => (
+  const ui = (id: string, address = TOKEN) => (
     <QueryClientProvider client={qc}>
-      <NftPreview address={TOKEN} tokenId={id} />
+      <NftPreview address={address} tokenId={id} />
     </QueryClientProvider>
   );
   const r = render(ui(tokenId));
-  return { ...r, rerenderId: (id: string) => r.rerender(ui(id)) };
+  return { ...r, rerenderId: (id: string, address = TOKEN) => r.rerender(ui(id, address)) };
 }
+
+const progress = (status: "pending" | "running" | "paused_quota" | "paused_user_quota" | "done" | "failed" | "cancelled") =>
+  useJobProgress.getState().upsert({
+    type: "JobProgress", job_id: 9, kind: "fetch_nft", fetched: 0, cursor_block: null, status, error: null,
+  });
 
 beforeEach(() => useJobProgress.setState({ byId: {} }));
 afterEach(() => vi.restoreAllMocks());
@@ -114,6 +119,47 @@ test("the click is per token id", async () => {
   rerenderId("2");
   expect(await screen.findByRole("button", { name: "Load image" })).toBeInTheDocument();
   expect(container.querySelector("img")).toBeNull();
+});
+
+test("the click belongs to one token: another contract's same id starts without the image", async () => {
+  vi.spyOn(api, "nft").mockResolvedValue(ready());
+  const { container, rerenderId } = renderPreview("1");
+  fireEvent.click(await screen.findByRole("button", { name: "Load image" }));
+  expect(container.querySelector("img")).not.toBeNull();
+  rerenderId("1", "0x" + "b8".repeat(20));
+  expect(await screen.findByRole("button", { name: "Load image" })).toBeInTheDocument();
+  expect(container.querySelector("img")).toBeNull();
+});
+
+test.each([
+  ["paused_user_quota", "Waiting for tomorrow's quota"],
+  ["paused_quota", "Quota paused"],
+] as const)("a fetch job %s shows its status instead of loading", async (status, text) => {
+  vi.spyOn(api, "nft").mockResolvedValue(empty("pending", 9));
+  renderPreview();
+  expect(await screen.findByText("Loading…")).toBeInTheDocument();
+  progress(status);
+  expect(await screen.findByText(text)).toBeInTheDocument();
+  expect(screen.queryByText("Loading…")).toBeNull();
+});
+
+test("a done job while the answer still says pending (a missed NftReady) refetches once", async () => {
+  const spy = vi.spyOn(api, "nft").mockResolvedValueOnce(empty("pending", 9)).mockResolvedValueOnce(empty("pending", 9));
+  renderPreview();
+  expect(await screen.findByText("Loading…")).toBeInTheDocument();
+  progress("done");
+  await vi.waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+  // Still pending for the same job: no loop.
+  await new Promise((r) => setTimeout(r, 50));
+  expect(spy).toHaveBeenCalledTimes(2);
+});
+
+test("a done job's refetch shows the metadata", async () => {
+  vi.spyOn(api, "nft").mockResolvedValueOnce(empty("pending", 9)).mockResolvedValueOnce(ready());
+  renderPreview();
+  expect(await screen.findByText("Loading…")).toBeInTheDocument();
+  progress("done");
+  expect(await screen.findByText("Synthetic #1")).toBeInTheDocument();
 });
 
 test("description with <b> renders as text", async () => {

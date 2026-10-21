@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { api } from "../../api/endpoints";
 import { messageFor } from "../../api/errors";
 import { qk } from "../../api/queryClient";
@@ -76,8 +76,18 @@ export function NftPreview({ address, tokenId }: { address: string; tokenId: str
   const jobId = q.data?.status === "pending" ? q.data.job_id : null;
   const job = useJobProgress((s) => (jobId === null ? undefined : s.byId[jobId]));
   const jobEnded = job?.status === "failed" || job?.status === "cancelled" ? job : null;
-  // The token id whose image the user asked for; another id starts without one.
+  const jobPaused = job?.status === "paused_quota" || job?.status === "paused_user_quota" ? job.status : null;
+  // The token (contract and id) whose image the user asked for; any other token starts without one.
+  const tokenKey = `${addr}:${tokenId}`;
   const [shownFor, setShownFor] = useState<string | null>(null);
+  // The job ended without its NftReady reaching us: ask once more for that job.
+  const refetchedFor = useRef<number | null>(null);
+  const jobDone = job?.status === "done" ? job.job_id : null;
+  useEffect(() => {
+    if (jobDone === null || refetchedFor.current === jobDone) return;
+    refetchedFor.current = jobDone;
+    void q.refetch();
+  }, [jobDone, q]);
 
   const retry = (
     <button
@@ -102,7 +112,7 @@ export function NftPreview({ address, tokenId }: { address: string; tokenId: str
       </div>
     );
   } else if (!d || d.status === "pending") {
-    body = <div className="detail__muted">{t("common.loading")}</div>;
+    body = <div className="detail__muted">{jobPaused ? statusName(jobPaused) : t("common.loading")}</div>;
   } else {
     const safe = safeImageUrl(d.image);
     const empty = !d.name && !d.description && !safe && d.attributes.length === 0;
@@ -112,10 +122,10 @@ export function NftPreview({ address, tokenId }: { address: string; tokenId: str
       body = (
         <>
           {safe &&
-            (shownFor === tokenId ? (
+            (shownFor === tokenKey ? (
               <img className="nft__image" src={safe} alt={d.name ?? ""} referrerPolicy="no-referrer" loading="lazy" />
             ) : (
-              <button type="button" className="btn btn--compact nft__load" onClick={() => setShownFor(tokenId)}>
+              <button type="button" className="btn btn--compact nft__load" onClick={() => setShownFor(tokenKey)}>
                 {t("info.nft.loadImage")}
               </button>
             ))}
