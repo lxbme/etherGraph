@@ -13,7 +13,7 @@ import { graphSelection, useGraph } from "./store";
 function isTyping(t: EventTarget | null): boolean {
   const el = t as HTMLElement | null;
   if (!el || !el.tagName) return false;
-  // A checkbox, radio or button takes no typing: the keys stay shortcuts while one has focus (e.g. after ticking a Data tab row).
+  // A checkbox, radio or button takes no typing: the keys stay shortcuts while one has focus (e.g. after clicking a Data tab row's eye button).
   if (el.tagName === "INPUT") return !/^(checkbox|radio|button|submit|reset|range|color|file|image)$/.test((el as HTMLInputElement).type);
   return /^(TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable;
 }

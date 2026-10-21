@@ -76,8 +76,8 @@ test("hiding a transfer on the Data tab thins its edge on the graph", async ({ p
   await page.keyboard.press("Control+z");
   await expect.poll(() => abEdges(page)).toBe(1);
   await page.getByRole("tab", { name: "Data" }).click();
-  await expect(dataRow(page, T2).getByRole("button", { name: "Hide" })).toHaveAttribute("aria-pressed", "false");
-  await expect(dataRow(page, T1).getByRole("button", { name: "Show" })).toHaveAttribute("aria-pressed", "true");
+  await expect(dataRow(page, T2).getByRole("button", { name: "Hide" })).toBeVisible();
+  await expect(dataRow(page, T1).getByRole("button", { name: "Show" })).toBeVisible();
 
   // One request for the pairs on the canvas, under the graph's filter.
   const req = mock.requests("POST /api/transfers/batch")[0]!.postDataJSON() as { pairs: unknown[]; limit: number };
@@ -98,7 +98,7 @@ test("Ctrl+Z on the Data tab undoes the last hide", async ({ page, mock }) => {
   // Still on the Data tab: the shortcut undoes the hide.
   await page.keyboard.press("Control+z");
   await expect(dataRow(page, T1)).not.toHaveClass(/data__row--hidden/);
-  await expect(dataRow(page, T1).getByRole("button", { name: "Hide" })).toHaveAttribute("aria-pressed", "false");
+  await expect(dataRow(page, T1).getByRole("button", { name: "Hide" })).toBeVisible();
 });
 
 test("Space on a row's eye button toggles it and fires no graph shortcut", async ({ page, mock }) => {
@@ -112,13 +112,13 @@ test("Space on a row's eye button toggles it and fires no graph shortcut", async
   await eye.focus();
   await page.keyboard.press("Space");
   const shown = dataRow(page, T3).getByRole("button", { name: "Show" });
-  await expect(shown).toHaveAttribute("aria-pressed", "true");
+  await expect(shown).toBeVisible();
   await expect(dataRow(page, T3)).toHaveClass(/data__row--hidden/);
   // A hidden row keeps its eye button fully opaque.
   expect(await shown.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
   await shown.focus();
   await page.keyboard.press("Enter");
-  await expect(dataRow(page, T3).getByRole("button", { name: "Hide" })).toHaveAttribute("aria-pressed", "false");
+  await expect(dataRow(page, T3).getByRole("button", { name: "Hide" })).toBeVisible();
   await expect(dataRow(page, T1)).not.toHaveClass(/data__row--hidden/);
 });
 

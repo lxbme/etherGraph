@@ -100,8 +100,7 @@ export function DataTable({ rows, names }: { rows: TransferDto[]; names: Readonl
                 <span role="cell" className="data__cell">
                   <button
                     type="button"
-                    className="btn btn--icon btn--compact"
-                    aria-pressed={hidden}
+                    className="btn btn--ghost btn--icon btn--compact"
                     aria-label={t(hidden ? "data.row.show" : "data.row.hide")}
                     title={t(hidden ? "data.row.show" : "data.row.hide")}
                     onClick={() => setTransfersHidden([hiddenFromTransfer(row)], !hidden)}

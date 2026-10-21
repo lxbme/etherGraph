@@ -33,34 +33,32 @@ test("the eye button hides a shown transfer and shows a hidden one", () => {
   expect(within(first!).getByTitle(row.from)).toHaveTextContent("0xAAAA…AAAA");
 
   const hide = within(first!).getByRole("button", { name: "Hide" });
-  expect(hide).toHaveAttribute("aria-pressed", "false");
   expect(hide).toHaveAttribute("title", "Hide");
   fireEvent.click(hide);
   expect(spy).toHaveBeenCalledWith([hiddenFromTransfer(row)], true);
   expect(spy.mock.calls[0]![0][0]!.tx_hash).toBe("0x" + "ab".repeat(32));
   expect(first).toHaveClass("data__row--hidden");
   expect(within(first!).queryByRole("button", { name: "Hide" })).toBeNull();
-  expect(within(first!).getByRole("button", { name: "Show" })).toHaveAttribute("aria-pressed", "true");
+  expect(within(first!).getByRole("button", { name: "Show" })).toHaveAttribute("title", "Show");
   expect(second).not.toHaveClass("data__row--hidden");
 
   // The same button shows it again.
   fireEvent.click(within(first!).getByRole("button", { name: "Show" }));
   expect(spy).toHaveBeenLastCalledWith([hiddenFromTransfer(row)], false);
   expect(first).not.toHaveClass("data__row--hidden");
-  expect(within(first!).getByRole("button", { name: "Hide" })).toHaveAttribute("aria-pressed", "false");
+  expect(within(first!).getByRole("button", { name: "Hide" })).toBeInTheDocument();
 });
 
-test("a hidden row's eye button is not muted", () => {
+test("a hidden row keeps an enabled eye button that sets its own colour", () => {
   render(<DataTable rows={[transfer(1)]} names={new Map()} />);
   const row = screen.getByTestId("data-row");
   fireEvent.click(within(row).getByRole("button", { name: "Hide" }));
   const eye = within(row).getByRole("button", { name: "Show" });
   expect(row).toHaveClass("data__row--hidden");
-  // The muting is a colour on the row (see app.css), never an opacity; the button is enabled and sets its own colour.
+  // The muting is a colour on the row (see app.css); the e2e checks the button stays opaque.
   expect(eye).toBeEnabled();
   expect(eye).toHaveClass("btn");
   expect(eye.closest(".data__row--hidden")).toBe(row);
-  expect(getComputedStyle(eye).opacity).not.toBe("0.5");
 });
 
 test("clicking the hash opens the tx tab", () => {
