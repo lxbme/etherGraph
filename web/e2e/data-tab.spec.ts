@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import type { TransferDto } from "../src/api/generated/TransferDto";
-import { snapshot, tapEdge } from "./cy";
+import { snapshot, tapEdge, tapNode } from "./cy";
 import { A, B, C, expect, installWorld, searchAndPick, summary, test, transfer, type World } from "./mockApi";
 
 const hash = (i: number) => "0x" + i.toString(16).padStart(64, "0");
@@ -99,6 +99,35 @@ test("Ctrl+Z on the Data tab undoes the last hide", async ({ page, mock }) => {
   await page.keyboard.press("Control+z");
   await expect(dataRow(page, T1)).not.toHaveClass(/data__row--hidden/);
   await expect(dataRow(page, T1).getByRole("button", { name: "Hide" })).toBeVisible();
+});
+
+test("hiding a row in the bottom table shows on the Data tab, and Ctrl+Z restores both", async ({ page, mock }) => {
+  const world = makeWorld();
+  installWorld(mock, world);
+  // The node's table: every transfer of A.
+  mock.on("GET /api/transfers", () => ({ json: { items: world.transfers, next_cursor: null } }));
+  await searchAndPick(page, A);
+  await expect.poll(() => abEdges(page)).toBe(1);
+
+  // 1. Select the node and hide one transfer from the bottom table.
+  await tapNode(page, "main", A);
+  const rows = page.getByTestId("transfer-row");
+  await expect(rows).toHaveCount(3);
+  const row = rows.filter({ has: page.locator(`[title="${T1}"]`) });
+  await row.getByRole("button", { name: "Hide" }).click();
+  await expect(row).toHaveClass(/transfers__row--hidden/);
+  await expect(row.getByRole("button", { name: "Show" })).toBeVisible();
+
+  // 2. The Data tab shows the same transfer hidden.
+  await page.getByRole("tab", { name: "Data" }).click();
+  await expect(dataRow(page, T1).getByRole("button", { name: "Show" })).toBeVisible();
+
+  // 3. Ctrl+Z restores it in both views.
+  await page.keyboard.press("Control+z");
+  await expect(dataRow(page, T1).getByRole("button", { name: "Hide" })).toBeVisible();
+  await page.getByRole("tab", { name: "Graph" }).click();
+  await expect(row.getByRole("button", { name: "Hide" })).toBeVisible();
+  await expect(row).not.toHaveClass(/transfers__row--hidden/);
 });
 
 test("Space on a row's eye button toggles it and fires no graph shortcut", async ({ page, mock }) => {

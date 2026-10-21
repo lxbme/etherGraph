@@ -8,7 +8,7 @@ import type { TransferDto } from "../api/generated/TransferDto";
 import { ApiError } from "../api/errors";
 import { qk } from "../api/queryClient";
 import { graphQueryKey } from "../graph/useGraphData";
-import { hiddenFromTransfer } from "../graph/hiddenTransfers";
+import { hiddenFromTransfer, transferKey } from "../graph/hiddenTransfers";
 import { useGraph } from "../graph/store";
 import { useTabs } from "../shell/tabs";
 import { useLocale } from "../i18n";
@@ -398,6 +398,44 @@ test("a hidden transfer's row is muted with the hidden title", async () => {
   renderTable();
   expect(await screen.findByRole("button", { name: /ETH · 0xaaaa…aaaa→0xbbbb…bbbb · 2 transfers · Σ 2/ })).toBeInTheDocument();
   await check();
+});
+
+test("the eye button hides a transfer in the shared store and shows it again", async () => {
+  const row = tr({ sub_id: "1" });
+  vi.spyOn(api, "transfers").mockResolvedValue({ items: [row], next_cursor: null });
+  act(() => useGraph.getState().select({ kind: "node", address: A }));
+  renderTable();
+  const tableRow = (await screen.findAllByTestId("transfer-row"))[0]!;
+  fireEvent.click(within(tableRow).getByRole("button", { name: "Hide" }));
+  expect(Object.keys(useGraph.getState().hiddenTransfers)).toEqual([transferKey(row)]);
+  expect(tableRow).toHaveClass("transfers__row--hidden");
+  const show = within(tableRow).getByRole("button", { name: "Show" });
+  expect(show).not.toHaveAttribute("aria-pressed");
+  fireEvent.click(show);
+  expect(useGraph.getState().hiddenTransfers).toEqual({});
+  expect(tableRow).not.toHaveClass("transfers__row--hidden");
+});
+
+test("the eye button does not select the transfer", async () => {
+  vi.spyOn(api, "transfers").mockResolvedValue({ items: [tr({})], next_cursor: null });
+  act(() => useGraph.getState().select({ kind: "node", address: A }));
+  renderTable();
+  const before = useGraph.getState().selection;
+  fireEvent.click(await screen.findByRole("button", { name: "Hide" }));
+  expect(useGraph.getState().selection).toBe(before);
+  expect(useGraph.getState().highlightTransfer).toBeNull();
+});
+
+test("a transfer hidden elsewhere renders with the show button", async () => {
+  const row = tr({});
+  vi.spyOn(api, "transfers").mockResolvedValue({ items: [row], next_cursor: null });
+  act(() => {
+    useGraph.getState().setTransfersHidden([hiddenFromTransfer(row)], true);
+    useGraph.getState().select({ kind: "node", address: A });
+  });
+  renderTable();
+  expect(await screen.findByRole("button", { name: "Show" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Hide" })).toBeNull();
 });
 
 test("unknown decimals show the raw value with a warning", async () => {

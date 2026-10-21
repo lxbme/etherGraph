@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery, type UseQueryResult } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import { api, type TransfersParams } from "../api/endpoints";
 import { messageFor } from "../api/errors";
@@ -8,7 +8,7 @@ import type { TransferDto } from "../api/generated/TransferDto";
 import { qk } from "../api/queryClient";
 import { useT } from "../i18n";
 import { graphSelection, useGraph } from "../graph/store";
-import { transferKey } from "../graph/hiddenTransfers";
+import { hiddenFromTransfer, transferKey } from "../graph/hiddenTransfers";
 import { useGraphData } from "../graph/useGraphData";
 import { shortAddr } from "../lib/address";
 import { formatFixed } from "../lib/amount";
@@ -46,6 +46,7 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
   const highlight = useGraph((s) => s.highlightTransfer);
   const hiddenTransfers = useGraph((s) => s.hiddenTransfers);
   const setHighlight = useGraph((s) => s.setHighlightTransfer);
+  const setTransfersHidden = useGraph((s) => s.setTransfersHidden);
   const openTx = useTabs((s) => s.openTx);
   const t = useT();
   const q = useInfiniteQuery({
@@ -95,6 +96,7 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
       <table className="table">
         <thead>
           <tr>
+            <th aria-label={t("data.col.visible")} />
             <th>{t("transfers.col.time")}</th>
             <th>{t("transfers.col.direction")}</th>
             <th>{t("transfers.col.counterparty")}</th>
@@ -123,6 +125,20 @@ function TransferRows({ params, selected }: { params: TransfersParams; selected:
                 data-testid="transfer-row"
                 onClick={() => onRow(row)}
               >
+                <td>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--icon btn--compact"
+                    aria-label={t(hidden ? "data.row.show" : "data.row.hide")}
+                    title={t(hidden ? "data.row.show" : "data.row.hide")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setTransfersHidden([hiddenFromTransfer(row)], !hidden);
+                    }}
+                  >
+                    {hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </td>
                 <td className="num" title={formatLocalTime(row.ts)}>{formatTime(row.ts)}</td>
                 <td className={`transfers__dir transfers__dir--${dir}`}>{t(`transfers.dir.${dir}`)}</td>
                 <td className="num" title={other}>{shortAddr(other)}</td>
