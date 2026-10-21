@@ -616,26 +616,38 @@ mod tests {
     #[sqlx::test]
     async fn enqueue_races_with_completion(pool: PgPool) {
         let s = Store::from_pool(pool);
-        let enq = {
-            let s = s.clone();
+        // Under heavy contention `enqueue` may give up with `Conflict` after
+        // its own retries; its contract lets the caller retry, so the test does.
+        async fn enqueue_retrying(s: &Store) -> i64 {
+            for _ in 0..20 {
+                match s.enqueue(&nj("race", Priority::Background)).await {
+                    Ok((id, _)) => return id,
+                    Err(StoreError::Conflict) => continue,
+                    Err(e) => panic!("enqueue failed: {e:?}"),
+                }
+            }
+            panic!("enqueue kept conflicting");
+        }
+        let task = |s: Store| {
             tokio::spawn(async move {
                 for _ in 0..50 {
-                    let (id, _) = s.enqueue(&nj("race", Priority::Background)).await.unwrap();
-                    let _ = s.complete_job(id).await;
+                    let id = enqueue_retrying(&s).await;
+                    s.complete_job(id).await.unwrap();
                 }
             })
         };
-        let done = {
-            let s = s.clone();
-            tokio::spawn(async move {
-                for _ in 0..50 {
-                    let (id, _) = s.enqueue(&nj("race", Priority::Background)).await.unwrap();
-                    let _ = s.complete_job(id).await;
-                }
-            })
-        };
-        enq.await.unwrap();
-        done.await.unwrap();
+        let (a, b) = (task(s.clone()), task(s.clone()));
+        a.await.unwrap();
+        b.await.unwrap();
+        // Every enqueue got a job that its caller then completed: none is left active.
+        let active: i64 = sqlx::query_scalar(concat!(
+            "SELECT count(*) FROM jobs WHERE key = 'race' AND status IN ",
+            active_statuses!()
+        ))
+        .fetch_one(s.pool())
+        .await
+        .unwrap();
+        assert_eq!(active, 0);
     }
 
     #[sqlx::test]
