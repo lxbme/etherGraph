@@ -272,6 +272,7 @@ export const en = {
   "annotate.color.blue": "Blue",
   "annotate.color.ink": "Ink",
   "annotate.done": "Done",
+  "annotate.delete": "Delete",
   "identify.queued": { one: "Queued {count} address for identification", other: "Queued {count} addresses for identification" },
   "identify.busy": "Identification is already running",
   "identify.partial": { one: "Queued {count} address; the rest failed: {reason}", other: "Queued {count} addresses; the rest failed: {reason}" },

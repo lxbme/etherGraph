@@ -58,6 +58,9 @@ test("annotations stay put when nodes move and come back after reload", async ({
   await drag(page, at(0.55, 0.3), at(0.7, 0.5));
   await expect(shapes(graph, "rect")).toHaveCount(1);
   await expect(graph.locator(".annotation-layer__selection")).toHaveCount(1);
+  const drawnBox = (await rectProbe(page))!.page;
+  expect(drawnBox.width).toBeGreaterThanOrEqual(20);
+  expect(drawnBox.height).toBeGreaterThanOrEqual(20);
 
   await bar.getByRole("button", { name: "Text" }).click();
   await page.mouse.click(at(0.6, 0.7).x, at(0.6, 0.7).y);

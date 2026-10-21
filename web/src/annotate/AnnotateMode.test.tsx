@@ -376,6 +376,31 @@ describe("annotate toolbar", () => {
     expect(notes()).toHaveLength(1);
   });
 
+  test("the delete button is disabled with nothing selected", () => {
+    act(() => {
+      s().setMode("graph");
+      s().add("graph", rect("r"));
+    });
+    render(<AnnotateToolbar view="graph" />);
+    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+  });
+
+  test("the delete button removes the selected annotation as one undo step", () => {
+    act(() => {
+      s().setMode("graph");
+      s().add("graph", rect("r"));
+      s().select("r");
+    });
+    render(<AnnotateToolbar view="graph" />);
+    const del = screen.getByRole("button", { name: "Delete" });
+    expect(del).toBeEnabled();
+    act(() => del.click());
+    expect(notes()).toHaveLength(0);
+    expect(s().selected).toBeNull();
+    act(() => s().undo("graph"));
+    expect(notes().map((n) => n.id)).toEqual(["r"]);
+  });
+
   test("leaving the canvas' tab or view leaves the mode", () => {
     const hash = "0xab";
     act(() => useTabs.setState({ tabs: [{ id: "graph" }, { id: "data", kind: "data" }, { id: hash, kind: "tx", hash }], active: "graph" }));

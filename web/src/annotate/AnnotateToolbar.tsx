@@ -1,4 +1,4 @@
-import { Circle, MousePointer2, MoveUpRight, Square, Type, type LucideIcon } from "lucide-react";
+import { Circle, MousePointer2, MoveUpRight, Square, Trash2, Type, type LucideIcon } from "lucide-react";
 import type { MsgKey } from "../i18n";
 import { useT } from "../i18n";
 import { ANNOTATION_COLORS, type AnnotationKind, type ViewId } from "./model";
@@ -14,13 +14,14 @@ const TOOLS: readonly ["select" | AnnotationKind, MsgKey, LucideIcon][] = [
 
 /**
  * The annotate-mode bar of a canvas, floating centred near its top (under the canvas tools): the tools, the colours
- * (picking one also recolours the selected annotation) and Done. Renders nothing unless `view` is in annotate mode.
+ * (picking one also recolours the selected annotation), delete (the selected annotation) and Done. Renders nothing unless `view` is in annotate mode.
  */
 export function AnnotateToolbar({ view }: { view: ViewId }) {
   const t = useT();
   const on = useAnnotations((s) => s.active === view);
   const tool = useAnnotations((s) => s.tool);
   const color = useAnnotations((s) => s.color);
+  const selected = useAnnotations((s) => (s.active === view ? s.selected : null));
   if (!on) return null;
   const s = useAnnotations.getState;
   return (
@@ -53,6 +54,16 @@ export function AnnotateToolbar({ view }: { view: ViewId }) {
         </button>
       ))}
       <span className="annotate-bar__sep" aria-hidden="true" />
+      <button
+        type="button"
+        className="btn btn--icon btn--compact"
+        aria-label={t("annotate.delete")}
+        title={t("annotate.delete")}
+        disabled={selected === null}
+        onClick={() => selected !== null && s().remove(view, selected)}
+      >
+        <Trash2 size={14} />
+      </button>
       <button type="button" className="btn btn--compact" onClick={() => s().setMode(null)}>
         {t("annotate.done")}
       </button>

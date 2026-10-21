@@ -274,6 +274,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "annotate.color.blue": "蓝",
   "annotate.color.ink": "墨",
   "annotate.done": "完成",
+  "annotate.delete": "删除",
   "identify.queued": { one: "已排队探明 {count} 个地址", other: "已排队探明 {count} 个地址" },
   "identify.busy": "探明任务正在进行中",
   "identify.partial": { one: "已排队探明 {count} 个地址，其余失败：{reason}", other: "已排队探明 {count} 个地址，其余失败：{reason}" },

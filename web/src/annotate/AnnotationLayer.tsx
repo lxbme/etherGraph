@@ -57,8 +57,10 @@ function Shape({ a, textRef }: { a: Annotation; textRef?: (el: SVGTextElement | 
   const color = tokenOf(a);
   const common = { stroke: color, strokeWidth: STROKE_WIDTH, fill: "none", strokeLinejoin: "round" as const };
   switch (a.kind) {
-    case "rect":
-      return <rect {...common} {...rectOf(a)} />;
+    case "rect": {
+      const { x, y, w, h } = rectOf(a);
+      return <rect {...common} x={x} y={y} width={w} height={h} />;
+    }
     case "ellipse":
       return <ellipse {...common} {...ellipseOf(a)} />;
     case "arrow":

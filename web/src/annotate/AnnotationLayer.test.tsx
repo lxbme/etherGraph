@@ -55,6 +55,15 @@ describe("AnnotationLayer", () => {
     expect(container.querySelector("rect")!.getAttribute("fill")).toBe("none");
   });
 
+  test("a rectangle renders with the width and height of its box", () => {
+    useAnnotations.getState().load("graph", [a("1", { kind: "rect", x1: 300, y1: 200, x2: 100, y2: 50 })]);
+    const { container } = render(<AnnotationLayer view="graph" cy={fakeCy().cy as never} />);
+    const r = container.querySelector("rect")!;
+    expect(["x", "y", "width", "height"].map((k) => r.getAttribute(k))).toEqual(["100", "50", "200", "150"]);
+    expect(r.hasAttribute("w")).toBe(false);
+    expect(r.hasAttribute("h")).toBe(false);
+  });
+
   test("renders nothing but the empty group without a cy", () => {
     const { container } = render(<AnnotationLayer view="graph" cy={null} />);
     expect(container.querySelector("svg.annotation-layer")).not.toBeNull();
