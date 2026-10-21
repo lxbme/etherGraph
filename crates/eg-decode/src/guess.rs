@@ -18,11 +18,15 @@ pub struct GuessedCall {
 /// Alternatives kept beside the chosen guess.
 pub const MAX_ALTERNATIVES: usize = 5;
 
-/// `input` decoded with the function `text` names, when its parameters
-/// decode `input[4..]` and re-encode to it byte for byte. Arguments are
-/// unnamed (`""`), typed with their canonical type.
+/// `input` decoded with the function `text` names, when its canonical
+/// selector is `input`'s and its parameters decode `input[4..]` and re-encode
+/// to it byte for byte. Arguments are unnamed (`""`), typed with their
+/// canonical type.
 fn clean_decode(text: &str, input: &[u8]) -> Option<DecodedCall> {
     let func = Function::parse(text).ok()?;
+    if input.get(..4)? != func.selector().as_slice() {
+        return None;
+    }
     let data = input.get(4..)?;
     let values = func.abi_decode_input(data).ok()?;
     if func.abi_encode_input_raw(&values).ok()? != data {
@@ -47,9 +51,10 @@ fn clean_decode(text: &str, input: &[u8]) -> Option<DecodedCall> {
 
 /// The best of `candidates` (signature texts sharing input's selector) that decodes `input` and re-encodes to it exactly; None if none does.
 ///
-/// Texts that do not parse are skipped. The shortest canonical signature
-/// wins, ties broken lexicographically; the selector is not compared (the
-/// lookup that found the candidates matched it).
+/// Texts that do not parse are skipped, and so are texts whose canonical
+/// form has another selector than `input`'s (a non-canonical text such as
+/// `foo(uint)` is stored under its own hash). The shortest canonical
+/// signature wins, ties broken lexicographically.
 pub fn guess_call(input: &[u8], candidates: &[String]) -> Option<GuessedCall> {
     let mut clean: Vec<DecodedCall> = candidates
         .iter()
@@ -128,17 +133,44 @@ mod tests {
 
     #[test]
     fn two_clean_candidates_shortest_wins_the_other_is_an_alternative() {
-        // The same parameters, so all three round-trip. Their selectors
-        // differ; `guess_call` trusts the lookup to pass texts sharing the
-        // input's selector and does not compare them.
-        let input = calldata("set(uint256)", &[DynSolValue::Uint(U256::from(7u8), 256)]);
-        let candidates = [s("setValue(uint256)"), s("set(uint256)"), s("seu(uint256)")];
+        // Three texts sharing the selector 0x1710409c (found by search), each
+        // with one parameter that a small word round-trips.
+        let input = calldata(
+            "s9045733(uint256)",
+            &[DynSolValue::Uint(U256::from(7u8), 256)],
+        );
+        let candidates = [
+            s("s9045733(uint256)"),
+            s("s7384280(int256)"),
+            s("s2760836(int256)"),
+        ];
+        for c in &candidates {
+            assert_eq!(Function::parse(c).unwrap().selector(), input[..4]);
+        }
         let got = guess_call(&input, &candidates).expect("clean candidates");
-        assert_eq!(got.call.signature, "set(uint256)");
         // Ties in length are broken lexicographically.
+        assert_eq!(got.call.signature, "s2760836(int256)");
+        assert_eq!(got.call.args[0].value, "7");
         assert_eq!(
             got.alternatives,
-            vec![s("seu(uint256)"), s("setValue(uint256)")]
+            vec![s("s7384280(int256)"), s("s9045733(uint256)")]
+        );
+    }
+
+    #[test]
+    fn a_text_whose_canonical_selector_differs_from_the_input_is_skipped() {
+        // Stored as written, `foo(uint)` hashes to another selector than its
+        // canonical form `foo(uint256)`, so a lookup by the former must not
+        // name the call with the latter.
+        let mut input = alloy_primitives::keccak256("foo(uint)")[..4].to_vec();
+        input.extend_from_slice(&U256::from(7u8).to_be_bytes::<32>());
+        assert_ne!(Function::parse("foo(uint)").unwrap().selector(), input[..4]);
+        assert_eq!(guess_call(&input, &[s("foo(uint)")]), None);
+        // The canonical text with the canonical selector still decodes.
+        let input = calldata("foo(uint256)", &[DynSolValue::Uint(U256::from(7u8), 256)]);
+        assert_eq!(
+            guess_call(&input, &[s("foo(uint)")]).map(|g| g.call.signature),
+            Some(s("foo(uint256)"))
         );
     }
 
