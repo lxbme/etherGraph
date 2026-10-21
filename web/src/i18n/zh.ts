@@ -552,6 +552,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "tx.undecoded": "未解码",
   "tx.undecodedSelector": "{selector}（未解码）",
   "tx.guessed": "推测",
+  "tx.guessedName": "{name}（推测）",
   "tx.guessedAlternatives": "其他候选：{list}",
   "tx.call": "调用",
   "tx.delegatesTo": "委托给",

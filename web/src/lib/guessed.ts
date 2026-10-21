@@ -2,10 +2,10 @@ import { t } from "../i18n";
 
 /**
  * A call name guessed from the signature database, marked in plain text where a tag cannot go (graph edge labels and
- * tooltips): `transfer (Guessed)`. A decoded name is returned as is.
+ * tooltips): `transfer (Guessed)` in English. A decoded name is returned as is.
  */
 export function guessedName(name: string, guessed: boolean | undefined): string {
-  return guessed ? `${name} (${t("tx.guessed")})` : name;
+  return guessed ? t("tx.guessedName", { name }) : name;
 }
 
 /** The other candidates of a guessed call, as one line; undefined when there are none. */

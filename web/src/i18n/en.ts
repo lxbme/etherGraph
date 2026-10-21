@@ -550,6 +550,7 @@ export const en = {
   "tx.undecoded": "Undecoded",
   "tx.undecodedSelector": "{selector} (undecoded)",
   "tx.guessed": "Guessed",
+  "tx.guessedName": "{name} (Guessed)",
   "tx.guessedAlternatives": "Other candidates: {list}",
   "tx.call": "Call",
   "tx.delegatesTo": "delegates to",
