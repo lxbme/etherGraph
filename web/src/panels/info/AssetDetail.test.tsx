@@ -23,7 +23,11 @@ function renderDetail(props: { asset: string | null; tokenId?: string; tokenKind
   );
 }
 
-beforeEach(() => useInfo.setState({ stacks: {} }));
+beforeEach(() => {
+  useInfo.setState({ stacks: {} });
+  // NFT previews stay loading unless a test answers them.
+  vi.spyOn(api, "nft").mockReturnValue(new Promise(() => {}));
+});
 afterEach(() => vi.restoreAllMocks());
 
 test("ETH shows static rows and never asks the server", () => {
@@ -150,4 +154,35 @@ test("a scam token shows the scam badge and no Impersonates row; a listed one sh
   await screen.findByText("Tether USD");
   expect(screen.queryByText("Possible impersonation")).toBeNull();
   expect(screen.queryByText("Known scam")).toBeNull();
+});
+
+test("an NFT with a token id previews its metadata", async () => {
+  vi.spyOn(api, "token").mockResolvedValue(dto({ standard: "erc721", decimals: null }));
+  const nft = vi.spyOn(api, "nft").mockResolvedValue({
+    status: "ready", name: "Synthetic #5", description: null, image: null, attributes: [], job_id: null,
+  });
+  renderDetail({ asset: USDT, tokenId: "5", tokenKind: "erc721" });
+  expect(await screen.findByText("NFT metadata")).toBeInTheDocument();
+  expect(await screen.findByText("Synthetic #5")).toBeInTheDocument();
+  expect(nft).toHaveBeenCalledWith(USDT, "5");
+});
+
+test("the token's own standard decides when the transfer gave no kind", async () => {
+  vi.spyOn(api, "token").mockResolvedValue(dto({ standard: "erc1155", decimals: null }));
+  const nft = vi.spyOn(api, "nft");
+  renderDetail({ asset: USDT, tokenId: "5" });
+  expect(await screen.findByText("NFT metadata")).toBeInTheDocument();
+  expect(nft).toHaveBeenCalledWith(USDT, "5");
+});
+
+test.each([
+  ["an ERC-20", { tokenId: "5", tokenKind: "erc20" as const }],
+  ["an NFT without a token id", { tokenKind: "erc721" as const }],
+])("%s gets no NFT preview", async (_, props) => {
+  vi.spyOn(api, "token").mockResolvedValue(dto({ standard: props.tokenKind === "erc20" ? "erc20" : "erc721" }));
+  const nft = vi.spyOn(api, "nft");
+  renderDetail({ asset: USDT, ...props });
+  expect(await screen.findByText("Tether USD")).toBeInTheDocument();
+  expect(screen.queryByText("NFT metadata")).toBeNull();
+  expect(nft).not.toHaveBeenCalled();
 });

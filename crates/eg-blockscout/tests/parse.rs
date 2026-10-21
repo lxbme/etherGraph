@@ -1,5 +1,5 @@
-use eg_blockscout::parse_raw_trace;
-use eg_core::source::{CallFrame, CallKind, SourceError};
+use eg_blockscout::{parse_raw_trace, parse_token_instance};
+use eg_core::source::{CallFrame, CallKind, NftAttribute, NftMetadata, SourceError};
 use eg_core::types::{Address, U256};
 
 /// Raw trace of 0x461e681fd0ab400c16e06f617d2afa952af0b3569aef4c11ca73eed6bd9d45a3
@@ -183,5 +183,82 @@ fn non_array_body_is_a_parse_error() {
     ] {
         let r = parse_raw_trace(body);
         assert!(matches!(r, Err(SourceError::Parse(_))), "{body}: {r:?}");
+    }
+}
+
+/// A `/tokens/{addr}/instances/{id}` body shaped like Blockscout's (synthetic
+/// token): `image_url` is Blockscout's resolved copy of `metadata.image`.
+const INSTANCE: &str = r#"{
+  "animation_url": null,
+  "external_app_url": "https://example.org/nft/7",
+  "id": "7",
+  "image_url": "https://img.example.org/7.png",
+  "is_unique": true,
+  "metadata": {
+    "name": "Synthetic #7",
+    "description": "A line\nand <b>another</b>",
+    "image": "ipfs://QmSynthetic/7.png",
+    "attributes": [
+      {"trait_type": "Background", "value": "Blue"},
+      {"trait_type": "Level", "value": 5},
+      {"trait_type": "Rarity", "value": 0.25},
+      {"trait_type": "Shiny", "value": true},
+      {"value": "untyped"},
+      {"trait_type": "Nested", "value": {"deep": 1}},
+      {"trait_type": "Missing"},
+      "not an object"
+    ]
+  },
+  "owner": {"hash": "0x00000000000000000000000000000000000000c1"},
+  "token": {"address_hash": "0x00000000000000000000000000000000000000a7", "type": "ERC-721"}
+}"#;
+
+#[test]
+fn token_instance_parses_name_description_image_and_attributes() {
+    let m = parse_token_instance(INSTANCE).unwrap();
+    assert_eq!(m.name.as_deref(), Some("Synthetic #7"));
+    assert_eq!(m.description.as_deref(), Some("A line\nand <b>another</b>"));
+    assert_eq!(m.image.as_deref(), Some("https://img.example.org/7.png"));
+    let attr = |t: Option<&str>, v: &str| NftAttribute {
+        trait_type: t.map(str::to_owned),
+        value: v.to_owned(),
+    };
+    // Numbers and booleans become text; nested values, missing values and
+    // non-objects are dropped.
+    assert_eq!(
+        m.attributes,
+        vec![
+            attr(Some("Background"), "Blue"),
+            attr(Some("Level"), "5"),
+            attr(Some("Rarity"), "0.25"),
+            attr(Some("Shiny"), "true"),
+            attr(None, "untyped"),
+        ]
+    );
+}
+
+#[test]
+fn token_instance_falls_back_to_the_metadata_image() {
+    let body = r#"{"id": "1", "image_url": null,
+        "metadata": {"name": "N", "image": "ipfs://QmSynthetic/1.png", "attributes": {"not": "a list"}}}"#;
+    let m = parse_token_instance(body).unwrap();
+    assert_eq!(m.image.as_deref(), Some("ipfs://QmSynthetic/1.png"));
+    assert!(m.attributes.is_empty());
+    assert_eq!(m.description, None);
+}
+
+#[test]
+fn token_instance_without_metadata_is_empty() {
+    let m = parse_token_instance(r#"{"id": "1", "image_url": null, "metadata": null}"#).unwrap();
+    assert_eq!(m, NftMetadata::default());
+}
+
+#[test]
+fn token_instance_that_is_not_an_object_is_a_parse_error() {
+    for body in ["[]", "not json"] {
+        assert!(
+            matches!(parse_token_instance(body), Err(SourceError::Parse(_))),
+            "{body}"
+        );
     }
 }

@@ -41,6 +41,12 @@ pub enum Event {
     TraceReady {
         hash: String,
     },
+    // An NFT's metadata is cached (`token`: 0x-prefixed lowercase; `token_id`
+    // decimal).
+    NftReady {
+        token: String,
+        token_id: String,
+    },
     NamesResolved {
         items: Vec<NameItem>,
     },
@@ -250,6 +256,10 @@ mod tests {
             Event::TraceReady {
                 hash: format!("{:#x}", B256::repeat_byte(0xcd)),
             },
+            Event::NftReady {
+                token: format!("{:#x}", Address::repeat_byte(0xa7)),
+                token_id: "7".into(),
+            },
             Event::NamesResolved {
                 items: vec![NameItem {
                     address: Address::repeat_byte(1),
@@ -275,6 +285,7 @@ mod tests {
                 | Event::AddressDataChanged { .. }
                 | Event::TxReady { .. }
                 | Event::TraceReady { .. }
+                | Event::NftReady { .. }
                 | Event::NamesResolved { .. }
                 | Event::MetaUpdated { .. }
                 | Event::QuotaStatus { .. }
@@ -319,6 +330,7 @@ mod tests {
         assert!(ts_member(&decl, "JobProgress").contains("error: string | null"));
         assert!(ts_member(&decl, "TxReady").contains("hash: string"));
         assert!(ts_member(&decl, "TraceReady").contains("hash: string"));
+        assert!(ts_member(&decl, "NftReady").contains("token_id: string"));
         assert!(ts_member(&decl, "QuotaStatus").contains("reset_at: string"));
         assert!(ts_member(&decl, "MetaUpdated").contains("addresses: Array<string>"));
         let item = NameItem::decl(&cfg);
@@ -326,7 +338,7 @@ mod tests {
         assert!(item.contains("name: string | null"), "{item}");
         assert_eq!(
             JobKind::inline(&cfg),
-            r#""sync_address" | "fetch_tx" | "contract_meta" | "resolve_names" | "token_meta" | "fetch_block" | "fetch_trace""#
+            r#""sync_address" | "fetch_tx" | "contract_meta" | "resolve_names" | "token_meta" | "fetch_block" | "fetch_trace" | "fetch_nft""#
         );
         assert_eq!(
             JobStatus::inline(&cfg),

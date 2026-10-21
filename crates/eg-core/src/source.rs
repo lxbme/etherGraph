@@ -246,8 +246,27 @@ pub struct CallFrame {
     pub subtraces: u32,
 }
 
-/// Where call traces come from; separate from [`ChainSource`] so the trace
-/// provider can be swapped independently of Etherscan.
+/// An NFT's metadata as the source indexed it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NftMetadata {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    /// The image URL, unchecked (any scheme).
+    pub image: Option<String>,
+    pub attributes: Vec<NftAttribute>,
+}
+
+/// One `{trait_type, value}` entry of an NFT's attributes; a number or
+/// boolean value is kept as its text.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NftAttribute {
+    pub trait_type: Option<String>,
+    pub value: String,
+}
+
+/// Where call traces (and NFT metadata, from the same provider) come from;
+/// separate from [`ChainSource`] so the provider can be swapped
+/// independently of Etherscan.
 #[async_trait]
 pub trait TraceSource: Send + Sync {
     /// Frames sorted by `path` (pre-order). `None`: the source has no trace
@@ -257,6 +276,14 @@ pub trait TraceSource: Send + Sync {
         p: Priority,
         hash: TxHash,
     ) -> Result<Option<Vec<CallFrame>>, SourceError>;
+    /// The metadata of NFT `token` #`id`. `None`: the source knows no such
+    /// token instance.
+    async fn nft_metadata(
+        &self,
+        p: Priority,
+        token: Address,
+        id: U256,
+    ) -> Result<Option<NftMetadata>, SourceError>;
     /// Stored in `call_traces.source`, e.g. `"blockscout"`.
     fn name(&self) -> &'static str;
 }

@@ -1,16 +1,17 @@
 //! `GET /api/token/{addr}`: token standard, metadata, list membership, tags
-//! and whether verified source is on file.
+//! and whether verified source is on file. `GET /api/token/{addr}/nft/{id}`:
+//! an NFT's metadata.
 
 use axum::Json;
 use axum::extract::State;
 use eg_core::types::TransferKind;
-use eg_ingest::enqueue_tokens;
+use eg_ingest::{enqueue_fetch_nft, enqueue_tokens};
 use serde::Deserialize;
 
 use crate::auth::extract::{CurrentUser, MayStartWork};
-use crate::dto::{TokenDetailDto, TokenListsDto, hex_addr};
+use crate::dto::{NftMetaDto, TokenDetailDto, TokenListsDto, hex_addr};
 use crate::error::ApiError;
-use crate::parse::parse_address;
+use crate::parse::{parse_address, parse_token_id};
 use crate::routes::{ApiPath, ApiQuery};
 use crate::state::AppState;
 
@@ -97,4 +98,27 @@ pub async fn detail(
         website: from_source("eth-labels").find_map(|t| t.website.clone()),
         trust,
     }))
+}
+
+/// The cached metadata of NFT `addr` #`id` (a decimal uint256), shared by
+/// all users. Without a cached row the viewer's fetch job is started (billed
+/// to them) and `pending` returned; its end is announced by `NftReady`. A
+/// cross-site request (see [`MayStartWork`]) is served from the cache and
+/// starts nothing.
+pub async fn nft(
+    State(s): State<AppState>,
+    user: CurrentUser,
+    MayStartWork(may_start): MayStartWork,
+    ApiPath((raw_addr, raw_id)): ApiPath<(String, String)>,
+) -> Result<Json<NftMetaDto>, ApiError> {
+    let token = parse_address(&raw_addr)?;
+    let id = parse_token_id(&raw_id)?;
+    if let Some(row) = s.store.nft_meta(token, id).await? {
+        return Ok(Json(NftMetaDto::cached(row.meta)));
+    }
+    if !may_start {
+        return Err(ApiError::not_found("nft metadata not fetched"));
+    }
+    let job_id = enqueue_fetch_nft(&s.ctx, Some(user.id), token, id).await?;
+    Ok(Json(NftMetaDto::pending(job_id)))
 }

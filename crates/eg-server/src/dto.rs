@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use eg_core::filter::Edge;
-use eg_core::source::{CallKind, Priority, TokenInfo};
+use eg_core::source::{CallKind, NftMetadata, Priority, TokenInfo};
 use eg_core::types::{Address, Transfer, TransferKind};
 use eg_store::{AuditRow, JobRow, LabelRow, SyncRow};
 use serde::{Deserialize, Serialize};
@@ -64,7 +64,7 @@ pub struct JobDto {
     pub id: i64,
     pub key: String,
     #[ts(
-        type = r#""sync_address" | "fetch_tx" | "contract_meta" | "resolve_names" | "token_meta" | "fetch_block" | "fetch_trace""#
+        type = r#""sync_address" | "fetch_tx" | "contract_meta" | "resolve_names" | "token_meta" | "fetch_block" | "fetch_trace" | "fetch_nft""#
     )]
     pub kind: String,
     #[ts(
@@ -1467,6 +1467,70 @@ impl From<&eg_store::WorkspaceMeta> for WorkspaceMetaDto {
 pub struct TokenListsDto {
     pub uniswap: bool,
     pub coingecko: bool,
+}
+
+/// `GET /api/token/{addr}/nft/{id}`: an NFT's metadata once cached (`ready`,
+/// or `not_found` when the provider knows no such token instance), else the
+/// job fetching it (`pending`). Strings are capped and unchecked: `image` may
+/// be any URL, `description` is plain text.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct NftMetaDto {
+    #[ts(type = r#""ready" | "pending" | "not_found""#)]
+    pub status: String,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub image: Option<String>,
+    pub attributes: Vec<NftAttributeDto>,
+    /// Set when `pending`: the fetch job to watch over SSE.
+    #[ts(type = "number | null")]
+    pub job_id: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct NftAttributeDto {
+    pub trait_type: Option<String>,
+    pub value: String,
+}
+
+impl NftMetaDto {
+    fn empty(status: &str, job_id: Option<i64>) -> Self {
+        Self {
+            status: status.into(),
+            name: None,
+            description: None,
+            image: None,
+            attributes: Vec::new(),
+            job_id,
+        }
+    }
+
+    pub fn pending(job_id: i64) -> Self {
+        Self::empty("pending", Some(job_id))
+    }
+
+    /// A cached row: `ready` with its metadata, or `not_found`.
+    pub fn cached(meta: Option<NftMetadata>) -> Self {
+        let Some(m) = meta else {
+            return Self::empty("not_found", None);
+        };
+        Self {
+            status: "ready".into(),
+            name: m.name,
+            description: m.description,
+            image: m.image,
+            attributes: m
+                .attributes
+                .into_iter()
+                .map(|a| NftAttributeDto {
+                    trait_type: a.trait_type,
+                    value: a.value,
+                })
+                .collect(),
+            job_id: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]

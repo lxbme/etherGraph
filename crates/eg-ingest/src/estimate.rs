@@ -95,7 +95,7 @@ pub fn remaining_calls(job: &JobRow, cfg: &IngestConfig) -> u32 {
         JobKind::FetchTx => 4,
         // The trace, then at most this many callees' code.
         JobKind::FetchTrace => 1 + MAX_DELEGATE_LOOKUPS as u32,
-        JobKind::FetchBlock | JobKind::ResolveNames | JobKind::TokenMeta => 1,
+        JobKind::FetchBlock | JobKind::ResolveNames | JobKind::TokenMeta | JobKind::FetchNft => 1,
         JobKind::ContractMeta => {
             let n = job.params["addresses"].as_array().map_or(0, Vec::len);
             u32::try_from(n).unwrap_or(u32::MAX).saturating_mul(2)
@@ -227,6 +227,7 @@ mod tests {
             (JobKind::FetchTx, serde_json::json!({}), 4),
             (JobKind::FetchTrace, serde_json::json!({}), 6),
             (JobKind::FetchBlock, serde_json::json!({}), 1),
+            (JobKind::FetchNft, serde_json::json!({}), 1),
             (JobKind::ContractMeta, addrs.clone(), 6),
             (JobKind::ResolveNames, addrs.clone(), 1),
             (

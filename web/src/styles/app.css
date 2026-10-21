@@ -1143,6 +1143,12 @@ a.btn { text-decoration: none; }
 .detail__state { display: inline-flex; align-items: center; gap: var(--sp-2); }
 .detail__range { grid-column: 1 / -1; color: var(--fg-muted); font-size: var(--fs-11); }
 .detail__note { display: flex; flex-direction: column; gap: var(--sp-1); color: var(--fg-muted); font-size: var(--fs-12); }
+/* NFT metadata in the asset panel: the image only after a click, the description as plain text. */
+.nft { padding-top: var(--sp-3); border-top: 1px solid var(--line); }
+.nft__load { align-self: flex-start; }
+.nft__image { display: block; max-width: 100%; height: auto; border-radius: var(--radius); }
+.nft__name { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.nft__description { margin: 0; color: var(--fg-muted); font-size: var(--fs-12); white-space: pre-wrap; overflow-wrap: anywhere; }
 .detail__textarea {
   height: auto;
   min-height: calc(var(--h-control) + var(--h-control));

@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use eg_blockscout::{BlockscoutTraceSource, HttpPathTransport};
 use eg_core::source::{CallGate, CallKind, Priority, SourceError, TraceSource};
-use eg_core::types::TxHash;
+use eg_core::types::{TxHash, U256};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -265,5 +265,138 @@ async fn gate_refusal_sends_no_request() {
         .unwrap_err();
     assert_eq!(err, SourceError::UserQuotaExhausted);
     assert_eq!(*gate.priorities.lock().unwrap(), vec![Priority::Background]);
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+/// A synthetic NFT contract and token id.
+const NFT: &str = "0x00000000000000000000000000000000000000a7";
+const NFT_PATH: &str = "/api/v2/tokens/0x00000000000000000000000000000000000000a7/instances/123456789012345678901234567890";
+const INSTANCE: &str = r#"{"id": "123456789012345678901234567890", "image_url": "https://img.example.org/1.png",
+  "metadata": {"name": "Synthetic", "description": "d", "attributes": [{"trait_type": "Level", "value": 5}]}}"#;
+
+fn nft_id() -> U256 {
+    "123456789012345678901234567890".parse().unwrap()
+}
+
+async fn respond_nft(server: &MockServer, r: ResponseTemplate) {
+    Mock::given(method("GET"))
+        .and(path(NFT_PATH))
+        .respond_with(r)
+        .mount(server)
+        .await;
+}
+
+#[tokio::test]
+async fn nft_metadata_ok_takes_one_permit() {
+    let server = MockServer::start().await;
+    respond_nft(
+        &server,
+        ResponseTemplate::new(200).set_body_string(INSTANCE),
+    )
+    .await;
+    let (src, gate) = source(&server, CountingGate::default(), None);
+    let m = src
+        .nft_metadata(Priority::Interactive, NFT.parse().unwrap(), nft_id())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(m.name.as_deref(), Some("Synthetic"));
+    assert_eq!(m.image.as_deref(), Some("https://img.example.org/1.png"));
+    assert_eq!(m.attributes[0].value, "5");
+    assert_eq!(
+        *gate.priorities.lock().unwrap(),
+        vec![Priority::Interactive]
+    );
+}
+
+#[tokio::test]
+async fn nft_metadata_not_found_is_none() {
+    let server = MockServer::start().await;
+    respond_nft(
+        &server,
+        ResponseTemplate::new(404).set_body_string(r#"{"message":"Not found"}"#),
+    )
+    .await;
+    let (src, gate) = source(&server, CountingGate::default(), None);
+    assert_eq!(
+        src.nft_metadata(Priority::Interactive, NFT.parse().unwrap(), nft_id())
+            .await,
+        Ok(None)
+    );
+    assert_eq!(gate.acquires.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn nft_metadata_errors_map_like_traces() {
+    let cases = [
+        (429, r#"{"message":"Too Many Requests"}"#, None),
+        (
+            429,
+            r#"{"message":"Daily credits limit exceeded"}"#,
+            Some("proapi_k"),
+        ),
+        (503, "", None),
+        (400, "", None),
+    ];
+    for (status, body, key) in cases {
+        let server = MockServer::start().await;
+        respond_nft(&server, ResponseTemplate::new(status).set_body_string(body)).await;
+        let (src, gate) = source(&server, CountingGate::default(), key);
+        let err = src
+            .nft_metadata(Priority::Interactive, NFT.parse().unwrap(), nft_id())
+            .await
+            .unwrap_err();
+        match status {
+            429 if key.is_some() => {
+                assert_eq!(err, SourceError::QuotaExhausted);
+                assert_eq!(gate.quota_exhausted.load(Ordering::SeqCst), 1);
+            }
+            429 => {
+                assert_eq!(err, SourceError::RateLimited);
+                assert_eq!(gate.rate_limited.load(Ordering::SeqCst), 1);
+            }
+            503 => assert!(matches!(err, SourceError::Network(_)), "{err:?}"),
+            _ => assert!(matches!(err, SourceError::Upstream(_)), "{err:?}"),
+        }
+    }
+}
+
+#[tokio::test]
+async fn nft_metadata_sends_the_apikey_when_configured() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(NFT_PATH))
+        .and(query_param("apikey", "proapi_k"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(INSTANCE))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (src, _) = source(&server, CountingGate::default(), Some("proapi_k"));
+    assert!(
+        src.nft_metadata(Priority::Low, NFT.parse().unwrap(), nft_id())
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn nft_metadata_gate_refusal_sends_no_request() {
+    let server = MockServer::start().await;
+    respond_nft(
+        &server,
+        ResponseTemplate::new(200).set_body_string(INSTANCE),
+    )
+    .await;
+    let gate = CountingGate {
+        fail_with: Some(SourceError::UserQuotaExhausted),
+        ..Default::default()
+    };
+    let (src, _) = source(&server, gate, None);
+    let err = src
+        .nft_metadata(Priority::Interactive, NFT.parse().unwrap(), nft_id())
+        .await
+        .unwrap_err();
+    assert_eq!(err, SourceError::UserQuotaExhausted);
     assert!(server.received_requests().await.unwrap().is_empty());
 }

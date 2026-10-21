@@ -36,6 +36,7 @@ pub fn router(state: AppState) -> Router {
         .route("/address/{addr}/counterparties", get(counterparties::list))
         .route("/address/{addr}/assets", get(assets::list))
         .route("/token/{addr}", get(token::detail))
+        .route("/token/{addr}/nft/{id}", get(token::nft))
         .route("/sync", post(sync::sync))
         .route("/identify", post(identify::identify))
         .route("/probe", post(probe::probe))

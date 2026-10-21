@@ -29,6 +29,13 @@ test("fetched counts are grouped", () => {
   expect(progressText(e)).toBe("Sync · 12,345 fetched");
 });
 
+test("an NFT metadata fetch is named and targets its token and id", () => {
+  expect(kindName("fetch_nft")).toBe("Fetch NFT metadata");
+  const token = "0x" + "a7".repeat(20);
+  expect(targetText({ kind: "fetch_nft", params: { token, token_id: "7" } })).toBe(`${shortAddr(token)} #7`);
+  expect(targetText({ kind: "fetch_nft", params: {} })).toBe("—");
+});
+
 test("a call-trace fetch is named and targets its transaction", () => {
   expect(kindName("fetch_trace")).toBe("Fetch call trace");
   const hash = "0x461e681fd0ab400c16e06f617d2afa952af0b3569aef4c11ca73eed6bd9d45a3";

@@ -10,6 +10,7 @@ import { AddressCell } from "../../shell/AddressCell";
 import { CopyButton } from "../../shell/CopyButton";
 import { AssetButton } from "./AssetButton";
 import { DocButton } from "./DocButton";
+import { NftPreview } from "./NftPreview";
 import type { DocId } from "./docs";
 import type { TokenKind } from "./infoStore";
 import { TrustBadge } from "./TrustBadge";
@@ -99,6 +100,7 @@ function TokenDetail({ tab, address, tokenId, tokenKind }: { tab: string; addres
   const site = d.website && isHttp(d.website) && !d.tags.includes("website-down") ? d.website : null;
   const dash = <span className="detail__muted">—</span>;
   const imp = d.trust.level === "suspicious" ? d.trust.impersonates : null;
+  const nft = tokenKind === "erc721" || tokenKind === "erc1155" || !fungible;
   return (
     <div className="detail__section">
       <div className="detail__tags" data-testid="asset-tags">
@@ -150,6 +152,7 @@ function TokenDetail({ tab, address, tokenId, tokenKind }: { tab: string; addres
           </Row>
         )}
       </dl>
+      {tokenId && nft && <NftPreview address={addr} tokenId={tokenId} />}
     </div>
   );
 }

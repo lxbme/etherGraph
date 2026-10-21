@@ -192,6 +192,9 @@ export function useEvents(): void {
         case "TraceReady":
           void qc.invalidateQueries({ queryKey: qk.txTrace(e.hash.toLowerCase()) });
           break;
+        case "NftReady":
+          void qc.invalidateQueries({ queryKey: qk.nft(e.token.toLowerCase(), e.token_id) });
+          break;
         case "JobProgress":
           useJobProgress.getState().upsert(e);
           // A job we have not listed yet: refresh the list so its target can be shown.

@@ -25,6 +25,8 @@ export const qk = {
   nodes: (addrs: string[]) => ["nodes", addrs],
   tx: (h: string) => ["tx", h],
   token: (a: string) => ["token", a],
+  /** An NFT's metadata: token address (lowercase) and decimal id. */
+  nft: (a: string, id: string) => ["nft", a, id],
   txRaw: (h: string) => ["txRaw", h],
   txTrace: (h: string) => ["txTrace", h],
   transfers: (p: unknown) => ["transfers", p],

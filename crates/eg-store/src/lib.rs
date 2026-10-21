@@ -6,6 +6,7 @@ mod edges;
 mod jobs;
 mod labels;
 mod meta;
+mod nft;
 mod quota;
 mod sessions;
 mod settings;
@@ -25,6 +26,7 @@ pub use edges::{TransferCursor, TransferQuery, TransferScope};
 pub use jobs::{JobKind, JobRow, JobStatus, NewJob};
 pub use labels::{ImportRow, LabelRow};
 pub use meta::{AccountRow, EnsRow, EnsStatus};
+pub use nft::{NFT_ATTRIBUTES_MAX, NFT_DESCRIPTION_MAX, NFT_IMAGE_MAX, NFT_NAME_MAX, NftMetaRow};
 pub use sessions::{NoncePurpose, NonceRow, SessionKind, SessionRow};
 pub use settings::{SETTING_DEFAULT_DAILY_QUOTA, SETTING_OPEN_REGISTRATION};
 pub use signatures::{

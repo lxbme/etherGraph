@@ -22,6 +22,7 @@ pub enum JobKind {
     TokenMeta,
     FetchBlock,
     FetchTrace,
+    FetchNft,
 }
 
 impl JobKind {
@@ -34,6 +35,7 @@ impl JobKind {
             JobKind::TokenMeta => "token_meta",
             JobKind::FetchBlock => "fetch_block",
             JobKind::FetchTrace => "fetch_trace",
+            JobKind::FetchNft => "fetch_nft",
         }
     }
 
@@ -46,6 +48,7 @@ impl JobKind {
             "token_meta" => JobKind::TokenMeta,
             "fetch_block" => JobKind::FetchBlock,
             "fetch_trace" => JobKind::FetchTrace,
+            "fetch_nft" => JobKind::FetchNft,
             _ => return Err(StoreError::Invalid(format!("unknown job kind {s}"))),
         })
     }

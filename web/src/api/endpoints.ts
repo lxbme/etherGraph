@@ -22,6 +22,7 @@ import type { LoginDto } from "./generated/LoginDto";
 import type { MeDto } from "./generated/MeDto";
 import type { NewLabelDto } from "./generated/NewLabelDto";
 import type { NewWorkspaceDto } from "./generated/NewWorkspaceDto";
+import type { NftMetaDto } from "./generated/NftMetaDto";
 import type { NodeSummaryDto } from "./generated/NodeSummaryDto";
 import type { NodesRequestDto } from "./generated/NodesRequestDto";
 import type { ProbeRequestDto } from "./generated/ProbeRequestDto";
@@ -137,6 +138,9 @@ export const api = {
   sync: (req: SyncRequestDto) => request<SyncResponseDto>("POST", "/api/sync", { body: req }),
   token: (addr: string, kind?: string) =>
     request<TokenDetailDto>("GET", `/api/token/${encodeURIComponent(addr)}`, kind ? { query: { kind } } : undefined),
+  /** An NFT's cached metadata (`id` decimal); `pending` starts its fetch. */
+  nft: (addr: string, id: string) =>
+    request<NftMetaDto>("GET", `/api/token/${encodeURIComponent(addr)}/nft/${encodeURIComponent(id)}`),
   tx: (hash: string) => request<TxResponseDto>("GET", `/api/tx/${encodeURIComponent(hash)}`),
   txTrace: (hash: string) => request<CallTraceResponseDto>("GET", `/api/tx/${encodeURIComponent(hash)}/trace`),
   txRaw: (hash: string) => request<TxRawDto>("GET", `/api/tx/${encodeURIComponent(hash)}/raw`),

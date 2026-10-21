@@ -8,7 +8,7 @@ use chrono::{DateTime, TimeZone, Utc};
 
 use crate::source::{
     CallFrame, CallGate, ChainSource, ContractCreation, ContractSource, HistoryPage, HistoryQuery,
-    Priority, RawBlock, RawReceipt, RawTx, SourceError, TokenInfo, TraceSource,
+    NftMetadata, Priority, RawBlock, RawReceipt, RawTx, SourceError, TokenInfo, TraceSource,
 };
 use crate::types::{Address, Bytes, Transfer, TransferKind, TxHash, U256};
 
@@ -435,15 +435,27 @@ impl<S: TraceSource> TraceSource for GatedSource<S> {
         self.inner.call_trace(p, hash).await
     }
 
+    async fn nft_metadata(
+        &self,
+        p: Priority,
+        token: Address,
+        id: U256,
+    ) -> Result<Option<NftMetadata>, SourceError> {
+        self.gate.acquire(p).await?;
+        self.inner.nft_metadata(p, token, id).await
+    }
+
     fn name(&self) -> &'static str {
         self.inner.name()
     }
 }
 
-/// In-memory `TraceSource`: unknown hashes have no trace (`Ok(None)`).
+/// In-memory `TraceSource`: unknown hashes have no trace and unknown NFTs no
+/// metadata (`Ok(None)`).
 #[derive(Default)]
 pub struct FakeTraceSource {
     traces: Mutex<HashMap<TxHash, Option<Vec<CallFrame>>>>,
+    nfts: Mutex<HashMap<(Address, U256), NftMetadata>>,
     fail: Mutex<Option<SourceError>>,
     calls: AtomicUsize,
 }
@@ -455,6 +467,10 @@ impl FakeTraceSource {
 
     pub fn set(&self, hash: TxHash, frames: Option<Vec<CallFrame>>) {
         self.traces.lock().unwrap().insert(hash, frames);
+    }
+
+    pub fn set_nft(&self, token: Address, id: U256, meta: NftMetadata) {
+        self.nfts.lock().unwrap().insert((token, id), meta);
     }
 
     /// The next call returns this error.
@@ -479,6 +495,19 @@ impl TraceSource for FakeTraceSource {
             return Err(e);
         }
         Ok(self.traces.lock().unwrap().get(&hash).cloned().flatten())
+    }
+
+    async fn nft_metadata(
+        &self,
+        _p: Priority,
+        token: Address,
+        id: U256,
+    ) -> Result<Option<NftMetadata>, SourceError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(e) = self.fail.lock().unwrap().take() {
+            return Err(e);
+        }
+        Ok(self.nfts.lock().unwrap().get(&(token, id)).cloned())
     }
 
     fn name(&self) -> &'static str {

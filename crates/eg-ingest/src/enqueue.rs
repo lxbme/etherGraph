@@ -7,7 +7,7 @@
 use std::fmt;
 
 use eg_core::source::Priority;
-use eg_core::types::{Address, TxHash};
+use eg_core::types::{Address, TxHash, U256};
 use eg_store::{JobKind, NewJob, Store, StoreError};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -165,6 +165,26 @@ pub async fn enqueue_fetch_trace(
             key: format!("trace:{hash:#x}"),
             kind: JobKind::FetchTrace,
             params: json!({"hash": format!("{hash:#x}")}),
+            priority: Priority::Interactive,
+            user_id: user,
+        },
+    )
+    .await
+}
+
+/// The user's job fetching the metadata of NFT `token` #`id`.
+pub async fn enqueue_fetch_nft(
+    ctx: &JobCtx,
+    user: Option<i64>,
+    token: Address,
+    id: U256,
+) -> Result<i64, StoreError> {
+    enqueue_one(
+        ctx,
+        NewJob {
+            key: format!("nft:{token:#x}:{id}"),
+            kind: JobKind::FetchNft,
+            params: json!({"token": format!("{token:#x}"), "token_id": id.to_string()}),
             priority: Priority::Interactive,
             user_id: user,
         },

@@ -1,8 +1,10 @@
 //! Blockscout `/transactions/{hash}/raw-trace` bodies: a Parity-style flat
-//! list of frames (`type` call/create/suicide, `traceAddress`, hex quantities).
-use eg_core::source::{CallFrame, CallKind, SourceError};
+//! list of frames (`type` call/create/suicide, `traceAddress`, hex quantities);
+//! and `/tokens/{addr}/instances/{id}` bodies (an NFT's metadata).
+use eg_core::source::{CallFrame, CallKind, NftAttribute, NftMetadata, SourceError};
 use eg_core::types::{Address, Bytes, U256};
 use serde::Deserialize;
+use serde_json::Value;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,6 +119,55 @@ fn frame(r: RawFrame) -> Result<CallFrame, SourceError> {
         gas_used,
         error: r.error,
         subtraces: r.subtraces,
+    })
+}
+
+#[derive(Deserialize)]
+struct RawInstance {
+    image_url: Option<Value>,
+    metadata: Option<Value>,
+}
+
+/// Parses a token-instance body: `metadata.name`, `metadata.description`,
+/// `metadata.attributes`, and `image_url` (Blockscout's copy of the image)
+/// falling back to `metadata.image`. Fields of an unexpected type, and
+/// attributes that are not `{trait_type?, value}` objects with a string,
+/// number or boolean value, are left out; `metadata: null` gives empty
+/// metadata.
+pub fn parse_token_instance(body: &str) -> Result<NftMetadata, SourceError> {
+    let raw: RawInstance = serde_json::from_str(body)
+        .map_err(|e| SourceError::Parse(format!("token instance: {e}")))?;
+    let meta = raw.metadata.unwrap_or(Value::Null);
+    let text = |v: Option<&Value>| {
+        v.and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    };
+    let attributes = meta
+        .get("attributes")
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(attribute).collect())
+        .unwrap_or_default();
+    Ok(NftMetadata {
+        name: text(meta.get("name")),
+        description: text(meta.get("description")),
+        image: text(raw.image_url.as_ref()).or_else(|| text(meta.get("image"))),
+        attributes,
+    })
+}
+
+fn attribute(v: &Value) -> Option<NftAttribute> {
+    let value = match v.get("value")? {
+        Value::String(s) => s.clone(),
+        n @ (Value::Number(_) | Value::Bool(_)) => n.to_string(),
+        _ => return None,
+    };
+    Some(NftAttribute {
+        trait_type: v
+            .get("trait_type")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        value,
     })
 }
 

@@ -2,6 +2,7 @@
 
 pub mod contract_meta;
 pub mod fetch_block;
+pub mod fetch_nft;
 pub mod fetch_trace;
 pub mod fetch_tx;
 pub mod names;
@@ -17,6 +18,7 @@ use crate::runner::JobHandler;
 
 pub use contract_meta::ContractMetaHandler;
 pub use fetch_block::FetchBlockHandler;
+pub use fetch_nft::FetchNftHandler;
 pub use fetch_trace::FetchTraceHandler;
 pub use fetch_tx::FetchTxHandler;
 pub use names::ResolveNamesHandler;
@@ -36,6 +38,10 @@ pub fn default_handlers() -> HashMap<JobKind, Arc<dyn JobHandler>> {
         (
             JobKind::FetchTrace,
             Arc::new(FetchTraceHandler) as Arc<dyn JobHandler>,
+        ),
+        (
+            JobKind::FetchNft,
+            Arc::new(FetchNftHandler) as Arc<dyn JobHandler>,
         ),
         (
             JobKind::FetchBlock,

@@ -695,6 +695,10 @@ async fn every_enqueuing_route_attributes_jobs_to_the_viewer(pool: PgPool) {
     ok(st, &v);
     let (st, v) = get_as(&app, &b, &format!("/api/token/{}", hex(TOKEN))).await;
     ok(st, &v);
+    // An NFT's metadata.
+    let (st, v) = get_as(&app, &b, &format!("/api/token/{}/nft/7", hex(TOKEN))).await;
+    ok(st, &v);
+    assert_eq!(v["status"], "pending");
 
     let owners: Vec<Option<i64>> =
         sqlx::query_scalar("SELECT DISTINCT user_id FROM jobs ORDER BY user_id")
@@ -711,6 +715,7 @@ async fn every_enqueuing_route_attributes_jobs_to_the_viewer(pool: PgPool) {
         [
             "contract_meta",
             "fetch_block",
+            "fetch_nft",
             "fetch_trace",
             "fetch_tx",
             "resolve_names",

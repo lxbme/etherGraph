@@ -102,3 +102,10 @@ test("nodes posts the addresses and returns the summaries", async () => {
   expect(f.mock.calls[0]![0]).toBe("/api/nodes");
   expect(f.mock.calls[0]![1]).toMatchObject({ method: "POST", body: JSON.stringify({ addresses: ["0xabc", "0xdef"] }) });
 });
+
+test("nft asks for a token's instance by decimal id", async () => {
+  const f = vi.fn().mockImplementation(async () => new Response("{}", { status: 200 }));
+  vi.stubGlobal("fetch", f);
+  await api.nft("0xabc", "123456789012345678901234567890");
+  expect(f.mock.calls[0]![0]).toBe("/api/token/0xabc/nft/123456789012345678901234567890");
+});

@@ -253,6 +253,13 @@ test("TxReady invalidates that tx", () => {
   expect(spy).toHaveBeenCalledWith({ queryKey: qk.tx(h.toLowerCase()) });
 });
 
+test("NftReady invalidates that NFT's metadata", () => {
+  mount();
+  const spy = vi.spyOn(qc, "invalidateQueries");
+  send({ type: "NftReady", token: "0x" + "A7".repeat(20), token_id: "7" });
+  expect(spy).toHaveBeenCalledWith({ queryKey: qk.nft("0x" + "a7".repeat(20), "7") });
+});
+
 test("Lagged invalidates all queries", () => {
   mount();
   qc.setQueryData(qk.tx("0x1"), 1);

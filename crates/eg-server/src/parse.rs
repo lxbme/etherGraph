@@ -58,6 +58,15 @@ pub fn parse_time(s: &str, field: &str) -> Result<DateTime<Utc>, ApiError> {
         .map_err(|_| invalid(format!("{field} must be an RFC 3339 timestamp, got {s:?}")))
 }
 
+/// A token id: a decimal uint256 (digits only; leading zeros allowed).
+pub fn parse_token_id(s: &str) -> Result<U256, ApiError> {
+    let bad = || invalid(format!("token id must be a decimal uint256, got {s:?}"));
+    if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(bad());
+    }
+    U256::from_str_radix(s, 10).map_err(|_| bad())
+}
+
 pub fn parse_kind(s: &str) -> Result<TransferKind, ApiError> {
     TransferKind::parse(s).ok_or_else(|| invalid(format!("unknown transfer kind {s:?}")))
 }
