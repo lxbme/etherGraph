@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { useTheme } from "../shell/theme";
 import { canvasColor, graphStylesheet, txFlowStylesheet } from "./styles";
 import type { Annotation } from "../annotate/model";
+import { textWidth } from "../annotate/measure";
 import { IMAGE_EXT, TRANSIENT_CLASSES, exportImage, withCleanCanvas } from "./exportImage";
 
 // jsdom has no DOMMatrix (svgcanvas needs it): a recording stand-in that serialises its size, its groups (svgcanvas
@@ -26,6 +27,12 @@ vi.mock("svgcanvas", () => ({
     // Every other drawing call is a no-op (the proxy above).
   },
 }));
+
+// The real measure, recorded: which font each text is measured in.
+vi.mock("../annotate/measure", async (importOriginal) => {
+  const m = await importOriginal<typeof import("../annotate/measure")>();
+  return { ...m, textWidth: vi.fn(m.textWidth) };
+});
 
 /** A headless canvas with a box selection (a, b), a detail selection (node b, edge ab) and a highlighted edge (bc). */
 function makeCy(): cytoscape.Core {
@@ -177,6 +184,17 @@ describe("exportImage", () => {
     expect(svg).toContain("look here");
     const plain = await (await exportImage(cy, "svg")).text();
     expect(Number(/<svg[^>]*\swidth="([\d.]+)"/.exec(plain)![1])).toBeLessThan(width);
+  });
+
+  test("export bounds measure a mono text with the mono font at its size", async () => {
+    const cy = makeCy();
+    stubRenderer(cy);
+    const measured = vi.mocked(textWidth);
+    measured.mockClear();
+    const note: Annotation = { id: "n", kind: "text", color: "ink", x1: 0, y1: 0, x2: 0, y2: 0, text: "mono", size: 30, font: "mono" };
+    await exportImage(cy, "svg", [note]);
+    expect(measured).toHaveBeenCalledWith("mono", expect.stringContaining("IBM Plex Mono"), 30);
+    expect(measured.mock.calls.every(([, font]) => font.startsWith("30px ") && font.includes("IBM Plex Mono"))).toBe(true);
   });
 
   test("svg without annotations paints none: no extra group", async () => {

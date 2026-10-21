@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { bounds, isAnnotation, translate, txCallsView, txFlowView, type Annotation } from "./model";
+import { bounds, clampFontSize, isAnnotation, translate, txCallsView, txFlowView, type Annotation } from "./model";
 
 const a = (over: Partial<Annotation> = {}): Annotation => ({
   id: "1", kind: "rect", color: "red", x1: 0, y1: 0, x2: 10, y2: 20, ...over,
@@ -17,6 +17,26 @@ describe("isAnnotation", () => {
     expect(isAnnotation({ ...a(), text: 5 })).toBe(false);
     expect(isAnnotation(null)).toBe(false);
   });
+
+  test("accepts size 8..72 and fonts sans/mono, rejects size 7, 73, 14.5 and font \"serif\"", () => {
+    const text = (over: Record<string, unknown>) => ({ ...a({ kind: "text", text: "x" }), ...over });
+    for (const size of [8, 14, 72]) expect(isAnnotation(text({ size }))).toBe(true);
+    for (const font of ["sans", "mono"]) expect(isAnnotation(text({ font }))).toBe(true);
+    expect(isAnnotation(text({ size: 24, font: "mono" }))).toBe(true);
+    for (const size of [7, 73, 14.5, "14", NaN]) expect(isAnnotation(text({ size }))).toBe(false);
+    for (const font of ["serif", 1]) expect(isAnnotation(text({ font }))).toBe(false);
+  });
+});
+
+test("clampFontSize", () => {
+  expect(clampFontSize(8)).toBe(8);
+  expect(clampFontSize(72)).toBe(72);
+  expect(clampFontSize(24)).toBe(24);
+  expect(clampFontSize(23.6)).toBe(24);
+  expect(clampFontSize(7)).toBeNull();
+  expect(clampFontSize(73)).toBeNull();
+  expect(clampFontSize(NaN)).toBeNull();
+  expect(clampFontSize(Infinity)).toBeNull();
 });
 
 describe("bounds", () => {
@@ -26,6 +46,11 @@ describe("bounds", () => {
     // Text: 4 chars × 14 × 0.6 wide, 2 lines × 14 × 1.3 high.
     expect(bounds(list)).toEqual({ x1: -5, y1: 0, x2: 100 + 4 * 14 * 0.6, y2: 50 + 2 * 14 * 1.3 });
     expect(bounds(list, () => ({ w: 10, h: 5 }))).toEqual({ x1: -5, y1: 0, x2: 110, y2: 55 });
+  });
+
+  test("estimates text with its own size", () => {
+    const t = a({ kind: "text", x1: 0, y1: 0, x2: 0, y2: 0, text: "abcd\nab", size: 30 });
+    expect(bounds([t])).toEqual({ x1: 0, y1: 0, x2: 4 * 30 * 0.6, y2: 2 * 30 * 1.3 });
   });
 });
 

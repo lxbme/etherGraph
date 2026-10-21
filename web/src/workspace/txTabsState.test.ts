@@ -430,6 +430,29 @@ describe("annotations", () => {
     expect(useWorkspace.getState().dirty).toBe(true);
   });
 
+  test("text size and font round-trip; a text without them loads unchanged", async () => {
+    const sized = note("t1", { kind: "text", text: "big", size: 24, font: "mono" });
+    const plain = note("t2", { kind: "text", text: "old" });
+    useAnnotations.getState().add("graph", sized);
+    useAnnotations.getState().add("graph", plain);
+    const saved = json(captureState());
+    expect(saved.graph.annotations).toEqual([sized, plain]);
+    expect(deserialize(saved, 2)).toEqual({ ok: true, state: saved });
+    // A size or font out of the allowed set drops the entry, as a bad colour does.
+    const bad = json({ ...saved, graph: { ...saved.graph, annotations: [...saved.graph.annotations!, { ...plain, id: "t3", size: 99 }, { ...plain, id: "t4", font: "serif" }] } });
+    const d = deserialize(bad, 2);
+    expect(d.ok && d.state.graph.annotations).toEqual([sized, plain]);
+
+    useAnnotations.getState().reset();
+    newWorkspace();
+    m.workspace.mockResolvedValue(dto({ state: saved as never }));
+    await loadWorkspace(7);
+    const loaded = useAnnotations.getState().byView.graph!;
+    expect(loaded).toEqual([sized, plain]);
+    expect(loaded[1]).not.toHaveProperty("size");
+    expect(loaded[1]).not.toHaveProperty("font");
+  });
+
   test("older workspaces load with none, and invalid entries are dropped", () => {
     const plain = json({ graph: v1(), tabs: [{ hash: H1 }], active: H1 });
     const r = deserialize(plain, 2);

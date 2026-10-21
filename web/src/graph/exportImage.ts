@@ -2,7 +2,7 @@ import type cytoscape from "cytoscape";
 import { Context as SvgContext } from "svgcanvas";
 import { annotationColors } from "../annotate/colors";
 import { textWidth } from "../annotate/measure";
-import { FONT_SIZE, LINE_HEIGHT, bounds, fontOf, type Annotation } from "../annotate/model";
+import { LINE_HEIGHT, bounds, textFontOf, textSizeOf, type Annotation } from "../annotate/model";
 import { paintAnnotations } from "../annotate/paint";
 import { textLines } from "../annotate/geometry";
 import { useTheme } from "../shell/theme";
@@ -47,12 +47,14 @@ const PNG_SCALE = 2;
 
 type Box = { x1: number; y1: number; x2: number; y2: number };
 
-/** The size of a text annotation in the export font (the same measure the overlay uses on screen, via the canvas). */
+/** The size of a text annotation in its own font and size (the same measure the overlay uses on screen, via the canvas). */
 function measureNote(a: Annotation): { w: number; h: number } {
   const lines = textLines(a);
+  const size = textSizeOf(a);
+  const font = textFontOf(a);
   return {
-    w: Math.max(...lines.map((l) => textWidth(l, fontOf(FONT_SIZE), FONT_SIZE)), 0),
-    h: lines.length * FONT_SIZE * LINE_HEIGHT,
+    w: Math.max(...lines.map((l) => textWidth(l, font, size)), 0),
+    h: lines.length * size * LINE_HEIGHT,
   };
 }
 

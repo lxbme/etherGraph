@@ -747,6 +747,8 @@ a.btn { text-decoration: none; }
 }
 .annotate-bar__sep { align-self: stretch; width: 1px; background: var(--line); }
 .annotate-bar__dot { display: block; width: var(--sp-3); height: var(--sp-3); border-radius: 100%; }
+/* Two digits and the spinner. */
+.annotate-bar__size { width: 8ch; }
 /* The text editor sits exactly over the text it writes (left, top, font size set inline in screen px). */
 .annotate-editor {
   position: absolute;

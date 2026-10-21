@@ -14,14 +14,15 @@ import { arrowHead, ellipseOf, hitTest, rectOf, textLines } from "./geometry";
 import { textWidth } from "./measure";
 import {
   bounds,
-  FONT_FAMILY,
-  FONT_SIZE,
+  familyOf,
   fontOf,
   LINE_HEIGHT,
   STROKE_WIDTH,
+  textSizeOf,
   translate,
   type Annotation,
   type AnnotationColor,
+  type AnnotationFont,
   type ViewId,
 } from "./model";
 import { registerTextEditor, useAnnotations } from "./store";
@@ -42,6 +43,9 @@ interface TextEditor {
   x: number;
   y: number;
   color: AnnotationColor;
+  /** The size and font it is written in: the store's for a new draft, the text's own for an existing one. */
+  size: number;
+  font: AnnotationFont;
   text: string;
 }
 
@@ -70,17 +74,19 @@ function Shape({ a, textRef }: { a: Annotation; textRef?: (el: SVGTextElement | 
           <polygon fill={color} stroke="none" points={arrowHead(a).map((p) => p.join(",")).join(" ")} />
         </>
       );
-    case "text":
+    case "text": {
+      const size = textSizeOf(a);
       // Spaces are kept, as the export's fillText keeps them.
       return (
-        <text ref={textRef} x={a.x1} y={a.y1} fill={color} fontFamily={FONT_FAMILY} fontSize={FONT_SIZE} dominantBaseline="hanging" style={{ whiteSpace: "pre" }}>
+        <text ref={textRef} x={a.x1} y={a.y1} fill={color} fontFamily={familyOf(a.font ?? "sans")} fontSize={size} dominantBaseline="hanging" style={{ whiteSpace: "pre" }}>
           {textLines(a).map((line, i) => (
-            <tspan key={i} x={a.x1} y={a.y1 + i * FONT_SIZE * LINE_HEIGHT}>
+            <tspan key={i} x={a.x1} y={a.y1 + i * size * LINE_HEIGHT}>
               {line}
             </tspan>
           ))}
         </text>
       );
+    }
   }
 }
 
@@ -125,7 +131,7 @@ export function AnnotationLayer({ view, cy }: { view: ViewId; cy: cytoscape.Core
   const measure = useCallback((a: Annotation) => {
     const el = textEls.current.get(a.id);
     const box = el && typeof el.getBBox === "function" ? el.getBBox() : null;
-    if (box && box.width > 0) return { w: box.width, h: Math.max(box.height, textLines(a).length * FONT_SIZE * LINE_HEIGHT) };
+    if (box && box.width > 0) return { w: box.width, h: Math.max(box.height, textLines(a).length * textSizeOf(a) * LINE_HEIGHT) };
     const b = bounds([a])!;
     return { w: b.x2 - b.x1, h: b.y2 - b.y1 };
   }, []);
@@ -159,7 +165,8 @@ export function AnnotationLayer({ view, cy }: { view: ViewId; cy: cytoscape.Core
       if (empty) s.remove(view, ed.id);
       else s.update(view, ed.id, { text: ed.text });
     } else if (!empty) {
-      const a: Annotation = { id: newId(), kind: "text", color: ed.color, x1: ed.x, y1: ed.y, x2: ed.x, y2: ed.y, text: ed.text };
+      const { x, y, color, text, size, font } = ed;
+      const a: Annotation = { id: newId(), kind: "text", color, x1: x, y1: y, x2: x, y2: y, text, size, font };
       s.add(view, a);
       if (s.active === view) s.select(a.id);
     }
@@ -254,7 +261,7 @@ export function AnnotationLayer({ view, cy }: { view: ViewId; cy: cytoscape.Core
     const p = toModel(e);
     const s = useAnnotations.getState();
     if (g.kind === "text") {
-      setEd({ id: null, x: g.at.x, y: g.at.y, color: s.color, text: "" });
+      setEd({ id: null, x: g.at.x, y: g.at.y, color: s.color, size: s.fontSize, font: s.font, text: "" });
     } else if (g.kind === "draw") {
       setDraft(null);
       const shape = { ...g.shape, x2: p.x, y2: p.y };
@@ -284,7 +291,7 @@ export function AnnotationLayer({ view, cy }: { view: ViewId; cy: cytoscape.Core
     const hit = hitTest(list, toModel(e), HIT_PX / viewport().zoom, measure);
     const a = list.find((x) => x.id === hit);
     if (a?.kind !== "text") return;
-    setEd({ id: a.id, x: a.x1, y: a.y1, color: a.color, text: a.text ?? "" });
+    setEd({ id: a.id, x: a.x1, y: a.y1, color: a.color, size: textSizeOf(a), font: a.font ?? "sans", text: a.text ?? "" });
   };
 
   const shown = list
@@ -296,8 +303,9 @@ export function AnnotationLayer({ view, cy }: { view: ViewId; cy: cytoscape.Core
   const editorLines = editor ? editor.text.split("\n") : [];
   // The editor is as wide as its longest line in the annotation font, plus 1em to type into:
   // a `cols` width counts average characters and is about half the width of a CJK or "WWW" line.
-  const editorSize = FONT_SIZE * vp.zoom;
-  const editorWidth = Math.max(...editorLines.map((l) => textWidth(l, fontOf(editorSize), editorSize)), 0) + editorSize;
+  const editorSize = (editor?.size ?? 0) * vp.zoom;
+  const editorFont = fontOf(editorSize, editor?.font);
+  const editorWidth = Math.max(...editorLines.map((l) => textWidth(l, editorFont, editorSize)), 0) + editorSize;
 
   return (
     <>
@@ -342,9 +350,9 @@ export function AnnotationLayer({ view, cy }: { view: ViewId; cy: cytoscape.Core
           style={{
             left: editor.x * vp.zoom + vp.pan.x,
             // The first line's box starts half a leading above the text's top, as the overlay draws it.
-            top: (editor.y - ((LINE_HEIGHT - 1) / 2) * FONT_SIZE) * vp.zoom + vp.pan.y,
+            top: (editor.y - ((LINE_HEIGHT - 1) / 2) * editor.size) * vp.zoom + vp.pan.y,
             width: editorWidth,
-            fontFamily: FONT_FAMILY,
+            fontFamily: familyOf(editor.font),
             fontSize: editorSize,
             lineHeight: LINE_HEIGHT,
             color: `var(--note-${editor.color})`,

@@ -26,6 +26,9 @@ const notes = (view: ViewId = "graph") => s().byView[view] ?? [];
 const rect = (id: string, over: Partial<Annotation> = {}): Annotation => ({
   id, kind: "rect", color: "red", x1: 100, y1: 100, x2: 200, y2: 200, ...over,
 });
+const text = (id: string, over: Partial<Annotation> = {}): Annotation => ({
+  id, kind: "text", color: "red", x1: 100, y1: 100, x2: 100, y2: 100, text: "hi", ...over,
+});
 
 function renderLayer(view: ViewId = "graph") {
   const cy = fakeCy();
@@ -185,6 +188,36 @@ describe("annotate mode", () => {
     expect(notes()).toEqual([]);
     s().undo("graph");
     expect(notes()).toMatchObject([{ kind: "text", text: "hi" }]);
+  });
+
+  test("a new text takes the store's size and font; an edited text keeps its own", () => {
+    act(() => {
+      s().setMode("graph");
+      s().setFontSize(20);
+      s().setFont("mono");
+      s().setTool("text");
+    });
+    const { svg, container } = renderLayer();
+    drag(svg(), [300, 250], [300, 250]);
+    let box = container.querySelector("textarea")!;
+    expect(box).toHaveStyle({ fontSize: "40px" }); // 20 × zoom 2
+    expect(box.style.fontFamily).toContain("IBM Plex Mono");
+    expect(parseFloat(box.style.top)).toBeCloseTo(250 - 0.15 * 40);
+    fireEvent.change(box, { target: { value: "ab" } });
+    expect(parseFloat(box.style.width)).toBeCloseTo(2 * 40 * 0.6 + 40); // measured in the mono font at 40 px, plus 1em
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(notes()).toMatchObject([{ kind: "text", text: "ab", size: 20, font: "mono" }]);
+
+    // An existing text is edited in its own size and font, whatever the defaults.
+    act(() => {
+      s().load("graph", [text("old", { size: 30 })]);
+      s().setTool("select");
+    });
+    fireEvent.doubleClick(svg(), at(304, 254));
+    box = container.querySelector("textarea")!;
+    expect(box).toHaveStyle({ fontSize: "60px" });
+    expect(box.style.fontFamily).not.toContain("IBM Plex Mono");
+    expect(parseFloat(box.style.top)).toBeCloseTo(250 - 0.15 * 60);
   });
 
   test("select-drag moves by the model delta as one undo step", () => {
@@ -399,6 +432,135 @@ describe("annotate toolbar", () => {
     expect(s().selected).toBeNull();
     act(() => s().undo("graph"));
     expect(notes().map((n) => n.id)).toEqual(["r"]);
+  });
+
+  test("size and font controls show only for the text tool or a selected text", () => {
+    act(() => {
+      s().setMode("graph");
+      s().load("graph", [rect("r"), text("t")]);
+      s().select("r");
+    });
+    render(<AnnotateToolbar view="graph" />);
+    const controls = () => [screen.queryByRole("spinbutton", { name: "Size" }), screen.queryByRole("button", { name: "Sans" }), screen.queryByRole("button", { name: "Mono" })];
+    expect(controls()).toEqual([null, null, null]);
+    act(() => s().setTool("text"));
+    expect(controls().every((c) => c !== null)).toBe(true);
+    act(() => s().setTool("arrow"));
+    expect(controls()).toEqual([null, null, null]);
+    act(() => {
+      s().setTool("select");
+      s().select("t");
+    });
+    expect(controls().every((c) => c !== null)).toBe(true);
+    // They sit between the colours and delete.
+    const bar = screen.getByRole("toolbar", { name: "Annotate" });
+    const order = [...bar.querySelectorAll("button, input")].map((el) => el.getAttribute("aria-label") ?? el.textContent);
+    expect(order.slice(order.indexOf("Ink") + 1, order.indexOf("Delete"))).toEqual(["Sans", "Mono", "Size"]);
+    // A font button changes the selected text's font.
+    act(() => screen.getByRole("button", { name: "Mono" }).click());
+    expect(notes()[1]!.font).toBe("mono");
+    expect(screen.getByRole("button", { name: "Mono" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Sans" })).toHaveAttribute("aria-pressed", "false");
+    act(() => s().select("r"));
+    expect(controls()).toEqual([null, null, null]);
+  });
+
+  test("typing 24 in the size input is one undo step", () => {
+    act(() => {
+      s().setMode("graph");
+      s().load("graph", [text("t")]);
+      s().select("t");
+    });
+    render(<AnnotateToolbar view="graph" />);
+    const size = screen.getByRole("spinbutton", { name: "Size" });
+    fireEvent.change(size, { target: { value: "2" } }); // below 8: shown, not applied
+    expect(size).toHaveValue(2);
+    expect(notes()[0]).not.toHaveProperty("size");
+    fireEvent.change(size, { target: { value: "24" } });
+    expect(notes()[0]!.size).toBe(24);
+    expect(s().fontSize).toBe(24);
+    fireEvent.blur(size);
+    expect(size).toHaveValue(24);
+    act(() => s().undo("graph"));
+    expect(notes()[0]).not.toHaveProperty("size");
+    expect(s().canUndo("graph")).toBe(false);
+    expect(size).toHaveValue(14);
+  });
+
+  test("Backspace in the size input does not delete the selected annotation", () => {
+    function Host() {
+      useShortcuts(() => undefined);
+      return (
+        <>
+          <AnnotationLayer view="graph" cy={fakeCy() as never} />
+          <AnnotateToolbar view="graph" />
+        </>
+      );
+    }
+    act(() => {
+      s().setMode("graph");
+      s().load("graph", [text("t")]);
+      s().select("t");
+    });
+    render(<Host />);
+    const size = screen.getByRole("spinbutton", { name: "Size" });
+    act(() => size.focus());
+    key(size, { key: "Backspace" });
+    key(size, { key: "Delete" });
+    expect(notes()).toEqual([text("t")]);
+    expect(s().selected).toBe("t");
+    // Outside the input the key still deletes.
+    act(() => size.blur());
+    key(document.body, { key: "Delete" });
+    expect(notes()).toEqual([]);
+  });
+
+  test("an out-of-range size is not applied and blur restores the current size", () => {
+    act(() => {
+      s().setMode("graph");
+      s().load("graph", [text("t", { size: 20 })]);
+      s().select("t");
+    });
+    render(<AnnotateToolbar view="graph" />);
+    const size = screen.getByRole("spinbutton", { name: "Size" });
+    expect(size).toHaveValue(20);
+    for (const v of ["99", "7", "0"]) fireEvent.change(size, { target: { value: v } });
+    expect(size).toHaveValue(0);
+    expect(notes()[0]!.size).toBe(20);
+    expect(s().canUndo("graph")).toBe(false);
+    fireEvent.blur(size);
+    expect(size).toHaveValue(20);
+    fireEvent.change(size, { target: { value: "" } });
+    fireEvent.keyDown(size, { key: "Enter" });
+    expect(size).toHaveValue(20);
+    expect(s().canUndo("graph")).toBe(false);
+    // What was typed for one text is not shown for another.
+    fireEvent.change(size, { target: { value: "99" } });
+    act(() => {
+      s().add("graph", text("u", { size: 30 }));
+      s().select("u");
+    });
+    expect(size).toHaveValue(30);
+  });
+
+  test("with an old text selected (no size/font) the input shows 14 and sans is pressed", () => {
+    act(() => {
+      s().setMode("graph");
+      s().setFontSize(30);
+      s().setFont("mono");
+      s().setTool("text");
+    });
+    render(<AnnotateToolbar view="graph" />);
+    expect(screen.getByRole("spinbutton", { name: "Size" })).toHaveValue(30); // the defaults for new text
+    expect(screen.getByRole("button", { name: "Mono" })).toHaveAttribute("aria-pressed", "true");
+    act(() => {
+      s().load("graph", [text("old")]);
+      s().setTool("select");
+      s().select("old");
+    });
+    expect(screen.getByRole("spinbutton", { name: "Size" })).toHaveValue(14);
+    expect(screen.getByRole("button", { name: "Sans" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Mono" })).toHaveAttribute("aria-pressed", "false");
   });
 
   test("leaving the canvas' tab or view leaves the mode", () => {

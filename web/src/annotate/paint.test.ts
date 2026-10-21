@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { FONT_FAMILY, FONT_SIZE, LINE_HEIGHT, STROKE_WIDTH, fontOf, type Annotation } from "./model";
+import { FONT_FAMILY, FONT_MONO, FONT_SIZE, LINE_HEIGHT, STROKE_WIDTH, fontOf, type Annotation } from "./model";
 import { paintAnnotations } from "./paint";
 
 const COLORS = { red: "#r", amber: "#a", blue: "#b", ink: "#i" };
@@ -50,6 +50,20 @@ describe("paintAnnotations", () => {
     paintAnnotations(ctx, [a({ kind: "text", text: "x" })], COLORS);
     expect(log).toContain(`font=${FONT_SIZE}px ${FONT_FAMILY}`);
     expect(fontOf(FONT_SIZE)).toBe(`${FONT_SIZE}px ${FONT_FAMILY}`);
+  });
+
+  test("each text is painted in its own font and line spacing", () => {
+    const { ctx, log, calls } = fakeCtx();
+    paintAnnotations(
+      ctx,
+      [a({ kind: "text", y1: 0, text: "a\nb", size: 24, font: "mono" }), a({ id: "2", kind: "text", y1: 100, text: "c\nd" })],
+      COLORS,
+    );
+    const fonts = log.filter((l) => l.startsWith("font="));
+    expect(fonts.slice(-2)).toEqual([`font=24px ${FONT_MONO}`, `font=${FONT_SIZE}px ${FONT_FAMILY}`]);
+    expect(fontOf(24, "mono")).toBe(`24px ${FONT_MONO}`);
+    const ys = calls.filter(([n]) => n === "fillText").map(([, args]) => args[2]);
+    expect(ys).toEqual([0, 24 * LINE_HEIGHT, 100, 100 + FONT_SIZE * LINE_HEIGHT]);
   });
 
   test("text keeps leading, trailing and repeated spaces (an SVG collapses plain ones); single inner spaces stay plain", () => {

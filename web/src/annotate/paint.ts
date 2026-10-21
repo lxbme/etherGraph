@@ -1,5 +1,5 @@
 import { arrowHead, ellipseOf, rectOf, textLines } from "./geometry";
-import { FONT_SIZE, LINE_HEIGHT, STROKE_WIDTH, fontOf, type Annotation, type AnnotationColor } from "./model";
+import { LINE_HEIGHT, STROKE_WIDTH, textFontOf, textSizeOf, type Annotation, type AnnotationColor } from "./model";
 
 /**
  * A line with its leading, trailing and repeated spaces made non-breaking: an SVG collapses them, the overlay
@@ -17,7 +17,6 @@ export function paintAnnotations(
   ctx.lineWidth = STROKE_WIDTH;
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
-  ctx.font = fontOf(FONT_SIZE);
   // (x1,y1) is the top of the first line, on the hanging baseline as the overlay's dominant-baseline (svgcanvas keeps it).
   ctx.textBaseline = "hanging";
   ctx.textAlign = "left";
@@ -49,9 +48,12 @@ export function paintAnnotations(
         ctx.fill();
         break;
       }
-      case "text":
-        textLines(a).forEach((line, i) => ctx.fillText(keepSpaces(line), a.x1, a.y1 + i * FONT_SIZE * LINE_HEIGHT));
+      case "text": {
+        const lineStep = textSizeOf(a) * LINE_HEIGHT;
+        ctx.font = textFontOf(a);
+        textLines(a).forEach((line, i) => ctx.fillText(keepSpaces(line), a.x1, a.y1 + i * lineStep));
         break;
+      }
     }
   }
   ctx.restore();

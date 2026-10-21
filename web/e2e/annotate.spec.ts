@@ -73,6 +73,15 @@ test("annotations stay put when nodes move and come back after reload", async ({
   await expect(editor).toHaveCount(0);
   await expect(shapes(graph, "text")).toHaveText("hello 中文标注测试 WWWW");
 
+  // The new text is selected: give it a size and the mono font.
+  await bar.getByRole("button", { name: "Mono" }).click();
+  await bar.getByRole("spinbutton", { name: "Size" }).fill("24");
+  const expectSizedText = async () => {
+    await expect(shapes(graph, "text")).toHaveAttribute("font-size", "24");
+    await expect(shapes(graph, "text")).toHaveAttribute("font-family", /IBM Plex Mono/);
+  };
+  await expectSizedText();
+
   // The wheel still zooms the canvas under the overlay; the annotation keeps its model box.
   const drawn = (await rectProbe(page))!;
   const zoom = () => page.evaluate(() => (window as unknown as { __etherGraphCy: Core }).__etherGraphCy.zoom());
@@ -124,6 +133,7 @@ test("annotations stay put when nodes move and come back after reload", async ({
   await page.getByRole("dialog", { name: "Open workspace" }).getByRole("button", { name: "with notes", exact: true }).click();
   await expect(shapes(graph, "rect")).toHaveCount(1);
   await expect(shapes(graph, "text")).toHaveText("hello 中文标注测试 WWWW");
+  await expectSizedText();
   expect((await rectProbe(page))!.model).toEqual(drawn.model);
 
   expect(mock.unhandled).toEqual([]);

@@ -55,6 +55,21 @@ describe("AnnotationLayer", () => {
     expect(container.querySelector("rect")!.getAttribute("fill")).toBe("none");
   });
 
+  test("a mono 24 px text renders with the mono family and 24 px lines", () => {
+    useAnnotations.getState().load("graph", [
+      a("1", { kind: "text", x1: 5, y1: 7, text: "a\nb", size: 24, font: "mono" }),
+      a("2", { kind: "text", x1: 5, y1: 100, text: "c\nd" }),
+    ]);
+    const { container } = render(<AnnotationLayer view="graph" cy={fakeCy().cy as never} />);
+    const [mono, sans] = [...container.querySelectorAll("text")];
+    expect(mono!.getAttribute("font-size")).toBe("24");
+    expect(mono!.getAttribute("font-family")).toContain("IBM Plex Mono");
+    expect([...mono!.querySelectorAll("tspan")].map((t) => Number(t.getAttribute("y")))).toEqual([7, 7 + 24 * 1.3]);
+    expect(sans!.getAttribute("font-size")).toBe("14");
+    expect(sans!.getAttribute("font-family")).toContain("Inter");
+    expect([...sans!.querySelectorAll("tspan")].map((t) => Number(t.getAttribute("y")))).toEqual([100, 100 + 14 * 1.3]);
+  });
+
   test("a rectangle renders with the width and height of its box", () => {
     useAnnotations.getState().load("graph", [a("1", { kind: "rect", x1: 300, y1: 200, x2: 100, y2: 50 })]);
     const { container } = render(<AnnotationLayer view="graph" cy={fakeCy().cy as never} />);

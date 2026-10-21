@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { pushCapped } from "../graph/undo";
-import type { Annotation, AnnotationColor, AnnotationKind, ViewId } from "./model";
+import { clampFontSize, FONT_SIZE, textSizeOf, type Annotation, type AnnotationColor, type AnnotationFont, type AnnotationKind, type ViewId } from "./model";
 
 interface History {
   undo: Annotation[][];
@@ -13,11 +13,18 @@ interface AnnotationsState {
   active: ViewId | null;
   tool: "select" | AnnotationKind;
   color: AnnotationColor;
+  /** The size and font of new text. */
+  fontSize: number;
+  font: AnnotationFont;
   selected: string | null;
   setMode(view: ViewId | null): void;
   setTool(t: "select" | AnnotationKind): void;
   /** Also recolours the selected annotation (one undo step). */
   setColor(c: AnnotationColor): void;
+  /** Also resizes the selected annotation when it is a text (one undo step); a size out of range is ignored. */
+  setFontSize(n: number): void;
+  /** Also changes the selected annotation's font when it is a text (one undo step). */
+  setFont(f: AnnotationFont): void;
   select(id: string | null): void;
   add(view: ViewId, a: Annotation): void;
   update(view: ViewId, id: string, patch: Partial<Annotation>): void;
@@ -52,7 +59,7 @@ export function commitOpenText(): void {
   for (const commit of [...openEditors]) commit();
 }
 
-const initial = { byView: {}, active: null, tool: "select", color: "red", selected: null } as const;
+const initial = { byView: {}, active: null, tool: "select", color: "red", fontSize: FONT_SIZE, font: "sans", selected: null } as const;
 
 export const useAnnotations = create<AnnotationsState>()((set, get) => {
   /** Applies a change to a view's list as one undo step (no-op when the list is unchanged). */
@@ -84,6 +91,16 @@ export const useAnnotations = create<AnnotationsState>()((set, get) => {
     const { active, byView } = get();
     return id !== null && active !== null && (byView[active] ?? []).some((a) => a.id === id) ? active : null;
   };
+  /** Patches the selected annotation as one undo step, when it is a text that `differs` from the patch. */
+  const patchSelectedText = (patch: Partial<Annotation>, differs: (a: Annotation) => boolean) => {
+    const { selected } = get();
+    const view = owner(selected);
+    if (view === null) return;
+    const cur = get().byView[view] ?? [];
+    if (cur.some((a) => a.id === selected && a.kind === "text" && differs(a))) {
+      commit(view, cur.map((a) => (a.id === selected ? { ...a, ...patch } : a)));
+    }
+  };
 
   return {
     ...initial,
@@ -98,6 +115,17 @@ export const useAnnotations = create<AnnotationsState>()((set, get) => {
       if (view !== null && cur.some((a) => a.id === selected && a.color !== color)) {
         commit(view, cur.map((a) => (a.id === selected ? { ...a, color } : a)));
       }
+    },
+    setFontSize: (n) => {
+      // Out of range would be saved, then dropped on load (isAnnotation): ignored.
+      const fontSize = clampFontSize(n);
+      if (fontSize === null) return;
+      set({ fontSize });
+      patchSelectedText({ size: fontSize }, (a) => textSizeOf(a) !== fontSize);
+    },
+    setFont: (font) => {
+      set({ font });
+      patchSelectedText({ font }, (a) => (a.font ?? "sans") !== font);
     },
     select: (selected) => set({ selected }),
     add: (view, a) => commit(view, [...(get().byView[view] ?? []), a]),
