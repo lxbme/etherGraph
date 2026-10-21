@@ -383,6 +383,31 @@ test("preset candidates skip counterparties, resolve names from the cached graph
   expect(screen.getByRole("meter", { name: "Nodes" })).toHaveAttribute("aria-valuenow", "16"); // 7 and 9 already on the canvas: 5 + 5 + 6
 });
 
+test("marks centers as expanded and other on-canvas candidates as on canvas", async () => {
+  mockCounterparties([cp(1), cp(2), cp(3), cp(4)]);
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  useGraph.getState().addCenter(ME);
+  // 2 (B) and 4 (D) are on the canvas; 1 and 3 are absent.
+  qc.setQueryData(graphQueryKey(useGraph.getState()), { nodes: [node(999), node(2), node(4)], edges: [], omitted: {}, coverage: {} });
+  mount({ qc });
+  await screen.findByText("Probed 4 / 4");
+  const order = () => (screen.getAllByRole("checkbox") as HTMLInputElement[]).map((b) => b.getAttribute("aria-label"));
+  const before = order();
+  expect(before).toEqual([1, 2, 3, 4].map(addr));
+  const tags = (n: number) => within(box(n).closest("tr")!);
+  expect(tags(2).getByText("On canvas")).toBeInTheDocument();
+  expect(tags(4).getByText("On canvas")).toBeInTheDocument();
+  expect(tags(1).queryByText("On canvas")).toBeNull();
+  expect(tags(3).queryByText(/On canvas|Expanded/)).toBeNull();
+
+  // D becomes a center while the dialog is open: the tag follows.
+  act(() => useGraph.getState().addCenter(addr(4)));
+  expect(tags(4).getByText("Expanded")).toBeInTheDocument();
+  expect(tags(4).queryByText("On canvas")).toBeNull();
+  expect(tags(2).getByText("On canvas")).toBeInTheDocument();
+  expect(order()).toEqual(before);
+});
+
 test("an 'up to about' line counts the checked addresses not on the canvas plus each one's first batch", async () => {
   mockCounterparties([cp(1), cp(2)]);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

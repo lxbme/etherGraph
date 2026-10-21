@@ -17,6 +17,8 @@ export interface CandidateRow {
   /** Wei, decimal; null when unknown. */
   balance: string | null;
   heavy: boolean;
+  /** Already expanded (a center), or merely shown on the canvas; display-only. */
+  presence: "center" | "canvas" | null;
   cand: Candidate;
 }
 
@@ -54,6 +56,7 @@ function Name({ row }: { row: CandidateRow }) {
         </span>
         {row.heavy && <span className="tag tag--warn">{t("expand.heavy")}</span>}
         {row.cand.hot && <span className="tag tag--warn">{t("expand.hot")}</span>}
+        {row.presence && <span className="tag tag--neutral">{t(`expand.presence.${row.presence}`)}</span>}
       </span>
     </td>
   );

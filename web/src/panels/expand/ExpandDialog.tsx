@@ -85,7 +85,7 @@ function toRow(
   probe: ProbeItemDto | undefined,
   onCanvas: boolean,
   coverage: SyncStatusDto[] | undefined,
-): Omit<CandidateRow, "heavy"> {
+): Omit<CandidateRow, "heavy" | "presence"> {
   const nonce = probe ? probe.nonce : s.summary.nonce;
   const synced = probe?.synced ?? s.summary.synced;
   const partial = probe?.partial ?? s.summary.partial;
@@ -231,14 +231,20 @@ export function ExpandDialog({ node, preset, onClose, onDone = onClose }: Expand
     [metrics, rate, queued, quotaLeft],
   );
 
+  const centers = useGraph((s) => s.centers);
   const rows = useMemo(() => {
     const base = (sources ?? []).map((s) =>
       toRow(s, probe.items.get(s.address), shown.onCanvas.has(s.address), shown.coverage.get(s.address)),
     );
     // Heavy is judged among measured weights only: count-based estimates are on another scale (ruling R14).
     const heavy = heavySet(new Map(base.filter((r) => !r.cand.weight.estimated).map((r) => [r.address, r.cand.weight.value])));
-    return base.map((r): CandidateRow => ({ ...r, heavy: heavy.has(r.address) }));
-  }, [sources, probe.items, shown]);
+    const isCenter = new Set(centers.map(lc));
+    return base.map((r): CandidateRow => ({
+      ...r,
+      heavy: heavy.has(r.address),
+      presence: isCenter.has(r.address) ? "center" : r.cand.onCanvas ? "canvas" : null,
+    }));
+  }, [sources, probe.items, shown, centers]);
   const wallets = useMemo(() => rows.filter((r) => r.cand.kind !== "contract").sort(byWeight), [rows]);
   const contracts = useMemo(() => rows.filter((r) => r.cand.kind === "contract"), [rows]);
 

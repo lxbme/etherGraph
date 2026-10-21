@@ -403,6 +403,8 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "expand.est": "估",
   "expand.estTitle": "根据库中的转账估算：尚未探测",
   "expand.heavy": "偏重",
+  "expand.presence.center": "已展开",
+  "expand.presence.canvas": "在图上",
   "expand.hot": "热门",
   "expand.loading": "正在加载交易对手…",
   "expand.empty": "库中还没有交易对手。请先同步这个地址。",

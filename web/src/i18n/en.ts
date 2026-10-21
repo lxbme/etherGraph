@@ -401,6 +401,8 @@ export const en = {
   "expand.est": "est.",
   "expand.estTitle": "Estimated from stored transfers: not probed yet",
   "expand.heavy": "Heavy",
+  "expand.presence.center": "Expanded",
+  "expand.presence.canvas": "On canvas",
   "expand.hot": "Hot",
   "expand.loading": "Loading counterparties…",
   "expand.empty": "No stored counterparties yet. Sync this address first.",
