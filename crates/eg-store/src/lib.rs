@@ -9,6 +9,7 @@ mod meta;
 mod quota;
 mod sessions;
 mod settings;
+mod signatures;
 mod stats;
 mod token_tags;
 mod traces;
@@ -26,6 +27,9 @@ pub use labels::{ImportRow, LabelRow};
 pub use meta::{AccountRow, EnsRow, EnsStatus};
 pub use sessions::{NoncePurpose, NonceRow, SessionKind, SessionRow};
 pub use settings::{SETTING_DEFAULT_DAILY_QUOTA, SETTING_OPEN_REGISTRATION};
+pub use signatures::{
+    signature_count, signatures_by_hash, signatures_by_selector, upsert_signatures,
+};
 pub use stats::{AccountKindFilter, AddressAssetRow, CounterpartyRow, CounterpartySort, StatsRow};
 pub use token_tags::{ListedTokenRow, TokenTagRow};
 pub use traces::CallTraceRow;

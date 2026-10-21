@@ -66,6 +66,21 @@ enum Cmd {
         #[arg(value_name = "FILE")]
         file_pos: Option<PathBuf>,
     },
+    /// Import Sourcify's signature database (Parquet) into the local signature table.
+    ImportSignatures {
+        #[arg(long, default_value = "config.toml")]
+        config: PathBuf,
+        #[arg(long, value_enum)]
+        format: SignatureFormat,
+        /// Parquet files, or directories whose `*.parquet` files are imported (sorted).
+        #[arg(value_name = "FILE|DIR", required = true)]
+        paths: Vec<PathBuf>,
+    },
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum SignatureFormat {
+    Sourcify,
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -106,6 +121,11 @@ async fn main() -> anyhow::Result<()> {
                 .context("a file path is required (--file <path>)")?;
             import_tokens_cmd(&config, format, &file).await
         }
+        Cmd::ImportSignatures {
+            config,
+            format: SignatureFormat::Sourcify,
+            paths,
+        } => import_signatures_cmd(&config, &paths).await,
     }
 }
 
@@ -135,6 +155,45 @@ async fn import_tokens_cmd(config: &Path, format: TokenFormat, path: &Path) -> a
     println!(
         "{}",
         eg_server::cli::import_tokens(&store, format, path).await?
+    );
+    Ok(())
+}
+
+/// Every `*.parquet` file of the directories in `paths` (sorted), and the files named.
+fn parquet_files(paths: &[PathBuf]) -> anyhow::Result<Vec<PathBuf>> {
+    let mut out = Vec::new();
+    for p in paths {
+        if p.is_dir() {
+            let mut found = Vec::new();
+            for entry in std::fs::read_dir(p).with_context(|| format!("reading {}", p.display()))? {
+                let path = entry?.path();
+                if path.extension().is_some_and(|e| e == "parquet") {
+                    found.push(path);
+                }
+            }
+            found.sort();
+            out.extend(found);
+        } else {
+            out.push(p.clone());
+        }
+    }
+    anyhow::ensure!(!out.is_empty(), "no Parquet files found");
+    Ok(out)
+}
+
+async fn import_signatures_cmd(config: &Path, paths: &[PathBuf]) -> anyhow::Result<()> {
+    let files = parquet_files(paths)?;
+    let store = connect(config).await?;
+    let stats = eg_server::import_signatures::import_signatures(store.pool(), &files, |s| {
+        eprintln!(
+            "  {} rows read, {} inserted, {} invalid",
+            s.rows_read, s.inserted, s.skipped_invalid
+        );
+    })
+    .await?;
+    println!(
+        "imported {} file(s): {} rows read, {} new signatures, {} skipped as invalid",
+        stats.files, stats.rows_read, stats.inserted, stats.skipped_invalid
     );
     Ok(())
 }

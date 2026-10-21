@@ -19,7 +19,9 @@ chrono = { workspace = true }
 clap = { workspace = true }
 csv = { workspace = true }
 futures = { workspace = true }
+alloy-json-abi = { workspace = true }
 serde = { workspace = true }
+sqlx = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true }
@@ -29,6 +31,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 ts-rs = { workspace = true }
 unicode-normalization = "0.1.25"
+parquet = { version = "60.0.0", default-features = false, features = ["snap", "zstd"] }
 
 [dev-dependencies]
 alloy-sol-types = { workspace = true }
@@ -36,6 +39,5 @@ eg-core = { path = "../eg-core", features = ["testing"] }
 http-body-util = "0.1"
 k256 = { workspace = true }
 rand = { workspace = true }
-sqlx = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 async-trait = { workspace = true }
