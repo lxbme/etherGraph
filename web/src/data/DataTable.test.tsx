@@ -20,28 +20,47 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-test("hiding a row marks it hidden and calls setTransfersHidden", () => {
+test("the eye button hides a shown transfer and shows a hidden one", () => {
   // A checksummed hash and addresses: the stored record is lowercased.
   const row = transfer(1, { tx_hash: "0x" + "AB".repeat(32), from: "0x" + "AA".repeat(20) });
   const other = transfer(2);
   const spy = vi.spyOn(useGraph.getState(), "setTransfersHidden");
   render(<DataTable rows={[row, other]} names={new Map([[B, "bob.eth"]])} />);
-  expect(screen.getByRole("columnheader", { name: "Hidden" })).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "Visible" })).toBeInTheDocument();
+  expect(screen.queryByRole("checkbox")).toBeNull();
   const [first, second] = screen.getAllByTestId("data-row");
   expect(within(first!).getByTitle(B)).toHaveTextContent("bob.eth");
   expect(within(first!).getByTitle(row.from)).toHaveTextContent("0xAAAA…AAAA");
 
-  fireEvent.click(within(first!).getByRole("checkbox"));
+  const hide = within(first!).getByRole("button", { name: "Hide" });
+  expect(hide).toHaveAttribute("aria-pressed", "false");
+  expect(hide).toHaveAttribute("title", "Hide");
+  fireEvent.click(hide);
   expect(spy).toHaveBeenCalledWith([hiddenFromTransfer(row)], true);
   expect(spy.mock.calls[0]![0][0]!.tx_hash).toBe("0x" + "ab".repeat(32));
   expect(first).toHaveClass("data__row--hidden");
-  expect(within(first!).getByRole("checkbox")).toBeChecked();
+  expect(within(first!).queryByRole("button", { name: "Hide" })).toBeNull();
+  expect(within(first!).getByRole("button", { name: "Show" })).toHaveAttribute("aria-pressed", "true");
   expect(second).not.toHaveClass("data__row--hidden");
 
-  // Unticking unhides it.
-  fireEvent.click(within(first!).getByRole("checkbox"));
+  // The same button shows it again.
+  fireEvent.click(within(first!).getByRole("button", { name: "Show" }));
   expect(spy).toHaveBeenLastCalledWith([hiddenFromTransfer(row)], false);
   expect(first).not.toHaveClass("data__row--hidden");
+  expect(within(first!).getByRole("button", { name: "Hide" })).toHaveAttribute("aria-pressed", "false");
+});
+
+test("a hidden row's eye button is not muted", () => {
+  render(<DataTable rows={[transfer(1)]} names={new Map()} />);
+  const row = screen.getByTestId("data-row");
+  fireEvent.click(within(row).getByRole("button", { name: "Hide" }));
+  const eye = within(row).getByRole("button", { name: "Show" });
+  expect(row).toHaveClass("data__row--hidden");
+  // The muting is a colour on the row (see app.css), never an opacity; the button is enabled and sets its own colour.
+  expect(eye).toBeEnabled();
+  expect(eye).toHaveClass("btn");
+  expect(eye.closest(".data__row--hidden")).toBe(row);
+  expect(getComputedStyle(eye).opacity).not.toBe("0.5");
 });
 
 test("clicking the hash opens the tx tab", () => {

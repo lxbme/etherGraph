@@ -57,7 +57,7 @@ test("hiding a transfer on the Data tab thins its edge on the graph", async ({ p
   await expect(page.getByTestId("data-row")).toHaveCount(3);
   await expect(page.getByText("3 / 3 transfers")).toBeVisible();
   await expect(page.locator(".main__right")).toHaveCount(0);
-  await dataRow(page, T1).getByRole("checkbox").check();
+  await dataRow(page, T1).getByRole("button", { name: "Hide" }).click();
   await expect(dataRow(page, T1)).toHaveClass(/data__row--hidden/);
 
   // 2. Back on the graph, the edge counts one.
@@ -68,7 +68,7 @@ test("hiding a transfer on the Data tab thins its edge on the graph", async ({ p
   // 3. Hide the other one: the edge is gone (and still listed on the Data tab, to unhide it).
   await page.getByRole("tab", { name: "Data" }).click();
   await expect(page.getByTestId("data-row")).toHaveCount(3);
-  await dataRow(page, T2).getByRole("checkbox").check();
+  await dataRow(page, T2).getByRole("button", { name: "Hide" }).click();
   await page.getByRole("tab", { name: "Graph" }).click();
   await expect.poll(() => abEdges(page)).toBe(0);
 
@@ -76,8 +76,8 @@ test("hiding a transfer on the Data tab thins its edge on the graph", async ({ p
   await page.keyboard.press("Control+z");
   await expect.poll(() => abEdges(page)).toBe(1);
   await page.getByRole("tab", { name: "Data" }).click();
-  await expect(dataRow(page, T2).getByRole("checkbox")).not.toBeChecked();
-  await expect(dataRow(page, T1).getByRole("checkbox")).toBeChecked();
+  await expect(dataRow(page, T2).getByRole("button", { name: "Hide" })).toHaveAttribute("aria-pressed", "false");
+  await expect(dataRow(page, T1).getByRole("button", { name: "Show" })).toHaveAttribute("aria-pressed", "true");
 
   // One request for the pairs on the canvas, under the graph's filter.
   const req = mock.requests("POST /api/transfers/batch")[0]!.postDataJSON() as { pairs: unknown[]; limit: number };
@@ -92,13 +92,34 @@ test("Ctrl+Z on the Data tab undoes the last hide", async ({ page, mock }) => {
   await expect.poll(() => abEdges(page)).toBe(1);
   await page.getByRole("tab", { name: "Data" }).click();
   await expect(page.getByTestId("data-row")).toHaveCount(3);
-  await dataRow(page, T1).getByRole("checkbox").check();
+  await dataRow(page, T1).getByRole("button", { name: "Hide" }).click();
   await expect(dataRow(page, T1)).toHaveClass(/data__row--hidden/);
 
   // Still on the Data tab: the shortcut undoes the hide.
   await page.keyboard.press("Control+z");
   await expect(dataRow(page, T1)).not.toHaveClass(/data__row--hidden/);
-  await expect(dataRow(page, T1).getByRole("checkbox")).not.toBeChecked();
+  await expect(dataRow(page, T1).getByRole("button", { name: "Hide" })).toHaveAttribute("aria-pressed", "false");
+});
+
+test("Space on a row's eye button toggles it and fires no graph shortcut", async ({ page, mock }) => {
+  installWorld(mock, makeWorld());
+  await searchAndPick(page, A);
+  await expect.poll(() => abEdges(page)).toBe(1);
+  await page.getByRole("tab", { name: "Data" }).click();
+  await expect(page.getByTestId("data-row")).toHaveCount(3);
+
+  const eye = dataRow(page, T3).getByRole("button", { name: "Hide" });
+  await eye.focus();
+  await page.keyboard.press("Space");
+  const shown = dataRow(page, T3).getByRole("button", { name: "Show" });
+  await expect(shown).toHaveAttribute("aria-pressed", "true");
+  await expect(dataRow(page, T3)).toHaveClass(/data__row--hidden/);
+  // A hidden row keeps its eye button fully opaque.
+  expect(await shown.evaluate((el) => getComputedStyle(el).opacity)).toBe("1");
+  await shown.focus();
+  await page.keyboard.press("Enter");
+  await expect(dataRow(page, T3).getByRole("button", { name: "Hide" })).toHaveAttribute("aria-pressed", "false");
+  await expect(dataRow(page, T1)).not.toHaveClass(/data__row--hidden/);
 });
 
 test("exporting CSV downloads the filtered transfers", async ({ page, mock }) => {

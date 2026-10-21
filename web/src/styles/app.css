@@ -1477,7 +1477,7 @@ a.btn { text-decoration: none; }
 .data__row:hover { background: var(--bg-subtle); }
 .data__cell { min-width: 0; padding: 0 var(--sp-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .data__cell:first-child { padding: 0 var(--sp-2); }
-.data__cell input { display: block; margin: 0; }
+.data__cell .btn--icon { display: flex; }
 .data__num { text-align: right; }
 /* Hidden: muted, the amount struck through (as .transfers__row--hidden in the transfer table). */
 .data__row--hidden { color: var(--fg-muted); }

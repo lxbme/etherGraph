@@ -1,3 +1,4 @@
+import { Eye, EyeOff } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { TransferDto } from "../api/generated/TransferDto";
 import { hiddenFromTransfer, transferKey } from "../graph/hiddenTransfers";
@@ -31,8 +32,8 @@ function Who({ addr, names }: { addr: string; names: ReadonlyMap<string, string>
 
 /**
  * The Data tab's transfers, windowed: a block as tall as all the rows, with only those near the visible part
- * rendered (absolutely placed at a fixed height), so tens of thousands stay smooth. Each row's checkbox hides or
- * unhides that transfer (one undo step); the hash opens its tx tab. `names`: display names by lowercase address.
+ * rendered (absolutely placed at a fixed height), so tens of thousands stay smooth. Each row's eye button hides or
+ * shows that transfer (one undo step); the hash opens its tx tab. `names`: display names by lowercase address.
  */
 export function DataTable({ rows, names }: { rows: TransferDto[]; names: ReadonlyMap<string, string> }) {
   const t = useT();
@@ -74,7 +75,7 @@ export function DataTable({ rows, names }: { rows: TransferDto[]; names: Readonl
     >
       <div className="data__table" role="table" aria-rowcount={rows.length + 1}>
         <div className="data__head" role="row" aria-rowindex={1}>
-          <span role="columnheader" className="data__cell" aria-label={t("data.col.hidden")} />
+          <span role="columnheader" className="data__cell" aria-label={t("data.col.visible")} />
           <span role="columnheader" className="data__cell">{t("transfers.col.time")}</span>
           <span role="columnheader" className="data__cell">{t("tx.col.from")}</span>
           <span role="columnheader" className="data__cell">{t("tx.col.to")}</span>
@@ -97,12 +98,16 @@ export function DataTable({ rows, names }: { rows: TransferDto[]; names: Readonl
                 data-testid="data-row"
               >
                 <span role="cell" className="data__cell">
-                  <input
-                    type="checkbox"
-                    checked={hidden}
-                    aria-label={t("data.col.hidden")}
-                    onChange={() => setTransfersHidden([hiddenFromTransfer(row)], !hidden)}
-                  />
+                  <button
+                    type="button"
+                    className="btn btn--icon btn--compact"
+                    aria-pressed={hidden}
+                    aria-label={t(hidden ? "data.row.show" : "data.row.hide")}
+                    title={t(hidden ? "data.row.show" : "data.row.hide")}
+                    onClick={() => setTransfersHidden([hiddenFromTransfer(row)], !hidden)}
+                  >
+                    {hidden ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
                 </span>
                 <span role="cell" className="data__cell num" title={formatLocalTime(row.ts)}>{formatTime(row.ts)}</span>
                 <Who addr={row.from} names={names} />
