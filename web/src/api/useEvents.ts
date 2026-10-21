@@ -127,14 +127,14 @@ export function useEvents(): void {
       // Decoded call names come from the ABIs that just arrived.
       void qc.invalidateQueries({ queryKey: ["txTrace"] });
       // A tx's flow nodes carry their type and name: refetch the cached txs these addresses take part in. A tx whose
-      // call is still undecoded (or only guessed from the signature database) refetches too: the ABI may be its
-      // recipient's current EIP-7702 delegate's, no node.
+      // call to a recipient is still undecoded (or only guessed from the signature database) refetches too: the ABI
+      // may be its recipient's current EIP-7702 delegate's, no node. A contract creation has no such recipient.
       void qc.invalidateQueries({
         predicate: (q) => {
           if (q.queryKey[0] !== "tx") return false;
           const d = q.state.data as TxResponseDto | undefined;
           if (d?.status !== "ready" || !d.flow) return false;
-          return d.flow.nodes.some((n) => addrs.has(n.address.toLowerCase())) || ((!d.flow.call || d.flow.call.guessed === true) && !!d.flow.tx?.selector);
+          return d.flow.nodes.some((n) => addrs.has(n.address.toLowerCase())) || ((!d.flow.call || d.flow.call.guessed === true) && !!d.flow.tx?.selector && !!d.flow.tx.to);
         },
       });
     }, graphBusy);
