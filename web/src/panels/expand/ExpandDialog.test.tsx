@@ -383,7 +383,7 @@ test("preset candidates skip counterparties, resolve names from the cached graph
   expect(screen.getByRole("meter", { name: "Nodes" })).toHaveAttribute("aria-valuenow", "16"); // 7 and 9 already on the canvas: 5 + 5 + 6
 });
 
-test("marks centers as expanded and other on-canvas candidates as on canvas", async () => {
+test("tags on-canvas candidates 'On canvas' and a candidate that becomes a center while open 'Expanded'", async () => {
   mockCounterparties([cp(1), cp(2), cp(3), cp(4)]);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   useGraph.getState().addCenter(ME);

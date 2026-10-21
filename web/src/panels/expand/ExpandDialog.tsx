@@ -238,6 +238,7 @@ export function ExpandDialog({ node, preset, onClose, onDone = onClose }: Expand
     );
     // Heavy is judged among measured weights only: count-based estimates are on another scale (ruling R14).
     const heavy = heavySet(new Map(base.filter((r) => !r.cand.weight.estimated).map((r) => [r.address, r.cand.weight.value])));
+    // Current centers are not candidates, so "center" applies only to one expanded while the dialog is open.
     const isCenter = new Set(centers.map(lc));
     return base.map((r): CandidateRow => ({
       ...r,
