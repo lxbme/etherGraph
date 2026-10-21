@@ -281,6 +281,8 @@ function graphBlocks(theme: Theme): Block[] {
     { selector: "node.kind-eoa", style: { shape: NODE_SHAPE.eoa } },
     { selector: "node.kind-contract", style: { shape: NODE_SHAPE.contract } },
     { selector: "node.kind-unknown", style: { shape: NODE_SHAPE.unknown, width: 32, height: 32 } },
+    // The center's accent fill sits before the categories, so a labelled center takes its category fill.
+    { selector: "node.center", style: { "background-color": state.center.fill } },
     { selector: "node.cat-cex", style: catStyle(cat.cex) },
     { selector: "node.cat-dex", style: catStyle(cat.dex) },
     { selector: "node.cat-defi", style: catStyle(cat.defi) },
@@ -292,13 +294,12 @@ function graphBlocks(theme: Theme): Block[] {
     { selector: "node.cat-fund", style: catStyle(cat.fund) },
     { selector: "node.cat-nft", style: catStyle(cat.nft) },
     { selector: "node.cat-staking", style: catStyle(cat.staking) },
-    // After the categories so the center keeps its accent fill whatever its label.
+    // After the categories so every center keeps its white ring, size and weight; the fill stays the category's.
     {
       selector: "node.center",
       style: {
         width: 38,
         height: 38,
-        "background-color": state.center.fill,
         "border-color": state.center.stroke,
         "border-width": 3,
         "font-weight": 600,

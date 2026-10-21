@@ -9,6 +9,7 @@ import {
   graphStylesheet,
   delegationColor,
   iconSvgs,
+  stateColors,
   trustColors,
   txFlowStylesheet,
 } from "./styles";
@@ -33,6 +34,15 @@ type Parsed = { value: unknown; strValue: string; pfValue: unknown };
 const ps = (ele: cytoscape.CollectionReturnValue, prop: string) =>
   (ele as unknown as { pstyle(p: string): Parsed }).pstyle(prop);
 
+/** A colour as Cytoscape's rgb triple, so a hex and its parsed form compare equal. */
+function styleFill(a: unknown, prop?: string): string {
+  if (typeof a === "string") {
+    const h = a.replace("#", "");
+    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)).join(",");
+  }
+  return (ps(a as cytoscape.CollectionReturnValue, prop!).value as number[]).slice(0, 3).join(",");
+}
+
 /** Runs a stylesheet through headless Cytoscape and fails on any style warning or error. */
 function withCy(style: cytoscape.StylesheetJson, elements: cytoscape.ElementDefinition[], check: (cy: cytoscape.Core) => void) {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -48,6 +58,36 @@ function withCy(style: cytoscape.StylesheetJson, elements: cytoscape.ElementDefi
 }
 
 describe("graphStylesheet", () => {
+  test.each(["light", "dark"] as const)("a sanctioned center keeps the scam fill with the center ring and size (%s)", (theme) => {
+    const cat = categoryColors(theme);
+    const ring = stateColors(theme).center;
+    withCy(sheet(theme) as never, [{ group: "nodes", data: { id: "a", text: "a" }, classes: "center cat-sanctioned" }], (cy) => {
+      const n = cy.getElementById("a") as never;
+      expect(styleFill(n, "background-color")).toBe(styleFill(cat.scam.fill));
+      expect(styleFill(n, "border-color")).toBe(styleFill(ring.stroke));
+      expect(ps(n, "border-width").pfValue).toBe(3);
+      expect(ps(n, "width").pfValue).toBe(38);
+    });
+  });
+
+  test("an uncategorised center keeps the accent fill", () => {
+    const ring = stateColors("light").center;
+    withCy(sheet() as never, [{ group: "nodes", data: { id: "a", text: "a" }, classes: "center" }], (cy) => {
+      const n = cy.getElementById("a") as never;
+      expect(styleFill(n, "background-color")).toBe(styleFill(ring.fill));
+      expect(styleFill(n, "border-color")).toBe(styleFill(ring.stroke));
+    });
+  });
+
+  test("a selected sanctioned center keeps its fill and shows the selection outline", () => {
+    const cat = categoryColors("light");
+    withCy(sheet() as never, [{ group: "nodes", data: { id: "a", text: "a" }, classes: "center cat-sanctioned selected" }], (cy) => {
+      const n = cy.getElementById("a") as never;
+      expect(styleFill(n, "background-color")).toBe(styleFill(cat.scam.fill));
+      expect(ps(n, "outline-width").pfValue).toBe(2);
+    });
+  });
+
   test("shapes: ellipse EOA, round-rectangle contract, hexagon unknown", () => {
     expect(NODE_SHAPE).toEqual({ eoa: "ellipse", contract: "round-rectangle", unknown: "hexagon" });
     const s = sheet();
@@ -111,9 +151,13 @@ describe("graphStylesheet", () => {
     expect(dark["text-outline-color"]).toBe("#10141a");
   });
 
-  test("the center node is an accent fill with a 3px white border and a 600 label", () => {
-    const c = styleOf(sheet(), "node.center");
-    expect(c["background-color"]).toBe("#1f5eff");
+  test("the center node is an accent fill (before the categories) with a 3px white border and a 600 label (after them)", () => {
+    const s = sheet();
+    const idx = (sel: string) => s.findIndex((b) => b.selector === sel);
+    const c = s[s.map((b) => b.selector).lastIndexOf("node.center")]!.style;
+    expect(styleOf(s, "node.center")["background-color"]).toBe("#1f5eff");
+    expect(idx("node.center")).toBeLessThan(idx("node.cat-cex"));
+    expect(c["background-color"]).toBeUndefined();
     expect(c["border-color"]).toBe("#ffffff");
     expect(c["border-width"]).toBe(3);
     expect(c["font-weight"]).toBe(600);
@@ -376,7 +420,7 @@ describe("graphStylesheet", () => {
         expect(cy.getElementById("b").style("shape")).toBe("hexagon");
         expect(cy.getElementById("b").style("outline-width")).toBe("2px");
         const c = cy.getElementById("c");
-        expect(c.style("background-color")).toBe("rgb(31,94,255)"); // center accent beats the category tint
+        expect(c.style("background-color")).toBe("rgb(222,232,247)"); // the category tint beats the center accent
         expect(c.style("border-width")).toBe("3px");
         expect(c.style("border-color")).toBe("rgb(255,255,255)"); // selection does not repaint the center's ring
         expect(cy.getElementById("ab").style("label")).toBe("×2");
