@@ -292,6 +292,7 @@ export function parseFile(text: string): ParseResult {
   if (!Object.keys(graph.limits ?? {}).every(address)) return badField("limits");
   if (!Object.keys(graph.proxies ?? {}).every(address)) return badField("proxies");
   if (!(graph.hidden_proxies ?? []).every(address)) return badField("hidden_proxies");
+  if (!(graph.plain_centers ?? []).every(address)) return badField("plain_centers");
   if (graph.snapshot !== undefined && !isFullGraphSnapshot(graph.snapshot)) return badField("snapshot");
   if (graph.centers.length > 0 && kind !== "tx" && !graph.snapshot) return badField("snapshot");
   const ordered: TxTabStateV2[] = [];

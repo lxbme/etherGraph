@@ -293,6 +293,8 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "ctx.unpin": "取消固定",
   "ctx.hide": "从画布隐藏",
   "ctx.removeCenter": "移出中心",
+  "ctx.plainCenter": "取消中心样式",
+  "ctx.styleCenter": "恢复中心样式",
   "ctx.showMore": '显示 "+N more"',
   "ctx.focus": "只看这个节点的邻域",
   "ctx.addLabel": "添加标签 / 备注",

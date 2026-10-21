@@ -9,7 +9,7 @@ import { useGraph } from "../graph/store";
 import { graphQueryKey } from "../graph/useGraphData";
 import { useInfo } from "../panels/info/infoStore";
 import { useTabs } from "../shell/tabs";
-import { deserialize, serialize } from "./serialize";
+import { deserialize, serialize, type WorkspaceStateV2 } from "./serialize";
 import { saveStatusLabel } from "./useWorkspace";
 import {
   deleteWorkspace,
@@ -565,6 +565,68 @@ describe("hidden proxies", () => {
     expect(useWorkspace.getState().dirty).toBe(false);
     g().setProxiesHidden([A], true);
     expect(useWorkspace.getState().dirty).toBe(true);
+  });
+});
+
+describe("plain centers", () => {
+  const MIXED = "0x" + "A".repeat(40);
+  const SNAP = {
+    exported_at: "2024-01-01T00:00:00Z",
+    includes: { labels: true, notes: true },
+    data: { nodes: [], edges: [], omitted: {}, coverage: {} },
+  };
+
+  test("plain_centers round-trips, is pruned to centers, older workspaces load with none", async () => {
+    g().setCenters([A, B]);
+    expect("plain_centers" in serialize(g(), VP)).toBe(false);
+    g().setCentersPlain([A, B], true);
+    // A stale entry (no longer a center) is not written.
+    useGraph.setState({ centers: [A] });
+    const s = serialize(g(), VP);
+    expect(s.plain_centers).toEqual([A]);
+    expect(deserialize(JSON.parse(JSON.stringify(s)), 1)).toEqual({ ok: true, state: { graph: s, tabs: [], active: "graph" } });
+
+    const bad = deserialize({ ...s, plain_centers: [1] }, 1);
+    expect(!bad.ok && bad.reason).toContain("plain_centers");
+    const saved = { ...s, plain_centers: [MIXED, B] };
+    g().reset();
+    m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(saved)) }));
+    await expect(loadWorkspace(7)).resolves.toBe(true);
+    expect(g().plainCenters).toEqual([A]);
+
+    // An older workspace (no field) loads with none.
+    const { plain_centers: _, ...older } = s;
+    useGraph.setState({ plainCenters: [A] });
+    m.workspace.mockResolvedValue(dto({ state: JSON.parse(JSON.stringify(older)) }));
+    await expect(loadWorkspace(7)).resolves.toBe(true);
+    expect(g().plainCenters).toEqual([]);
+  });
+
+  test("switching a center's style marks the workspace dirty", async () => {
+    g().setCenters([A]);
+    m.createWorkspace.mockResolvedValue(dto());
+    await saveNew("w");
+    expect(useWorkspace.getState().dirty).toBe(false);
+    g().setCentersPlain([A], true);
+    expect(useWorkspace.getState().dirty).toBe(true);
+  });
+
+  test("a plain center on a frozen snapshot is saved with the snapshot and reopens plain and frozen", async () => {
+    g().setCenters([A, B]);
+    g().freeze(SNAP as never);
+    g().setCentersPlain([A], true);
+    expect(g().pendingLive).toBeNull();
+    m.createWorkspace.mockResolvedValue(dto());
+    await saveNew("w");
+    const posted = m.createWorkspace.mock.calls[0]![0].state as unknown as WorkspaceStateV2;
+    expect(posted.graph.plain_centers).toEqual([A]);
+    expect(posted.graph.snapshot).toEqual(SNAP);
+    g().reset();
+    m.workspace.mockResolvedValue(dto({ schema_version: 2, state: JSON.parse(JSON.stringify(posted)) }));
+    await expect(loadWorkspace(7)).resolves.toBe(true);
+    expect(g().frozen).toEqual(SNAP);
+    expect(g().centers).toEqual([A, B]);
+    expect(g().plainCenters).toEqual([A]);
   });
 });
 

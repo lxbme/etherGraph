@@ -73,6 +73,7 @@ export function AddressGraph() {
   const ui = useGraph((s) => s.ui);
   const proxyPos = useGraph((s) => s.proxyPos);
   const hiddenProxies = useGraph((s) => s.hiddenProxies);
+  const plainCenters = useGraph((s) => s.plainCenters);
   const selection = useGraph((s) => s.selection);
   const highlightTransfer = useGraph((s) => s.highlightTransfer);
   const epoch = useGraph((s) => s.epoch);
@@ -104,9 +105,9 @@ export function AddressGraph() {
   const elements = useMemo(
     () =>
       data
-        ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer, proxyPos, hiddenProxies }, data.omitted)
+        ? toElements(data.nodes, visual, { ui, centers, selection, highlightTransfer, proxyPos, hiddenProxies, plainCenters }, data.omitted)
         : [],
-    [data, visual, ui, centers, selection, highlightTransfer, proxyPos, hiddenProxies],
+    [data, visual, ui, centers, selection, highlightTransfer, proxyPos, hiddenProxies, plainCenters],
   );
   /** Centers whose "+N more" proxy is on the canvas. */
   const proxied = useMemo(

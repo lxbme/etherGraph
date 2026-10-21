@@ -5,6 +5,7 @@ import { api } from "../api/endpoints";
 import { useShortcuts } from "../graph/useShortcuts";
 import { useTabs } from "../shell/tabs";
 import { useGraph } from "../graph/store";
+import { useLocale } from "../i18n";
 import { ContextMenu } from "./ContextMenu";
 import { useUi } from "./uiStore";
 
@@ -181,4 +182,39 @@ test('show "+N more" only for a center whose proxy is hidden', () => {
   render(menu(false));
   fireEvent.click(screen.getByRole("menuitem", { name: SHOW }));
   expect(useGraph.getState().hiddenProxies).toEqual([]);
+});
+
+test("a styled center offers 取消中心样式, a plain one 恢复中心样式, and both still offer 移出中心", () => {
+  act(() => useLocale.getState().setLocale("zh"));
+  try {
+    const { unmount } = render(menu(false));
+    expect(screen.queryByRole("menuitem", { name: "取消中心样式" })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: "恢复中心样式" })).toBeNull();
+    unmount();
+    act(() => useGraph.getState().setCenters([A]));
+    const styled = render(menu(false));
+    const names = screen.getAllByRole("menuitem").map((e) => e.textContent);
+    expect(names[names.indexOf("移出中心") + 1]).toBe("取消中心样式");
+    fireEvent.click(screen.getByRole("menuitem", { name: "取消中心样式" }));
+    expect(useGraph.getState().plainCenters).toEqual([A]);
+    expect(useGraph.getState().centers).toEqual([A]);
+    styled.unmount();
+    render(menu(false));
+    expect(screen.getByRole("menuitem", { name: "移出中心" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "取消中心样式" })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: "恢复中心样式" }));
+    expect(useGraph.getState().plainCenters).toEqual([]);
+  } finally {
+    act(() => useLocale.getState().setLocale("en"));
+  }
+});
+
+test("the plain style item reads in English too", () => {
+  act(() => useGraph.getState().setCenters([A]));
+  const { unmount } = render(menu(false));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Show as plain node" }));
+  unmount();
+  render(menu(false));
+  expect(screen.getByRole("menuitem", { name: "Remove as center" })).toBeInTheDocument();
+  expect(screen.getByRole("menuitem", { name: "Show as center" })).toBeInTheDocument();
 });

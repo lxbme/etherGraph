@@ -291,6 +291,8 @@ export const en = {
   "ctx.unpin": "Unpin",
   "ctx.hide": "Hide from canvas",
   "ctx.removeCenter": "Remove as center",
+  "ctx.plainCenter": "Show as plain node",
+  "ctx.styleCenter": "Show as center",
   "ctx.showMore": 'Show "+N more"',
   "ctx.focus": "Show only this node's neighborhood",
   "ctx.addLabel": "Add label / note",

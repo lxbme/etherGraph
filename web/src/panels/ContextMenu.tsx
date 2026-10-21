@@ -30,6 +30,7 @@ export function ContextMenu(p: ContextMenuProps) {
   const pinned = useGraph((s) => !!s.ui[addr]?.pinned);
   const isCenter = useGraph((s) => s.centers.includes(addr));
   const proxyHidden = useGraph((s) => s.hiddenProxies.includes(addr));
+  const plain = useGraph((s) => s.plainCenters.includes(addr));
   const item = (label: string, onRun: () => void) => (
     <MenuItem onRun={onRun} onClose={onClose}>{label}</MenuItem>
   );
@@ -46,6 +47,7 @@ export function ContextMenu(p: ContextMenuProps) {
       {item(pinned ? t("ctx.unpin") : t("ctx.pin"), () => togglePin(addr))}
       {item(t("ctx.hide"), () => hideNode(addr))}
       {isCenter && item(t("ctx.removeCenter"), () => useGraph.getState().removeCenter(addr))}
+      {isCenter && item(plain ? t("ctx.styleCenter") : t("ctx.plainCenter"), () => useGraph.getState().setCentersPlain([addr], !plain))}
       {isCenter && proxyHidden && item(t("ctx.showMore"), () => useGraph.getState().setProxiesHidden([addr], false))}
       {item(t("ctx.focus"), () => focusNode(addr, p.data))}
       {item(t("ctx.addLabel"), () => useUi.getState().openLabelEditor(addr))}

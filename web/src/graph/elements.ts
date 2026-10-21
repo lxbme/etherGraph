@@ -94,7 +94,7 @@ export function edgeElement(v: VisualEdge, highlighted: boolean): cytoscape.Elem
   };
 }
 
-type ViewState = Pick<GraphState, "ui" | "centers" | "selection" | "highlightTransfer"> & Partial<Pick<GraphState, "proxyPos" | "hiddenProxies">>;
+type ViewState = Pick<GraphState, "ui" | "centers" | "selection" | "highlightTransfer"> & Partial<Pick<GraphState, "proxyPos" | "hiddenProxies" | "plainCenters">>;
 
 function isHighlighted(v: VisualEdge, h: ViewState["highlightTransfer"]): boolean {
   if (!h || lc(v.from) !== lc(h.from) || lc(v.to) !== lc(h.to)) return false;
@@ -108,7 +108,10 @@ function inSelectedPair(v: VisualEdge, sel: GraphSelection | null): boolean {
   return (f === a && t === b) || (f === b && t === a);
 }
 
-/** Nodes first (hidden ones skipped), then edges whose endpoints are both present. Hidden "+N more" proxies are left out. */
+/**
+ * Nodes first (hidden ones skipped), then edges whose endpoints are both present. Hidden "+N more" proxies are left out;
+ * a plain center is drawn without the `center` class but keeps its proxy.
+ */
 export function toElements(
   nodes: NodeSummaryDto[],
   visual: VisualEdge[],
@@ -118,6 +121,7 @@ export function toElements(
   const out: cytoscape.ElementDefinition[] = [];
   const present = new Set<string>();
   const centers = new Set(state.centers.map(lc));
+  const plain = new Set(state.plainCenters ?? []);
   const sel = graphSelection(state.selection);
   for (const n of nodes) {
     const id = lc(n.address);
@@ -127,7 +131,8 @@ export function toElements(
     out.push(
       nodeElement(n, ui, {
         selected: sel?.kind === "node" && lc(sel.address) === id,
-        isCenter: centers.has(id),
+        // Only the look: a plain center is still a center for its proxy, the tooltip and the menu.
+        isCenter: centers.has(id) && !plain.has(id),
         omitted: omitted[id] ?? 0,
       }),
     );

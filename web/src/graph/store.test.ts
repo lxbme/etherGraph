@@ -255,6 +255,69 @@ describe("graph store", () => {
     expect(g().hiddenProxies).toEqual([A, B, C]);
   });
 
+  test("setCentersPlain switches style as one undo step and ignores non-centers", () => {
+    g().setCenters([A, B]);
+    const steps = g()._past.length;
+    g().setCentersPlain([A.toUpperCase().replace("0X", "0x"), A, C], true);
+    expect(g().plainCenters).toEqual([A]);
+    expect(g()._past.length).toBe(steps + 1);
+    // Nothing changes: no step.
+    g().setCentersPlain([A, C], true);
+    g().setCentersPlain([B, C], false);
+    expect(g()._past.length).toBe(steps + 1);
+    // Look only: still a center, with its picks.
+    expect(g().centers).toEqual([A, B]);
+    expect(g().picks[A]).toEqual([]);
+    g().setCentersPlain([A], false);
+    expect(g().plainCenters).toEqual([]);
+    g().reset();
+    expect(g().plainCenters).toEqual([]);
+    g().loadSnapshot({ centers: [A], filter: {}, expandedPairs: [], ui: {}, plainCenters: [A.toUpperCase().replace("0X", "0x"), C] });
+    expect(g().plainCenters).toEqual([A]);
+  });
+
+  test("removing or hiding a center drops it from plainCenters", () => {
+    g().setCenters([A, B, C, D]);
+    g().setCentersPlain([A, B, C, D], true);
+    g().removeCenter(A);
+    expect(g().plainCenters).toEqual([B, C, D]);
+    g().setHidden([B], true);
+    expect(g().plainCenters).toEqual([C, D]);
+    g().setCenters([D]);
+    expect(g().plainCenters).toEqual([D]);
+    // Re-added, A comes back styled as a center.
+    g().addCenter(A);
+    expect(g().plainCenters).toEqual([D]);
+    g().undo();
+    g().undo();
+    expect(g().plainCenters).toEqual([C, D]);
+    g().undo();
+    expect(g().plainCenters).toEqual([B, C, D]);
+    g().undo();
+    expect(g().plainCenters).toEqual([A, B, C, D]);
+  });
+
+  test("undo and redo restore the plain state", () => {
+    g().setCenters([A]);
+    g().setCentersPlain([A], true);
+    g().undo();
+    expect(g().plainCenters).toEqual([]);
+    expect(g().centers).toEqual([A]);
+    g().redo();
+    expect(g().plainCenters).toEqual([A]);
+  });
+
+  test("switching a center's style on a snapshot never asks to refresh, nor does undoing it", () => {
+    g().setCenters([A]);
+    g().freeze({ exported_at: "2024-01-01T00:00:00Z", includes: { labels: true, notes: true }, data: { nodes: [], edges: [], omitted: {}, coverage: {} } } as never);
+    g().setCentersPlain([A], true);
+    expect(g().plainCenters).toEqual([A]);
+    g().undo();
+    expect(g().plainCenters).toEqual([]);
+    expect(g().pendingLive).toBeNull();
+    expect(g().frozen).not.toBeNull();
+  });
+
   test("snapshot undo keeps current positions", () => {
     g().setPinned([A], true);
     g().setPositions({ [A]: { x: 9, y: 9 } });

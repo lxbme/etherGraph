@@ -21,6 +21,8 @@ export interface WorkspaceStateV1 {
   picks?: Record<string, string[]>;
   /** Centers whose "+N more" is hidden. Absent when none is, and in older states. */
   hidden_proxies?: string[];
+  /** Centers shown in plain style. Absent when none is, and in older states. */
+  plain_centers?: string[];
   /** Transfers hidden on the Data tab. Absent when none is, and in older states. */
   hidden_transfers?: HiddenTransfer[];
   /** Canvas annotations on the address graph. Absent when there are none, and in older states. */
@@ -67,7 +69,7 @@ export interface SerializeOpts {
 const lc = (s: string) => s.toLowerCase();
 
 export function serialize(
-  state: Pick<GraphState, "centers" | "filter" | "sort" | "expandedPairs" | "ui" | "limits" | "picks" | "proxyPos" | "hiddenProxies" | "hiddenTransfers">,
+  state: Pick<GraphState, "centers" | "filter" | "sort" | "expandedPairs" | "ui" | "limits" | "picks" | "proxyPos" | "hiddenProxies" | "plainCenters" | "hiddenTransfers">,
   viewport: WorkspaceStateV1["viewport"],
   opts: SerializeOpts = {},
 ): WorkspaceStateV1 {
@@ -93,6 +95,7 @@ export function serialize(
     }),
   );
   const hiddenProxies = state.hiddenProxies.filter((c) => state.centers.includes(c));
+  const plainCenters = state.plainCenters.filter((c) => state.centers.includes(c));
   const hiddenTransfers = Object.values(state.hiddenTransfers).map((h) => ({ ...h }));
   return {
     nodes: addrs.map((address) => {
@@ -119,6 +122,7 @@ export function serialize(
     ...(Object.keys(picks).length > 0 ? { picks } : {}),
     ...(Object.keys(proxies).length > 0 ? { proxies } : {}),
     ...(hiddenProxies.length > 0 ? { hidden_proxies: hiddenProxies } : {}),
+    ...(plainCenters.length > 0 ? { plain_centers: plainCenters } : {}),
     ...(hiddenTransfers.length > 0 ? { hidden_transfers: hiddenTransfers } : {}),
     viewport: { zoom: viewport.zoom, pan: { ...viewport.pan } },
   };
@@ -237,6 +241,7 @@ function deserializeGraph(v: unknown): Parsed<WorkspaceStateV1 & { snapshot?: Gr
   if (v.picks !== undefined && !isPicks(v.picks)) return bad(t("ws.err.field", { field: "picks" }));
   if (v.proxies !== undefined && !isPositions(v.proxies)) return bad(t("ws.err.field", { field: "proxies" }));
   if (v.hidden_proxies !== undefined && !isStrArr(v.hidden_proxies)) return bad(t("ws.err.field", { field: "hidden_proxies" }));
+  if (v.plain_centers !== undefined && !isStrArr(v.plain_centers)) return bad(t("ws.err.field", { field: "plain_centers" }));
   if (v.hidden_transfers !== undefined && !(Array.isArray(v.hidden_transfers) && v.hidden_transfers.every(isHiddenTransfer))) {
     return bad(t("ws.err.field", { field: "hidden_transfers" }));
   }
@@ -256,5 +261,6 @@ function deserializeGraph(v: unknown): Parsed<WorkspaceStateV1 & { snapshot?: Gr
     for (const [k, p] of Object.entries(v.proxies as Record<string, Pos>)) next.proxies[lc(k)] = p;
   }
   if (v.hidden_proxies !== undefined) next.hidden_proxies = (v.hidden_proxies as string[]).map(lc);
+  if (v.plain_centers !== undefined) next.plain_centers = (v.plain_centers as string[]).map(lc);
   return { ok: true, state: withValidAnnotations(next) };
 }

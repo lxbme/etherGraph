@@ -193,6 +193,15 @@ describe("toElements", () => {
     expect(ids).toEqual([`more:${B}`, `more-edge:${B}`]);
   });
 
+  test("a plain center has no center class but keeps its +N more proxy", () => {
+    const els = toElements(nodes, [], { ...state({ centers: [A, B] }), plainCenters: [A] }, { [A]: 12, [B]: 3 });
+    const byId = (id: string) => els.find((e) => e.data.id === id)!;
+    expect(classesOf(byId(A))).not.toContain("center");
+    expect(classesOf(byId(B))).toContain("center");
+    const ids = els.map((e) => String(e.data.id)).filter((id) => id.startsWith("more"));
+    expect(ids).toEqual([`more:${A}`, `more:${B}`, `more-edge:${A}`, `more-edge:${B}`]);
+  });
+
   test("selected pair marks edges in both directions", () => {
     const els = toElements(
       nodes,

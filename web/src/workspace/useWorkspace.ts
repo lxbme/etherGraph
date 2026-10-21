@@ -62,6 +62,7 @@ useGraph.subscribe((s, prev) => {
     s.picks !== prev.picks ||
     s.proxyPos !== prev.proxyPos ||
     s.hiddenProxies !== prev.hiddenProxies ||
+    s.plainCenters !== prev.plainCenters ||
     s.hiddenTransfers !== prev.hiddenTransfers ||
     s.frozen !== prev.frozen
   ) {
@@ -341,6 +342,7 @@ function applyState({ graph: state, tabs, active }: WorkspaceStateV2): void {
     picks: state.picks,
     proxyPos: state.proxies,
     hiddenProxies: state.hidden_proxies,
+    plainCenters: state.plain_centers,
     hiddenTransfers: state.hidden_transfers,
   });
   // A snapshot view stays one until it is refreshed from the chain.

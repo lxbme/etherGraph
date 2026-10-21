@@ -57,6 +57,12 @@ export interface GraphState {
    */
   hiddenProxies: string[];
   /**
+   * Centers (lowercase) the user switched to plain style: still centers (neighbours, picks, "+N more", menu, tooltip),
+   * drawn without the center look. History-tracked and saved with the workspace; a center that is removed or hidden
+   * leaves it (so it comes back styled).
+   */
+  plainCenters: string[];
+  /**
    * Transfers hidden on the Data tab, keyed by `transferKey`: taken out of the canvas edges, muted in the transfer
    * table. History-tracked and saved with the workspace; never part of the graph query.
    */
@@ -125,6 +131,8 @@ export interface GraphState {
   setNote(a: string, note: string): void;
   /** Hides (or shows again) the "+N more" proxies of `centers`, as one history step; no-op when nothing changes. */
   setProxiesHidden(centers: string[], hidden: boolean): void;
+  /** Switches the center styling of `centers` off (plain = true) or back on, as one history step; no-op when nothing changes. */
+  setCentersPlain(centers: string[], plain: boolean): void;
   /** Hides (or shows again) `list`, as one history step however many it holds; no-op when nothing changes. */
   setTransfersHidden(list: HiddenTransfer[], hidden: boolean): void;
   /** Not history-tracked. */
@@ -160,6 +168,8 @@ export interface GraphState {
     proxyPos?: Record<string, Pos>;
     /** Centers whose "+N more" is hidden; entries of other addresses are dropped. */
     hiddenProxies?: string[];
+    /** Centers shown in plain style; entries of other addresses are dropped. */
+    plainCenters?: string[];
     /** Transfers hidden on the Data tab. Absent in older workspaces: none. */
     hiddenTransfers?: HiddenTransfer[];
   }): void;
@@ -178,6 +188,7 @@ interface Snapshot {
   limits: Record<string, number>;
   picks: Record<string, string[]>;
   hiddenProxies: string[];
+  plainCenters: string[];
   hiddenTransfers: Record<string, HiddenTransfer>;
 }
 /**
@@ -339,6 +350,7 @@ function snapshot(s: GraphState): Snapshot {
     limits: { ...s.limits },
     picks: { ...s.picks },
     hiddenProxies: [...s.hiddenProxies],
+    plainCenters: [...s.plainCenters],
     hiddenTransfers: s.hiddenTransfers,
   };
 }
@@ -373,6 +385,7 @@ const initial = () => ({
   limits: {} as Record<string, number>,
   picks: {} as Record<string, string[]>,
   hiddenProxies: [] as string[],
+  plainCenters: [] as string[],
   hiddenTransfers: {} as Record<string, HiddenTransfer>,
   selection: null as Selection,
   highlightTransfer: null as GraphState["highlightTransfer"],
@@ -423,6 +436,7 @@ export const useGraph = create<GraphState>()((set, get) => {
         limits: { ...snap.limits },
         picks: { ...snap.picks },
         hiddenProxies: [...snap.hiddenProxies],
+        plainCenters: [...snap.plainCenters],
         hiddenTransfers: snap.hiddenTransfers,
       },
       entry.effect ? { snap: snapshot(s), effect: entry.effect } : { snap: snapshot(s) },
@@ -483,6 +497,7 @@ export const useGraph = create<GraphState>()((set, get) => {
         tracked((s) => ({
           centers: s.centers.filter((c) => c !== addr),
           hiddenProxies: withoutCenters(s.hiddenProxies, new Set([addr])),
+          plainCenters: withoutCenters(s.plainCenters, new Set([addr])),
         }));
       }),
     setCenters: (list) =>
@@ -494,6 +509,7 @@ export const useGraph = create<GraphState>()((set, get) => {
             centers,
             picks: withNoPicks(s.limits, s.picks, centers),
             hiddenProxies: withoutCenters(s.hiddenProxies, gone),
+            plainCenters: withoutCenters(s.plainCenters, gone),
           };
         }),
       ),
@@ -565,11 +581,13 @@ export const useGraph = create<GraphState>()((set, get) => {
         const centers = s.centers.filter((c) => !gone.has(c));
         const picks = withoutPicked(s.picks, gone);
         const hiddenProxies = withoutCenters(s.hiddenProxies, gone);
+        const plainCenters = withoutCenters(s.plainCenters, gone);
         return {
           ui,
           ...(centers.length === s.centers.length ? {} : { centers }),
           ...(picks === s.picks ? {} : { picks }),
           ...(hiddenProxies === s.hiddenProxies ? {} : { hiddenProxies }),
+          ...(plainCenters === s.plainCenters ? {} : { plainCenters }),
         };
       }),
     setNote: (a, note) => tracked((s) => ({ ui: applyUiPatch(s.ui, [a], { note }) })),
@@ -579,6 +597,13 @@ export const useGraph = create<GraphState>()((set, get) => {
       const next = hidden ? [...cur, ...addrs.filter((a) => !cur.includes(a))] : withoutCenters(cur, new Set(addrs));
       if (next.length === cur.length) return;
       tracked(() => ({ hiddenProxies: next }));
+    },
+    setCentersPlain: (list, plain) => {
+      const { centers, plainCenters: cur } = get();
+      const addrs = cleanList(list).filter((a) => centers.includes(a));
+      const next = plain ? [...cur, ...addrs.filter((a) => !cur.includes(a))] : withoutCenters(cur, new Set(addrs));
+      if (next.length === cur.length) return;
+      tracked(() => ({ plainCenters: next }));
     },
     setTransfersHidden: (list, hidden) => {
       const cur = get().hiddenTransfers;
@@ -683,6 +708,7 @@ export const useGraph = create<GraphState>()((set, get) => {
       const proxyPos: Record<string, Pos> = {};
       for (const [k, p] of Object.entries(v.proxyPos ?? {})) if (centers.includes(lc(k))) proxyPos[lc(k)] = p;
       const hiddenProxies = cleanList(v.hiddenProxies ?? []).filter((c) => centers.includes(c));
+      const plainCenters = cleanList(v.plainCenters ?? []).filter((c) => centers.includes(c));
       const hiddenTransfers: Record<string, HiddenTransfer> = {};
       for (const h of v.hiddenTransfers ?? []) {
         hiddenTransfers[transferKey(h)] = {
@@ -699,6 +725,7 @@ export const useGraph = create<GraphState>()((set, get) => {
         centers,
         proxyPos,
         hiddenProxies,
+        plainCenters,
         hiddenTransfers,
         // Top-k centers without a limit (older states) get a first batch; picked ones need none.
         limits: withFirstBatch(limits, centers.filter((c) => picks[c] === undefined), { fresh: true }),
