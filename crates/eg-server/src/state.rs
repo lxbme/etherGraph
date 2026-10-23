@@ -19,6 +19,10 @@ use crate::config::{Config, SourceMode};
 use crate::head::HeadCache;
 use crate::trust::TrustCache;
 
+/// The `settings` key holding the signature-guess switch (a JSON bool); it
+/// overrides `[signatures] enabled` once an admin has set it.
+pub const SIGNATURES_SETTING: &str = "signatures_enabled";
+
 #[derive(Clone)]
 pub struct AppState {
     pub store: Store,
@@ -99,6 +103,16 @@ impl AppState {
 
     pub fn set_signatures_enabled(&self, on: bool) {
         self.signatures.store(on, Ordering::Relaxed);
+    }
+
+    /// At startup: the switch becomes the persisted setting when there is a
+    /// boolean one, else it stays at `[signatures] enabled`.
+    pub async fn load_signatures_setting(&self) -> eg_store::Result<()> {
+        match self.store.setting_get(SIGNATURES_SETTING).await? {
+            Some(serde_json::Value::Bool(on)) => self.set_signatures_enabled(on),
+            _ => self.set_signatures_enabled(self.cfg.signatures.enabled),
+        }
+        Ok(())
     }
 }
 

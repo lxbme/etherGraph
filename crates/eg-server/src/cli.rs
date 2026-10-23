@@ -4,16 +4,17 @@
 //! run that fails (nothing changed) gets a `failed` row.
 
 use std::fs::File;
-use std::io::BufReader;
+use std::io::Read;
 use std::path::Path;
 
 use anyhow::Context;
 use eg_store::{AuditEntry, AuditOutcome, Store, StoreTx};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::eth_labels::{MAINNET_DATASET, XCHAIN_DATASET, parse_eth_labels};
 use crate::import_labels::parse_labels;
-use crate::import_tokens::{TokenFormat, parse_token_rows};
+use crate::import_tokens::{TokenFormat, parse_token_rows, token_list_version};
 
 /// The audit actor of command-line operations.
 pub const CLI_ACTOR: &str = "cli";
@@ -30,6 +31,7 @@ pub async fn import_labels(
     let run = Run::new("import_labels", target, path);
     let outcome = async {
         let file = open(path)?;
+        let sha256 = sha256_file(path)?;
         let mut tx = store.begin().await?;
         let (summary, counts) = match dataset {
             Some(dataset) => {
@@ -53,7 +55,12 @@ pub async fn import_labels(
                 )
             }
         };
+        let rows = counts["imported"].as_i64().unwrap_or_default();
         run.commit(tx, counts).await?;
+        // Only the eth-labels import is a tracked dataset; `simple` ones are not.
+        if dataset.is_none() {
+            record(store, "eth_labels", None, Some(&sha256), rows).await;
+        }
         Ok(summary)
     };
     run.finish(store, outcome.await).await
@@ -68,14 +75,61 @@ pub async fn import_tokens(
 ) -> anyhow::Result<String> {
     let run = Run::new("import_tokens", format.source(), path);
     let outcome = async {
-        let (rows, skipped) = parse_token_rows(format, BufReader::new(open(path)?))?;
+        let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+        let (rows, skipped) = parse_token_rows(format, bytes.as_slice())?;
         let mut tx = store.begin().await?;
         let imported = tx.replace_token_tags(format.source(), &rows).await?;
         run.commit(tx, json!({"imported": imported, "skipped": skipped}))
             .await?;
+        // The CSV carries no list version.
+        let version = match format {
+            TokenFormat::EthLabels => None,
+            _ => token_list_version(&bytes),
+        };
+        let sha256 = format!("{:x}", Sha256::digest(&bytes));
+        record(
+            store,
+            format.local_source(),
+            version.as_deref(),
+            Some(&sha256),
+            i64::try_from(imported)?,
+        )
+        .await;
         Ok(format!("imported {imported}, skipped {skipped}"))
     };
     run.finish(store, outcome.await).await
+}
+
+/// Records a finished command-line import in `local_data`. The import is
+/// already committed, so a failure here is logged, not returned.
+pub async fn record(
+    store: &Store,
+    source: &str,
+    version: Option<&str>,
+    sha256: Option<&str>,
+    rows: i64,
+) {
+    if let Err(e) = store
+        .local_data_succeeded(source, version, None, sha256, None, rows)
+        .await
+    {
+        tracing::error!(error = %e, source, "recording the import status failed");
+    }
+}
+
+/// The hex SHA-256 of the file at `path`.
+fn sha256_file(path: &Path) -> anyhow::Result<String> {
+    let mut file = open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn open(path: &Path) -> anyhow::Result<File> {

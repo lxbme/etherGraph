@@ -26,6 +26,31 @@ impl TokenFormat {
             Self::EthLabels => "eth-labels",
         }
     }
+
+    /// The id of the format's dataset in `local_data`.
+    pub fn local_source(self) -> &'static str {
+        match self {
+            Self::Uniswap => "tokens_uniswap",
+            Self::Coingecko => "tokens_coingecko",
+            Self::EthLabels => "tokens_eth_labels",
+        }
+    }
+}
+
+/// The `version` of a token-list JSON as `major.minor.patch`; `None` when absent or malformed.
+pub fn token_list_version(json: &[u8]) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Versioned {
+        version: Version,
+    }
+    #[derive(Deserialize)]
+    struct Version {
+        major: u64,
+        minor: u64,
+        patch: u64,
+    }
+    let v = serde_json::from_slice::<Versioned>(json).ok()?.version;
+    Some(format!("{}.{}.{}", v.major, v.minor, v.patch))
 }
 
 /// Lenient like the eth-labels accounts: any case is accepted.

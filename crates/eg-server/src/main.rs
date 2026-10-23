@@ -191,6 +191,8 @@ async fn import_signatures_cmd(config: &Path, paths: &[PathBuf]) -> anyhow::Resu
         );
     })
     .await?;
+    let total = eg_store::signature_count(store.pool()).await?;
+    eg_server::cli::record(&store, "signatures_sourcify", None, None, total).await;
     println!(
         "imported {} file(s): {} rows read, {} new signatures, {} skipped as invalid",
         stats.files, stats.rows_read, stats.inserted, stats.skipped_invalid
@@ -282,6 +284,10 @@ async fn serve(path: &Path, source: Option<SourceMode>) -> anyhow::Result<()> {
     let state = AppState::new(cfg.clone(), store, source, gate, stats);
     cancel_legacy_jobs(&state).await?;
     Runner::spawn(state.ctx.clone(), cfg.sync.workers, default_handlers());
+    state
+        .load_signatures_setting()
+        .await
+        .context("reading the signatures setting")?;
     spawn_background(&state);
 
     let listener = tokio::net::TcpListener::bind(cfg.server.listen)
