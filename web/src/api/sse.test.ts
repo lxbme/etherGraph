@@ -142,3 +142,16 @@ test("the admin page's local-data events are listened for", () => {
   expect(events).toEqual([progress, done]);
   stop();
 });
+
+test("every event type the server sends has a listener", () => {
+  const events: Event[] = [];
+  subscribeEvents((e) => events.push(e), () => {}, { EventSourceImpl: FakeES as unknown as typeof EventSource });
+  const a = inst(0);
+  expect([...a.listeners.keys()]).toEqual(expect.arrayContaining(["TraceReady", "NftReady", "LocalDataDone", "Lagged"]));
+  a.emit("TraceReady", JSON.stringify({ type: "TraceReady", hash: "0x1" }));
+  a.emit("NftReady", JSON.stringify({ type: "NftReady", token: "0x2", token_id: "7" }));
+  expect(events).toEqual([
+    { type: "TraceReady", hash: "0x1" },
+    { type: "NftReady", token: "0x2", token_id: "7" },
+  ]);
+});

@@ -44,7 +44,7 @@ function formatBytes(n: number): string {
 /** The admin page's local datasets against their upstreams; updates, cancels and the signature switch are signed actions. */
 export function LocalDataPanel() {
   const t = useT();
-  const { data, error } = useQuery({ queryKey: qk.localData(), queryFn: () => adminCall(api.adminLocalData()) });
+  const { data, error, isPending } = useQuery({ queryKey: qk.localData(), queryFn: () => adminCall(api.adminLocalData()) });
   const progress = useQuery<Record<string, LocalDataProgress>>({ queryKey: qk.localDataProgress(), queryFn: skipToken }).data;
   const { run, busy } = useAdminAction();
   const [checking, setChecking] = useState(false);
@@ -75,6 +75,7 @@ export function LocalDataPanel() {
           {t("admin.data.check")}
         </button>
       </div>
+      {isPending && <p className="admin__note">{t("common.loading")}</p>}
       {error && !data && <p className="dialog__error">{adminErrorText(error)}</p>}
       {data && (
         <>

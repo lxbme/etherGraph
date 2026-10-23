@@ -2,10 +2,21 @@ import type { Event } from "./generated/Event";
 
 export type SseState = "connecting" | "open" | "closed";
 
-const EVENT_TYPES: Event["type"][] = [
-  "JobProgress", "AddressDataChanged", "TxReady", "NamesResolved", "MetaUpdated", "QuotaStatus", "LocalDataProgress", "LocalDataDone",
-  "Lagged",
-];
+/** Every event type, as a record so that a type added to `Event` and missing here fails typecheck. */
+const EVENT_TYPE_SET: Record<Event["type"], true> = {
+  JobProgress: true,
+  AddressDataChanged: true,
+  TxReady: true,
+  TraceReady: true,
+  NftReady: true,
+  NamesResolved: true,
+  MetaUpdated: true,
+  QuotaStatus: true,
+  LocalDataProgress: true,
+  LocalDataDone: true,
+  Lagged: true,
+};
+const EVENT_TYPES = Object.keys(EVENT_TYPE_SET) as Event["type"][];
 
 const BASE_DELAY = 1000;
 const MAX_DELAY = 30000;

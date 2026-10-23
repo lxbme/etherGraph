@@ -133,6 +133,19 @@ test("renders each source with version, imported time, rows and an upstream tag"
   expect(within(sourcify.cells[4]!).getByText("11 files · 570 MB")).toHaveClass("tag", "tag--neutral");
 });
 
+test("while the first list is on its way (it may wait on the upstream check), the section says it is loading", async () => {
+  let answer!: (r: Response) => void;
+  stubAdminApi({ "GET /api/admin/local-data": () => new Promise<Response>((r) => (answer = r)) });
+  renderPanel();
+  const section = (await screen.findByRole("heading", { name: "Local data" })).closest("section")!;
+  expect(await within(section).findByText("Loading…")).toBeInTheDocument();
+  expect(within(section).queryByRole("table")).toBeNull();
+
+  await act(async () => answer(json(200, LOCAL_DATA)));
+  await row("Address labels", "eth-labels");
+  expect(within(section).queryByText("Loading…")).toBeNull();
+});
+
 test("numbers are right-aligned with tabular figures and versions are monospace", async () => {
   stubAdminApi();
   renderPanel();
