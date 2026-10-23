@@ -9,6 +9,7 @@ pub mod graph;
 pub mod identify;
 pub mod jobs;
 pub mod labels;
+pub mod local_data;
 pub mod nodes;
 pub mod probe;
 pub mod search;

@@ -17,6 +17,7 @@ use tokio::sync::Notify;
 use crate::auth::AuthState;
 use crate::config::{Config, SourceMode};
 use crate::head::HeadCache;
+use crate::local_data::UpstreamChecker;
 use crate::trust::TrustCache;
 
 /// The `settings` key holding the signature-guess switch (a JSON bool); it
@@ -41,6 +42,9 @@ pub struct AppState {
     /// `[signatures] enabled`; shared by every clone, so it can be flipped at
     /// runtime.
     pub signatures: Arc<AtomicBool>,
+    /// What the local datasets' upstreams serve now (cached 10 minutes);
+    /// tests swap it for one aimed at a mock server.
+    pub upstream: Arc<UpstreamChecker>,
 }
 
 impl AppState {
@@ -88,6 +92,7 @@ impl AppState {
             stats,
             ctx,
             cfg,
+            upstream: Arc::new(UpstreamChecker::default()),
             head: Arc::new(HeadCache::default()),
             trust: Arc::new(TrustCache::default()),
         }

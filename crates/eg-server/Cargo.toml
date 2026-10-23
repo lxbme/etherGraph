@@ -14,11 +14,13 @@ eg-blockscout = { path = "../eg-blockscout" }
 eg-ingest = { path = "../eg-ingest" }
 alloy-primitives = { workspace = true, features = ["k256"] }
 anyhow = { workspace = true }
+bytes = "1"
 axum = { workspace = true }
 chrono = { workspace = true }
 clap = { workspace = true }
 csv = { workspace = true }
 futures = { workspace = true }
+reqwest = { workspace = true }
 alloy-json-abi = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true }
@@ -41,3 +43,4 @@ k256 = { workspace = true }
 rand = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 async-trait = { workspace = true }
+wiremock = { workspace = true }

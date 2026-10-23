@@ -1430,6 +1430,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "bytes",
  "chrono",
  "clap",
  "csv",
@@ -1444,6 +1445,7 @@ dependencies = [
  "k256",
  "parquet",
  "rand 0.9.5",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1456,6 +1458,7 @@ dependencies = [
  "tracing-subscriber",
  "ts-rs",
  "unicode-normalization",
+ "wiremock",
 ]
 
 [[package]]

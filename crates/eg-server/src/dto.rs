@@ -314,6 +314,56 @@ pub struct AdminOverviewDto {
     pub reset_at: String,
 }
 
+/// `GET /api/admin/local-data`: each local dataset against its upstream.
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LocalDataDto {
+    /// When an upstream was last asked.
+    pub checked_at: Option<String>,
+    /// The source id of the running update, if any.
+    pub running: Option<String>,
+    pub sources: Vec<LocalSourceDto>,
+    /// The signature-guess switch (see `AppState::signatures_enabled`).
+    pub signatures_enabled: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LocalSourceDto {
+    pub source: String,
+    pub version: Option<String>,
+    pub imported_at: Option<String>,
+    #[ts(type = "number | null")]
+    pub rows: Option<i64>,
+    #[ts(type = r#""idle" | "running" | "failed""#)]
+    pub state: String,
+    pub error: Option<String>,
+    pub error_at: Option<String>,
+    pub upstream: LocalUpstreamDto,
+    /// Sourcify only: files imported so far, while that is some but not all.
+    pub partial: Option<LocalPartialDto>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LocalUpstreamDto {
+    #[ts(type = r#""up_to_date" | "update" | "not_imported" | "unchecked""#)]
+    pub status: String,
+    pub version: Option<String>,
+    pub files: Option<u32>,
+    #[ts(type = "number | null")]
+    pub bytes: Option<u64>,
+    /// Why the upstream could not be checked.
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct LocalPartialDto {
+    pub done: u32,
+    pub total: u32,
+}
+
 /// `GET /api/admin/users`: usage figures only, never what a user looked at.
 #[derive(Clone, Debug, Serialize, Deserialize, TS)]
 #[ts(export)]

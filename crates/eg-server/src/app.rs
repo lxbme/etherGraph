@@ -15,7 +15,7 @@ use crate::auth::extract::{require_origin, require_user};
 use crate::error::ApiError;
 use crate::routes::{
     address, admin, assets, auth, batches, counterparties, events, graph, identify, jobs, labels,
-    nodes, probe, search, status, sync, token, transfers, tx, workspaces,
+    local_data, nodes, probe, search, status, sync, token, transfers, tx, workspaces,
 };
 use crate::state::AppState;
 
@@ -80,6 +80,8 @@ pub fn router(state: AppState) -> Router {
         .route("/admin/actions/nonce", post(admin::action_nonce))
         .route("/admin/actions", post(admin::action_run))
         .route("/admin/overview", get(admin::overview))
+        .route("/admin/local-data", get(local_data::get))
+        .route("/admin/local-data/check", post(local_data::check))
         .route("/admin/users", get(admin::users))
         .route("/admin/whitelist", get(admin::whitelist))
         .route("/admin/audit", get(admin::audit))
