@@ -5,13 +5,16 @@ import type { LocalSourceDto } from "../api/generated/LocalSourceDto";
 import { qk, queryClient } from "../api/queryClient";
 import type { LocalDataProgress } from "../api/useEvents";
 import { useT, type MsgKey } from "../i18n";
-import { formatCount, formatLocalTime, formatTime } from "../lib/format";
+import { formatCount, formatLocalTime, formatShortTime, formatTime } from "../lib/format";
 import { toast } from "../shell/Toasts";
 import { adminCall, adminErrorText, isAdminModeGone } from "./adminMode";
 import { useAdminAction } from "./useAdminAction";
 
-/** Column widths of mockup C: source, local version, imported, rows, upstream, actions. */
-const WIDTHS = ["26%", "13%", "15%", "11%", "21%", "14%"];
+/**
+ * Column widths, mockup C's with 2% moved from source to actions (so "Download and import" fits at the
+ * table's min width): source, local version, imported, rows, upstream, actions.
+ */
+const WIDTHS = ["24%", "13%", "15%", "11%", "21%", "16%"];
 
 /** Each source's category and source name (a dictionary key, or a proper noun shown as is). */
 const SOURCES: Record<string, { category: MsgKey; name: MsgKey | { noun: string } }> = {
@@ -159,8 +162,8 @@ function SourceRows({ source: s, running, progress, busy, onUpdate, onCancel }: 
         <td className={version ? "num" : "num admin__muted"} title={version ?? undefined}>
           {version ?? "—"}
         </td>
-        <td className={s.imported_at ? "table__num num" : "table__num num admin__muted"} title={s.imported_at ? formatLocalTime(s.imported_at) : undefined}>
-          {s.imported_at ? formatTime(s.imported_at) : "—"}
+        <td className={s.imported_at ? "table__num num" : "table__num num admin__muted"} title={s.imported_at ? `${formatTime(s.imported_at)}\n${formatLocalTime(s.imported_at)}` : undefined}>
+          {s.imported_at ? formatShortTime(s.imported_at) : "—"}
         </td>
         <td className={s.rows === null ? "table__num num admin__muted" : "table__num num"}>{s.rows === null ? "—" : formatCount(s.rows)}</td>
         <td>
@@ -172,7 +175,7 @@ function SourceRows({ source: s, running, progress, busy, onUpdate, onCancel }: 
           <button
             className={notImported && !isRunning && !failed ? "btn btn--compact btn--primary local-data__action" : "btn btn--compact local-data__action"}
             disabled={busy || otherRunning}
-            title={otherRunning ? t("admin.data.busy") : label}
+            title={otherRunning ? t("admin.data.busy") : undefined}
             onClick={isRunning ? onCancel : onUpdate}
           >
             {label}
@@ -226,16 +229,20 @@ function upstreamTag(
   }
 }
 
-/** A running update's phase, a bar over the bytes done, and the bytes (download) or rows (import) so far. */
+/**
+ * A running update's phase, a bar, and the bytes (download) or rows (import) so far. The bar follows the
+ * files done when the update has several (Sourcify), else the bytes.
+ */
 function Progress({ progress: p, upstreamVersion }: { progress: LocalDataProgress | undefined; upstreamVersion: string | null }) {
   const t = useT();
   const phase = t(p?.phase === "import" ? "admin.data.phase.import" : "admin.data.phase.download");
   const text = [phase, upstreamVersion, p?.files_total != null ? `${p.files_done ?? 0}/${p.files_total}` : null].filter(Boolean).join(" · ");
-  const pct = p?.total_bytes ? Math.min(100, Math.round((p.bytes / p.total_bytes) * 100)) : null;
+  const fraction = p?.files_total ? (p.files_done ?? 0) / p.files_total : p?.total_bytes ? p.bytes / p.total_bytes : null;
+  const pct = fraction === null ? null : Math.min(100, Math.round(fraction * 100));
   const count = !p
     ? ""
     : p.phase === "import"
-      ? formatCount(p.rows)
+      ? t("admin.data.rows", { n: formatCount(p.rows) })
       : p.total_bytes
         ? `${formatBytes(p.bytes)} / ${formatBytes(p.total_bytes)}`
         : formatBytes(p.bytes);

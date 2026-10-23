@@ -198,6 +198,7 @@ export const zh: { [K in MsgKey]: (typeof en)[K] extends string ? string : { one
   "admin.data.busy": "另一项数据正在更新",
   "admin.data.phase.download": "下载中",
   "admin.data.phase.import": "导入中",
+  "admin.data.rows": "{n} 条",
   "admin.data.unchanged": "本地数据未改动",
   "admin.data.partial": "部分 {done}/{total}",
   "admin.data.interrupted": "服务重启中断",

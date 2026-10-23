@@ -100,6 +100,22 @@ function markRunning(d: LocalDataDto | undefined, source: string): LocalDataDto 
   };
 }
 
+/**
+ * The cached local-data list with `source`'s update over (`LocalDataDone`): nothing running, the source idle
+ * or failed per the outcome, so the row does not look running while the list is refetched.
+ */
+function markDone(d: LocalDataDto | undefined, e: Extract<Event, { type: "LocalDataDone" }>): LocalDataDto | undefined {
+  if (!d) return d;
+  const failed = e.outcome === "failed";
+  return {
+    ...d,
+    running: d.running === e.source ? null : d.running,
+    sources: d.sources.map((s) =>
+      s.source === e.source ? { ...s, state: failed ? "failed" : "idle", error: failed ? e.error : null, error_at: null } : s,
+    ),
+  };
+}
+
 /** Subscribes to the backend event stream for the app's lifetime; call once at the top of App. */
 export function useEvents(): void {
   const qc = useQueryClient();
@@ -237,6 +253,7 @@ export function useEvents(): void {
             const { [e.source]: _done, ...rest } = p ?? {};
             return rest;
           });
+          qc.setQueryData<LocalDataDto>(qk.localData(), (d) => markDone(d, e));
           void qc.invalidateQueries({ queryKey: qk.localData() });
           break;
         case "Lagged":

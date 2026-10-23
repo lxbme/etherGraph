@@ -112,7 +112,9 @@ test("renders each source with version, imported time, rows and an upstream tag"
 
   const labels = await row("Address labels", "eth-labels");
   expect(labels.cells[1]).toHaveTextContent("—");
-  expect(labels.cells[2]).toHaveTextContent("2026-10-18 12:20:00 UTC");
+  // Imported: the short UTC form; the full time (and the local one) on hover.
+  expect(labels.cells[2]).toHaveTextContent(/^2026-10-18 12:20$/);
+  expect(labels.cells[2]!.title).toContain("2026-10-18 12:20:00 UTC");
   expect(labels.cells[3]).toHaveTextContent("112,384");
   expect(within(labels.cells[4]!).getByText("Update available")).toHaveClass("tag", "tag--warn");
   expect(within(labels).getByRole("button", { name: "Update" })).toBeEnabled();
@@ -137,7 +139,7 @@ test("numbers are right-aligned with tabular figures and versions are monospace"
   const uniswap = await row("Token lists", "Uniswap default");
   const table = uniswap.closest("table")!;
   expect(table).toHaveClass("table", "local-data");
-  expect([...table.querySelectorAll("col")].map((c) => c.style.width)).toEqual(["26%", "13%", "15%", "11%", "21%", "14%"]);
+  expect([...table.querySelectorAll("col")].map((c) => c.style.width)).toEqual(["24%", "13%", "15%", "11%", "21%", "16%"]);
   // Version: monospace, left-aligned (no right-aligning class).
   expect(uniswap.cells[1]).toHaveClass("num");
   expect(uniswap.cells[1]).not.toHaveClass("table__num");
@@ -178,7 +180,7 @@ test("a running row shows a detail row with progress from LocalDataProgress and 
   await send({ type: "LocalDataProgress", source: "tokens_coingecko", phase: "import", bytes: 3_500_000, total_bytes: 3_500_000, rows: 2240, files_done: null, files_total: null });
   expect(within(detail).getByText("Importing · 1612.0.0")).toBeInTheDocument();
   expect(within(detail).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
-  expect(within(detail).getByText("2,240")).toBeInTheDocument();
+  expect(within(detail).getByText("2,240 rows")).toBeInTheDocument();
 });
 
 test("a progress event for a row the list does not show as running marks it running", async () => {
@@ -290,7 +292,7 @@ test("LocalDataDone refetches", async () => {
   renderPanel();
   const gecko = await row("Token lists", "CoinGecko");
   await send({ type: "LocalDataProgress", source: "tokens_coingecko", phase: "import", bytes: 5, total_bytes: 5, rows: 6071, files_done: null, files_total: null });
-  expect(within(detailOf(gecko)).getByText("6,071")).toBeInTheDocument();
+  expect(within(detailOf(gecko)).getByText("6,071 rows")).toBeInTheDocument();
   const fetches = () => api.calls.filter((c) => c.method === "GET" && c.path === "/api/admin/local-data").length;
   expect(fetches()).toBe(1);
 
@@ -304,4 +306,36 @@ test("LocalDataDone refetches", async () => {
   expect(done.cells[3]).toHaveTextContent("6,071");
   expect(within(done).getByRole("button", { name: "Update" })).toBeEnabled();
   expect(screen.queryByRole("progressbar")).toBeNull();
+});
+
+test("after LocalDataDone the row leaves the running state at once, while the refetch is still under way", async () => {
+  const api = stubAdminApi({ "GET /api/admin/local-data": () => json(200, RUNNING) });
+  renderPanel();
+  const gecko = await row("Token lists", "CoinGecko");
+  await send({ type: "LocalDataProgress", source: "tokens_coingecko", phase: "import", bytes: 5, total_bytes: 5, rows: 10, files_done: null, files_total: null });
+  // The refetch never answers in this test.
+  api.route("GET /api/admin/local-data", () => new Promise<Response>(() => {}));
+  await send({ type: "LocalDataDone", source: "tokens_coingecko", outcome: "failed", error: "parse error" });
+  expect(within(gecko).queryByRole("button", { name: "Cancel" })).toBeNull();
+  expect(screen.queryByRole("progressbar")).toBeNull();
+  expect(screen.queryByText(/Downloading/)).toBeNull();
+  expect(within(gecko.cells[4]!).getByText("Update failed")).toBeInTheDocument();
+  expect(within(detailOf(gecko)).getByText("parse error")).toBeInTheDocument();
+  // The other rows can be updated again.
+  expect(within(await row("Token lists", "Uniswap default")).getByRole("button", { name: "Update" })).toBeEnabled();
+});
+
+test("Sourcify's bar follows the files done, shown next to the phase; its import count has a unit", async () => {
+  stubAdminApi({
+    "GET /api/admin/local-data": () =>
+      json(200, withSources({ signatures_sourcify: { state: "running" } }, { running: "signatures_sourcify" })),
+  });
+  renderPanel();
+  const sourcify = await row("Function signatures", "Sourcify");
+  // Bytes are almost done, files are not: the bar shows files.
+  await send({ type: "LocalDataProgress", source: "signatures_sourcify", phase: "import", bytes: 90, total_bytes: 100, rows: 512000, files_done: 4, files_total: 11 });
+  const detail = detailOf(sourcify);
+  expect(within(detail).getByText("Importing · 4/11")).toBeInTheDocument();
+  expect(within(detail).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "36");
+  expect(within(detail).getByText("512,000 rows")).toBeInTheDocument();
 });

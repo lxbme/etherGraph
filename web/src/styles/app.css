@@ -1777,11 +1777,11 @@ a.btn { text-decoration: none; }
 /* Local data (LocalDataPanel): fixed columns; versions mono and left, times and counts right; one width for every action button. */
 .local-data__head { display: flex; align-items: center; gap: var(--sp-3); }
 .local-data__check { margin-left: auto; }
-.table.local-data { min-width: 1040px; table-layout: fixed; }
+.table.local-data { min-width: 1080px; table-layout: fixed; }
 .local-data td { height: calc(var(--h-compact) + var(--sp-2)); overflow: hidden; text-overflow: ellipsis; }
 .local-data__category { font-weight: 600; }
 .local-data__name { margin-left: var(--sp-2); color: var(--fg-muted); }
-.local-data__action { width: 100%; max-width: 144px; overflow: hidden; text-overflow: ellipsis; }
+.local-data__action { width: 100%; max-width: 152px; }
 .local-data__row--open td { border-bottom: 0; }
 /* Under a running or failed row: starts at the first column's text. */
 .local-data .local-data__detail td { height: auto; padding: 0 var(--sp-3) var(--sp-3); white-space: normal; }

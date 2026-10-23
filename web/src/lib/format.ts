@@ -7,6 +7,13 @@ export function formatTime(iso: string): string {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())} UTC`;
 }
 
+/** UTC time to the minute, "YYYY-MM-DD HH:mm" (formatTime's instant, short for narrow columns); input unchanged if unparsable. */
+export function formatShortTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+}
+
 /** "UTC", "UTC+8", "UTC-3:30": the browser's offset at the instant `d`. */
 function localOffset(d: Date): string {
   const off = -d.getTimezoneOffset();

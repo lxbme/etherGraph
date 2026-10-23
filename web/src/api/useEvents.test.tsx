@@ -483,3 +483,23 @@ test("LocalDataDone drops that source's progress and refetches the list", () => 
   expect(qc.getQueryData(qk.localDataProgress())).toEqual({});
   expect(spy).toHaveBeenCalledWith({ queryKey: qk.localData() });
 });
+
+test("LocalDataDone marks the cached list done at once: nothing running, the source idle or failed per the outcome", () => {
+  const src = (source: string) => ({
+    source, version: null, imported_at: null, rows: 3, state: "running" as const, error: null, error_at: null,
+    upstream: { status: "update" as const, version: null, files: null, bytes: null, error: null }, partial: null,
+  });
+  qc.setQueryData<LocalDataDto>(qk.localData(), { checked_at: null, running: "eth_labels", signatures_enabled: false, sources: [src("eth_labels"), src("tokens_uniswap")] });
+  mount();
+  send({ type: "LocalDataDone", source: "eth_labels", outcome: "failed", error: "boom" });
+  let cached = qc.getQueryData<LocalDataDto>(qk.localData())!;
+  expect(cached.running).toBeNull();
+  expect(cached.sources[0]).toMatchObject({ state: "failed", error: "boom" });
+  expect(cached.sources[1]!.state).toBe("running"); // only that source
+
+  qc.setQueryData<LocalDataDto>(qk.localData(), (d) => ({ ...d!, running: "tokens_uniswap" }));
+  send({ type: "LocalDataDone", source: "tokens_uniswap", outcome: "cancelled", error: null });
+  cached = qc.getQueryData<LocalDataDto>(qk.localData())!;
+  expect(cached.running).toBeNull();
+  expect(cached.sources[1]).toMatchObject({ state: "idle", error: null });
+});

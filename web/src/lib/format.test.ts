@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { formatCount, formatLocalTime, formatTime } from "./format";
+import { formatCount, formatLocalTime, formatShortTime, formatTime } from "./format";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -24,6 +24,13 @@ test("formatLocalTime near midnight shows the local date and offset", () => {
   expect(formatLocalTime("2026-10-16T01:30:00Z")).toBe("2026-10-15 22:30:00 UTC-3");
   vi.stubEnv("TZ", "America/St_Johns");
   expect(formatLocalTime("2026-01-16T01:00:00Z")).toBe("2026-01-15 21:30:00 UTC-3:30");
+});
+test("formatShortTime renders UTC YYYY-MM-DD HH:mm (the same instant formatTime shows, to the minute)", () => {
+  expect(formatShortTime("2026-10-16T04:11:07Z")).toBe("2026-10-16 04:11");
+  expect(formatShortTime("2024-01-05T23:59:09+02:00")).toBe("2024-01-05 21:59");
+  vi.stubEnv("TZ", "Asia/Shanghai");
+  expect(formatShortTime("2026-10-16T17:30:00Z")).toBe("2026-10-16 17:30");
+  expect(formatShortTime("nope")).toBe("nope");
 });
 test("formatTime and formatLocalTime return input when invalid", () => {
   expect(formatTime("nope")).toBe("nope");

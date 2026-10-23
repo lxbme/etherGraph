@@ -100,6 +100,8 @@ function serveAdmin(mock: MockApi, wallet: FakeWallet) {
   });
   return {
     applied,
+    /** Sets a source's fields and which source runs, as the server would report them. */
+    set: patch,
     /** The running update finished: the new version is imported and current. */
     finish(source: string, over: Partial<LocalSourceDto>) {
       patch(source, { state: "idle", ...over }, null);
@@ -116,11 +118,43 @@ async function enterAdminMode(page: Page) {
   await expect(page.getByRole("heading", { name: "Local data" })).toBeVisible();
 }
 
+/**
+ * Checks that nothing in the table's source rows is cut off: each cell's and action button's content is
+ * no wider than its content box (measured with a Range: right-aligned or centred content overflows to the
+ * left, which scrollWidth does not count). The action buttons share one width and one right edge.
+ */
+async function expectFits(section: Locator) {
+  const m = await section.locator("table.local-data").evaluate((table) => {
+    const cut = (el: Element) => {
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      const cs = getComputedStyle(el);
+      return r.getBoundingClientRect().width > el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) + 0.5;
+    };
+    const rows = [...table.querySelectorAll("tbody tr:not(.local-data__detail)")];
+    const name = (el: Element) => `${el.tagName}[${(el.textContent ?? "").trim()}]`;
+    const buttons = rows.map((r) => r.querySelector(".local-data__action")!);
+    return {
+      cutCells: rows.flatMap((r) => [...r.querySelectorAll("td")].filter(cut).map(name)),
+      cutButtons: buttons.filter(cut).map(name),
+      boxes: buttons.map((b) => b.getBoundingClientRect().toJSON() as DOMRect),
+    };
+  });
+  expect(m.cutCells).toEqual([]);
+  expect(m.cutButtons).toEqual([]);
+  expect(m.boxes).toHaveLength(5);
+  for (const b of m.boxes) {
+    expect(b.width).toBeCloseTo(m.boxes[0]!.width, 0);
+    expect(b.right).toBeCloseTo(m.boxes[0]!.right, 0);
+  }
+}
+
 /** A source's row: its first cell holds the category and the source name. */
 const sourceRow = (section: Locator, category: string, name: string) =>
   section.getByRole("row").filter({ has: section.page().getByRole("cell", { name: `${category}${name}`, exact: true }) });
 
 test("an admin checks for updates, updates CoinGecko with one signed click and watches it finish", async ({ page, mock }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
   const wallet = await installFakeWallet(page);
   const server = serveAdmin(mock, wallet);
   await enterAdminMode(page);
@@ -144,13 +178,9 @@ test("an admin checks for updates, updates CoinGecko with one signed click and w
     expect(await style(cells.nth(i), "font-variant-numeric")).toBe("tabular-nums");
   }
   expect(await style(cells.nth(5), "text-align")).toBe("right");
-  // Action buttons: one width, right edges in line.
-  const boxes = await section.locator(".local-data__action").evaluateAll((els) => els.map((el) => el.getBoundingClientRect()));
-  expect(boxes).toHaveLength(5);
-  for (const b of boxes) {
-    expect(b.width).toBeCloseTo(boxes[0]!.width, 0);
-    expect(b.right).toBeCloseTo(boxes[0]!.right, 0);
-  }
+  // At 1280px: the short imported times, the labels and the buttons are whole; buttons share one width and edge.
+  await expect(gecko.getByRole("cell", { name: "2026-10-18 14:49", exact: true })).toBeVisible();
+  await expectFits(section);
 
   // 2. Update CoinGecko and sign.
   await gecko.getByRole("button", { name: "Update" }).click();
@@ -161,6 +191,7 @@ test("an admin checks for updates, updates CoinGecko with one signed click and w
   expect(server.applied).toEqual([{ type: "UpdateLocalData", source: GECKO }]);
   await expect(gecko.getByText("Importing")).toBeVisible();
   await expect(gecko.getByRole("button", { name: "Cancel" })).toBeEnabled();
+  await expectFits(section);
   const uniswapUpdate = sourceRow(section, "Token lists", "Uniswap default").getByRole("button", { name: "Update" });
   await expect(uniswapUpdate).toBeDisabled();
   await expect(uniswapUpdate).toHaveAttribute("title", "Another dataset is updating");
@@ -172,7 +203,7 @@ test("an admin checks for updates, updates CoinGecko with one signed click and w
   ]);
   const detail = section.locator(".local-data__detail");
   await expect(detail.getByText("Importing · 1612.0.0")).toBeVisible();
-  await expect(detail.getByText("2,240")).toBeVisible();
+  await expect(detail.getByText("2,240 rows")).toBeVisible();
   await expect(detail.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
   // The detail row starts at the first column's text.
   const textX = (await gecko.locator(".local-data__category").boundingBox())!.x;
@@ -192,5 +223,40 @@ test("an admin checks for updates, updates CoinGecko with one signed click and w
   await expect(gecko.getByRole("cell", { name: "6,071", exact: true })).toBeVisible();
   await expect(detail).toHaveCount(0);
   await expect(uniswapUpdate).toBeEnabled();
+  expect(mock.unhandled).toEqual([]);
+});
+
+test("every label and time fits at 1280px and at the table's narrowest, in English and in Chinese", async ({ page, mock }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const wallet = await installFakeWallet(page);
+  const server = serveAdmin(mock, wallet);
+  // Every action label at once: Cancel (running), Retry (failed), Download and import (Sourcify), Update.
+  server.set(GECKO, { state: "running" }, GECKO);
+  server.set("tokens_eth_labels", { state: "failed", error: "download timed out", error_at: "2026-10-23T09:14:00.000Z" }, GECKO);
+  await enterAdminMode(page);
+  // Found by its heading's id: the heading's text changes with the language.
+  const section = page.locator("section", { has: page.locator("#admin-local-data") });
+  const table = section.locator("table.local-data");
+
+  for (const [labels, heading] of [
+    [["Update", "Cancel", "Retry", "Download and import"], "Local data"],
+    [["\u66f4\u65b0", "\u53d6\u6d88", "\u91cd\u8bd5", "\u4e0b\u8f7d\u5e76\u5bfc\u5165"], "\u672c\u5730\u6570\u636e"],
+  ] as const) {
+    if (heading !== "Local data") {
+      await page.evaluate(() => localStorage.setItem("eg.locale", "zh"));
+      await page.reload();
+      await page.setViewportSize({ width: 1280, height: 800 });
+    }
+    await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+    for (const label of labels) await expect(section.getByRole("button", { name: label, exact: true }).first()).toBeVisible();
+    await expectFits(section);
+
+    // Narrower than the table's min width: the table keeps that width (its box scrolls) and still fits.
+    await page.setViewportSize({ width: 900, height: 800 });
+    const { width, min } = await table.evaluate((t) => ({ width: t.getBoundingClientRect().width, min: parseFloat(getComputedStyle(t).minWidth) }));
+    expect(width).toBeCloseTo(min, 0);
+    await expectFits(section);
+    await page.setViewportSize({ width: 1280, height: 800 });
+  }
   expect(mock.unhandled).toEqual([]);
 });

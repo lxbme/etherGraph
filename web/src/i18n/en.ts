@@ -196,6 +196,7 @@ export const en = {
   "admin.data.busy": "Another dataset is updating",
   "admin.data.phase.download": "Downloading",
   "admin.data.phase.import": "Importing",
+  "admin.data.rows": "{n} rows",
   "admin.data.unchanged": "Local data unchanged",
   "admin.data.partial": "Partial {done}/{total}",
   "admin.data.interrupted": "Interrupted by a server restart",
