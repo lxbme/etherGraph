@@ -18,6 +18,7 @@ import type { IdentifyRequestDto } from "./generated/IdentifyRequestDto";
 import type { IdentifyResponseDto } from "./generated/IdentifyResponseDto";
 import type { JobDto } from "./generated/JobDto";
 import type { LabelDto } from "./generated/LabelDto";
+import type { LocalDataDto } from "./generated/LocalDataDto";
 import type { LoginDto } from "./generated/LoginDto";
 import type { MeDto } from "./generated/MeDto";
 import type { NewLabelDto } from "./generated/NewLabelDto";
@@ -103,6 +104,10 @@ export const api = {
   adminOverview: () => request<AdminOverviewDto>("GET", "/api/admin/overview"),
   adminUsers: () => request<AdminUserDto[]>("GET", "/api/admin/users"),
   adminWhitelist: () => request<WhitelistEntryDto[]>("GET", "/api/admin/whitelist"),
+  /** Each local dataset against its upstream; the upstreams are asked when the last check is over 10 minutes old. */
+  adminLocalData: () => request<LocalDataDto>("GET", "/api/admin/local-data"),
+  /** The same, asking the upstreams now (unsigned: it changes nothing). */
+  adminLocalDataCheck: () => request<LocalDataDto>("POST", "/api/admin/local-data/check"),
   adminAudit: (p: AuditParams) =>
     request<AuditPageDto>("GET", "/api/admin/audit", {
       query: { actor: p.actor, action: p.action, from: p.from, to: p.to, cursor: num(p.cursor) },

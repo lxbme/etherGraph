@@ -4,6 +4,8 @@ import type { AdminOverviewDto } from "../api/generated/AdminOverviewDto";
 import type { AdminUserDto } from "../api/generated/AdminUserDto";
 import type { AuditPageDto } from "../api/generated/AuditPageDto";
 import type { AuditRowDto } from "../api/generated/AuditRowDto";
+import type { LocalDataDto } from "../api/generated/LocalDataDto";
+import type { LocalSourceDto } from "../api/generated/LocalSourceDto";
 import type { MeDto } from "../api/generated/MeDto";
 import type { WhitelistEntryDto } from "../api/generated/WhitelistEntryDto";
 
@@ -53,6 +55,52 @@ export const WHITELIST: WhitelistEntryDto[] = [
   { address: USER, added_by: ADMIN, added_at: "2026-10-02T07:00:00.000Z" },
 ];
 
+/** A local dataset that imported fine and matches its upstream; `extra` overrides fields. */
+export const localSource = (source: string, extra: Partial<LocalSourceDto> = {}): LocalSourceDto => ({
+  source,
+  version: null,
+  imported_at: "2026-10-18T12:20:00.000Z",
+  rows: 1000,
+  state: "idle",
+  error: null,
+  error_at: null,
+  upstream: { status: "up_to_date", version: null, files: null, bytes: null, error: null },
+  partial: null,
+  ...extra,
+});
+
+/** The five local datasets as the server lists them: one with an update, Sourcify never imported. */
+export const LOCAL_DATA: LocalDataDto = {
+  checked_at: "2026-10-23T09:12:00.000Z",
+  running: null,
+  signatures_enabled: false,
+  sources: [
+    localSource("eth_labels", { rows: 112384, upstream: { status: "update", version: null, files: null, bytes: null, error: null } }),
+    localSource("tokens_uniswap", {
+      version: "22.27.0",
+      imported_at: "2026-10-18T14:49:00.000Z",
+      rows: 1791,
+      upstream: { status: "up_to_date", version: "22.27.0", files: null, bytes: null, error: null },
+    }),
+    localSource("tokens_coingecko", {
+      version: "1610.1.0",
+      imported_at: "2026-10-18T14:49:00.000Z",
+      rows: 6055,
+      upstream: { status: "update", version: "1612.0.0", files: null, bytes: null, error: null },
+    }),
+    localSource("tokens_eth_labels", {
+      imported_at: "2026-10-18T14:49:00.000Z",
+      rows: 41207,
+      upstream: { status: "unchecked", version: null, files: null, bytes: null, error: "HEAD timed out" },
+    }),
+    localSource("signatures_sourcify", {
+      imported_at: null,
+      rows: null,
+      upstream: { status: "not_imported", version: null, files: 11, bytes: 570_000_000, error: null },
+    }),
+  ],
+};
+
 export const auditRow = (id: number, extra: Partial<AuditRowDto> = {}): AuditRowDto => ({
   id,
   at: "2026-10-19T10:00:00.000Z",
@@ -98,6 +146,8 @@ export function stubAdminApi(overrides: Record<string, Route> = {}) {
     "GET /api/admin/overview": () => json(200, OVERVIEW),
     "GET /api/admin/users": () => json(200, USERS),
     "GET /api/admin/whitelist": () => json(200, WHITELIST),
+    "GET /api/admin/local-data": () => json(200, LOCAL_DATA),
+    "POST /api/admin/local-data/check": () => json(200, LOCAL_DATA),
     "GET /api/admin/audit": () => json(200, { rows: [auditRow(2), auditRow(1, { action: "login", target: null })], next_cursor: null } satisfies AuditPageDto),
     "POST /api/admin/actions/nonce": (c) =>
       json(200, { nonce: "n1", message: actionMessage(`Server line for ${(c.body as { action: AdminAction }).action.type}`) }),

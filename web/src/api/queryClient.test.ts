@@ -13,3 +13,8 @@ test("qk keys are stable arrays", () => {
   expect(qk.address("0xa")).toEqual(["address", "0xa"]);
   expect(qk.status()).toEqual(["status"]);
 });
+
+test("local data keys sit under the admin keys: signed actions refresh them, leaving admin mode drops them", () => {
+  expect(qk.localData()).toEqual(["admin", "localData"]);
+  expect(qk.localDataProgress()).toEqual(["admin", "localDataProgress"]);
+});

@@ -21,6 +21,7 @@ import {
   useWalletAddress,
 } from "./adminMode";
 import { AuditLog } from "./AuditLog";
+import { LocalDataPanel } from "./LocalDataPanel";
 import { cancelAdminAction, confirmAdminAction, useActionConfirm, useAdminAction } from "./useAdminAction";
 import { UsersTable } from "./UsersTable";
 import { WhitelistPanel } from "./WhitelistPanel";
@@ -115,6 +116,7 @@ function AdminView({ me }: { me: MeDto }) {
   return (
     <>
       <Overview />
+      <LocalDataPanel />
       <WhitelistPanel />
       <UsersTable />
       <AuditLog />

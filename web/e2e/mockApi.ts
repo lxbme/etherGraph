@@ -11,6 +11,8 @@ import type { GraphResponseDto } from "../src/api/generated/GraphResponseDto";
 import type { IdentifyRequestDto } from "../src/api/generated/IdentifyRequestDto";
 import type { IdentifyResponseDto } from "../src/api/generated/IdentifyResponseDto";
 import type { JobDto } from "../src/api/generated/JobDto";
+import type { LocalDataDto } from "../src/api/generated/LocalDataDto";
+import type { LocalSourceDto } from "../src/api/generated/LocalSourceDto";
 import type { MeDto } from "../src/api/generated/MeDto";
 import type { NodeSummaryDto } from "../src/api/generated/NodeSummaryDto";
 import type { NodesRequestDto } from "../src/api/generated/NodesRequestDto";
@@ -60,6 +62,14 @@ export const ME: MeDto = {
   quota: { used: 120, limit: 5000, reset_at: "2026-10-18T00:00:00Z" },
 };
 
+/** A local dataset imported on 2026-10-18 that matches its upstream. */
+function localSource(source: string, version: string | null, rows: number | null): LocalSourceDto {
+  return {
+    source, version, imported_at: "2026-10-18T14:49:00.000Z", rows, state: "idle", error: null, error_at: null,
+    upstream: { status: "up_to_date", version, files: null, bytes: null, error: null }, partial: null,
+  };
+}
+
 export const fixtures = {
   graph: graphJson as GraphResponseDto,
   address: addressJson as AddressProfileDto,
@@ -78,6 +88,23 @@ export const fixtures = {
   probe: { ...probeWalletJson, ...probeContractJson } as Record<string, ProbeItemDto>,
   /** Long ENS / contract name / error strings for the overflow checks. */
   longText: longTextJson as { ens: string; contractName: string; invalidInput: string; job: JobDto },
+  /** The admin page's local datasets: all imported and current except Sourcify, never imported. */
+  localData: {
+    checked_at: "2026-10-23T09:12:00.000Z",
+    running: null,
+    signatures_enabled: false,
+    sources: [
+      localSource("eth_labels", null, 112384),
+      localSource("tokens_uniswap", "22.27.0", 1791),
+      localSource("tokens_coingecko", "1610.1.0", 6055),
+      localSource("tokens_eth_labels", null, 41207),
+      {
+        ...localSource("signatures_sourcify", null, null),
+        imported_at: null,
+        upstream: { status: "not_imported", version: null, files: 11, bytes: 570_000_000, error: null },
+      },
+    ],
+  } satisfies LocalDataDto as LocalDataDto,
 };
 
 /**
@@ -149,6 +176,8 @@ function defaultHandlers(): Map<RouteKey, Handler> {
     ["POST /api/auth/logout", () => ({ status: 204 })],
     ["GET /api/status", () => ({ json: fixtures.status })],
     ["GET /api/jobs", () => ({ json: [] })],
+    ["GET /api/admin/local-data", () => ({ json: fixtures.localData })],
+    ["POST /api/admin/local-data/check", () => ({ json: fixtures.localData })],
     [
       "GET /api/search",
       (_req, url) => {

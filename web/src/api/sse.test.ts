@@ -131,3 +131,14 @@ describe("session check on a dropped stream", () => {
     expect(FakeES.instances).toHaveLength(1);
   });
 });
+
+test("the admin page's local-data events are listened for", () => {
+  const events: Event[] = [];
+  const stop = subscribeEvents((e) => events.push(e), () => {}, { EventSourceImpl: FakeES as unknown as typeof EventSource });
+  const progress = { type: "LocalDataProgress", source: "eth_labels", phase: "download", bytes: 1, total_bytes: 2, rows: 0, files_done: null, files_total: null };
+  const done = { type: "LocalDataDone", source: "eth_labels", outcome: "succeeded", error: null };
+  inst(0).emit("LocalDataProgress", JSON.stringify(progress));
+  inst(0).emit("LocalDataDone", JSON.stringify(done));
+  expect(events).toEqual([progress, done]);
+  stop();
+});

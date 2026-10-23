@@ -38,4 +38,8 @@ export const qk = {
   status: () => ["status"],
   jobs: () => ["jobs"],
   workspaces: () => ["workspaces"],
+  /** The admin page's local datasets (under the admin keys: signed actions refresh it, leaving admin mode drops it). */
+  localData: () => ["admin", "localData"],
+  /** The latest `LocalDataProgress` event per source, kept from the event stream (never fetched). */
+  localDataProgress: () => ["admin", "localDataProgress"],
 };

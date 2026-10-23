@@ -10,6 +10,7 @@ import { ApiError } from "./errors";
 import type { Event } from "./generated/Event";
 import type { GraphResponseDto } from "./generated/GraphResponseDto";
 import type { JobDto } from "./generated/JobDto";
+import type { LocalDataDto } from "./generated/LocalDataDto";
 import type { NodeSummaryDto } from "./generated/NodeSummaryDto";
 import type { StatusDto } from "./generated/StatusDto";
 import { qk } from "./queryClient";
@@ -452,4 +453,33 @@ test("a dropped stream checks the session: only a 401 stops reconnecting", async
   await expect(sessionAlive!()).resolves.toBe(true);
   me.mockRejectedValueOnce(new ApiError("unauthorized", 401, "no_session"));
   await expect(sessionAlive!()).resolves.toBe(false);
+});
+
+test("LocalDataProgress keeps the latest progress per source and marks that source running in the cached list", () => {
+  const list: LocalDataDto = {
+    checked_at: null, running: null, signatures_enabled: false,
+    sources: [{
+      source: "eth_labels", version: null, imported_at: null, rows: 3, state: "failed", error: "boom", error_at: "2026-10-23T09:00:00Z",
+      upstream: { status: "update", version: null, files: null, bytes: null, error: null }, partial: null,
+    }],
+  };
+  qc.setQueryData(qk.localData(), list);
+  mount();
+  const progress = { type: "LocalDataProgress", source: "eth_labels", phase: "download", bytes: 5, total_bytes: 10, rows: 0, files_done: null, files_total: null } as const;
+  send(progress);
+  expect(qc.getQueryData(qk.localDataProgress())).toEqual({ eth_labels: progress });
+  const cached = qc.getQueryData<LocalDataDto>(qk.localData())!;
+  expect(cached.running).toBe("eth_labels");
+  expect(cached.sources[0]).toMatchObject({ state: "running", error: null, error_at: null });
+});
+
+test("LocalDataDone drops that source's progress and refetches the list", () => {
+  qc.setQueryData(qk.localDataProgress(), {
+    eth_labels: { type: "LocalDataProgress", source: "eth_labels", phase: "import", bytes: 1, total_bytes: 1, rows: 7, files_done: null, files_total: null },
+  });
+  const spy = vi.spyOn(qc, "invalidateQueries");
+  mount();
+  send({ type: "LocalDataDone", source: "eth_labels", outcome: "succeeded", error: null });
+  expect(qc.getQueryData(qk.localDataProgress())).toEqual({});
+  expect(spy).toHaveBeenCalledWith({ queryKey: qk.localData() });
 });

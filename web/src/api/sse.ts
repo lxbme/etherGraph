@@ -3,7 +3,8 @@ import type { Event } from "./generated/Event";
 export type SseState = "connecting" | "open" | "closed";
 
 const EVENT_TYPES: Event["type"][] = [
-  "JobProgress", "AddressDataChanged", "TxReady", "NamesResolved", "MetaUpdated", "QuotaStatus", "Lagged",
+  "JobProgress", "AddressDataChanged", "TxReady", "NamesResolved", "MetaUpdated", "QuotaStatus", "LocalDataProgress", "LocalDataDone",
+  "Lagged",
 ];
 
 const BASE_DELAY = 1000;

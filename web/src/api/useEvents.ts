@@ -9,6 +9,7 @@ import { checkSession } from "../auth/useMe";
 import type { Event } from "./generated/Event";
 import type { TxResponseDto } from "./generated/TxResponseDto";
 import type { JobDto } from "./generated/JobDto";
+import type { LocalDataDto } from "./generated/LocalDataDto";
 import type { GraphResponseDto } from "./generated/GraphResponseDto";
 import { qk } from "./queryClient";
 import { statusQuery } from "./statusQuery";
@@ -84,6 +85,19 @@ function pairsTouch(pairs: unknown, addrs: Set<string>): boolean {
   return pairs.some((p: { from?: unknown; to?: unknown }) =>
     [p?.from, p?.to].some((a) => typeof a === "string" && addrs.has(a.toLowerCase())),
   );
+}
+
+/** A `LocalDataProgress` event: the latest one per source is kept under `qk.localDataProgress()`. */
+export type LocalDataProgress = Extract<Event, { type: "LocalDataProgress" }>;
+
+/** The cached local-data list with `source` shown running (an update started since the list was fetched, e.g. by another admin). */
+function markRunning(d: LocalDataDto | undefined, source: string): LocalDataDto | undefined {
+  if (!d || d.running === source) return d;
+  return {
+    ...d,
+    running: source,
+    sources: d.sources.map((s) => (s.source === source ? { ...s, state: "running", error: null, error_at: null } : s)),
+  };
 }
 
 /** Subscribes to the backend event stream for the app's lifetime; call once at the top of App. */
@@ -213,6 +227,17 @@ export function useEvents(): void {
           useQuota.getState().setQuota({
             used: e.used, limit: e.limit, paused: e.paused, server_paused: e.server_paused, reset_at: e.reset_at,
           });
+          break;
+        case "LocalDataProgress":
+          qc.setQueryData<Record<string, LocalDataProgress>>(qk.localDataProgress(), (p) => ({ ...p, [e.source]: e }));
+          qc.setQueryData<LocalDataDto>(qk.localData(), (d) => markRunning(d, e.source));
+          break;
+        case "LocalDataDone":
+          qc.setQueryData<Record<string, LocalDataProgress>>(qk.localDataProgress(), (p) => {
+            const { [e.source]: _done, ...rest } = p ?? {};
+            return rest;
+          });
+          void qc.invalidateQueries({ queryKey: qk.localData() });
           break;
         case "Lagged":
           // Events were missed: refetch everything and resync the status stores.

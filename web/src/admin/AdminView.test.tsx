@@ -89,6 +89,8 @@ test("without admin mode the admin signs the server's admin-mode message to ente
   await userEvent.click(await screen.findByRole("button", { name: "Enter admin mode" }));
 
   expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+  // The local-data section comes right after the overview.
+  expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent).slice(0, 3)).toEqual(["Overview", "Local data", "Whitelist"]);
   const message = siweMessage(FIELDS, ADMIN);
   expect(message).toContain("Enter etherGraph admin mode");
   expect(vi.mocked(signMessage).mock.calls[0]![1]).toEqual({ message, account: ADMIN_CHECKSUMMED });
