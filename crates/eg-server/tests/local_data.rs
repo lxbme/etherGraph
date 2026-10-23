@@ -340,6 +340,81 @@ async fn legacy_imported_csv_counts_as_update_with_legacy_rows(pool: PgPool) {
     assert_eq!(l.version, None);
 }
 
+/// Renames the tables the legacy counts read, so any count over them fails.
+async fn hide(pool: &PgPool, tables: &[&str]) {
+    for t in tables {
+        let sql = match *t {
+            "labels" => "ALTER TABLE labels RENAME TO labels_hidden",
+            "token_tags" => "ALTER TABLE token_tags RENAME TO token_tags_hidden",
+            "signatures" => "ALTER TABLE signatures RENAME TO signatures_hidden",
+            other => panic!("not a legacy table: {other}"),
+        };
+        sqlx::query(sql).execute(pool).await.unwrap();
+    }
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn recorded_imports_are_not_counted_again(pool: PgPool) {
+    // Every source has a recorded import: the page reads no legacy table
+    // (they are renamed away, so a count would fail the request).
+    let server = MockServer::start().await;
+    serve(&server, (1, 0, 0), LISTING).await;
+    let (app, state, key) = admin_app(pool.clone(), &server).await;
+    let cookie = admin_cookies(&app, &key).await;
+    for (i, id) in SourceId::ALL.into_iter().enumerate() {
+        state
+            .store
+            .local_data_succeeded(id.as_str(), None, None, None, None, i as i64 + 1)
+            .await
+            .unwrap();
+    }
+    hide(&pool, &["labels", "token_tags", "signatures"]).await;
+    let d = dto(&app, &cookie).await;
+    assert_eq!(source(&d, "eth_labels").rows, Some(1));
+    assert_eq!(source(&d, "signatures_sourcify").rows, Some(5));
+    let (status, body) = post_json_as(
+        &app,
+        &cookie,
+        "/api/admin/local-data/check",
+        &serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn only_sources_without_a_recorded_import_are_counted(pool: PgPool) {
+    let server = MockServer::start().await;
+    serve(&server, (1, 0, 0), LISTING).await;
+    let (app, state, key) = admin_app(pool.clone(), &server).await;
+    let cookie = admin_cookies(&app, &key).await;
+    for id in SourceId::ALL {
+        if id != SourceId::TokensCoingecko {
+            state
+                .store
+                .local_data_succeeded(id.as_str(), None, None, None, None, 1)
+                .await
+                .unwrap();
+        }
+    }
+    // A failed update leaves the source without a recorded import.
+    state
+        .store
+        .local_data_failed("tokens_coingecko", "timeout")
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO token_tags (address, source, tag) VALUES ($1, 'coingecko', 't')")
+        .bind([0x11u8; 20].to_vec())
+        .execute(&pool)
+        .await
+        .unwrap();
+    hide(&pool, &["labels", "signatures"]).await;
+    let d = dto(&app, &cookie).await;
+    let c = source(&d, "tokens_coingecko");
+    assert_eq!(c.rows, Some(1));
+    assert_eq!(c.upstream.status, "update");
+}
+
 #[sqlx::test(migrations = "../eg-store/migrations")]
 async fn partial_reports_done_of_total(pool: PgPool) {
     let server = MockServer::start().await;

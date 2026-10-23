@@ -30,6 +30,7 @@ impl Store {
     }
 
     /// Records a finished import: state `idle`, error cleared, `imported_at` now.
+    /// A `None` manifest keeps the stored one (a command-line signature import).
     pub async fn local_data_succeeded(
         &self,
         source: &str,
@@ -45,7 +46,8 @@ impl Store {
              VALUES ($1, $2, $3, $4, $5, now(), $6, 'idle') \
              ON CONFLICT (source) DO UPDATE SET \
                version = EXCLUDED.version, etag = EXCLUDED.etag, sha256 = EXCLUDED.sha256, \
-               manifest = EXCLUDED.manifest, imported_at = EXCLUDED.imported_at, \
+               manifest = COALESCE(EXCLUDED.manifest, local_data.manifest), \
+               imported_at = EXCLUDED.imported_at, \
                rows = EXCLUDED.rows, state = 'idle', error = NULL, error_at = NULL",
         )
         .bind(source)
@@ -110,25 +112,33 @@ impl Store {
         .await?)
     }
 
-    /// Row counts of datasets imported before this table existed, by source id:
-    /// `eth_labels` (both eth-labels datasets), `tokens_*` (by `token_tags`
-    /// source) and `signatures_sourcify`.
-    pub async fn legacy_row_counts(&self) -> Result<HashMap<String, i64>> {
-        let rows: Vec<(String, i64)> = sqlx::query_as(
-            "SELECT 'eth_labels', count(*) FROM labels \
-               WHERE source IN ('eth-labels', 'eth-labels-xchain') \
-             UNION ALL \
-             SELECT CASE source WHEN 'uniswap' THEN 'tokens_uniswap' \
-                                WHEN 'coingecko' THEN 'tokens_coingecko' \
-                                ELSE 'tokens_eth_labels' END, count(*) \
-               FROM token_tags WHERE source IN ('uniswap', 'coingecko', 'eth-labels') \
-               GROUP BY source \
-             UNION ALL \
-             SELECT 'signatures_sourcify', count(*) FROM signatures",
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(rows.into_iter().collect())
+    /// Row counts of datasets imported before this table existed, for the
+    /// source ids in `sources` only (others are not read; none asked, no
+    /// query): `eth_labels` (both eth-labels datasets), `tokens_*` (by
+    /// `token_tags` source) and `signatures_sourcify`.
+    pub async fn legacy_row_counts(&self, sources: &[&str]) -> Result<HashMap<String, i64>> {
+        let mut out = HashMap::new();
+        for &source in sources {
+            let q = match source {
+                "eth_labels" => sqlx::query_scalar(
+                    "SELECT count(*) FROM labels \
+                     WHERE source IN ('eth-labels', 'eth-labels-xchain')",
+                ),
+                "tokens_uniswap" | "tokens_coingecko" | "tokens_eth_labels" => {
+                    let tag_source = match source {
+                        "tokens_uniswap" => "uniswap",
+                        "tokens_coingecko" => "coingecko",
+                        _ => "eth-labels",
+                    };
+                    sqlx::query_scalar("SELECT count(*) FROM token_tags WHERE source = $1")
+                        .bind(tag_source)
+                }
+                "signatures_sourcify" => sqlx::query_scalar("SELECT count(*) FROM signatures"),
+                _ => continue,
+            };
+            out.insert(source.to_owned(), q.fetch_one(&self.pool).await?);
+        }
+        Ok(out)
     }
 }
 
@@ -259,11 +269,80 @@ mod tests {
         )
         .await
         .unwrap();
-        let c = s.legacy_row_counts().await.unwrap();
+        let all = [
+            "eth_labels",
+            "tokens_uniswap",
+            "tokens_coingecko",
+            "tokens_eth_labels",
+            "signatures_sourcify",
+        ];
+        let c = s.legacy_row_counts(&all).await.unwrap();
         assert_eq!(c["eth_labels"], 2);
         assert_eq!(c["tokens_uniswap"], 2);
         assert_eq!(c["tokens_coingecko"], 1);
-        assert!(!c.contains_key("tokens_eth_labels"));
+        assert_eq!(c["tokens_eth_labels"], 0);
         assert_eq!(c["signatures_sourcify"], 2);
+    }
+
+    /// Renames the legacy tables away, so any count over them fails.
+    async fn hide(pool: &PgPool, tables: &[&str]) {
+        for t in tables {
+            let sql = match *t {
+                "labels" => "ALTER TABLE labels RENAME TO labels_hidden",
+                "token_tags" => "ALTER TABLE token_tags RENAME TO token_tags_hidden",
+                "signatures" => "ALTER TABLE signatures RENAME TO signatures_hidden",
+                other => panic!("not a legacy table: {other}"),
+            };
+            sqlx::query(sql).execute(pool).await.unwrap();
+        }
+    }
+
+    #[sqlx::test]
+    async fn legacy_counts_query_only_the_sources_asked(pool: PgPool) {
+        let s = Store::from_pool(pool.clone());
+        sqlx::query("INSERT INTO token_tags (address, source, tag) VALUES ($1, 'coingecko', 't')")
+            .bind([0x11u8; 20].to_vec())
+            .execute(&pool)
+            .await
+            .unwrap();
+        hide(&pool, &["labels", "signatures"]).await;
+        let c = s.legacy_row_counts(&["tokens_coingecko"]).await.unwrap();
+        assert_eq!(c.len(), 1);
+        assert_eq!(c["tokens_coingecko"], 1);
+
+        // Nothing asked: no table is read.
+        hide(&pool, &["token_tags"]).await;
+        assert!(s.legacy_row_counts(&[]).await.unwrap().is_empty());
+        assert!(s.legacy_row_counts(&["tokens_uniswap"]).await.is_err());
+    }
+
+    #[sqlx::test]
+    async fn a_success_without_a_manifest_keeps_the_stored_one(pool: PgPool) {
+        // A command-line signature import records no manifest; the files the
+        // page imported stay recorded.
+        let s = Store::from_pool(pool);
+        let manifest =
+            serde_json::json!([{"key": "v2/signatures/a.parquet", "etag": "\"e\"", "size": 1}]);
+        s.local_data_succeeded("signatures_sourcify", None, None, None, Some(&manifest), 3)
+            .await
+            .unwrap();
+        s.local_data_succeeded("signatures_sourcify", None, None, None, None, 5)
+            .await
+            .unwrap();
+        let all = s.local_data_all().await.unwrap();
+        let r = row(&all, "signatures_sourcify");
+        assert_eq!(r.manifest.as_ref(), Some(&manifest));
+        assert_eq!(r.rows, Some(5));
+
+        // A new manifest still replaces it.
+        let next = serde_json::json!([]);
+        s.local_data_succeeded("signatures_sourcify", None, None, None, Some(&next), 5)
+            .await
+            .unwrap();
+        let all = s.local_data_all().await.unwrap();
+        assert_eq!(
+            row(&all, "signatures_sourcify").manifest.as_ref(),
+            Some(&next)
+        );
     }
 }

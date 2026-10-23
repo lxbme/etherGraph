@@ -36,7 +36,17 @@ pub async fn check(
 async fn build(s: &AppState, force: bool) -> Result<LocalDataDto, ApiError> {
     let upstream = s.upstream.check(force).await;
     let rows = s.store.local_data_all().await?;
-    let legacy = s.store.legacy_row_counts().await?;
+    // Only a source without a recorded import shows the existing tables' count.
+    let unrecorded: Vec<&str> = SourceId::ALL
+        .iter()
+        .map(|id| id.as_str())
+        .filter(|id| {
+            !rows
+                .iter()
+                .any(|r| r.source == *id && r.imported_at.is_some())
+        })
+        .collect();
+    let legacy = s.store.legacy_row_counts(&unrecorded).await?;
     let sources: Vec<LocalSourceDto> = SourceId::ALL
         .into_iter()
         .map(|id| {

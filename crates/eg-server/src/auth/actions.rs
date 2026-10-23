@@ -349,7 +349,7 @@ impl Action {
                 }
             }
             Self::SetSignatureGuess(enabled) => {
-                if *enabled && eg_store::signature_count(s.store.pool()).await? == 0 {
+                if *enabled && !eg_store::signatures_exist(s.store.pool()).await? {
                     return Err(ApiError::new(
                         StatusCode::CONFLICT,
                         "no_signatures",

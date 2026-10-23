@@ -32,7 +32,8 @@ pub use nft::{NFT_ATTRIBUTES_MAX, NFT_DESCRIPTION_MAX, NFT_IMAGE_MAX, NFT_NAME_M
 pub use sessions::{NoncePurpose, NonceRow, SessionKind, SessionRow};
 pub use settings::{SETTING_DEFAULT_DAILY_QUOTA, SETTING_OPEN_REGISTRATION};
 pub use signatures::{
-    signature_count, signatures_by_hash, signatures_by_selector, upsert_signatures,
+    signature_count, signatures_by_hash, signatures_by_selector, signatures_exist,
+    upsert_signatures,
 };
 pub use stats::{AccountKindFilter, AddressAssetRow, CounterpartyRow, CounterpartySort, StatsRow};
 pub use token_tags::{ListedTokenRow, TokenTagRow};

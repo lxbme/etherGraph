@@ -75,6 +75,15 @@ pub async fn signature_count(pool: &PgPool) -> Result<i64> {
         .await?)
 }
 
+/// Whether any signature is stored (without counting them).
+pub async fn signatures_exist(pool: &PgPool) -> Result<bool> {
+    Ok(
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM signatures)")
+            .fetch_one(pool)
+            .await?,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,6 +101,13 @@ mod tests {
         assert_eq!(upsert_signatures(&pool, &[t("a()")]).await.unwrap(), 0);
         assert_eq!(upsert_signatures(&pool, &[]).await.unwrap(), 0);
         assert_eq!(signature_count(&pool).await.unwrap(), 2);
+    }
+
+    #[sqlx::test]
+    async fn signatures_exist_once_one_is_stored(pool: PgPool) {
+        assert!(!signatures_exist(&pool).await.unwrap());
+        upsert_signatures(&pool, &[t("a()")]).await.unwrap();
+        assert!(signatures_exist(&pool).await.unwrap());
     }
 
     #[sqlx::test]
