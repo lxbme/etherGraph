@@ -17,7 +17,8 @@ use tokio::sync::Notify;
 use crate::auth::AuthState;
 use crate::config::{Config, SourceMode};
 use crate::head::HeadCache;
-use crate::local_data::UpstreamChecker;
+use crate::local_data::runner::DEFAULT_DATA_DIR;
+use crate::local_data::{Runner, UpstreamChecker};
 use crate::trust::TrustCache;
 
 /// The `settings` key holding the signature-guess switch (a JSON bool); it
@@ -45,6 +46,9 @@ pub struct AppState {
     /// What the local datasets' upstreams serve now (cached 10 minutes);
     /// tests swap it for one aimed at a mock server.
     pub upstream: Arc<UpstreamChecker>,
+    /// The single slot of local dataset updates, downloading under `data/`;
+    /// tests swap it for one with a temp dir.
+    pub runner: Arc<Runner>,
 }
 
 impl AppState {
@@ -93,6 +97,7 @@ impl AppState {
             ctx,
             cfg,
             upstream: Arc::new(UpstreamChecker::default()),
+            runner: Arc::new(Runner::new(DEFAULT_DATA_DIR)),
             head: Arc::new(HeadCache::default()),
             trust: Arc::new(TrustCache::default()),
         }

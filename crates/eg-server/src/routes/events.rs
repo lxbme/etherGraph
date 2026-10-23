@@ -14,15 +14,16 @@ use crate::auth::cookie;
 use crate::auth::extract::CurrentUser;
 use crate::state::AppState;
 
-/// Only events addressed to the viewer (plus `Lagged` when this stream missed
-/// events). The session is re-checked every `session_recheck`; the stream
-/// ends once it is gone (logged out, revoked or expired).
+/// Only events addressed to the viewer, or to admins when the viewer is a
+/// configured admin (plus `Lagged` when this stream missed events). The
+/// session is re-checked every `session_recheck`; the stream ends once it is
+/// gone (logged out, revoked or expired).
 pub async fn events(
     State(s): State<AppState>,
     user: CurrentUser,
     headers: HeaderMap,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
-    let sub = s.ctx.bus.subscribe_user(user.id);
+    let sub = s.ctx.bus.subscribe_user(user.id, user.is_admin);
     let token = cookie(&headers, s.auth.session_cookie()).map(str::to_owned);
     let ended = session_gone(s.clone(), token);
     let stream = stream::unfold(sub, |mut sub| async move {

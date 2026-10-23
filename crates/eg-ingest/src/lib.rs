@@ -23,7 +23,9 @@ pub use enqueue::{
     enqueue_sync, enqueue_tokens, other_sync_active,
 };
 pub use estimate::{Estimate, estimate, remaining_calls};
-pub use events::{Audience, Event, EventBus, Listener, NameItem, UserEvents};
+pub use events::{
+    Audience, Event, EventBus, Listener, LocalDataOutcome, LocalDataPhase, NameItem, UserEvents,
+};
 pub use handlers::default_handlers;
 pub use runner::{JobCtx, JobError, JobHandler, Runner};
 pub use trace::{

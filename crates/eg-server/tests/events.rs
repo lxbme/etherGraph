@@ -295,6 +295,31 @@ async fn the_stream_forwards_only_its_users_events(pool: PgPool) {
     assert_eq!(sb.events.len(), 1, "{:?}", sb.events);
 }
 
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn admin_events_reach_only_admin_streams(pool: PgPool) {
+    // The default user A is a configured admin; B is not.
+    let mut cfg = Config::default();
+    cfg.auth.admins = vec![common::DEFAULT_USER.to_checksum(None)];
+    let (app, state, _) = gated_app(pool, cfg).await;
+    let (b_cookie, _) = second_user(&app, &state).await;
+    let mut sa = Sse::open(&app, None).await;
+    let mut sb = Sse::open(&app, Some(&b_cookie)).await;
+    state.ctx.bus.publish(
+        Audience::Admins,
+        Event::AddressDataChanged {
+            address: Address::repeat_byte(7),
+        },
+    );
+    let addr = json!(format!("{:#x}", Address::repeat_byte(7)));
+    sa.until("the admin event", |v| v["address"] == addr).await;
+    sb.drain(Duration::from_millis(200)).await;
+    assert!(
+        !sb.events.iter().any(|v| v["address"] == addr),
+        "{:?}",
+        sb.events
+    );
+}
+
 /// The app of [`gated_app`] whose event streams re-check their session every
 /// `every`.
 async fn app_rechecking_every(pool: PgPool, every: Duration) -> (Router, AppState) {

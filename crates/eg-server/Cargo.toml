@@ -27,11 +27,13 @@ sqlx = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true }
+tokio-util = "0.7"
 toml = { workspace = true }
 tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 ts-rs = { workspace = true }
+url = "2"
 unicode-normalization = "0.1.25"
 parquet = { version = "60.0.0", default-features = false, features = ["snap", "zstd"] }
 

@@ -65,7 +65,45 @@ pub enum Event {
         #[ts(type = "string")]
         reset_at: DateTime<Utc>,
     },
+    // A local dataset update's progress (admins only): `bytes` downloaded of
+    // `total_bytes` (null when unknown), `rows` imported so far; `files_*`
+    // only for multi-file sources.
+    LocalDataProgress {
+        source: String,
+        phase: LocalDataPhase,
+        #[ts(type = "number")]
+        bytes: u64,
+        #[ts(type = "number | null")]
+        total_bytes: Option<u64>,
+        #[ts(type = "number")]
+        rows: u64,
+        files_done: Option<u32>,
+        files_total: Option<u32>,
+    },
+    // A local dataset update ended (admins only); `error` only when it failed.
+    LocalDataDone {
+        source: String,
+        outcome: LocalDataOutcome,
+        error: Option<String>,
+    },
     Lagged,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum LocalDataPhase {
+    Download,
+    Import,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum LocalDataOutcome {
+    Succeeded,
+    Failed,
+    Cancelled,
 }
 
 #[derive(Clone, Debug, Serialize, TS)]
@@ -77,11 +115,12 @@ pub struct NameItem {
     pub status: EnsStatus,
 }
 
-/// Who may receive an event: the user whose job (or request) caused it, or
-/// nobody (a system job without an owner).
+/// Who may receive an event: the user whose job (or request) caused it,
+/// every admin (`auth.admins`), or nobody (a system job without an owner).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Audience {
     User(i64),
+    Admins,
     Nobody,
 }
 
@@ -153,9 +192,9 @@ impl EventBus {
         self.tx.subscribe()
     }
 
-    /// The events addressed to `user`; `user` counts as listening until the
-    /// subscription is dropped.
-    pub fn subscribe_user(&self, user: i64) -> UserEvents {
+    /// The events addressed to `user`, and to admins when `is_admin`; `user`
+    /// counts as listening until the subscription is dropped.
+    pub fn subscribe_user(&self, user: i64, is_admin: bool) -> UserEvents {
         // Receive before announcing, so an event published in answer to the
         // announcement reaches this subscription.
         let rx = self.tx.subscribe();
@@ -169,6 +208,7 @@ impl EventBus {
         self.listeners.opened.send_replace(());
         UserEvents {
             user,
+            is_admin,
             rx,
             listeners: self.listeners.clone(),
         }
@@ -199,17 +239,20 @@ impl EventBus {
 /// One user's view of the bus (see [`EventBus::subscribe_user`]).
 pub struct UserEvents {
     user: i64,
+    is_admin: bool,
     rx: broadcast::Receiver<(Audience, Event)>,
     listeners: Arc<Listeners>,
 }
 
 impl UserEvents {
-    /// The next event addressed to this user; [`Event::Lagged`] after events
+    /// The next event addressed to this user (or to admins, for an admin);
+    /// [`Event::Lagged`] after events
     /// were missed (anyone's: the bus is shared); `None` once the bus is gone.
     pub async fn recv(&mut self) -> Option<Event> {
         loop {
             match self.rx.recv().await {
                 Ok((Audience::User(u), e)) if u == self.user => return Some(e),
+                Ok((Audience::Admins, e)) if self.is_admin => return Some(e),
                 Ok(_) => {}
                 Err(broadcast::error::RecvError::Lagged(_)) => return Some(Event::Lagged),
                 Err(broadcast::error::RecvError::Closed) => return None,
@@ -277,6 +320,20 @@ mod tests {
                 server_paused: false,
                 reset_at: DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap(),
             },
+            Event::LocalDataProgress {
+                source: "tokens_uniswap".into(),
+                phase: LocalDataPhase::Download,
+                bytes: 10,
+                total_bytes: Some(20),
+                rows: 0,
+                files_done: None,
+                files_total: None,
+            },
+            Event::LocalDataDone {
+                source: "tokens_uniswap".into(),
+                outcome: LocalDataOutcome::Failed,
+                error: Some("boom".into()),
+            },
             Event::Lagged,
         ];
         for e in &all {
@@ -289,6 +346,8 @@ mod tests {
                 | Event::NamesResolved { .. }
                 | Event::MetaUpdated { .. }
                 | Event::QuotaStatus { .. }
+                | Event::LocalDataProgress { .. }
+                | Event::LocalDataDone { .. }
                 | Event::Lagged => {}
             }
         }
@@ -333,6 +392,19 @@ mod tests {
         assert!(ts_member(&decl, "NftReady").contains("token_id: string"));
         assert!(ts_member(&decl, "QuotaStatus").contains("reset_at: string"));
         assert!(ts_member(&decl, "MetaUpdated").contains("addresses: Array<string>"));
+        let progress = ts_member(&decl, "LocalDataProgress");
+        assert!(progress.contains("bytes: number,"), "{progress}");
+        assert!(
+            progress.contains("total_bytes: number | null"),
+            "{progress}"
+        );
+        assert!(progress.contains("rows: number"), "{progress}");
+        assert!(progress.contains("files_done: number | null"), "{progress}");
+        assert_eq!(LocalDataPhase::inline(&cfg), r#""download" | "import""#);
+        assert_eq!(
+            LocalDataOutcome::inline(&cfg),
+            r#""succeeded" | "failed" | "cancelled""#
+        );
         let item = NameItem::decl(&cfg);
         assert!(item.contains("address: string"), "{item}");
         assert!(item.contains("name: string | null"), "{item}");
@@ -372,8 +444,8 @@ mod tests {
     #[tokio::test]
     async fn a_user_receives_only_events_addressed_to_them() {
         let bus = EventBus::new();
-        let mut a = bus.subscribe_user(1);
-        let mut b = bus.subscribe_user(2);
+        let mut a = bus.subscribe_user(1, false);
+        let mut b = bus.subscribe_user(2, false);
         let mut all = bus.subscribe();
         bus.publish(Audience::User(1), changed(1));
         bus.publish(Audience::User(2), changed(2));
@@ -391,6 +463,21 @@ mod tests {
         assert_eq!(all.recv().await.unwrap().0, Audience::Nobody);
     }
 
+    #[tokio::test]
+    async fn admin_events_reach_only_admins() {
+        let bus = EventBus::new();
+        let mut admin = bus.subscribe_user(1, true);
+        let mut user = bus.subscribe_user(2, false);
+        bus.publish(Audience::Admins, changed(1));
+        bus.publish(Audience::User(2), changed(2));
+        bus.publish(Audience::User(1), changed(3));
+        assert_eq!(changed_byte(admin.recv().await), 1);
+        assert_eq!(changed_byte(admin.recv().await), 3);
+        assert_quiet(&mut admin).await;
+        assert_eq!(changed_byte(user.recv().await), 2);
+        assert_quiet(&mut user).await;
+    }
+
     #[test]
     fn a_jobs_audience_is_its_owner() {
         assert_eq!(Audience::of(Some(7)), Audience::User(7));
@@ -406,13 +493,13 @@ mod tests {
         let bus = EventBus::new();
         let mut opened = bus.subscribe_opened();
         assert!(bus.listeners().is_empty());
-        let a1 = bus.subscribe_user(1);
+        let a1 = bus.subscribe_user(1, false);
         assert!(opened.has_changed().unwrap());
         opened.mark_unchanged();
         let first = bus.listeners()[0].newest;
-        let a2 = bus.subscribe_user(1);
+        let a2 = bus.subscribe_user(1, false);
         assert!(opened.has_changed().unwrap());
-        let b = bus.subscribe_user(2);
+        let b = bus.subscribe_user(2, false);
         assert_eq!(users(&bus), vec![1, 2]);
         // Another subscription of user 1 is told apart from the first.
         assert_ne!(bus.listeners()[0].newest, first);
@@ -423,14 +510,14 @@ mod tests {
         drop(a2);
         assert!(bus.listeners().is_empty());
         // A reconnect is a new subscription.
-        let _a3 = bus.subscribe_user(1);
+        let _a3 = bus.subscribe_user(1, false);
         assert_ne!(bus.listeners()[0].newest, first);
     }
 
     #[tokio::test]
     async fn a_lagging_subscriber_gets_lagged_then_continues() {
         let bus = EventBus::new();
-        let mut a = bus.subscribe_user(1);
+        let mut a = bus.subscribe_user(1, false);
         for _ in 0..1100 {
             bus.publish(Audience::User(2), changed(2));
         }

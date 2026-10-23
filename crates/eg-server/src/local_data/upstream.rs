@@ -10,12 +10,13 @@ use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use tokio::sync::Mutex;
 
+use super::download::{client_builder, describe, read_capped};
 use super::sources::{SourceId, Urls, valid_signature_key};
 
 pub const CACHE_TTL: Duration = Duration::from_secs(10 * 60);
 const TIMEOUT: Duration = Duration::from_secs(60);
 /// Largest list or listing body read.
-const MAX_BODY: usize = 50 * 1024 * 1024;
+const MAX_BODY: u64 = 50 * 1024 * 1024;
 
 /// What an upstream serves now.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -58,26 +59,11 @@ impl Default for UpstreamChecker {
 }
 
 impl UpstreamChecker {
-    /// A checker for `urls`; redirects are followed only to their hosts.
+    /// A checker for `urls`; redirects are followed only within their
+    /// origins (see [`client_builder`]).
     pub fn with_urls(urls: Urls) -> Self {
-        let hosts = urls.hosts();
-        let policy = reqwest::redirect::Policy::custom(move |attempt| {
-            let ok = attempt
-                .url()
-                .host_str()
-                .is_some_and(|h| hosts.iter().any(|a| a == h));
-            if !ok {
-                attempt.error("redirect to a host that is not allowed")
-            } else if attempt.previous().len() >= 5 {
-                attempt.error("too many redirects")
-            } else {
-                attempt.follow()
-            }
-        });
-        let http = reqwest::Client::builder()
-            .redirect(policy)
+        let http = client_builder(&urls)
             .timeout(TIMEOUT)
-            .user_agent("etherGraph")
             .build()
             .expect("the http client builds");
         Self {
@@ -92,6 +78,14 @@ impl UpstreamChecker {
 
     pub fn urls(&self) -> &Urls {
         &self.urls
+    }
+
+    /// `id`'s upstream from a check less than [`CACHE_TTL`] ago, without
+    /// asking it.
+    pub async fn cached(&self, id: SourceId) -> Option<Upstream> {
+        let cache = self.cache.lock().await;
+        let (at, up) = cache.entries.get(&id)?;
+        (at.elapsed() < CACHE_TTL).then(|| up.clone())
     }
 
     /// When an upstream was last asked (successfully or not).
@@ -197,19 +191,8 @@ impl UpstreamChecker {
         if !status.is_success() {
             return Err(format!("HTTP {}", status.as_u16()));
         }
-        if resp.content_length().is_some_and(|n| n > MAX_BODY as u64) {
-            return Err("the response is too large".into());
-        }
-        let body = resp.bytes().await.map_err(describe)?;
-        if body.len() > MAX_BODY {
-            return Err("the response is too large".into());
-        }
-        Ok(body)
+        read_capped(resp, MAX_BODY).await
     }
-}
-
-fn describe(e: reqwest::Error) -> String {
-    e.without_url().to_string()
 }
 
 /// The `Contents` of an S3 listing; entries whose key is not a signature

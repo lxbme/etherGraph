@@ -249,6 +249,9 @@ async fn serve(path: &Path, source: Option<SourceMode>) -> anyhow::Result<()> {
     if reset > 0 {
         tracing::info!(jobs = reset, "requeued jobs left running by a previous run");
     }
+    eg_server::local_data::runner::interrupt_running(&store)
+        .await
+        .context("marking interrupted local data updates")?;
 
     let today = Utc::now().date_naive();
     let initial_used = store.quota_get(today).await?;

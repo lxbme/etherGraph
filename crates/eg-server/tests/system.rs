@@ -346,8 +346,8 @@ async fn quota_status_carries_each_users_own_figures(pool: PgPool) {
     let (_, state, _) = test_app(pool).await;
     let a = default_user_id(&state).await;
     let b = other_user(&state).await;
-    let mut ea = state.ctx.bus.subscribe_user(a);
-    let mut eb = state.ctx.bus.subscribe_user(b);
+    let mut ea = state.ctx.bus.subscribe_user(a, false);
+    let mut eb = state.ctx.bus.subscribe_user(b, false);
     spawn_background(&state);
     let limit = state.gate.user_quota(a).limit;
     // Each listener's status as it starts listening.
@@ -375,18 +375,18 @@ async fn a_listener_gets_its_status_when_it_connects_and_on_reconnect(pool: PgPo
     let b = other_user(&state).await;
     spawn_background(&state);
     // Nobody makes any call: the status is sent because B connected.
-    let mut eb = state.ctx.bus.subscribe_user(b);
+    let mut eb = state.ctx.bus.subscribe_user(b, false);
     let q = quota_event(&mut eb, |_| true).await;
     assert_eq!(q.0, 0);
     let seen = quota_events_within(&mut eb, Duration::from_millis(300)).await;
     assert!(seen.is_empty(), "{seen:?}");
     // Reconnecting at once gets the status again, unthrottled.
     drop(eb);
-    let mut eb = state.ctx.bus.subscribe_user(b);
+    let mut eb = state.ctx.bus.subscribe_user(b, false);
     let q = quota_event(&mut eb, |_| true).await;
     assert_eq!(q.0, 0);
     // A second stream of the same user gets its own.
-    let mut eb2 = state.ctx.bus.subscribe_user(b);
+    let mut eb2 = state.ctx.bus.subscribe_user(b, false);
     quota_event(&mut eb2, |_| true).await;
 }
 
@@ -398,7 +398,7 @@ async fn status_and_quota_event_agree(pool: PgPool) {
     billed(Some(a), state.gate.acquire(Priority::Interactive))
         .await
         .unwrap();
-    let mut ea = state.ctx.bus.subscribe_user(a);
+    let mut ea = state.ctx.bus.subscribe_user(a, false);
     spawn_background(&state);
     let q = quota_event(&mut ea, |_| true).await;
     let (status, body) = get(&app, "/api/status").await;
@@ -417,7 +417,7 @@ async fn status_and_quota_event_agree(pool: PgPool) {
 async fn quota_status_is_throttled_per_user(pool: PgPool) {
     let (_, state, _) = test_app(pool).await;
     let a = default_user_id(&state).await;
-    let mut ea = state.ctx.bus.subscribe_user(a);
+    let mut ea = state.ctx.bus.subscribe_user(a, false);
     spawn_background(&state);
     let calls = async {
         for _ in 0..12 {
@@ -456,8 +456,8 @@ async fn server_pause_and_rollover_reach_every_listener(pool: PgPool) {
     let (_, state, _) = test_app(pool).await;
     let a = default_user_id(&state).await;
     let b = other_user(&state).await;
-    let mut ea = state.ctx.bus.subscribe_user(a);
-    let mut eb = state.ctx.bus.subscribe_user(b);
+    let mut ea = state.ctx.bus.subscribe_user(a, false);
+    let mut eb = state.ctx.bus.subscribe_user(b, false);
     spawn_background(&state);
     billed(Some(a), state.gate.acquire(Priority::Interactive))
         .await

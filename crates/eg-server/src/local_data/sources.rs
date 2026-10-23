@@ -133,6 +133,15 @@ impl Urls {
             .filter_map(|u| reqwest::Url::parse(u).ok()?.host_str().map(str::to_owned))
             .collect()
     }
+
+    /// The origins (scheme, host, port) of these URLs: where a request or a
+    /// redirect may go.
+    pub fn origins(&self) -> Vec<url::Origin> {
+        self.all()
+            .into_iter()
+            .filter_map(|u| Some(reqwest::Url::parse(u).ok()?.origin()))
+            .collect()
+    }
 }
 
 #[cfg(test)]
