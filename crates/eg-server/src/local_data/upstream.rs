@@ -105,6 +105,17 @@ impl UpstreamChecker {
         res
     }
 
+    /// Caches `up` as what `id`'s upstream serves now: an update's own
+    /// download, so the status that follows compares against what was
+    /// imported without asking again. `checked_at` is left alone.
+    pub async fn record(&self, id: SourceId, up: Upstream) {
+        self.cache
+            .lock()
+            .await
+            .entries
+            .insert(id, (Instant::now(), up));
+    }
+
     /// When an upstream was last asked (successfully or not).
     pub async fn checked_at(&self) -> Option<DateTime<Utc>> {
         self.cache.lock().await.checked_at

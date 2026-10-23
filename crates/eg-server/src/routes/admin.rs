@@ -331,8 +331,12 @@ pub async fn action_run(
                 // Stored and audited; the periodic refresh applies it.
                 tracing::warn!(error = %e, "applying changed quota limits to the rate gate failed");
             }
-            if let Some(on) = done.signatures_enabled {
-                s.set_signatures_enabled(on);
+            // Re-read: a toggle committed after this one may have won.
+            if done.reload_signatures
+                && let Err(e) = s.load_signatures_setting().await
+            {
+                // Stored and audited; applied at the next start.
+                tracing::warn!(error = %e, "applying the changed signature switch failed");
             }
             if let Some(id) = done.cancel {
                 s.runner.cancel(id);

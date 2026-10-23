@@ -1572,6 +1572,41 @@ async fn guess_toggle_persists_and_applies(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
+async fn guess_toggle_applies_the_stored_value(pool: PgPool) {
+    // Another toggle committed right after this one: the trigger stands in
+    // for it, so the stored value differs from the request's. The switch
+    // follows what is stored.
+    let (app, state, _, key) = admin_app(pool.clone()).await;
+    let both = admin_cookies(&app, &key).await;
+    eg_store::upsert_signatures(&pool, &["transfer(address,uint256)".to_owned()])
+        .await
+        .unwrap();
+    sqlx::query(
+        "CREATE FUNCTION force_guess_off() RETURNS trigger LANGUAGE plpgsql AS $$ \
+         BEGIN IF NEW.key = 'signatures_enabled' THEN NEW.value := 'false'; END IF; \
+         RETURN NEW; END $$",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER force_guess_off BEFORE INSERT OR UPDATE ON settings \
+         FOR EACH ROW EXECUTE FUNCTION force_guess_off()",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let on = json!({"type": "SetSignatureGuess", "enabled": true});
+    act_ok(&app, &key, &both, &on).await;
+    assert_eq!(
+        state.store.setting_get(SIGNATURES_SETTING).await.unwrap(),
+        Some(json!(false))
+    );
+    assert!(!state.signatures_enabled());
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
 async fn unknown_source_is_400(pool: PgPool) {
     let (app, _, _, key) = admin_app(pool).await;
     let both = admin_cookies(&app, &key).await;

@@ -441,6 +441,63 @@ async fn eth_labels_update_replaces_both_datasets_and_keeps_the_etag_verbatim(po
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_csv_update_refreshes_the_cached_upstream(pool: PgPool) {
+    // Checked at "e1"; the file changed before the update downloaded "e2".
+    let env = Env::new(pool).await;
+    Mock::given(method("HEAD"))
+        .and(path("/labels.csv"))
+        .respond_with(ResponseTemplate::new(200).insert_header("etag", "\"e1\""))
+        .mount(&env.server)
+        .await;
+    env.serve(
+        "/labels.csv",
+        ResponseTemplate::new(200)
+            .insert_header("etag", "\"e2\"")
+            .set_body_string(labels_csv(&[0x11])),
+    )
+    .await;
+    let checked = env.state.upstream.check(false).await;
+    assert_eq!(
+        checked[&SourceId::EthLabels]
+            .as_ref()
+            .unwrap()
+            .etag
+            .as_deref(),
+        Some("\"e1\"")
+    );
+    assert_eq!(
+        env.run(SourceId::EthLabels).await.0,
+        LocalDataOutcome::Succeeded
+    );
+    assert_eq!(
+        env.row(SourceId::EthLabels).await.etag.as_deref(),
+        Some("\"e2\"")
+    );
+
+    // The next status compares against what was imported, without asking again.
+    let heads = || async {
+        env.server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .filter(|r| r.method.as_str() == "HEAD" && r.url.path() == "/labels.csv")
+            .count()
+    };
+    assert_eq!(heads().await, 1);
+    let checked = env.state.upstream.check(false).await;
+    assert_eq!(
+        checked[&SourceId::EthLabels]
+            .as_ref()
+            .unwrap()
+            .etag
+            .as_deref(),
+        Some("\"e2\"")
+    );
+    assert_eq!(heads().await, 1);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
 async fn a_list_body_fetched_by_a_fresh_check_is_reused(pool: PgPool) {
     let env = Env::new(pool).await;
     env.serve(
@@ -798,6 +855,42 @@ async fn startup_marks_running_as_interrupted(pool: PgPool) {
         env.run(SourceId::TokensUniswap).await.0,
         LocalDataOutcome::Succeeded
     );
+}
+
+#[tokio::test]
+async fn startup_removes_leftover_part_files() {
+    let dir = TempDir::new();
+    for f in [
+        "eth-labels/accounts.csv",
+        "eth-labels/accounts.csv.part",
+        "tokens/coingecko.json.part",
+        "tokens/uniswap-default.json",
+        "signatures/s_0_1.parquet",
+        "signatures/s_0_1.parquet.etag",
+        "signatures/s_1_2.parquet.part",
+        "elsewhere/keep.part",
+        "keep.part",
+    ] {
+        let p = dir.0.join(f);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, b"x").unwrap();
+    }
+    let removed = Runner::new(dir.0.clone()).remove_parts().await;
+    assert_eq!(removed, 3);
+    assert_eq!(
+        files(&dir.0),
+        [
+            "elsewhere/keep.part",
+            "eth-labels/accounts.csv",
+            "keep.part",
+            "signatures/s_0_1.parquet",
+            "signatures/s_0_1.parquet.etag",
+            "tokens/uniswap-default.json",
+        ]
+    );
+    // A data dir with none of the directories is fine.
+    let empty = TempDir::new();
+    assert_eq!(Runner::new(empty.0.clone()).remove_parts().await, 0);
 }
 
 // ----------------------------------------------------------------------- events

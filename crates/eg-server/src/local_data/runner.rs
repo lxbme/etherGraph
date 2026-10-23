@@ -25,7 +25,7 @@ use super::download::{
     remove_part,
 };
 use super::sources::{SIGNATURES_PREFIX, SourceId, valid_signature_key};
-use super::upstream::RemoteFile;
+use super::upstream::{RemoteFile, Upstream};
 use crate::dto::hex_addr;
 use crate::eth_labels::{MAINNET_DATASET, XCHAIN_DATASET, parse_eth_labels};
 use crate::import_signatures::{BATCH_ROWS, import_batched};
@@ -138,6 +138,19 @@ impl Runner {
         Ok(())
     }
 
+    /// At startup: removes the partial downloads (`*.part`) a previous
+    /// process left in the download directories; returns how many.
+    pub async fn remove_parts(&self) -> usize {
+        let mut n = 0;
+        for dir in PART_DIRS {
+            n += remove_parts_in(&self.data_dir.join(dir)).await;
+        }
+        if n > 0 {
+            tracing::info!(files = n, "removed partial local data downloads");
+        }
+        n
+    }
+
     /// Asks the running update of `source` to stop at its next check; false
     /// when `source` is not running.
     pub fn cancel(&self, source: SourceId) -> bool {
@@ -159,6 +172,26 @@ pub async fn interrupt_running(store: &Store) -> eg_store::Result<Vec<String>> {
         tracing::warn!(source, "a local data update was interrupted by a restart");
     }
     Ok(hit)
+}
+
+/// The directories under the data dir that downloads go to.
+const PART_DIRS: [&str; 3] = ["eth-labels", "tokens", SIGNATURES_DIR];
+
+/// Removes every `*.part` file directly in `dir` (none there, or no `dir`:
+/// nothing); returns how many.
+async fn remove_parts_in(dir: &Path) -> usize {
+    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
+        return 0;
+    };
+    let mut n = 0;
+    while let Ok(Some(e)) = entries.next_entry().await {
+        let path = e.path();
+        if path.extension().is_some_and(|x| x == "part") && path.is_file() {
+            remove_part(&path).await;
+            n += 1;
+        }
+    }
+    n
 }
 
 /// A list source's file under the data dir and its parser.
@@ -318,10 +351,14 @@ async fn forget(path: &Path) {
 impl Task {
     /// Runs the update, records how it ended and frees `slot`.
     async fn run(self, slot: Slot) {
-        let result = AssertUnwindSafe(self.update())
-            .catch_unwind()
-            .await
-            .unwrap_or_else(|_| Err(Stop::Failed("internal error".into())));
+        let result = match AssertUnwindSafe(self.update()).catch_unwind().await {
+            Ok(result) => result,
+            Err(_) => {
+                // A panic skipped the update's own cleanup.
+                self.remove_own_parts().await;
+                Err(Stop::Failed("internal error".into()))
+            }
+        };
         let (outcome, rows, error) = match result {
             Ok(rows) => (LocalDataOutcome::Succeeded, Some(rows), None),
             Err(Stop::Cancelled) => {
@@ -351,6 +388,17 @@ impl Task {
 
     fn id(&self) -> &'static str {
         self.source.as_str()
+    }
+
+    /// Removes this source's partial downloads: a list's `.part`, or every
+    /// one in the signatures directory (only one task runs at a time).
+    async fn remove_own_parts(&self) {
+        match list_file(self.source) {
+            Some((file, _)) => remove_part(&part_path(&self.data_dir.join(file))).await,
+            None => {
+                remove_parts_in(&self.data_dir.join(SIGNATURES_DIR)).await;
+            }
+        }
     }
 
     async fn audit(&self, outcome: LocalDataOutcome, rows: Option<u64>, error: Option<&str>) {
@@ -672,7 +720,8 @@ impl Task {
                 .map_err(failed)?,
         };
 
-        // 5. The new status.
+        // 5. The new status, and the upstream as imported, so the status
+        // that follows compares against it.
         store
             .local_data_succeeded(
                 self.id(),
@@ -684,6 +733,18 @@ impl Task {
             )
             .await
             .map_err(failed)?;
+        self.s
+            .upstream
+            .record(
+                self.source,
+                Upstream {
+                    version,
+                    etag,
+                    size: Some(bytes),
+                    ..Upstream::default()
+                },
+            )
+            .await;
         Ok(imported)
     }
 }

@@ -63,8 +63,9 @@ pub struct Executed {
     pub start: Option<SourceId>,
     /// Cancel this dataset's update once committed.
     pub cancel: Option<SourceId>,
-    /// Apply this signature switch to the running server once committed.
-    pub signatures_enabled: Option<bool>,
+    /// The signature switch changed: apply the stored value to the running
+    /// server once committed.
+    pub reload_signatures: bool,
 }
 
 /// 409 `busy`: another local data update is running.
@@ -365,7 +366,7 @@ impl Action {
                 Executed {
                     before: Some(json!({ "enabled": before })),
                     after: Some(json!({ "enabled": enabled })),
-                    signatures_enabled: Some(*enabled),
+                    reload_signatures: true,
                     ..Executed::default()
                 }
             }

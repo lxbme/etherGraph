@@ -286,6 +286,8 @@ async fn serve(path: &Path, source: Option<SourceMode>) -> anyhow::Result<()> {
 
     let cfg = Arc::new(cfg);
     let state = AppState::new(cfg.clone(), store, source, gate, stats);
+    // Downloads cut short by the previous process's end.
+    state.runner.remove_parts().await;
     cancel_legacy_jobs(&state).await?;
     Runner::spawn(state.ctx.clone(), cfg.sync.workers, default_handlers());
     state
