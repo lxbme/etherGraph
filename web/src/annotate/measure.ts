@@ -2,7 +2,7 @@
 let ctx: CanvasRenderingContext2D | null | undefined;
 
 /** Wide (CJK, full-width) characters: about 1em each when no canvas can measure. */
-const WIDE = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/u;
+const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u;
 
 /** The width (px) of one line of `text` in a CSS `font` of `size` px; estimated per character without a canvas. */
 export function textWidth(text: string, font: string, size: number): number {
