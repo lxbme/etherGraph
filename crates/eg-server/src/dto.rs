@@ -261,6 +261,19 @@ pub enum AdminAction {
         from: Option<String>,
         to: Option<String>,
     },
+    // `source` is a local dataset id (`eth_labels`, …, `signatures_sourcify`);
+    // starts its update in the background (409 `busy` while one runs).
+    UpdateLocalData {
+        source: String,
+    },
+    // Asks the running update of `source` to stop; a no-op when it is not running.
+    CancelLocalData {
+        source: String,
+    },
+    // Turning it on needs imported signatures (409 `no_signatures`).
+    SetSignatureGuess {
+        enabled: bool,
+    },
 }
 
 /// `POST /api/admin/actions/nonce`.

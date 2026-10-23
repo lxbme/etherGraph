@@ -5,6 +5,7 @@
 //! signed one.
 
 use alloy_primitives::Address;
+use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use eg_store::{
     AuditFilter, AuditRow, NoncePurpose, SETTING_DEFAULT_DAILY_QUOTA, SETTING_OPEN_REGISTRATION,
@@ -18,8 +19,9 @@ use crate::auth::siwe::MESSAGE_TTL;
 use crate::background::{default_limit_from, default_user_limit};
 use crate::dto::{AdminAction, hex_addr, rfc3339};
 use crate::error::{ApiError, invalid};
+use crate::local_data::SourceId;
 use crate::parse::parse_address;
-use crate::state::AppState;
+use crate::state::{AppState, SIGNATURES_SETTING};
 
 /// Most audit rows one export returns (newest first).
 pub const MAX_EXPORT_ROWS: usize = 100_000;
@@ -35,6 +37,9 @@ pub enum Action {
     SetUserQuota(Address, Option<i32>),
     RevokeSessions(Address),
     ExportAudit(Option<DateTime<Utc>>, Option<DateTime<Utc>>),
+    UpdateLocalData(SourceId),
+    CancelLocalData(SourceId),
+    SetSignatureGuess(bool),
 }
 
 /// What the nonce row stores besides the payload hash: the signed text
@@ -53,6 +58,26 @@ pub struct Executed {
     pub rows: Option<Vec<AuditRow>>,
     /// Per-user limits changed: reload them into the rate gate once committed.
     pub refresh_limits: bool,
+    /// Start this dataset's update once committed (so the action's row
+    /// precedes the task's).
+    pub start: Option<SourceId>,
+    /// Cancel this dataset's update once committed.
+    pub cancel: Option<SourceId>,
+    /// Apply this signature switch to the running server once committed.
+    pub signatures_enabled: Option<bool>,
+}
+
+/// 409 `busy`: another local data update is running.
+pub fn busy() -> ApiError {
+    ApiError::new(
+        StatusCode::CONFLICT,
+        "busy",
+        "another local data update is running",
+    )
+}
+
+fn local_source(id: &str) -> Result<SourceId, ApiError> {
+    SourceId::parse(id).ok_or_else(|| invalid(format!("unknown local dataset {id:?}")))
 }
 
 fn quota(calls: i32) -> Result<i32, ApiError> {
@@ -88,6 +113,9 @@ impl Action {
                 Self::RevokeSessions(parse_address(address)?)
             }
             AdminAction::ExportAudit { from, to } => Self::ExportAudit(time(from)?, time(to)?),
+            AdminAction::UpdateLocalData { source } => Self::UpdateLocalData(local_source(source)?),
+            AdminAction::CancelLocalData { source } => Self::CancelLocalData(local_source(source)?),
+            AdminAction::SetSignatureGuess { enabled } => Self::SetSignatureGuess(*enabled),
         })
     }
 
@@ -101,16 +129,20 @@ impl Action {
             Self::SetUserQuota(..) => "set_user_quota",
             Self::RevokeSessions(_) => "revoke_sessions",
             Self::ExportAudit(..) => "export_audit",
+            Self::UpdateLocalData(_) => "update_local_data",
+            Self::CancelLocalData(_) => "cancel_local_data",
+            Self::SetSignatureGuess(_) => "set_signature_guess",
         }
     }
 
-    /// The address acted on, for the audit row.
+    /// The address or local dataset acted on, for the audit row.
     pub fn target(&self) -> Option<String> {
         match self {
             Self::WhitelistAdd(a)
             | Self::WhitelistRemove(a)
             | Self::SetUserQuota(a, _)
             | Self::RevokeSessions(a) => Some(hex_addr(*a)),
+            Self::UpdateLocalData(id) | Self::CancelLocalData(id) => Some(id.as_str().into()),
             _ => None,
         }
     }
@@ -138,6 +170,15 @@ impl Action {
                 from: t(from),
                 to: t(to),
             },
+            Self::UpdateLocalData(id) => AdminAction::UpdateLocalData {
+                source: id.as_str().into(),
+            },
+            Self::CancelLocalData(id) => AdminAction::CancelLocalData {
+                source: id.as_str().into(),
+            },
+            Self::SetSignatureGuess(enabled) => {
+                AdminAction::SetSignatureGuess { enabled: *enabled }
+            }
         }
     }
 
@@ -185,13 +226,19 @@ impl Action {
                 from.map_or_else(|| "the beginning".to_owned(), rfc3339),
                 to.map_or_else(|| "now".to_owned(), rfc3339)
             ),
+            Self::UpdateLocalData(id) => format!("Update local dataset {}", id.as_str()),
+            Self::CancelLocalData(id) => {
+                format!("Cancel the update of local dataset {}", id.as_str())
+            }
+            Self::SetSignatureGuess(true) => "Turn signature guessing on".into(),
+            Self::SetSignatureGuess(false) => "Turn signature guessing off".into(),
         })
     }
 
     /// Carries the action's store writes out inside `tx` (the caller commits
     /// them together with the audit row); `admin` is recorded where it adds a
-    /// row. Quota changes reach the rate gate only after the commit (see
-    /// [`Executed::refresh_limits`]).
+    /// row. Quota changes, local data tasks and the signature switch reach
+    /// the running server only after the commit (see [`Executed`]).
     pub async fn execute(
         &self,
         s: &AppState,
@@ -279,6 +326,46 @@ impl Action {
                         "truncated": truncated,
                     })),
                     rows: Some(rows),
+                    ..Executed::default()
+                }
+            }
+            Self::UpdateLocalData(id) => {
+                // Checked again before the verification and by the start itself.
+                if s.runner.running().is_some() {
+                    return Err(busy());
+                }
+                Executed {
+                    after: Some(json!({ "source": id.as_str() })),
+                    start: Some(*id),
+                    ..Executed::default()
+                }
+            }
+            Self::CancelLocalData(id) => {
+                let cancelled = s.runner.running() == Some(*id);
+                Executed {
+                    after: Some(json!({ "cancelled": cancelled })),
+                    cancel: cancelled.then_some(*id),
+                    ..Executed::default()
+                }
+            }
+            Self::SetSignatureGuess(enabled) => {
+                if *enabled && eg_store::signature_count(s.store.pool()).await? == 0 {
+                    return Err(ApiError::new(
+                        StatusCode::CONFLICT,
+                        "no_signatures",
+                        "no signatures are imported",
+                    ));
+                }
+                let before = tx
+                    .setting_get(SIGNATURES_SETTING)
+                    .await?
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(s.cfg.signatures.enabled);
+                tx.setting_set(SIGNATURES_SETTING, &json!(enabled)).await?;
+                Executed {
+                    before: Some(json!({ "enabled": before })),
+                    after: Some(json!({ "enabled": enabled })),
+                    signatures_enabled: Some(*enabled),
                     ..Executed::default()
                 }
             }

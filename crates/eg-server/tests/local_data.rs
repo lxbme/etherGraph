@@ -3,14 +3,14 @@ mod common;
 use std::sync::Arc;
 
 use axum::Router;
-use axum::http::{StatusCode, header};
+use axum::http::StatusCode;
 use common::{
-    anon_app, as_default_user, gated_app, get, get_as, key_address, login_as, message_for, new_key,
-    personal_sign, post_json_as, second_user,
+    admin_cookies, anon_app, as_default_user, gated_app, get, get_as, key_address, login_as,
+    new_key, post_json_as, second_user,
 };
 use eg_server::app::router;
 use eg_server::config::Config;
-use eg_server::dto::{LocalDataDto, SiweFieldsDto};
+use eg_server::dto::LocalDataDto;
 use eg_server::import_tokens::TokenFormat;
 use eg_server::local_data::SourceId;
 use eg_server::local_data::sources::Urls;
@@ -250,34 +250,6 @@ async fn admin_app(pool: PgPool, server: &MockServer) -> (Router, AppState, Sign
     state.upstream = Arc::new(checker(server));
     let app = as_default_user(router(state.clone()), &state).await;
     (app, state, key)
-}
-
-async fn admin_cookies(app: &Router, key: &SigningKey) -> String {
-    let session = login_as(app, key).await;
-    let (status, body) = get_as(app, &session, "/api/admin/session/nonce").await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    let fields: SiweFieldsDto = serde_json::from_value(body).unwrap();
-    let message = message_for(&fields);
-    let body = serde_json::json!({"message": message, "signature": personal_sign(key, &message)});
-    let (status, cookies, body) = common::send_full(
-        app,
-        axum::http::Request::post("/api/admin/session")
-            .header("content-type", "application/json")
-            .header(header::COOKIE, &session)
-            .header(header::ORIGIN, common::ORIGIN)
-            .body(axum::body::Body::from(body.to_string()))
-            .unwrap(),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    let admin = cookies
-        .iter()
-        .find_map(|c| {
-            let pair = c.split(';').next()?.trim();
-            pair.starts_with("eg_admin=").then(|| pair.to_owned())
-        })
-        .unwrap();
-    format!("{session}; {admin}")
 }
 
 async fn dto(app: &Router, cookie: &str) -> LocalDataDto {

@@ -378,3 +378,52 @@ pub async fn second_user(app: &Router, state: &AppState) -> (String, i64) {
         .id;
     (cookie, id)
 }
+
+/// Logs in with `key` (a configured admin) and enters admin mode; returns
+/// both cookies (`eg_session=…; eg_admin=…`) for a `Cookie` header.
+pub async fn admin_cookies(app: &Router, key: &SigningKey) -> String {
+    let session = login_as(app, key).await;
+    let (status, body) = get_as(app, &session, "/api/admin/session/nonce").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let fields: SiweFieldsDto = serde_json::from_value(body).unwrap();
+    let message = message_for(&fields);
+    let body = serde_json::json!({"message": message, "signature": personal_sign(key, &message)});
+    let req = Request::post("/api/admin/session")
+        .header("content-type", "application/json")
+        .header(header::COOKIE, &session)
+        .header(header::ORIGIN, ORIGIN)
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let (status, cookies, body) = send_full(app, req).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let admin = cookies
+        .iter()
+        .find_map(|c| {
+            let pair = c.split(';').next()?.trim();
+            pair.starts_with("eg_admin=").then(|| pair.to_owned())
+        })
+        .expect("entering admin mode sets eg_admin");
+    format!("{session}; {admin}")
+}
+
+/// A fresh directory under the system temp dir, removed on drop.
+pub struct TempDir(pub std::path::PathBuf);
+
+impl TempDir {
+    pub fn new() -> Self {
+        static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let p = std::env::temp_dir().join(format!(
+            "eg-test-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&p).unwrap();
+        Self(p)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).ok();
+    }
+}

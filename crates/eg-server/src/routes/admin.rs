@@ -27,6 +27,7 @@ use crate::dto::{
     SiweFieldsDto, WhitelistEntryDto, hex_addr, rfc3339, rfc3339_micros,
 };
 use crate::error::{ApiError, invalid};
+use crate::local_data::runner::StartError;
 use crate::parse::parse_address;
 use crate::routes::{ApiJson, ApiQuery};
 use crate::state::AppState;
@@ -278,7 +279,9 @@ pub async fn action_nonce(
 /// `POST /api/admin/actions {action, nonce, signature}`: runs the action if
 /// the nonce is fresh, unused and this admin's, the action is the one it was
 /// issued for, the admin signed its message, and the values it describes
-/// are still current. Every attempt is audited under the action's name.
+/// are still current. Every attempt is audited under the action's name. A
+/// local data update while one runs is refused (409 `busy`) before the nonce
+/// is taken, so it stays usable.
 pub async fn action_run(
     State(s): State<AppState>,
     AdminMode(admin): AdminMode,
@@ -288,6 +291,12 @@ pub async fn action_run(
     let action = Action::parse(&req.action)?;
     let mut audit = entry(admin.address, action.name(), &meta, AuditOutcome::Ok, None);
     audit.target = action.target();
+    if matches!(action, Action::UpdateLocalData(_)) && s.runner.running().is_some() {
+        audit.outcome = AuditOutcome::Denied;
+        audit.after = Some(serde_json::json!({ "reason": "busy" }));
+        s.store.audit_append(&audit).await?;
+        return Err(actions::busy());
+    }
     match verify_action(&s, &admin, &action, &req, &mut audit).await {
         Ok(()) => {}
         Err(Refusal::Denied(r)) => {
@@ -321,6 +330,28 @@ pub async fn action_run(
             {
                 // Stored and audited; the periodic refresh applies it.
                 tracing::warn!(error = %e, "applying changed quota limits to the rate gate failed");
+            }
+            if let Some(on) = done.signatures_enabled {
+                s.set_signatures_enabled(on);
+            }
+            if let Some(id) = done.cancel {
+                s.runner.cancel(id);
+            }
+            if let Some(id) = done.start
+                && let Err(e) = s.runner.start(&s, id, admin.address).await
+            {
+                // Another update started since the checks (or the store
+                // failed): the `ok` row is followed by a `failed` one.
+                let e = match e {
+                    StartError::Busy => actions::busy(),
+                    StartError::Store(e) => {
+                        tracing::error!(error = %e, source = id.as_str(), "starting a local data update failed");
+                        ApiError::internal()
+                    }
+                };
+                audit.after = Some(serde_json::json!({ "error": e.message }));
+                audit_failed(&s, audit).await;
+                return Err(e);
             }
             Ok(Json(AdminActionResultDto {
                 before: done.before,

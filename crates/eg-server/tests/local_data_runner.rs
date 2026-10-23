@@ -10,15 +10,18 @@ mod common;
 #[path = "../src/import_signatures/parquet_fixture.rs"]
 mod parquet_fixture;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use alloy_primitives::{Address, address};
-use common::anon_app;
+use axum::http::StatusCode;
+use common::{
+    TempDir, admin_cookies, anon_app, as_default_user, gated_app, get_as, key_address, new_key,
+};
 use eg_ingest::Event;
 use eg_ingest::events::{Audience, LocalDataOutcome, LocalDataPhase};
+use eg_server::app::router;
 use eg_server::config::Config;
 use eg_server::local_data::SourceId;
 use eg_server::local_data::download::{self, SOURCIFY_LIMITS};
@@ -39,28 +42,6 @@ const ADMIN: Address = address!("0x00000000000000000000000000000000000000ad");
 
 fn hex(a: Address) -> String {
     format!("{a:#x}")
-}
-
-/// A fresh directory under the system temp dir, removed on drop.
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new() -> Self {
-        static N: AtomicU32 = AtomicU32::new(0);
-        let p = std::env::temp_dir().join(format!(
-            "eg-runner-{}-{}",
-            std::process::id(),
-            N.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&p).unwrap();
-        Self(p)
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).ok();
-    }
 }
 
 /// Every file under `dir`, relative and sorted.
@@ -1063,9 +1044,10 @@ async fn second_run_fetches_only_new_or_changed_files(pool: PgPool) {
     assert_eq!(on_disk, b2.body);
 }
 
-#[sqlx::test(migrations = "../eg-store/migrations")]
-async fn cancel_between_batches_keeps_inserted_rows_and_reports_partial(pool: PgPool) {
-    let mut env = Env::new(pool).await;
+/// Serves three Sourcify files (3, 6 and 2 rows, imported 2 rows a batch),
+/// starts an update and cancels it once the second file's import begins: it
+/// stops after that file's first batch. Returns the files.
+async fn cancelled_in_the_second_file(env: &mut Env) -> (SigFile, SigFile, SigFile) {
     env.signature_batches(2);
     let (a, b, c) = (
         SigFile::new("s_0", "\"e0\"", 3),
@@ -1080,7 +1062,6 @@ async fn cancel_between_batches_keeps_inserted_rows_and_reports_partial(pool: Pg
         .start(&env.state, SourceId::SignaturesSourcify, ADMIN)
         .await
         .unwrap();
-    // The second file's import starts: cancel, so it stops after its first batch.
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             if let (
@@ -1101,6 +1082,13 @@ async fn cancel_between_batches_keeps_inserted_rows_and_reports_partial(pool: Pg
     assert!(env.state.runner.cancel(SourceId::SignaturesSourcify));
     let (outcome, error) = done(&mut rx).await;
     assert_eq!((outcome, error), (LocalDataOutcome::Cancelled, None));
+    (a, b, c)
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn cancel_between_batches_keeps_inserted_rows_and_reports_partial(pool: PgPool) {
+    let mut env = Env::new(pool).await;
+    let (a, b, c) = cancelled_in_the_second_file(&mut env).await;
 
     // The first file and the first batch of the second stay.
     assert_eq!(env.signature_count().await, 3 + 2);
@@ -1129,6 +1117,35 @@ async fn cancel_between_batches_keeps_inserted_rows_and_reports_partial(pool: Pg
         r.manifest,
         Some(serde_json::json!([a.entry(), b.entry(), c.entry()]))
     );
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_cancelled_sourcify_update_reports_partial_through_the_api(pool: PgPool) {
+    let mut env = Env::new(pool).await;
+    cancelled_in_the_second_file(&mut env).await;
+
+    // An admin-mode client of the same database and upstreams.
+    let key = new_key();
+    let mut cfg = Config::default();
+    cfg.auth.admins = vec![key_address(&key).to_checksum(None)];
+    let (_, mut state, _) = gated_app(env.state.store.pool().clone(), cfg).await;
+    state.upstream = env.state.upstream.clone();
+    let app = as_default_user(router(state.clone()), &state).await;
+    let cookie = admin_cookies(&app, &key).await;
+
+    let (status, body) = get_as(&app, &cookie, "/api/admin/local-data").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let sig = body["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["source"] == "signatures_sourcify")
+        .unwrap();
+    assert_eq!(sig["partial"], serde_json::json!({"done": 1, "total": 3}));
+    assert_eq!(sig["upstream"]["status"], "update");
+    assert_eq!(sig["state"], "idle");
+    assert_eq!(sig["rows"], 3);
+    assert!(body["running"].is_null());
 }
 
 #[sqlx::test(migrations = "../eg-store/migrations")]

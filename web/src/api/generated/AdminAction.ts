@@ -5,4 +5,4 @@
  * (`POST /api/admin/actions/nonce`, then `POST /api/admin/actions`).
  * Addresses are hex strings; `calls` are Etherscan calls per day.
  */
-export type AdminAction = { "type": "WhitelistAdd", address: string, } | { "type": "WhitelistRemove", address: string, } | { "type": "SetOpenRegistration", open: boolean, } | { "type": "SetDefaultQuota", calls: number, } | { "type": "SetUserQuota", address: string, calls: number | null, } | { "type": "RevokeSessions", address: string, } | { "type": "ExportAudit", from: string | null, to: string | null, };
+export type AdminAction = { "type": "WhitelistAdd", address: string, } | { "type": "WhitelistRemove", address: string, } | { "type": "SetOpenRegistration", open: boolean, } | { "type": "SetDefaultQuota", calls: number, } | { "type": "SetUserQuota", address: string, calls: number | null, } | { "type": "RevokeSessions", address: string, } | { "type": "ExportAudit", from: string | null, to: string | null, } | { "type": "UpdateLocalData", source: string, } | { "type": "CancelLocalData", source: string, } | { "type": "SetSignatureGuess", enabled: boolean, };

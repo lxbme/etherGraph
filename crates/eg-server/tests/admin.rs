@@ -11,23 +11,32 @@ use alloy_primitives::Address;
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode, header};
+use common::TempDir;
 use common::{
     DEFAULT_USER, ORIGIN, as_default_user, default_user_id, gated_app, get, get_as, key_address,
     login_as, message_for, new_key, nonce_for, personal_sign, post_json, post_json_as, post_login,
     second_user, send, send_full, whitelisted_key,
 };
 use eg_core::testing::FakeSource;
+use eg_ingest::{Audience, Event, LocalDataOutcome};
 use eg_server::app::router;
 use eg_server::auth::AuthState;
 use eg_server::config::Config;
 use eg_server::dto::SiweFieldsDto;
-use eg_server::state::AppState;
+use eg_server::local_data::SourceId;
+use eg_server::local_data::runner::Runner;
+use eg_server::local_data::sources::Urls;
+use eg_server::local_data::upstream::UpstreamChecker;
+use eg_server::state::{AppState, SIGNATURES_SETTING};
 use eg_store::{AuditFilter, AuditOutcome, AuditRow, Store};
 use http_body_util::BodyExt;
 use k256::ecdsa::SigningKey;
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use tokio::sync::broadcast;
 use tower::ServiceExt;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn hex(a: Address) -> String {
     format!("{a:#x}")
@@ -1317,6 +1326,264 @@ async fn cli_imports_are_audited(pool: PgPool) {
     assert_eq!(rows[0].entry.actor, "cli");
     assert_eq!(rows[0].entry.outcome, AuditOutcome::Failed);
     assert_eq!(rows[0].entry.target.as_deref(), Some("uniswap"));
+}
+
+// ------------------------------------------------------------- local data
+
+/// An app like [`admin_app`] whose local datasets come from `server` and are
+/// downloaded under `dir`.
+async fn local_data_app(
+    pool: PgPool,
+    server: &MockServer,
+    dir: &TempDir,
+) -> (Router, AppState, SigningKey) {
+    let key = new_key();
+    let mut cfg = Config::default();
+    cfg.auth.admins = vec![key_address(&key).to_checksum(None)];
+    let (_, mut state, _) = gated_app(pool, cfg).await;
+    state.upstream = Arc::new(UpstreamChecker::with_urls(Urls::with_base(&server.uri())));
+    state.runner = Arc::new(Runner::new(dir.0.clone()));
+    let app = as_default_user(router(state.clone()), &state).await;
+    (app, state, key)
+}
+
+/// Serves a one-token Uniswap list, after `delay`.
+async fn serve_uniswap(server: &MockServer, delay: Duration) {
+    let list = format!(
+        r#"{{"name":"x","version":{{"major":1,"minor":0,"patch":0}},"tokens":[{{"chainId":1,"address":"{}","symbol":"T","name":"Token"}}]}}"#,
+        hex(Address::repeat_byte(0x31))
+    );
+    Mock::given(method("GET"))
+        .and(path("/uniswap.json"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string(list)
+                .set_delay(delay),
+        )
+        .mount(server)
+        .await;
+}
+
+/// Serves an eth-labels accounts CSV with one mainnet label.
+async fn serve_labels(server: &MockServer) {
+    let csv = format!(
+        "address,chainId,label,nameTag\n{},1,okx,Wallet\n",
+        hex(Address::repeat_byte(0x32))
+    );
+    Mock::given(method("GET"))
+        .and(path("/labels.csv"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(csv))
+        .mount(server)
+        .await;
+}
+
+/// How the next local data task to end on `rx` ended.
+async fn task_done(rx: &mut broadcast::Receiver<(Audience, Event)>) -> LocalDataOutcome {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            if let (_, Event::LocalDataDone { outcome, .. }) = rx.recv().await.unwrap() {
+                return outcome;
+            }
+        }
+    })
+    .await
+    .expect("the task ends")
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn update_action_signed_starts_the_task_and_audits(pool: PgPool) {
+    let server = MockServer::start().await;
+    serve_uniswap(&server, Duration::ZERO).await;
+    let dir = TempDir::new();
+    let (app, state, key) = local_data_app(pool, &server, &dir).await;
+    let both = admin_cookies(&app, &key).await;
+    let update = json!({"type": "UpdateLocalData", "source": "tokens_uniswap"});
+    let (nonce, message) = issued(&app, &both, &update).await;
+    assert!(
+        message.contains("\nUpdate local dataset tokens_uniswap\n"),
+        "{message}"
+    );
+
+    let mut rx = state.ctx.bus.subscribe();
+    let (status, body) = submit(&app, &both, &update, &nonce, &personal_sign(&key, &message)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["after"], json!({"source": "tokens_uniswap"}));
+    assert_eq!(task_done(&mut rx).await, LocalDataOutcome::Succeeded);
+
+    let row = state
+        .store
+        .local_data_all()
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|r| r.source == "tokens_uniswap")
+        .unwrap();
+    assert_eq!((row.state.as_str(), row.rows), ("idle", Some(1)));
+    // The signed action is on record before the task's end.
+    let started = audit(&state.store, "update_local_data").await;
+    assert_eq!(started.len(), 1);
+    assert_eq!(started[0].entry.outcome, AuditOutcome::Ok);
+    assert_eq!(started[0].entry.target.as_deref(), Some("tokens_uniswap"));
+    assert_eq!(started[0].entry.message.as_deref(), Some(message.as_str()));
+    let ended = audit(&state.store, "local_data_update_done").await;
+    assert_eq!(ended.len(), 1);
+    assert!(started[0].id < ended[0].id);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_busy_update_is_409_before_verification_and_the_nonce_still_works(pool: PgPool) {
+    let server = MockServer::start().await;
+    serve_uniswap(&server, Duration::from_secs(30)).await;
+    serve_labels(&server).await;
+    let dir = TempDir::new();
+    let (app, state, key) = local_data_app(pool, &server, &dir).await;
+    let both = admin_cookies(&app, &key).await;
+    let mut rx = state.ctx.bus.subscribe();
+    state
+        .runner
+        .start(&state, SourceId::TokensUniswap, key_address(&key))
+        .await
+        .unwrap();
+
+    let update = json!({"type": "UpdateLocalData", "source": "eth_labels"});
+    let (nonce, message) = issued(&app, &both, &update).await;
+    // Refused before the nonce or the signature is looked at.
+    let (status, body) = submit(&app, &both, &update, &nonce, "0xdead").await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["error"]["code"], "busy");
+    let rows = audit(&state.store, "update_local_data").await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].entry.outcome, AuditOutcome::Denied);
+    assert_eq!(rows[0].entry.after, Some(json!({"reason": "busy"})));
+    assert_eq!(rows[0].entry.target.as_deref(), Some("eth_labels"));
+    assert_eq!(rows[0].entry.message, None);
+
+    assert!(state.runner.cancel(SourceId::TokensUniswap));
+    assert_eq!(task_done(&mut rx).await, LocalDataOutcome::Cancelled);
+    // The same nonce, now signed, still works.
+    let (status, body) = submit(&app, &both, &update, &nonce, &personal_sign(&key, &message)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(task_done(&mut rx).await, LocalDataOutcome::Succeeded);
+    let rows = audit(&state.store, "update_local_data").await;
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].entry.outcome, AuditOutcome::Ok);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn cancel_action_cancels(pool: PgPool) {
+    let server = MockServer::start().await;
+    serve_uniswap(&server, Duration::from_secs(30)).await;
+    let dir = TempDir::new();
+    let (app, state, key) = local_data_app(pool, &server, &dir).await;
+    let both = admin_cookies(&app, &key).await;
+    let mut rx = state.ctx.bus.subscribe();
+    state
+        .runner
+        .start(&state, SourceId::TokensUniswap, key_address(&key))
+        .await
+        .unwrap();
+
+    let cancel = json!({"type": "CancelLocalData", "source": "tokens_uniswap"});
+    let (_, message) = issued(&app, &both, &cancel).await;
+    assert!(
+        message.contains("\nCancel the update of local dataset tokens_uniswap\n"),
+        "{message}"
+    );
+    let body = act_ok(&app, &key, &both, &cancel).await;
+    assert_eq!(body["after"], json!({"cancelled": true}));
+    assert_eq!(task_done(&mut rx).await, LocalDataOutcome::Cancelled);
+    assert_eq!(state.runner.running(), None);
+
+    // Nothing running: a no-op.
+    let body = act_ok(&app, &key, &both, &cancel).await;
+    assert_eq!(body["after"], json!({"cancelled": false}));
+    let rows = audit(&state.store, "cancel_local_data").await;
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|r| r.entry.outcome == AuditOutcome::Ok
+        && r.entry.target.as_deref() == Some("tokens_uniswap")));
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn guess_on_without_signatures_is_409(pool: PgPool) {
+    let (app, state, _, key) = admin_app(pool).await;
+    let both = admin_cookies(&app, &key).await;
+    let on = json!({"type": "SetSignatureGuess", "enabled": true});
+    let (status, body) = act(&app, &key, &both, &on).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["error"]["code"], "no_signatures");
+    assert!(!state.signatures_enabled());
+    assert_eq!(
+        state.store.setting_get(SIGNATURES_SETTING).await.unwrap(),
+        None
+    );
+    let rows = audit(&state.store, "set_signature_guess").await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].entry.outcome, AuditOutcome::Failed);
+
+    // Turning it off needs no signatures.
+    let off = json!({"type": "SetSignatureGuess", "enabled": false});
+    act_ok(&app, &key, &both, &off).await;
+    assert_eq!(
+        state.store.setting_get(SIGNATURES_SETTING).await.unwrap(),
+        Some(json!(false))
+    );
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn guess_toggle_persists_and_applies(pool: PgPool) {
+    let (app, state, _, key) = admin_app(pool.clone()).await;
+    let both = admin_cookies(&app, &key).await;
+    eg_store::upsert_signatures(&pool, &["transfer(address,uint256)".to_owned()])
+        .await
+        .unwrap();
+    assert!(!state.signatures_enabled());
+
+    let on = json!({"type": "SetSignatureGuess", "enabled": true});
+    let (_, message) = issued(&app, &both, &on).await;
+    assert!(
+        message.contains("\nTurn signature guessing on\n"),
+        "{message}"
+    );
+    let body = act_ok(&app, &key, &both, &on).await;
+    assert_eq!(body["before"], json!({"enabled": false}));
+    assert_eq!(body["after"], json!({"enabled": true}));
+    assert!(state.signatures_enabled());
+    assert_eq!(
+        state.store.setting_get(SIGNATURES_SETTING).await.unwrap(),
+        Some(json!(true))
+    );
+
+    let off = json!({"type": "SetSignatureGuess", "enabled": false});
+    let (_, message) = issued(&app, &both, &off).await;
+    assert!(
+        message.contains("\nTurn signature guessing off\n"),
+        "{message}"
+    );
+    let body = act_ok(&app, &key, &both, &off).await;
+    assert_eq!(body["before"], json!({"enabled": true}));
+    assert!(!state.signatures_enabled());
+    assert_eq!(
+        state.store.setting_get(SIGNATURES_SETTING).await.unwrap(),
+        Some(json!(false))
+    );
+    let rows = audit(&state.store, "set_signature_guess").await;
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|r| r.entry.outcome == AuditOutcome::Ok));
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn unknown_source_is_400(pool: PgPool) {
+    let (app, _, _, key) = admin_app(pool).await;
+    let both = admin_cookies(&app, &key).await;
+    for action in [
+        json!({"type": "UpdateLocalData", "source": "nope"}),
+        json!({"type": "CancelLocalData", "source": "eth-labels"}),
+    ] {
+        let (status, body) = action_nonce(&app, &both, &action).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{action}: {body}");
+        let (status, body) = submit(&app, &both, &action, "n", "0x").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{action}: {body}");
+    }
 }
 
 // ----------------------------------------------------------------- helpers
