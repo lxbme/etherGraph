@@ -88,6 +88,23 @@ impl UpstreamChecker {
         (at.elapsed() < CACHE_TTL).then(|| up.clone())
     }
 
+    /// Asks `id`'s upstream now and caches the answer (an error drops the
+    /// cached one), so the status that follows an update compares against
+    /// what was imported. `checked_at` is left alone: the others were not asked.
+    pub async fn refresh(&self, id: SourceId) -> Result<Upstream, String> {
+        let mut cache = self.cache.lock().await;
+        let res = self.fetch(id).await;
+        match &res {
+            Ok(up) => {
+                cache.entries.insert(id, (Instant::now(), up.clone()));
+            }
+            Err(_) => {
+                cache.entries.remove(&id);
+            }
+        }
+        res
+    }
+
     /// When an upstream was last asked (successfully or not).
     pub async fn checked_at(&self) -> Option<DateTime<Utc>> {
         self.cache.lock().await.checked_at

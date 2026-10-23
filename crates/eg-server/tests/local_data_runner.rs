@@ -1,10 +1,14 @@
 //! The background update runner of the list datasets: a failed or cancelled
 //! update keeps the old rows and leaves no `.part` file (Review Focus 1), a
 //! restart marks a running task interrupted (Review Focus 2), redirects stay
-//! on the allowlist (Review Focus 4). Upstreams are wiremock servers or a raw
-//! TCP server for broken responses; the data dir is a temp dir.
+//! on the allowlist (Review Focus 4); and the incremental, cancel-aware
+//! Sourcify download and import (Review Focus 5). Upstreams are wiremock
+//! servers or a raw TCP server for broken responses; the data dir is a temp
+//! dir.
 
 mod common;
+#[path = "../src/import_signatures/parquet_fixture.rs"]
+mod parquet_fixture;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,6 +21,7 @@ use eg_ingest::Event;
 use eg_ingest::events::{Audience, LocalDataOutcome, LocalDataPhase};
 use eg_server::config::Config;
 use eg_server::local_data::SourceId;
+use eg_server::local_data::download::{self, SOURCIFY_LIMITS};
 use eg_server::local_data::runner::{Runner, StartError, interrupt_running};
 use eg_server::local_data::sources::Urls;
 use eg_server::local_data::upstream::UpstreamChecker;
@@ -26,6 +31,7 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -138,6 +144,51 @@ impl Env {
         }
         state.runner = Arc::new(runner);
         Self { state, server, dir }
+    }
+
+    /// Imports signatures in batches of `rows`.
+    fn signature_batches(&mut self, rows: usize) {
+        let runner = Runner::new(self.dir.0.clone()).with_signature_batch_rows(rows);
+        self.state.runner = Arc::new(runner);
+    }
+
+    /// Serves the Sourcify listing of `files` and each file under its key.
+    async fn serve_sourcify(&self, files: &[&SigFile]) {
+        Mock::given(method("GET"))
+            .and(path("/list"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(listing(files)))
+            .mount(&self.server)
+            .await;
+        for f in files {
+            self.serve(
+                &format!("/{}", f.key),
+                ResponseTemplate::new(200)
+                    .insert_header("etag", f.etag.as_str())
+                    .set_body_bytes(f.body.clone()),
+            )
+            .await;
+        }
+    }
+
+    /// The paths of the Sourcify files fetched, sorted.
+    async fn file_gets(&self) -> Vec<String> {
+        let mut got: Vec<String> = self
+            .server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| r.url.path().to_owned())
+            .filter(|p| p.starts_with("/v2/signatures/"))
+            .collect();
+        got.sort();
+        got
+    }
+
+    async fn signature_count(&self) -> i64 {
+        eg_store::signature_count(self.state.store.pool())
+            .await
+            .unwrap()
     }
 
     /// Points the list source `id` at `url`.
@@ -832,4 +883,319 @@ async fn progress_and_done_reach_admins_only(pool: PgPool) {
 
     let quiet = tokio::time::timeout(Duration::from_millis(200), user.recv()).await;
     assert!(quiet.is_err(), "a non-admin received {quiet:?}");
+}
+
+// --------------------------------------------------------------------- sourcify
+
+/// A Sourcify file: its key, ETag (quotes included) and Parquet body.
+struct SigFile {
+    key: String,
+    etag: String,
+    body: Vec<u8>,
+}
+
+impl SigFile {
+    /// `v2/signatures/<name>.parquet` holding `rows` signatures
+    /// `<name>_<etag>_<i>(uint256)`, distinct across files and versions.
+    fn new(name: &str, etag: &str, rows: usize) -> Self {
+        let dir = TempDir::new();
+        let p = dir.0.join("f.parquet");
+        let tag: String = etag.chars().filter(char::is_ascii_alphanumeric).collect();
+        let texts: Vec<String> = (0..rows)
+            .map(|i| format!("{name}_{tag}_{i}(uint256)"))
+            .collect();
+        let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+        parquet_fixture::write_file(&p, &refs, parquet::basic::Compression::SNAPPY, true);
+        Self {
+            key: format!("v2/signatures/{name}.parquet"),
+            etag: etag.into(),
+            body: std::fs::read(&p).unwrap(),
+        }
+    }
+
+    fn name(&self) -> &str {
+        self.key.strip_prefix("v2/signatures/").unwrap()
+    }
+
+    fn entry(&self) -> serde_json::Value {
+        serde_json::json!({"key": self.key, "etag": self.etag, "size": self.body.len()})
+    }
+}
+
+/// An S3 listing of `files`.
+fn listing(files: &[&SigFile]) -> String {
+    let contents: String = files
+        .iter()
+        .map(|f| {
+            format!(
+                "<Contents><Key>{}</Key><LastModified>2026-01-02T03:04:05.000Z</LastModified>\
+                 <ETag>{}</ETag><Size>{}</Size></Contents>",
+                f.key,
+                f.etag.replace('"', "&quot;"),
+                f.body.len()
+            )
+        })
+        .collect();
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><ListBucketResult><Name>b</Name>\
+         <IsTruncated>false</IsTruncated>{contents}</ListBucketResult>"
+    )
+}
+
+/// Every event on `rx` so far.
+fn drain(rx: &mut broadcast::Receiver<(Audience, Event)>) -> Vec<Event> {
+    let mut out = Vec::new();
+    while let Ok((_, e)) = rx.try_recv() {
+        out.push(e);
+    }
+    out
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn first_run_downloads_and_imports_all_files_and_records_the_manifest(pool: PgPool) {
+    let env = Env::new(pool).await;
+    let (a, b, c) = (
+        SigFile::new("s_0", "\"e0\"", 3),
+        SigFile::new("s_1", "\"e1\"", 2),
+        SigFile::new("s_2", "\"e2-3\"", 4),
+    );
+    env.serve_sourcify(&[&a, &b, &c]).await;
+    let mut rx = env.state.ctx.bus.subscribe();
+
+    let (outcome, error) = env.run(SourceId::SignaturesSourcify).await;
+    assert_eq!((outcome, error), (LocalDataOutcome::Succeeded, None));
+    assert_eq!(env.signature_count().await, 9);
+
+    let r = env.row(SourceId::SignaturesSourcify).await;
+    assert_eq!(r.state, "idle");
+    assert_eq!(r.rows, Some(9));
+    assert!(r.imported_at.is_some());
+    assert_eq!((r.version, r.etag, r.error), (None, None, None));
+    assert_eq!(
+        r.manifest,
+        Some(serde_json::json!([a.entry(), b.entry(), c.entry()]))
+    );
+
+    // Each file once, kept on disk with its ETag beside it.
+    assert_eq!(
+        env.file_gets().await,
+        [
+            "/v2/signatures/s_0.parquet",
+            "/v2/signatures/s_1.parquet",
+            "/v2/signatures/s_2.parquet"
+        ]
+    );
+    for f in [&a, &b, &c] {
+        let p = env.dir.0.join("signatures").join(f.name());
+        assert_eq!(std::fs::read(&p).unwrap(), f.body);
+    }
+    no_part_file(&env.dir.0);
+
+    // Progress counts files and bytes over the whole run.
+    let events = drain(&mut rx);
+    let total: u64 = [&a, &b, &c].iter().map(|f| f.body.len() as u64).sum();
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::LocalDataProgress {
+            phase: LocalDataPhase::Download,
+            total_bytes: Some(t),
+            files_total: Some(3),
+            ..
+        } if *t == total
+    )));
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::LocalDataProgress {
+            phase: LocalDataPhase::Import,
+            files_done: Some(2),
+            files_total: Some(3),
+            ..
+        }
+    )));
+
+    let audits = env.done_audits().await;
+    assert_eq!(
+        audits[0].entry.after,
+        Some(serde_json::json!({"outcome": "succeeded", "rows": 9, "error": null}))
+    );
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn second_run_fetches_only_new_or_changed_files(pool: PgPool) {
+    let env = Env::new(pool).await;
+    let (a, b, c) = (
+        SigFile::new("s_0", "\"e0\"", 3),
+        SigFile::new("s_1", "\"e1\"", 2),
+        SigFile::new("s_2", "\"e2\"", 4),
+    );
+    env.serve_sourcify(&[&a, &b, &c]).await;
+    assert_eq!(
+        env.run(SourceId::SignaturesSourcify).await.0,
+        LocalDataOutcome::Succeeded
+    );
+
+    // `s_1` changed (new ETag, new rows) and `s_3` is new.
+    env.server.reset().await;
+    let b2 = SigFile::new("s_1", "\"e1b\"", 5);
+    let d = SigFile::new("s_3", "\"e3\"", 1);
+    env.serve_sourcify(&[&a, &b2, &c, &d]).await;
+    let (outcome, error) = env.run(SourceId::SignaturesSourcify).await;
+    assert_eq!((outcome, error), (LocalDataOutcome::Succeeded, None));
+
+    assert_eq!(
+        env.file_gets().await,
+        ["/v2/signatures/s_1.parquet", "/v2/signatures/s_3.parquet"]
+    );
+    // Only adds: the old `s_1` rows stay.
+    assert_eq!(env.signature_count().await, 3 + 2 + 4 + 5 + 1);
+    let r = env.row(SourceId::SignaturesSourcify).await;
+    assert_eq!(
+        r.manifest,
+        Some(serde_json::json!([
+            a.entry(),
+            b2.entry(),
+            c.entry(),
+            d.entry()
+        ]))
+    );
+    assert_eq!(r.rows, Some(15));
+    let on_disk = std::fs::read(env.dir.0.join("signatures/s_1.parquet")).unwrap();
+    assert_eq!(on_disk, b2.body);
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn cancel_between_batches_keeps_inserted_rows_and_reports_partial(pool: PgPool) {
+    let mut env = Env::new(pool).await;
+    env.signature_batches(2);
+    let (a, b, c) = (
+        SigFile::new("s_0", "\"e0\"", 3),
+        SigFile::new("s_1", "\"e1\"", 6),
+        SigFile::new("s_2", "\"e2\"", 2),
+    );
+    env.serve_sourcify(&[&a, &b, &c]).await;
+
+    let mut rx = env.state.ctx.bus.subscribe();
+    env.state
+        .runner
+        .start(&env.state, SourceId::SignaturesSourcify, ADMIN)
+        .await
+        .unwrap();
+    // The second file's import starts: cancel, so it stops after its first batch.
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let (
+                _,
+                Event::LocalDataProgress {
+                    phase: LocalDataPhase::Import,
+                    files_done: Some(1),
+                    ..
+                },
+            ) = rx.recv().await.unwrap()
+            {
+                return;
+            }
+        }
+    })
+    .await
+    .expect("the second file's import");
+    assert!(env.state.runner.cancel(SourceId::SignaturesSourcify));
+    let (outcome, error) = done(&mut rx).await;
+    assert_eq!((outcome, error), (LocalDataOutcome::Cancelled, None));
+
+    // The first file and the first batch of the second stay.
+    assert_eq!(env.signature_count().await, 3 + 2);
+    let r = env.row(SourceId::SignaturesSourcify).await;
+    assert_eq!(r.state, "idle");
+    assert!(r.imported_at.is_some());
+    assert_eq!(r.rows, Some(3));
+    // Partial 1/3: only the fully imported file is in the manifest.
+    assert_eq!(r.manifest, Some(serde_json::json!([a.entry()])));
+    no_part_file(&env.dir.0);
+    assert_eq!(
+        env.done_audits().await[0].entry.after,
+        Some(serde_json::json!({"outcome": "cancelled", "rows": null, "error": null}))
+    );
+
+    // The next update picks up where it stopped; the downloaded second file
+    // is not fetched again.
+    env.server.reset().await;
+    env.serve_sourcify(&[&a, &b, &c]).await;
+    let (outcome, error) = env.run(SourceId::SignaturesSourcify).await;
+    assert_eq!((outcome, error), (LocalDataOutcome::Succeeded, None));
+    assert_eq!(env.file_gets().await, ["/v2/signatures/s_2.parquet"]);
+    assert_eq!(env.signature_count().await, 3 + 6 + 2);
+    let r = env.row(SourceId::SignaturesSourcify).await;
+    assert_eq!(
+        r.manifest,
+        Some(serde_json::json!([a.entry(), b.entry(), c.entry()]))
+    );
+}
+
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn a_failure_partway_keeps_earlier_files_in_the_manifest(pool: PgPool) {
+    let env = Env::new(pool).await;
+    let a = SigFile::new("s_0", "\"e0\"", 3);
+    let bad = SigFile {
+        key: "v2/signatures/s_1.parquet".into(),
+        etag: "\"e1\"".into(),
+        body: HTML.as_bytes().to_vec(),
+    };
+    env.serve_sourcify(&[&a, &bad]).await;
+
+    let (outcome, error) = env.run(SourceId::SignaturesSourcify).await;
+    assert_eq!(outcome, LocalDataOutcome::Failed);
+    let error = error.unwrap();
+    assert!(error.contains("s_1.parquet"), "{error}");
+    let r = env.row(SourceId::SignaturesSourcify).await;
+    assert_eq!(r.state, "failed");
+    assert_eq!(r.error.as_deref(), Some(error.as_str()));
+    assert_eq!(r.manifest, Some(serde_json::json!([a.entry()])));
+    assert_eq!(env.signature_count().await, 3);
+    // The unreadable file is not kept, so the next update fetches it again.
+    assert_eq!(
+        files(&env.dir.0),
+        ["signatures/s_0.parquet", "signatures/s_0.parquet.etag"]
+    );
+
+    // A listing without files is an error, not an empty success.
+    env.server.reset().await;
+    env.serve_sourcify(&[]).await;
+    let (outcome, error) = env.run(SourceId::SignaturesSourcify).await;
+    assert_eq!(outcome, LocalDataOutcome::Failed);
+    assert!(error.unwrap().contains("no signature files"));
+}
+
+/// The downloader streams: an 8 MB body arrives whole on disk while no more
+/// than a 1 MB buffer is ever held in memory.
+#[sqlx::test(migrations = "../eg-store/migrations")]
+async fn memory_is_bounded(pool: PgPool) {
+    const BODY: usize = 8 * 1024 * 1024;
+    const BUFFER_CAP: usize = 1024 * 1024;
+    let env = Env::new(pool).await;
+    env.serve(
+        "/big.parquet",
+        ResponseTemplate::new(200).set_body_bytes(vec![0x5a; BODY]),
+    )
+    .await;
+    let client = download::client_builder(env.state.upstream.urls())
+        .build()
+        .unwrap();
+    let part = env.dir.0.join("big.parquet.part");
+    let got = download::download(
+        &client,
+        &format!("{}/big.parquet", env.server.uri()),
+        &part,
+        SOURCIFY_LIMITS,
+        &CancellationToken::new(),
+        |_, _| {},
+    )
+    .await
+    .unwrap();
+    assert_eq!(got.bytes, BODY as u64);
+    assert!(
+        got.peak_buffered <= BUFFER_CAP,
+        "{} bytes held at once",
+        got.peak_buffered
+    );
+    assert_eq!(std::fs::metadata(&part).unwrap().len(), BODY as u64);
 }

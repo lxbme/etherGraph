@@ -1,8 +1,13 @@
 //! `import-signatures`: loads Sourcify's `signatures` Parquet export into the
 //! local signature database. Only the `signature` text is read; its hash is
 //! always computed here, never taken from the file.
+//!
+//! The Parquet read is synchronous, so it runs on the blocking pool and hands
+//! batches over a channel to the async side, which inserts them: the async
+//! task never blocks a runtime worker.
 
 use std::fs::File;
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
 use alloy_json_abi::{Event, Function};
@@ -11,12 +16,13 @@ use parquet::file::reader::{FileReader, SerializedFileReader};
 use parquet::record::RowAccessor;
 use parquet::schema::types::Type;
 use sqlx::PgPool;
+use tokio::sync::mpsc;
 
 /// The only column read.
 const COLUMN: &str = "signature";
 
 /// Rows per insert batch, and so per `progress` call.
-const BATCH_ROWS: usize = 10_000;
+pub(crate) const BATCH_ROWS: usize = 10_000;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SignatureImportStats {
@@ -29,26 +35,33 @@ pub struct SignatureImportStats {
     pub skipped_invalid: u64,
 }
 
-/// Imports Sourcify `signatures` Parquet files; `progress` is called after each batch (future admin UI hook).
+/// Imports Sourcify `signatures` Parquet files; `progress` is called after
+/// each inserted batch. When it returns `Break` the import stops there and
+/// returns the stats so far: the inserted batches stay, and the file being
+/// read is not counted in `files`.
 pub async fn import_signatures(
     pool: &PgPool,
     files: &[PathBuf],
-    progress: impl FnMut(&SignatureImportStats),
+    progress: impl FnMut(&SignatureImportStats) -> ControlFlow<()> + Send,
 ) -> anyhow::Result<SignatureImportStats> {
     import_batched(pool, files, BATCH_ROWS, progress).await
 }
 
-async fn import_batched(
+/// [`import_signatures`] with `batch_rows` rows per batch.
+pub(crate) async fn import_batched(
     pool: &PgPool,
     files: &[PathBuf],
     batch_rows: usize,
-    mut progress: impl FnMut(&SignatureImportStats),
+    mut progress: impl FnMut(&SignatureImportStats) -> ControlFlow<()> + Send,
 ) -> anyhow::Result<SignatureImportStats> {
     let mut stats = SignatureImportStats::default();
     for path in files {
-        import_file(pool, path, batch_rows, &mut stats, &mut progress)
+        let flow = import_file(pool, path, batch_rows, &mut stats, &mut progress)
             .await
             .with_context(|| format!("importing {}", path.display()))?;
+        if flow.is_break() {
+            return Ok(stats);
+        }
         stats.files += 1;
     }
     Ok(stats)
@@ -59,14 +72,66 @@ fn is_signature(text: &str) -> bool {
     Function::parse(text).is_ok() || Event::parse(text).is_ok()
 }
 
-/// Streams one file's `signature` column, row group by row group.
+/// One batch read from a file.
+struct Batch {
+    /// The valid signatures.
+    texts: Vec<String>,
+    rows: u64,
+    invalid: u64,
+}
+
+/// Threads that ran a Parquet read (tests check it is never the async one).
+#[cfg(test)]
+static READER_THREADS: std::sync::Mutex<Vec<std::thread::ThreadId>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Reads one file on the blocking pool and inserts its batches as they come.
 async fn import_file(
     pool: &PgPool,
     path: &Path,
     batch_rows: usize,
     stats: &mut SignatureImportStats,
-    progress: &mut impl FnMut(&SignatureImportStats),
-) -> anyhow::Result<()> {
+    progress: &mut (impl FnMut(&SignatureImportStats) -> ControlFlow<()> + Send),
+) -> anyhow::Result<ControlFlow<()>> {
+    // One batch in flight while the previous one is inserted.
+    let (tx, mut rx) = mpsc::channel(1);
+    let owned = path.to_owned();
+    let reader = tokio::task::spawn_blocking(move || read_file(&owned, batch_rows, &tx));
+    let inserted = async {
+        while let Some(batch) = rx.recv().await {
+            let Batch {
+                texts,
+                rows,
+                invalid,
+            } = batch;
+            stats.inserted += eg_store::upsert_signatures(pool, &texts).await?;
+            stats.rows_read += rows;
+            stats.skipped_invalid += invalid;
+            if progress(stats).is_break() {
+                return Ok(ControlFlow::Break(()));
+            }
+        }
+        anyhow::Ok(ControlFlow::Continue(()))
+    }
+    .await;
+    // Closing the channel stops a reader still running (a break or an error).
+    drop(rx);
+    let read = reader.await.context("the Parquet reader failed")?;
+    let flow = inserted?;
+    if flow.is_continue() {
+        read?;
+    }
+    Ok(flow)
+}
+
+/// Streams `path`'s `signature` column, row group by row group, to `tx` in
+/// batches of `batch_rows` rows. Blocking; stops early once `tx` is closed.
+fn read_file(path: &Path, batch_rows: usize, tx: &mpsc::Sender<Batch>) -> anyhow::Result<()> {
+    #[cfg(test)]
+    READER_THREADS
+        .lock()
+        .unwrap()
+        .push(std::thread::current().id());
     let reader = SerializedFileReader::new(File::open(path).context("cannot open the file")?)
         .context("not a readable Parquet file")?;
     let field = reader
@@ -81,49 +146,42 @@ async fn import_file(
     let projection = Type::group_type_builder("schema")
         .with_fields(vec![field])
         .build()?;
-    let mut texts: Vec<String> = Vec::new();
-    let mut in_batch = 0usize;
+    let empty = || Batch {
+        texts: Vec::new(),
+        rows: 0,
+        invalid: 0,
+    };
+    let mut batch = empty();
     for row in reader.get_row_iter(Some(projection))? {
-        in_batch += 1;
-        stats.rows_read += 1;
+        batch.rows += 1;
         match row?.get_string(0) {
-            Ok(t) if is_signature(t) => texts.push(t.clone()),
-            _ => stats.skipped_invalid += 1,
+            Ok(t) if is_signature(t) => batch.texts.push(t.clone()),
+            _ => batch.invalid += 1,
         }
-        if in_batch == batch_rows {
-            flush(pool, &mut texts, &mut in_batch, stats, progress).await?;
+        if batch.rows as usize == batch_rows
+            && tx
+                .blocking_send(std::mem::replace(&mut batch, empty()))
+                .is_err()
+        {
+            return Ok(());
         }
     }
-    if in_batch > 0 {
-        flush(pool, &mut texts, &mut in_batch, stats, progress).await?;
+    if batch.rows > 0 {
+        // A closed channel here means the import already stopped.
+        let _ = tx.blocking_send(batch);
     }
-    Ok(())
-}
-
-async fn flush(
-    pool: &PgPool,
-    texts: &mut Vec<String>,
-    in_batch: &mut usize,
-    stats: &mut SignatureImportStats,
-    progress: &mut impl FnMut(&SignatureImportStats),
-) -> anyhow::Result<()> {
-    stats.inserted += eg_store::upsert_signatures(pool, texts).await?;
-    texts.clear();
-    *in_batch = 0;
-    progress(stats);
     Ok(())
 }
 
 #[cfg(test)]
+pub(crate) mod parquet_fixture;
+
+#[cfg(test)]
 mod tests {
+    use super::parquet_fixture::write_file;
     use super::*;
     use alloy_primitives::{B256, keccak256};
     use parquet::basic::Compression;
-    use parquet::data_type::ByteArray;
-    use parquet::file::properties::WriterProperties;
-    use parquet::file::writer::SerializedFileWriter;
-    use parquet::schema::parser::parse_message_type;
-    use std::sync::Arc;
 
     const ROWS: [&str; 5] = [
         "transfer(address,uint256)",
@@ -133,52 +191,8 @@ mod tests {
         "transfer(address,uint256)",
     ];
 
-    /// Writes a Sourcify-shaped file; `with_signature: false` leaves the column out.
-    fn write_file(path: &std::path::Path, rows: &[&str], c: Compression, with_signature: bool) {
-        let sig_col = if with_signature {
-            "required binary signature (UTF8);"
-        } else {
-            ""
-        };
-        let schema = parse_message_type(&format!(
-            "message schema {{ required binary signature_hash_32; {sig_col} \
-             required int64 created_at (TIMESTAMP(MICROS,true)); }}"
-        ))
-        .unwrap();
-        let props = Arc::new(WriterProperties::builder().set_compression(c).build());
-        let mut w = SerializedFileWriter::new(
-            std::fs::File::create(path).unwrap(),
-            Arc::new(schema),
-            props,
-        )
-        .unwrap();
-        let mut rg = w.next_row_group().unwrap();
-        // Hashes in the file are deliberately wrong: the importer must not trust them.
-        let bogus: Vec<ByteArray> = rows.iter().map(|_| vec![7u8; 32].into()).collect();
-        let texts: Vec<ByteArray> = rows.iter().map(|r| ByteArray::from(r.as_bytes())).collect();
-        let times = vec![1_700_000_000_000_000i64; rows.len()];
-        let mut i = 0;
-        while let Some(mut col) = rg.next_column().unwrap() {
-            match i {
-                0 => col
-                    .typed::<parquet::data_type::ByteArrayType>()
-                    .write_batch(&bogus, None, None)
-                    .map(|_| ()),
-                1 if with_signature => col
-                    .typed::<parquet::data_type::ByteArrayType>()
-                    .write_batch(&texts, None, None)
-                    .map(|_| ()),
-                _ => col
-                    .typed::<parquet::data_type::Int64Type>()
-                    .write_batch(&times, None, None)
-                    .map(|_| ()),
-            }
-            .unwrap();
-            col.close().unwrap();
-            i += 1;
-        }
-        rg.close().unwrap();
-        w.close().unwrap();
+    fn go(_: &SignatureImportStats) -> ControlFlow<()> {
+        ControlFlow::Continue(())
     }
 
     struct Dir(PathBuf);
@@ -214,7 +228,7 @@ mod tests {
     async fn import_reads_both_files_skips_invalid_and_dedups(pool: PgPool) {
         let dir = Dir::new();
         let files = two_files(&dir);
-        let stats = import_signatures(&pool, &files, |_| {}).await.unwrap();
+        let stats = import_signatures(&pool, &files, go).await.unwrap();
         assert_eq!(
             stats,
             SignatureImportStats {
@@ -231,8 +245,8 @@ mod tests {
     async fn reimport_inserts_nothing(pool: PgPool) {
         let dir = Dir::new();
         let files = two_files(&dir);
-        import_signatures(&pool, &files, |_| {}).await.unwrap();
-        let again = import_signatures(&pool, &files, |_| {}).await.unwrap();
+        import_signatures(&pool, &files, go).await.unwrap();
+        let again = import_signatures(&pool, &files, go).await.unwrap();
         assert_eq!(again.inserted, 0);
         assert_eq!(again.rows_read, 9);
     }
@@ -240,7 +254,7 @@ mod tests {
     #[sqlx::test(migrations = "../eg-store/migrations")]
     async fn imported_signatures_resolve_by_selector_and_topic(pool: PgPool) {
         let dir = Dir::new();
-        import_signatures(&pool, &two_files(&dir), |_| {})
+        import_signatures(&pool, &two_files(&dir), go)
             .await
             .unwrap();
         let by_sel = eg_store::signatures_by_selector(&pool, &[[0xa9, 0x05, 0x9c, 0xbb]])
@@ -260,7 +274,7 @@ mod tests {
         let dir = Dir::new();
         let bad = dir.file("no_signature.parquet");
         write_file(&bad, &ROWS, Compression::SNAPPY, false);
-        let err = import_signatures(&pool, &[bad], |_| {}).await.unwrap_err();
+        let err = import_signatures(&pool, &[bad], go).await.unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("no_signature.parquet"), "{msg}");
         assert!(msg.contains("signature"), "{msg}");
@@ -271,9 +285,12 @@ mod tests {
         let dir = Dir::new();
         let files = two_files(&dir);
         let mut seen = Vec::new();
-        let stats = import_batched(&pool, &files, 2, |s| seen.push(*s))
-            .await
-            .unwrap();
+        let stats = import_batched(&pool, &files, 2, |s| {
+            seen.push(*s);
+            ControlFlow::Continue(())
+        })
+        .await
+        .unwrap();
         // Files of 5 and 4 rows in batches of 2: 3 + 2 batches.
         assert_eq!(
             seen.iter().map(|s| s.rows_read).collect::<Vec<_>>(),
@@ -286,5 +303,48 @@ mod tests {
         );
         assert_eq!(stats.files, 2);
         assert_eq!(stats.inserted, 3);
+    }
+
+    #[sqlx::test(migrations = "../eg-store/migrations")]
+    async fn a_break_stops_after_the_current_batch_keeping_it(pool: PgPool) {
+        let dir = Dir::new();
+        let files = two_files(&dir);
+        let mut calls = 0;
+        let stats = import_batched(&pool, &files, 2, |_| {
+            calls += 1;
+            ControlFlow::Break(())
+        })
+        .await
+        .unwrap();
+        assert_eq!(calls, 1);
+        // The first batch (two distinct signatures) is in; the file is not done.
+        assert_eq!(
+            stats,
+            SignatureImportStats {
+                files: 0,
+                rows_read: 2,
+                inserted: 2,
+                skipped_invalid: 0,
+            }
+        );
+        assert_eq!(eg_store::signature_count(&pool).await.unwrap(), 2);
+    }
+
+    /// The Parquet read runs on the blocking pool, never on the async
+    /// (here current-thread) runtime's thread.
+    #[sqlx::test(migrations = "../eg-store/migrations")]
+    async fn the_parquet_read_runs_off_the_async_thread(pool: PgPool) {
+        let dir = Dir::new();
+        let files = two_files(&dir);
+        let async_thread = std::thread::current().id();
+        let stats = import_signatures(&pool, &files, go).await.unwrap();
+        assert_eq!(stats.files, 2);
+        // Other tests read concurrently; none of them reads on this thread either.
+        let readers = READER_THREADS.lock().unwrap().clone();
+        assert!(!readers.is_empty());
+        assert!(
+            !readers.contains(&async_thread),
+            "a read ran on the async thread"
+        );
     }
 }

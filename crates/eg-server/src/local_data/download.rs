@@ -26,6 +26,12 @@ pub const LIST_LIMITS: Limits = Limits {
     timeout: Duration::from_secs(60),
 };
 
+/// Sourcify, per file: 10 min and 200 MB.
+pub const SOURCIFY_LIMITS: Limits = Limits {
+    cap: 200 * 1024 * 1024,
+    timeout: Duration::from_secs(10 * 60),
+};
+
 /// Progress is reported at most this often (and once at the end).
 pub const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 
@@ -45,6 +51,9 @@ pub struct Downloaded {
     pub sha256: String,
     /// The response's ETag, verbatim (quotes kept).
     pub etag: Option<String>,
+    /// The most body bytes held in memory at once: one chunk, as the body
+    /// is written out chunk by chunk.
+    pub peak_buffered: usize,
 }
 
 /// `<path>.part`, where `path` is downloaded to before it is renamed.
@@ -142,6 +151,7 @@ async fn stream_to(
     let mut file = tokio::fs::File::create(part).await.map_err(io)?;
     let mut hasher = Sha256::new();
     let mut bytes = 0u64;
+    let mut peak_buffered = 0usize;
     let mut reported: Option<(Instant, u64)> = None;
     loop {
         let chunk = tokio::select! {
@@ -151,6 +161,7 @@ async fn stream_to(
         };
         let Some(chunk) = chunk else { break };
         bytes += chunk.len() as u64;
+        peak_buffered = peak_buffered.max(chunk.len());
         if bytes > limits.cap {
             return Err(Failed(too_large()));
         }
@@ -173,6 +184,7 @@ async fn stream_to(
         bytes,
         sha256: format!("{:x}", hasher.finalize()),
         etag,
+        peak_buffered,
     })
 }
 
@@ -239,8 +251,10 @@ mod tests {
     }
 
     #[test]
-    fn list_limits() {
+    fn limits() {
         assert_eq!(LIST_LIMITS.cap, 50 * 1024 * 1024);
         assert_eq!(LIST_LIMITS.timeout, Duration::from_secs(60));
+        assert_eq!(SOURCIFY_LIMITS.cap, 200 * 1024 * 1024);
+        assert_eq!(SOURCIFY_LIMITS.timeout, Duration::from_secs(600));
     }
 }

@@ -1,24 +1,34 @@
-//! Updates of the local datasets, one at a time, in the background: download
-//! to `<path>.part`, check it parses, rename, replace the rows. A failed or
-//! cancelled update leaves the tables as they were. Admins see the progress
-//! on their event streams; every task ends with a status row, an audit row
-//! and a [`Event::LocalDataDone`].
+//! Updates of the local datasets, one at a time, in the background. A list:
+//! download to `<path>.part`, check it parses, rename, replace the rows; a
+//! failed or cancelled update leaves the tables as they were. Sourcify: only
+//! the files new or changed since the last import, each fetched, imported
+//! (only adding) and recorded in turn, so a cancel or a failure keeps what was
+//! done. Admins see the progress on their event streams; every task ends with
+//! a status row, an audit row and a [`Event::LocalDataDone`].
 
+use std::ops::ControlFlow;
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Instant;
 
 use eg_core::types::Address;
 use eg_ingest::{Audience, Event, LocalDataOutcome, LocalDataPhase};
 use eg_store::{AuditEntry, AuditOutcome, ImportRow, Store, StoreError, TokenTagRow};
 use futures::FutureExt;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
-use super::download::{self, DownloadError, LIST_LIMITS, Limits, part_path, remove_part};
-use super::sources::SourceId;
+use super::download::{
+    self, DownloadError, LIST_LIMITS, Limits, PROGRESS_EVERY, SOURCIFY_LIMITS, part_path,
+    remove_part,
+};
+use super::sources::{SIGNATURES_PREFIX, SourceId, valid_signature_key};
+use super::upstream::RemoteFile;
 use crate::dto::hex_addr;
 use crate::eth_labels::{MAINNET_DATASET, XCHAIN_DATASET, parse_eth_labels};
+use crate::import_signatures::{BATCH_ROWS, import_batched};
 use crate::import_tokens::{TokenFormat, parse_token_rows, token_list_version};
 use crate::state::AppState;
 
@@ -28,6 +38,9 @@ pub const DEFAULT_DATA_DIR: &str = "data";
 
 /// The audit action of a finished task.
 pub const DONE_ACTION: &str = "local_data_update_done";
+
+/// The Sourcify files' directory under the data dir.
+const SIGNATURES_DIR: &str = "signatures";
 
 #[derive(Debug)]
 pub enum StartError {
@@ -53,6 +66,7 @@ pub struct Runner {
     slot: Slot,
     data_dir: PathBuf,
     list_limits: Limits,
+    signature_batch_rows: usize,
 }
 
 impl Runner {
@@ -62,12 +76,19 @@ impl Runner {
             slot: Slot::default(),
             data_dir: data_dir.into(),
             list_limits: LIST_LIMITS,
+            signature_batch_rows: BATCH_ROWS,
         }
     }
 
     /// The list sources' size cap and timeout instead of [`LIST_LIMITS`] (tests).
     pub fn with_list_limits(mut self, cap: u64, timeout: std::time::Duration) -> Self {
         self.list_limits = Limits { cap, timeout };
+        self
+    }
+
+    /// Signatures inserted per batch, and so per cancel check (tests).
+    pub fn with_signature_batch_rows(mut self, rows: usize) -> Self {
+        self.signature_batch_rows = rows;
         self
     }
 
@@ -110,6 +131,7 @@ impl Runner {
             cancel,
             data_dir: self.data_dir.clone(),
             list_limits: self.list_limits,
+            signature_batch_rows: self.signature_batch_rows,
         };
         let slot = self.slot.clone();
         tokio::spawn(task.run(slot));
@@ -234,6 +256,63 @@ struct Task {
     cancel: CancellationToken,
     data_dir: PathBuf,
     list_limits: Limits,
+    signature_batch_rows: usize,
+}
+
+/// A fully imported Sourcify file, as the manifest records it (the ETag
+/// verbatim, quotes kept).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct ManifestFile {
+    key: String,
+    etag: String,
+    size: u64,
+}
+
+impl From<&RemoteFile> for ManifestFile {
+    fn from(f: &RemoteFile) -> Self {
+        Self {
+            key: f.key.clone(),
+            etag: f.etag.clone(),
+            size: f.size,
+        }
+    }
+}
+
+/// Where a Sourcify update stands, for its progress events: files and bytes
+/// of this run's files, rows read so far.
+#[derive(Default)]
+struct SigRun {
+    files_done: u32,
+    files_total: u32,
+    bytes_done: u64,
+    bytes_total: u64,
+    rows: u64,
+}
+
+/// `<path>.etag`: the ETag of the downloaded file at `path`.
+fn etag_path(path: &Path) -> PathBuf {
+    let mut p = path.as_os_str().to_owned();
+    p.push(".etag");
+    PathBuf::from(p)
+}
+
+/// Whether `path` holds `file` from an earlier download: same size, and the
+/// same ETag beside it.
+async fn kept(path: &Path, file: &RemoteFile) -> bool {
+    let size = tokio::fs::metadata(path).await.map(|m| m.len()).ok();
+    let etag = tokio::fs::read_to_string(etag_path(path)).await.ok();
+    size == Some(file.size) && etag.as_deref() == Some(file.etag.as_str())
+}
+
+/// Removes `path` and its ETag, if there.
+async fn forget(path: &Path) {
+    for p in [path.to_owned(), etag_path(path)] {
+        if let Err(e) = tokio::fs::remove_file(&p).await
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!(error = %e, path = %p.display(), "removing a signature file failed");
+        }
+    }
 }
 
 impl Task {
@@ -300,6 +379,29 @@ impl Task {
     }
 
     fn progress(&self, phase: LocalDataPhase, bytes: u64, total_bytes: Option<u64>, rows: u64) {
+        self.publish(phase, bytes, total_bytes, rows, None);
+    }
+
+    /// A Sourcify progress event: `run` plus the current file's `bytes`
+    /// downloaded and `rows` read.
+    fn sig_progress(&self, phase: LocalDataPhase, run: &SigRun, bytes: u64, rows: u64) {
+        self.publish(
+            phase,
+            run.bytes_done + bytes,
+            Some(run.bytes_total),
+            run.rows + rows,
+            Some((run.files_done, run.files_total)),
+        );
+    }
+
+    fn publish(
+        &self,
+        phase: LocalDataPhase,
+        bytes: u64,
+        total_bytes: Option<u64>,
+        rows: u64,
+        files: Option<(u32, u32)>,
+    ) {
         self.s.ctx.bus.publish(
             Audience::Admins,
             Event::LocalDataProgress {
@@ -308,8 +410,8 @@ impl Task {
                 bytes,
                 total_bytes,
                 rows,
-                files_done: None,
-                files_total: None,
+                files_done: files.map(|f| f.0),
+                files_total: files.map(|f| f.1),
             },
         );
     }
@@ -318,11 +420,175 @@ impl Task {
     async fn update(&self) -> Result<u64, Stop> {
         match list_file(self.source) {
             Some((file, kind)) => self.update_list(file, kind).await,
-            // Task 4: the incremental Sourcify download and import.
-            None => Err(Stop::Failed(
-                "updating the signatures is not supported yet".into(),
-            )),
+            None => self.update_signatures().await,
         }
+    }
+
+    /// Fetches and imports, file by file, the listed files whose `(key,
+    /// etag)` the manifest lacks; each is added to the manifest once fully
+    /// imported. Returns the signature count.
+    async fn update_signatures(&self) -> Result<u64, Stop> {
+        let listed = self
+            .s
+            .upstream
+            .refresh(self.source)
+            .await
+            .map_err(Stop::Failed)?
+            .files
+            .unwrap_or_default();
+        if listed.is_empty() {
+            return Err(failed("the listing has no signature files"));
+        }
+        // The imported files still listed with the same ETag; the rest is fetched.
+        let mut manifest: Vec<ManifestFile> = self
+            .stored_manifest()
+            .await?
+            .into_iter()
+            .filter(|m| listed.iter().any(|f| f.key == m.key && f.etag == m.etag))
+            .collect();
+        let todo: Vec<&RemoteFile> = listed
+            .iter()
+            .filter(|f| !manifest.iter().any(|m| m.key == f.key))
+            .collect();
+        let mut run = SigRun {
+            files_total: todo.len() as u32,
+            bytes_total: todo.iter().map(|f| f.size).sum(),
+            ..SigRun::default()
+        };
+        let client = download::client_builder(self.s.upstream.urls())
+            .build()
+            .map_err(failed)?;
+        let dir = self.data_dir.join(SIGNATURES_DIR);
+        for (i, file) in todo.iter().enumerate() {
+            if self.cancel.is_cancelled() {
+                return Err(Stop::Cancelled);
+            }
+            let path = self.fetch_signatures(&client, &dir, file, &mut run).await?;
+            self.import_signature_file(&path, &mut run).await?;
+            manifest.push(ManifestFile::from(*file));
+            manifest.sort_by(|a, b| a.key.cmp(&b.key));
+            let rows = self.record_signatures(&manifest).await?;
+            if i + 1 == todo.len() {
+                return Ok(rows);
+            }
+            // Recording the file marked the source idle; it still runs.
+            self.s
+                .store
+                .local_data_running(self.id(), &hex_addr(self.admin))
+                .await
+                .map_err(failed)?;
+        }
+        // Nothing new: the manifest may still have lost unlisted files.
+        self.record_signatures(&manifest).await
+    }
+
+    /// The stored manifest; an unreadable one counts as empty (everything is
+    /// imported again, which only adds).
+    async fn stored_manifest(&self) -> Result<Vec<ManifestFile>, Stop> {
+        let rows = self.s.store.local_data_all().await.map_err(failed)?;
+        Ok(rows
+            .into_iter()
+            .find(|r| r.source == self.id())
+            .and_then(|r| r.manifest)
+            .and_then(|m| serde_json::from_value(m).ok())
+            .unwrap_or_default())
+    }
+
+    /// Records `manifest` and the signature count as the last import.
+    async fn record_signatures(&self, manifest: &[ManifestFile]) -> Result<u64, Stop> {
+        let store = &self.s.store;
+        let rows = eg_store::signature_count(store.pool())
+            .await
+            .map_err(failed)?;
+        let manifest = serde_json::to_value(manifest).map_err(failed)?;
+        store
+            .local_data_succeeded(self.id(), None, None, None, Some(&manifest), rows)
+            .await
+            .map_err(failed)?;
+        u64::try_from(rows).map_err(failed)
+    }
+
+    /// `file` under `dir`: kept from an earlier download when its size and
+    /// ETag match, else downloaded (to `.part`, then renamed) with its ETag
+    /// written beside it.
+    async fn fetch_signatures(
+        &self,
+        client: &reqwest::Client,
+        dir: &Path,
+        file: &RemoteFile,
+        run: &mut SigRun,
+    ) -> Result<PathBuf, Stop> {
+        // The listing keeps only valid keys; checked again where one becomes a path.
+        let name = file
+            .key
+            .strip_prefix(SIGNATURES_PREFIX)
+            .filter(|_| valid_signature_key(&file.key))
+            .ok_or_else(|| failed("an invalid signature file key"))?;
+        let path = dir.join(name);
+        if kept(&path, file).await {
+            run.bytes_done += file.size;
+            return Ok(path);
+        }
+        forget(&path).await;
+        let part = part_path(&path);
+        let url = format!("{}/{}", self.s.upstream.urls().sourcify_files, file.key);
+        let got = download::download(
+            client,
+            &url,
+            &part,
+            SOURCIFY_LIMITS,
+            &self.cancel,
+            |bytes, _| self.sig_progress(LocalDataPhase::Download, run, bytes, 0),
+        )
+        .await?;
+        if let Err(e) = tokio::fs::rename(&part, &path).await {
+            remove_part(&part).await;
+            return Err(failed(e));
+        }
+        tokio::fs::write(etag_path(&path), &file.etag)
+            .await
+            .map_err(failed)?;
+        run.bytes_done += got.bytes;
+        Ok(path)
+    }
+
+    /// Imports `path` on the blocking pool, checking for a cancel after
+    /// every batch. A file that fails to import is removed, so the next
+    /// update fetches it again.
+    async fn import_signature_file(&self, path: &Path, run: &mut SigRun) -> Result<(), Stop> {
+        self.sig_progress(LocalDataPhase::Import, run, 0, 0);
+        let mut reported = Instant::now();
+        let at_start = &*run;
+        let res = import_batched(
+            self.s.store.pool(),
+            &[path.to_owned()],
+            self.signature_batch_rows,
+            |s| {
+                if reported.elapsed() >= PROGRESS_EVERY {
+                    self.sig_progress(LocalDataPhase::Import, at_start, 0, s.rows_read);
+                    reported = Instant::now();
+                }
+                if self.cancel.is_cancelled() {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            },
+        )
+        .await;
+        let stats = match res {
+            Ok(stats) => stats,
+            Err(e) => {
+                forget(path).await;
+                return Err(Stop::Failed(format!("{e:#}")));
+            }
+        };
+        run.rows += stats.rows_read;
+        if stats.files == 0 {
+            return Err(Stop::Cancelled);
+        }
+        run.files_done += 1;
+        Ok(())
     }
 
     async fn update_list(&self, file: &str, kind: ListKind) -> Result<u64, Stop> {

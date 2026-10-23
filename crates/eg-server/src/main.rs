@@ -189,6 +189,7 @@ async fn import_signatures_cmd(config: &Path, paths: &[PathBuf]) -> anyhow::Resu
             "  {} rows read, {} inserted, {} invalid",
             s.rows_read, s.inserted, s.skipped_invalid
         );
+        std::ops::ControlFlow::Continue(())
     })
     .await?;
     let total = eg_store::signature_count(store.pool()).await?;
